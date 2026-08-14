@@ -1,0 +1,210 @@
+{
+  "entities": {
+    "Device": {
+      "title": "Device",
+      "description": "iPhone device inventory item identified by 15-digit IMEI",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "model": { "type": "string", "maxLength": 100 },
+        "imei": { "type": "string", "maxLength": 18, "pattern": "^[0-9]{15}$" },
+        "storage": { "type": "string", "maxLength": 30 },
+        "color": { "type": "string", "maxLength": 50 },
+        "batteryHealth": { "type": "number" },
+        "condition": { "type": "string", "maxLength": 50 },
+        "costPrice": { "type": "number" },
+        "sellPrice": { "type": "number" },
+        "status": { 
+          "type": "string", 
+          "enum": ["in_stock", "sold", "reserved", "trade_in_pending", "under_repair"] 
+        },
+        "inStockDate": { "type": "string", "maxLength": 30 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "origin": { "type": "string", "maxLength": 30 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerPhone": { "type": "string", "maxLength": 30 },
+        "soldDate": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "updatedAt": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "model", "imei", "storage", "color", "costPrice", "sellPrice", "status"]
+    },
+    "Lead": {
+      "title": "Lead",
+      "description": "Customer lead interested in purchasing or trade-in iPhone",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "source": { "type": "string", "maxLength": 50 },
+        "status": { 
+          "type": "string", 
+          "enum": ["new", "consulting", "trade_in_evaluating", "deposit_paid", "won_sold", "lost"] 
+        },
+        "interestedModel": { "type": "string", "maxLength": 100 },
+        "budget": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "assignedSales": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["id", "name", "phone", "source", "status", "interestedModel"]
+    },
+    "TradeInAppraisal": {
+      "title": "TradeInAppraisal",
+      "description": "Used iPhone valuation and trade-in upgrade record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "oldModel": { "type": "string", "maxLength": 100 },
+        "oldStorage": { "type": "string", "maxLength": 30 },
+        "oldColor": { "type": "string", "maxLength": 50 },
+        "imei": { "type": "string", "maxLength": 18 },
+        "batteryHealth": { "type": "number" },
+        "screenStatus": { "type": "string", "maxLength": 50 },
+        "bodyStatus": { "type": "string", "maxLength": 50 },
+        "cameraStatus": { "type": "string", "maxLength": 50 },
+        "faceIdStatus": { "type": "string", "maxLength": 50 },
+        "icloudStatus": { "type": "string", "maxLength": 50 },
+        "baseValuation": { "type": "number" },
+        "deductions": { "type": "number" },
+        "finalTradeInOffer": { "type": "number" },
+        "targetModel": { "type": "string", "maxLength": 100 },
+        "targetPrice": { "type": "number" },
+        "balanceToPay": { "type": "number" },
+        "status": { 
+          "type": "string", 
+          "enum": ["pending_inspection", "customer_accepted", "completed_swapped", "customer_rejected"] 
+        },
+        "appraisedDate": { "type": "string", "maxLength": 50 },
+        "appraiser": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["id", "customerName", "phone", "oldModel", "finalTradeInOffer", "targetModel", "status"]
+    },
+    "WarrantyTicket": {
+      "title": "WarrantyTicket",
+      "description": "Warranty receipt, repair and inspection service ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "model": { "type": "string", "maxLength": 100 },
+        "imei": { "type": "string", "maxLength": 18 },
+        "issueType": { "type": "string", "maxLength": 100 },
+        "faultDescription": { "type": "string", "maxLength": 500 },
+        "technician": { "type": "string", "maxLength": 100 },
+        "receivedDate": { "type": "string", "maxLength": 50 },
+        "promisedDate": { "type": "string", "maxLength": 50 },
+        "status": { 
+          "type": "string", 
+          "enum": ["received", "inspecting", "waiting_parts", "repairing", "ready", "delivered"] 
+        },
+        "isWarrantyFree": { "type": "boolean" },
+        "estimatedCost": { "type": "number" },
+        "resolutionNotes": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "customerName", "phone", "model", "imei", "issueType", "status"]
+    },
+    "SalesInvoice": {
+      "title": "SalesInvoice",
+      "description": "POS checkout receipt and sales invoice",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "orderCode": { "type": "string", "maxLength": 100 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "customerPhone": { "type": "string", "maxLength": 30 },
+        "totalAmount": { "type": "number" },
+        "discount": { "type": "number" },
+        "tradeInDeduction": { "type": "number" },
+        "finalAmount": { "type": "number" },
+        "paymentMethod": { 
+          "type": "string", 
+          "enum": ["cash", "bank_transfer", "mpos_card", "installment_hd_saison"] 
+        },
+        "installmentProvider": { "type": "string", "maxLength": 100 },
+        "warrantyMonths": { "type": "number" },
+        "warrantyPackage": { "type": "string", "maxLength": 100 },
+        "sellerName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["completed", "cancelled"] }
+      },
+      "required": ["id", "orderCode", "customerName", "customerPhone", "totalAmount", "finalAmount", "paymentMethod", "status"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "System user account and permission tier profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 100 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "role": { 
+          "type": "string", 
+          "enum": ["ADMIN", "MANAGER", "SALES", "TECHNICIAN", "ACCOUNTANT"] 
+        },
+        "phone": { "type": "string", "maxLength": 30 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 50 },
+        "avatarUrl": { "type": "string", "maxLength": 500 },
+        "lastLogin": { "type": "string", "maxLength": 50 },
+        "notes": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "email", "displayName", "role", "active"]
+    },
+    "Partner": {
+      "title": "Partner",
+      "description": "Customer (retail VIP / wholesale) or Supplier / sourcing partner profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["CUSTOMER", "SUPPLIER", "BOTH"] },
+        "name": { "type": "string", "maxLength": 150 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 100 },
+        "address": { "type": "string", "maxLength": 250 },
+        "tier": { "type": "string", "enum": ["STANDARD", "SILVER", "GOLD", "DIAMOND", "WHOLESALE"] },
+        "supplierCategory": { "type": "string", "enum": ["DISTRIBUTOR_VNA", "WHOLESALE_LIKENEW", "ACCESSORY_PARTS", "FINANCIAL_INSTALLMENT"] },
+        "outstandingDebt": { "type": "number" },
+        "creditLimit": { "type": "number" },
+        "totalPurchased": { "type": "number" },
+        "rating": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["id", "type", "name", "phone"]
+    }
+  },
+  "firestore": {
+    "/devices/{deviceId}": {
+      "schema": { "$ref": "#/entities/Device" },
+      "description": "Collection of individual iPhones in inventory identified by unique IMEI and ID"
+    },
+    "/leads/{leadId}": {
+      "schema": { "$ref": "#/entities/Lead" },
+      "description": "Collection of CRM customer inquiries and prospect sales leads"
+    },
+    "/tradeIns/{tradeInId}": {
+      "schema": { "$ref": "#/entities/TradeInAppraisal" },
+      "description": "Collection of old iPhone appraisal evaluations and trade-in upgrade calculations"
+    },
+    "/warrantyTickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/WarrantyTicket" },
+      "description": "Collection of warranty service and device repair tickets"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/SalesInvoice" },
+      "description": "Collection of retail POS receipts and sales invoices"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Collection of system user accounts, roles and permission profiles"
+    },
+    "/partners/{partnerId}": {
+      "schema": { "$ref": "#/entities/Partner" },
+      "description": "Collection of retail & wholesale customers, device suppliers, parts distributors and financial partners"
+    }
+  }
+}

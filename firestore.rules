@@ -1,0 +1,191 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Deny-All Catch-All Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'nhattank16.1@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Entity Validation: Device
+    function isValidDevice(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.model is string && data.model.size() <= 100 &&
+        data.imei is string && data.imei.size() <= 18 &&
+        data.storage is string && data.storage.size() <= 30 &&
+        data.color is string && data.color.size() <= 50 &&
+        data.costPrice is number && data.costPrice >= 0 &&
+        data.sellPrice is number && data.sellPrice >= 0 &&
+        data.status in ['in_stock', 'sold', 'reserved', 'trade_in_pending', 'under_repair'] &&
+        (!('batteryHealth' in data) || (data.batteryHealth is number && data.batteryHealth >= 0 && data.batteryHealth <= 100)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
+    }
+
+    // Entity Validation: Lead
+    function isValidLead(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.phone is string && data.phone.size() <= 30 &&
+        data.source is string && data.source.size() <= 50 &&
+        data.status in ['new', 'consulting', 'trade_in_evaluating', 'deposit_paid', 'won_sold', 'lost'] &&
+        data.interestedModel is string && data.interestedModel.size() <= 100 &&
+        (!('budget' in data) || data.budget is number) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
+    }
+
+    // Entity Validation: TradeInAppraisal
+    function isValidTradeIn(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.customerName is string && data.customerName.size() <= 100 &&
+        data.phone is string && data.phone.size() <= 30 &&
+        data.oldModel is string && data.oldModel.size() <= 100 &&
+        data.finalTradeInOffer is number && data.finalTradeInOffer >= 0 &&
+        data.targetModel is string && data.targetModel.size() <= 100 &&
+        data.status in ['pending_inspection', 'customer_accepted', 'completed_swapped', 'customer_rejected'];
+    }
+
+    // Entity Validation: WarrantyTicket
+    function isValidWarranty(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.customerName is string && data.customerName.size() <= 100 &&
+        data.phone is string && data.phone.size() <= 30 &&
+        data.model is string && data.model.size() <= 100 &&
+        data.imei is string && data.imei.size() <= 18 &&
+        data.issueType is string && data.issueType.size() <= 100 &&
+        data.status in ['received', 'inspecting', 'waiting_parts', 'repairing', 'ready', 'delivered'] &&
+        (!('estimatedCost' in data) || (data.estimatedCost is number && data.estimatedCost >= 0)) &&
+        (!('faultDescription' in data) || (data.faultDescription is string && data.faultDescription.size() <= 500));
+    }
+
+    // Entity Validation: SalesInvoice
+    function isValidInvoice(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.orderCode is string && data.orderCode.size() <= 100 &&
+        data.customerName is string && data.customerName.size() <= 100 &&
+        data.customerPhone is string && data.customerPhone.size() <= 30 &&
+        data.totalAmount is number && data.totalAmount >= 0 &&
+        data.finalAmount is number && data.finalAmount >= 0 &&
+        data.paymentMethod in ['cash', 'bank_transfer', 'mpos_card', 'installment_hd_saison'] &&
+        data.status in ['completed', 'cancelled'];
+    }
+
+    // Entity Validation: UserAccount
+    function isValidUserAccount(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.email is string && data.email.size() <= 100 &&
+        data.displayName is string && data.displayName.size() <= 100 &&
+        data.role in ['ADMIN', 'MANAGER', 'SALES', 'TECHNICIAN', 'ACCOUNTANT'] &&
+        data.active is bool &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
+    }
+
+    // Entity Validation: Partner (Customer & Supplier)
+    function isValidPartner(data) {
+      return data.id is string && data.id.size() <= 128 &&
+        data.type in ['CUSTOMER', 'SUPPLIER', 'BOTH'] &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+        data.phone is string && data.phone.size() <= 40 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 100)) &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+        (!('taxCode' in data) || (data.taxCode is string && data.taxCode.size() <= 50)) &&
+        (!('customerTier' in data) || data.customerTier in ['STANDARD', 'SILVER', 'GOLD', 'DIAMOND', 'WHOLESALE']) &&
+        (!('supplierCategory' in data) || data.supplierCategory in ['OFFICIAL_DISTRIBUTOR', 'LIKE_NEW_WHOLESALER', 'COMPONENTS', 'FINANCE_PARTNER']) &&
+        (!('outstandingDebt' in data) || data.outstandingDebt is number) &&
+        (!('creditLimit' in data) || data.creditLimit is number) &&
+        (!('totalSpent' in data) || data.totalSpent is number) &&
+        (!('totalPurchasedFrom' in data) || data.totalPurchasedFrom is number) &&
+        (!('loyaltyPoints' in data) || data.loyaltyPoints is number) &&
+        (!('qualityRating' in data) || data.qualityRating is number) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    // Match Collections
+    match /devices/{deviceId} {
+      allow get, list: if true;
+      allow create: if isValidId(deviceId) && isValidDevice(incoming());
+      allow update: if isValidId(deviceId) && isValidDevice(incoming());
+      allow delete: if isValidId(deviceId);
+    }
+
+    match /leads/{leadId} {
+      allow get, list: if true;
+      allow create: if isValidId(leadId) && isValidLead(incoming());
+      allow update: if isValidId(leadId) && isValidLead(incoming());
+      allow delete: if isValidId(leadId);
+    }
+
+    match /tradeIns/{tradeInId} {
+      allow get, list: if true;
+      allow create: if isValidId(tradeInId) && isValidTradeIn(incoming());
+      allow update: if isValidId(tradeInId) && isValidTradeIn(incoming());
+      allow delete: if isValidId(tradeInId);
+    }
+
+    match /warrantyTickets/{ticketId} {
+      allow get, list: if true;
+      allow create: if isValidId(ticketId) && isValidWarranty(incoming());
+      allow update: if isValidId(ticketId) && isValidWarranty(incoming());
+      allow delete: if isValidId(ticketId);
+    }
+
+    match /invoices/{invoiceId} {
+      allow get, list: if true;
+      allow create: if isValidId(invoiceId) && isValidInvoice(incoming());
+      allow update: if isValidId(invoiceId) && isValidInvoice(incoming());
+      allow delete: if isValidId(invoiceId);
+    }
+
+    match /users/{userId} {
+      allow get, list: if true;
+      allow create: if isValidId(userId) && isValidUserAccount(incoming());
+      allow update: if isValidId(userId) && isValidUserAccount(incoming());
+      allow delete: if isValidId(userId);
+    }
+
+    match /partners/{partnerId} {
+      allow get, list: if true;
+      allow create: if isValidId(partnerId) && isValidPartner(incoming());
+      allow update: if isValidId(partnerId) && isValidPartner(incoming());
+      allow delete: if isValidId(partnerId);
+    }
+
+    match /settings/{settingId} {
+      allow get, list: if true;
+      allow create, update, delete: if isValidId(settingId);
+    }
+
+    match /admins/{adminId} {
+      allow get: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /test/{testId} {
+      allow read, write: if true;
+    }
+  }
+}
