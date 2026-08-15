@@ -12,6 +12,7 @@ interface QuickSearchModalProps {
   onSelectDevice: (device: DeviceItem) => void;
   onSelectLead: (lead: Lead) => void;
   onSelectWarranty: (ticket: WarrantyTicket) => void;
+  onSelectInvoice?: (invoice: SalesInvoice) => void;
 }
 
 export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
@@ -23,7 +24,8 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
   invoices,
   onSelectDevice,
   onSelectLead,
-  onSelectWarranty
+  onSelectWarranty,
+  onSelectInvoice
 }) => {
   const [query, setQuery] = useState('');
 
@@ -48,7 +50,18 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
       (d.customerName && d.customerName.toLowerCase().includes(query.toLowerCase())) ||
       (d.customerPhone && d.customerPhone.includes(query))
     )
-  ).slice(0, 4);
+  ).slice(0, 3);
+
+  const matchedInvoices = invoices.filter(inv =>
+    query.trim() && (
+      (inv.invoiceCode && inv.invoiceCode.toLowerCase().includes(query.toLowerCase())) ||
+      inv.id.toLowerCase().includes(query.toLowerCase()) ||
+      inv.customerName.toLowerCase().includes(query.toLowerCase()) ||
+      (inv.customerPhone && inv.customerPhone.includes(query)) ||
+      (inv.phone && inv.phone.includes(query)) ||
+      inv.imeiList?.some(imei => imei.includes(query))
+    )
+  ).slice(0, 3);
 
   const matchedLeads = leads.filter(l => 
     query.trim() && (
@@ -56,7 +69,7 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
       l.phone.includes(query) ||
       l.interestedModel.toLowerCase().includes(query.toLowerCase())
     )
-  ).slice(0, 3);
+  ).slice(0, 2);
 
   const matchedWarranty = warrantyTickets.filter(w => 
     query.trim() && (
@@ -65,9 +78,9 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
       w.imei.includes(query) ||
       w.phone.includes(query)
     )
-  ).slice(0, 3);
+  ).slice(0, 2);
 
-  const totalResults = matchedDevices.length + matchedLeads.length + matchedWarranty.length;
+  const totalResults = matchedDevices.length + matchedInvoices.length + matchedLeads.length + matchedWarranty.length;
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-start justify-center p-3 sm:p-6 pt-12 sm:pt-20">
@@ -132,6 +145,45 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
                         <div className="text-right">
                           <span className="font-bold text-zinc-900 text-xs font-mono">{d.sellPrice.toLocaleString('vi-VN')} đ</span>
                           <span className="block text-[10px] text-zinc-500 uppercase font-bold">{d.status}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Invoices */}
+              {matchedInvoices.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-zinc-100">
+                  <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider flex items-center space-x-1.5">
+                    <Receipt className="w-3.5 h-3.5 text-orange-600" />
+                    <span>Hóa Đơn & Đơn Bán Hàng ({matchedInvoices.length})</span>
+                  </span>
+                  <div className="space-y-1.5">
+                    {matchedInvoices.map(inv => (
+                      <div
+                        key={inv.id}
+                        onClick={() => {
+                          if (onSelectInvoice) onSelectInvoice(inv);
+                          onClose();
+                        }}
+                        className="p-3 bg-white hover:bg-orange-50/50 border border-zinc-200 hover:border-orange-300 rounded-2xl flex items-center justify-between cursor-pointer transition-all shadow-2xs"
+                      >
+                        <div>
+                          <div className="font-bold text-zinc-900 text-xs">
+                            {inv.invoiceCode || inv.id} • {inv.customerName}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 font-mono">
+                            {inv.customerPhone || inv.phone} • {inv.createdDate || inv.createdAt}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-zinc-900 text-xs font-mono">
+                            {(inv.finalAmount || inv.totalAmount).toLocaleString('vi-VN')} đ
+                          </span>
+                          <span className="block text-[10px] text-emerald-600 font-bold">
+                            {inv.paymentMethod}
+                          </span>
                         </div>
                       </div>
                     ))}

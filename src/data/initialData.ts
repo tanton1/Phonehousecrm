@@ -1,4 +1,13 @@
-import { DeviceItem, Lead, TradeInAppraisal, WarrantyTicket, SalesInvoice, Partner } from '../types';
+import { 
+  DeviceItem, 
+  Lead, 
+  TradeInAppraisal, 
+  WarrantyTicket, 
+  SalesInvoice, 
+  Partner, 
+  FundAccount, 
+  CashTransaction 
+} from '../types';
 
 export const INITIAL_DEVICES: DeviceItem[] = [
   {
@@ -331,33 +340,275 @@ export const INITIAL_WARRANTY_TICKETS: WarrantyTicket[] = [
 
 export const INITIAL_INVOICES: SalesInvoice[] = [
   {
-    id: 'INV-1001',
-    invoiceCode: 'HD-2502-001',
-    customerName: 'Lê Thu Hương',
-    phone: '0903123456',
-    imeiList: ['351234567890123'],
-    items: [
+    id: 'INV-19537',
+    invoiceCode: 'HD019537',
+    customerName: 'Phone House (Đại Lý Sỉ)',
+    customerPhone: '0932435377',
+    phone: '0932435377',
+    status: 'completed',
+    priceList: 'Bảng giá sỉ đại lý',
+    salesChannel: 'Bán trực tiếp',
+    sellerName: 'tôn thất nhật tân',
+    creatorName: 'tôn thất nhật tân',
+    branch: 'Chi nhánh trung tâm (142 Hàm Nghi, Đà Nẵng)',
+    paidAmount: 2100000,
+    debtAmount: 0,
+    items: [],
+    detailedItems: [
       {
-        model: 'iPhone 15 128GB Pink',
-        imei: '351234567890123',
-        price: 16700000,
-        color: 'Hồng Pastel',
-        storage: '128GB'
+        sku: 'SP005955',
+        name: 'Cap TypeC SLM',
+        quantity: 15,
+        unitPrice: 40000,
+        totalPrice: 600000,
+        type: 'accessory'
+      },
+      {
+        sku: 'SP005954',
+        name: 'Cap lightning SLM',
+        quantity: 15,
+        unitPrice: 40000,
+        totalPrice: 600000,
+        type: 'accessory'
+      },
+      {
+        sku: 'SP005953',
+        name: 'Củ sạc 20w SLM',
+        quantity: 15,
+        unitPrice: 60000,
+        totalPrice: 900000,
+        type: 'accessory'
       }
     ],
     accessories: [
-      { name: 'Củ sạc nhanh Anker 30W Type-C', price: 350000 },
-      { name: 'Kính cường lực KingKong chống nhìn trộm', price: 0 }
+      { name: 'Cap TypeC SLM (x15)', price: 600000, quantity: 15 },
+      { name: 'Cap lightning SLM (x15)', price: 600000, quantity: 15 },
+      { name: 'Củ sạc 20w SLM (x15)', price: 900000, quantity: 15 }
     ],
-    warrantyPackage: 'Gói Bảo Hành VIP 12 Tháng 1 Đổi 1',
-    totalAmount: 17050000,
-    discountAmount: 200000,
+    warrantyPackage: 'Bảo hành phụ kiện 6 tháng đổi mới',
+    totalAmount: 2100000,
+    discountAmount: 0,
     tradeInDiscount: 0,
-    finalAmount: 16850000,
+    finalAmount: 2100000,
     paymentMethod: 'Chuyển khoản QR',
-    cashier: 'Tuấn Bán Hàng',
-    createdDate: '2025-02-11 15:30',
-    notes: 'Tặng kèm ốp lưng silicon MagSafe + dán cường lực trọn đời'
+    cashier: 'tôn thất nhật tân',
+    salesStaff: 'tôn thất nhật tân',
+    createdDate: '2026-08-14 15:35',
+    createdAt: '2026-08-14 15:35',
+    notes: 'Đã giao đủ 45 món phụ kiện SLM chính hãng cho đại lý'
+  },
+  {
+    id: 'INV-19536',
+    invoiceCode: 'HD019536',
+    customerName: 'Nguyễn Văn Tuấn',
+    customerPhone: '0918234567',
+    phone: '0918234567',
+    status: 'completed',
+    priceList: 'Bảng giá chung',
+    salesChannel: 'Bán trực tiếp',
+    sellerName: 'tôn thất nhật tân',
+    creatorName: 'tôn thất nhật tân',
+    branch: 'Chi nhánh trung tâm (142 Hàm Nghi, Đà Nẵng)',
+    paidAmount: 14200000,
+    debtAmount: 0,
+    imeiList: ['358912048591023'],
+    items: [
+      {
+        model: 'IPHONE 14 PRO MAX - 128 - Vàng',
+        imei: '358912048591023',
+        price: 14200000,
+        color: 'Vàng Gold',
+        storage: '128GB'
+      }
+    ],
+    detailedItems: [
+      {
+        sku: 'IP14PM-128-GOLD',
+        name: 'IPHONE 14 PRO MAX - 128 - Vàng',
+        quantity: 1,
+        unitPrice: 14200000,
+        totalPrice: 14200000,
+        imei: '358912048591023',
+        color: 'Vàng Gold',
+        storage: '128GB',
+        type: 'phone'
+      }
+    ],
+    accessories: [
+      { name: 'Kính cường lực KingKong chống nhìn trộm', price: 0, quantity: 1 },
+      { name: 'Ốp lưng MagSafe chính hãng', price: 0, quantity: 1 }
+    ],
+    warrantyPackage: 'Gói VIP 1 Đổi 1 trong 12 Tháng',
+    totalAmount: 14200000,
+    discountAmount: 0,
+    tradeInDiscount: 0,
+    finalAmount: 14200000,
+    paymentMethod: 'Chuyển khoản QR',
+    cashier: 'tôn thất nhật tân',
+    salesStaff: 'tôn thất nhật tân',
+    createdDate: '2026-08-14 13:59',
+    createdAt: '2026-08-14 13:59',
+    notes: 'Khách thanh toán quét VietQR MBBank. Tặng kèm dán cường lực trọn đời'
+  },
+  {
+    id: 'INV-19535',
+    invoiceCode: 'HD019535',
+    customerName: 'Trần Bảo Ngọc',
+    customerPhone: '0978654321',
+    phone: '0978654321',
+    status: 'completed',
+    priceList: 'Bảng giá chung',
+    salesChannel: 'Bán trực tiếp',
+    sellerName: 'tôn thất nhật tân',
+    creatorName: 'tôn thất nhật tân',
+    branch: 'Chi nhánh trung tâm (142 Hàm Nghi, Đà Nẵng)',
+    paidAmount: 18500000,
+    debtAmount: 0,
+    imeiList: ['354910284759102'],
+    items: [
+      {
+        model: 'IPHONE 15 PRO MAX - TITAN TỰ NHIÊN - 256GB',
+        imei: '354910284759102',
+        price: 18500000,
+        color: 'Titan Tự Nhiên (Natural)',
+        storage: '256GB'
+      }
+    ],
+    detailedItems: [
+      {
+        sku: 'IP15PM-256-NAT',
+        name: 'IPHONE 15 PRO MAX - TITAN TỰ NHIÊN - 256GB',
+        quantity: 1,
+        unitPrice: 18500000,
+        totalPrice: 18500000,
+        imei: '354910284759102',
+        color: 'Titan Tự Nhiên',
+        storage: '256GB',
+        type: 'phone'
+      }
+    ],
+    accessories: [
+      { name: 'Củ sạc nhanh Apple 20W Type-C', price: 0, quantity: 1 }
+    ],
+    warrantyPackage: 'Gói Tiêu Chuẩn 6 Tháng Toàn Diện',
+    totalAmount: 18500000,
+    discountAmount: 0,
+    tradeInDiscount: 0,
+    finalAmount: 18500000,
+    paymentMethod: 'Quẹt thẻ POS',
+    cashier: 'tôn thất nhật tân',
+    salesStaff: 'tôn thất nhật tân',
+    createdDate: '2026-08-14 13:57',
+    createdAt: '2026-08-14 13:57',
+    notes: 'Quẹt thẻ Visa MPOS 0% phí quẹt thẻ.'
+  },
+  {
+    id: 'INV-19534',
+    invoiceCode: 'HD019534',
+    customerName: 'Lê Văn Hùng',
+    customerPhone: '0905123987',
+    phone: '0905123987',
+    status: 'completed',
+    priceList: 'Bảng giá chung',
+    salesChannel: 'Bán trực tiếp',
+    sellerName: 'tôn thất nhật tân',
+    creatorName: 'tôn thất nhật tân',
+    branch: 'Chi nhánh trung tâm (142 Hàm Nghi, Đà Nẵng)',
+    paidAmount: 14200000,
+    debtAmount: 0,
+    imeiList: ['357194038291048'],
+    items: [
+      {
+        model: 'IPHONE 14 PRO MAX - 128 - Vàng',
+        imei: '357194038291048',
+        price: 14200000,
+        color: 'Vàng Gold',
+        storage: '128GB'
+      }
+    ],
+    detailedItems: [
+      {
+        sku: 'IP14PM-128-GOLD-2',
+        name: 'IPHONE 14 PRO MAX - 128 - Vàng',
+        quantity: 1,
+        unitPrice: 14200000,
+        totalPrice: 14200000,
+        imei: '357194038291048',
+        color: 'Vàng Gold',
+        storage: '128GB',
+        type: 'phone'
+      }
+    ],
+    accessories: [],
+    warrantyPackage: 'Gói Tiêu Chuẩn 6 Tháng',
+    totalAmount: 14200000,
+    discountAmount: 0,
+    tradeInDiscount: 0,
+    finalAmount: 14200000,
+    paymentMethod: 'Tiền mặt',
+    cashier: 'tôn thất nhật tân',
+    salesStaff: 'tôn thất nhật tân',
+    createdDate: '2026-08-12 14:14',
+    createdAt: '2026-08-12 14:14',
+    notes: 'Thanh toán tiền mặt tại quầy thu ngân'
+  },
+  {
+    id: 'INV-19533',
+    invoiceCode: 'HD019533',
+    customerName: 'Đặng Thị Mai Thảo',
+    customerPhone: '0935889900',
+    phone: '0935889900',
+    status: 'completed',
+    priceList: 'Bảng giá chung',
+    salesChannel: 'Bán trực tiếp',
+    sellerName: 'tôn thất nhật tân',
+    creatorName: 'tôn thất nhật tân',
+    branch: 'Chi nhánh trung tâm (142 Hàm Nghi, Đà Nẵng)',
+    paidAmount: 14200000,
+    debtAmount: 0,
+    imeiList: ['359182049182039'],
+    items: [
+      {
+        model: 'IPHONE 14 PRO MAX - 128 - Vàng',
+        imei: '359182049182039',
+        price: 14200000,
+        color: 'Vàng Gold',
+        storage: '128GB'
+      }
+    ],
+    detailedItems: [
+      {
+        sku: 'IP14PM-128-GOLD-3',
+        name: 'IPHONE 14 PRO MAX - 128 - Vàng',
+        quantity: 1,
+        unitPrice: 14200000,
+        totalPrice: 14200000,
+        imei: '359182049182039',
+        color: 'Vàng Gold',
+        storage: '128GB',
+        type: 'phone'
+      }
+    ],
+    accessories: [
+      { name: 'Củ sạc nhanh Anker 30W', price: 0, quantity: 1 }
+    ],
+    warrantyPackage: 'Gói VIP 1 Đổi 1 trong 12 Tháng',
+    totalAmount: 14200000,
+    discountAmount: 0,
+    tradeInDiscount: 0,
+    finalAmount: 14200000,
+    paymentMethod: 'Trả góp 0% / CCCD',
+    installmentDetails: {
+      financeCompany: 'Home Credit',
+      tenorMonths: 6,
+      downPayment: 4200000,
+      monthlyPayment: 1666000
+    },
+    cashier: 'tôn thất nhật tân',
+    salesStaff: 'tôn thất nhật tân',
+    createdDate: '2026-08-12 14:13',
+    createdAt: '2026-08-12 14:13',
+    notes: 'Hồ sơ duyệt qua Home Credit CCCD gắn chip'
   }
 ];
 
@@ -647,7 +898,228 @@ export const INITIAL_PARTNERS: Partner[] = [
     tags: ['VIP Diamond', 'Đại Gia Đình', 'Hồ Chí Minh']
   },
 
-  // Nhà Cung Cấp (Supplier)
+  // Nhà Cung Cấp Phone House Hệ Thống & Đối Tác Thực Tế
+  {
+    id: 'PT-SUPP-PHONEHOUSE-HQ',
+    type: 'SUPPLIER',
+    name: 'Phone House',
+    phone: '0932435377',
+    email: 'contact@phonehouse.vn',
+    address: 'Hệ thống Tổng Kho Phone House Việt Nam',
+    taxCode: '0402189033',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    totalPurchasedFrom: 2850000000,
+    qualityRating: 5,
+    warrantyPolicyDays: 365,
+    outstandingDebt: 557397528, // Trùng khớp dữ liệu thực tế từ ảnh chụp
+    creditLimit: 1000000000,
+    createdAt: '2023-01-10',
+    lastInteraction: '2025-02-14',
+    notes: 'Tổng kho phân phối nguồn hàng iPhone Like New & New Seal toàn hệ thống Phone House.',
+    tags: ['Tổng Kho Phone House', 'Nguồn Hàng Chính', 'Nợ Cần Trả']
+  },
+  {
+    id: 'PT-SUPP-TOPPHONE',
+    type: 'SUPPLIER',
+    name: 'Top Phone',
+    phone: '105105',
+    email: 'topphone.supplier@gmail.com',
+    address: '105 Lê Duẩn, Đà Nẵng',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    totalPurchasedFrom: 1650000000,
+    qualityRating: 4.9,
+    warrantyPolicyDays: 90,
+    outstandingDebt: 436731534,
+    creditLimit: 600000000,
+    createdAt: '2023-03-12',
+    lastInteraction: '2025-02-13',
+    notes: 'Nhà cung cấp máy lướt iPhone 14/15/16 Pro Max tuyển chọn pin cao > 95%.',
+    tags: ['Top Phone', 'Hàng Keng Zin', 'Đà Nẵng']
+  },
+  {
+    id: 'PT-SUPP-HOIAN',
+    type: 'SUPPLIER',
+    name: 'Phone House Hội An',
+    phone: '567567',
+    email: 'hoian@phonehouse.vn',
+    address: 'Chi nhánh Phone House Hội An, Quảng Nam',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    totalPurchasedFrom: 1280000000,
+    qualityRating: 4.9,
+    warrantyPolicyDays: 180,
+    outstandingDebt: 380412861,
+    creditLimit: 500000000,
+    createdAt: '2023-05-15',
+    lastInteraction: '2025-02-14',
+    notes: 'Đối soát luân chuyển hàng hóa & công nợ nội bộ chi nhánh Hội An.',
+    tags: ['Phone House Hội An', 'Nội Bộ', 'Luân Chuyển']
+  },
+  {
+    id: 'PT-SUPP-MEGAPHONE',
+    type: 'SUPPLIER',
+    name: 'MegaPhone',
+    phone: '163163',
+    email: 'megaphone.vn@gmail.com',
+    address: '163 Nguyễn Thị Minh Khai, Q.3, TP. Hồ Chí Minh',
+    supplierCategory: 'OFFICIAL_DISTRIBUTOR',
+    totalPurchasedFrom: 920000000,
+    qualityRating: 4.8,
+    warrantyPolicyDays: 365,
+    outstandingDebt: 269094017,
+    creditLimit: 400000000,
+    createdAt: '2023-07-20',
+    lastInteraction: '2025-02-12',
+    notes: 'Cung cấp iPhone chính hãng VN/A và phụ kiện Anker, Mophie, Aukey.',
+    tags: ['MegaPhone', 'VN/A', 'Phụ Kiện']
+  },
+  {
+    id: 'PT-SUPP-MANHTHAM',
+    type: 'SUPPLIER',
+    name: 'Mạnh Thẩm (Tuyết)',
+    phone: '0972356833',
+    email: 'manhtham.apple@gmail.com',
+    address: 'Hà Nội / HCM',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    totalPurchasedFrom: 840000000,
+    qualityRating: 4.8,
+    warrantyPolicyDays: 30,
+    outstandingDebt: 212745000,
+    creditLimit: 300000000,
+    createdAt: '2023-08-01',
+    lastInteraction: '2025-02-14',
+    notes: 'Nguồn hàng sỉ iPhone LL/A, ZA/A 2 SIM vật lý chất lượng cao.',
+    tags: ['Mạnh Thẩm', 'Hàng Sỉ', 'Bản 2 Sim']
+  },
+  {
+    id: 'PT-SUPP-XSTORE73',
+    type: 'SUPPLIER',
+    name: 'Xstore 73',
+    phone: '73 hàm nghi',
+    address: '73 Hàm Nghi, Thanh Khê, Đà Nẵng',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    totalPurchasedFrom: 150000000,
+    qualityRating: 4.7,
+    warrantyPolicyDays: 30,
+    outstandingDebt: 18986085,
+    creditLimit: 50000000,
+    createdAt: '2023-09-10',
+    lastInteraction: '2025-02-10',
+    notes: 'Cung cấp máy lướt và thu đổi trực tiếp.',
+    tags: ['Xstore 73', 'Hàm Nghi']
+  },
+  {
+    id: 'PT-SUPP-HIEUAPPLE',
+    type: 'SUPPLIER',
+    name: 'Hiếu apple',
+    phone: '517',
+    address: '517 Điện Biên Phủ, Đà Nẵng',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    totalPurchasedFrom: 95000000,
+    qualityRating: 4.7,
+    warrantyPolicyDays: 15,
+    outstandingDebt: 10200000,
+    creditLimit: 30000000,
+    createdAt: '2023-10-05',
+    lastInteraction: '2025-02-11',
+    notes: 'Giao lưu máy cũ, hỗ trợ kỹ thuật phần cứng.',
+    tags: ['Hiếu Apple']
+  },
+  {
+    id: 'PT-SUPP-LINHKIENHN',
+    type: 'SUPPLIER',
+    name: 'Linh Kiện Hà Nội',
+    phone: '0822027888',
+    address: 'Phố Vọng, Hai Bà Trưng, Hà Nội',
+    supplierCategory: 'COMPONENTS',
+    totalPurchasedFrom: 48000000,
+    qualityRating: 4.9,
+    warrantyPolicyDays: 180,
+    outstandingDebt: 7200000,
+    creditLimit: 20000000,
+    createdAt: '2023-11-01',
+    lastInteraction: '2025-02-09',
+    notes: 'Màn hình Zin bóc máy, cáp sạc, cáp fix pin JCID.',
+    tags: ['Linh Kiện Hà Nội', 'Màn Zin']
+  },
+  {
+    id: 'PT-SUPP-TATI',
+    type: 'SUPPLIER',
+    name: 'phụ kiện Tati',
+    phone: '0901130190',
+    address: 'TP. Hồ Chí Minh',
+    supplierCategory: 'COMPONENTS',
+    totalPurchasedFrom: 35000000,
+    qualityRating: 4.6,
+    warrantyPolicyDays: 90,
+    outstandingDebt: 5850000,
+    creditLimit: 15000000,
+    createdAt: '2023-12-01',
+    lastInteraction: '2025-02-08',
+    notes: 'Ốp lưng Kevlar, dán cường lực KingKong, củ sạc nhanh PD 30W.',
+    tags: ['Phụ Kiện Tati']
+  },
+  {
+    id: 'PT-SUPP-CHIEN',
+    type: 'SUPPLIER',
+    name: 'Chiến',
+    phone: '524',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    outstandingDebt: 0,
+    createdAt: '2024-01-10',
+    tags: ['Chiến']
+  },
+  {
+    id: 'PT-SUPP-LINHSG',
+    type: 'SUPPLIER',
+    name: 'Linh SG',
+    phone: '453',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    outstandingDebt: 0,
+    createdAt: '2024-01-12',
+    tags: ['Linh SG']
+  },
+  {
+    id: 'PT-SUPP-OPPO',
+    type: 'SUPPLIER',
+    name: 'OPPO',
+    phone: '475',
+    supplierCategory: 'OFFICIAL_DISTRIBUTOR',
+    outstandingDebt: 0,
+    createdAt: '2024-01-15',
+    tags: ['OPPO']
+  },
+  {
+    id: 'PT-SUPP-QUANGTRUONG',
+    type: 'SUPPLIER',
+    name: 'Quang Trường',
+    phone: '3585',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    outstandingDebt: 0,
+    createdAt: '2024-01-18',
+    tags: ['Quang Trường']
+  },
+  {
+    id: 'PT-SUPP-MINHKHANG',
+    type: 'SUPPLIER',
+    name: 'Công Nghệ Minh Khang',
+    phone: '181',
+    supplierCategory: 'COMPONENTS',
+    outstandingDebt: 0,
+    createdAt: '2024-01-20',
+    tags: ['Minh Khang']
+  },
+  {
+    id: 'PT-SUPP-THANHTAM',
+    type: 'SUPPLIER',
+    name: 'Thanh Tâm',
+    phone: '0905123456',
+    supplierCategory: 'LIKE_NEW_WHOLESALER',
+    outstandingDebt: 0,
+    createdAt: '2024-01-22',
+    tags: ['Thanh Tâm']
+  },
+
+  // Nhà Cung Cấp Thêm
   {
     id: 'PT-SUPP-201',
     type: 'SUPPLIER',
@@ -660,50 +1132,12 @@ export const INITIAL_PARTNERS: Partner[] = [
     totalPurchasedFrom: 850000000,
     qualityRating: 5,
     warrantyPolicyDays: 365,
-    outstandingDebt: 45000000, // Cửa hàng còn nợ đợt hàng mới
+    outstandingDebt: 45000000,
     creditLimit: 200000000,
     createdAt: '2023-01-01',
     lastInteraction: '2025-02-13',
     notes: 'Nhà phân phối máy mới chính hãng mã VN/A nguyên seal, có hóa đơn VAT đầy đủ, giao hàng 24h.',
     tags: ['Chính Hãng VN/A', 'VAT', 'FPT']
-  },
-  {
-    id: 'PT-SUPP-202',
-    type: 'SUPPLIER',
-    name: 'Tổng Kho Máy Like New Apple USA (LL/A Master)',
-    phone: '0966778899',
-    email: 'nguonhang.usaluxury@gmail.com',
-    address: 'Kho K8 KCN Tân Bình, TP. Hồ Chí Minh',
-    taxCode: '0315890123',
-    supplierCategory: 'LIKE_NEW_WHOLESALER',
-    totalPurchasedFrom: 420000000,
-    qualityRating: 4.8,
-    warrantyPolicyDays: 30,
-    outstandingDebt: 18000000,
-    creditLimit: 100000000,
-    createdAt: '2023-06-10',
-    lastInteraction: '2025-02-14',
-    notes: 'Chuyên cung cấp lô iPhone 13/14/15 Pro Max 99% bản Mỹ LL/A (eSim), cam kết vỏ zin màn zin chưa sửa chữa, bao test 30 ngày.',
-    tags: ['Like New 99%', 'Bản Mỹ LL/A', 'Bao test 30 ngày']
-  },
-  {
-    id: 'PT-SUPP-203',
-    type: 'SUPPLIER',
-    name: 'Công Ty Linh Kiện Pin & Màn Hình Pisen Tech',
-    phone: '0933221100',
-    email: 'sales@pisenvietnam.vn',
-    address: '256 Bà Triệu, Hai Bà Trưng, Hà Nội',
-    taxCode: '0108923451',
-    supplierCategory: 'COMPONENTS',
-    totalPurchasedFrom: 78000000,
-    qualityRating: 4.9,
-    warrantyPolicyDays: 360,
-    outstandingDebt: 0,
-    creditLimit: 30000000,
-    createdAt: '2023-09-15',
-    lastInteraction: '2025-02-08',
-    notes: 'Cung cấp pin dung lượng siêu cao Dragon Pisen, màn hình linh kiện GX OLED, bảo hiểm cháy nổ 2 triệu USD.',
-    tags: ['Linh Kiện Zin', 'Pin Pisen', 'Bảo hành 12T']
   },
   {
     id: 'PT-SUPP-204',
@@ -717,7 +1151,7 @@ export const INITIAL_PARTNERS: Partner[] = [
     totalPurchasedFrom: 0,
     qualityRating: 4.7,
     warrantyPolicyDays: 0,
-    outstandingDebt: 12500000, // Tiền hồ sơ duyệt thành công chờ HD Saison giải ngân về shop
+    outstandingDebt: 12500000,
     creditLimit: 100000000,
     createdAt: '2023-04-01',
     lastInteraction: '2025-02-14',
@@ -748,5 +1182,216 @@ export const INITIAL_PARTNERS: Partner[] = [
     lastInteraction: '2025-02-14',
     notes: 'Đối tác song phương: Vừa lấy sỉ iPhone mới từ shop, vừa cung cấp nguồn máy thu cũ từ khách Tây Hồ cho shop tái xuất.',
     tags: ['Đối Tác Song Phương', 'Thu Máy Cũ', 'Khách Sỉ']
+  }
+];
+
+// INITIAL CASHBOOK FUND ACCOUNTS (Tài khoản Sổ Quỹ)
+export const INITIAL_FUNDS: FundAccount[] = [
+  {
+    id: 'FUND-CASH-STORE',
+    name: 'Quỹ Tiền Mặt Tại Két Cửa Hàng',
+    type: 'CASH',
+    currentBalance: 86450000,
+    openingBalance: 50000000,
+    totalIncome: 145000000,
+    totalExpense: 108550000,
+    isActive: true,
+    color: 'amber'
+  },
+  {
+    id: 'FUND-BANK-TECHCOM',
+    name: 'Techcombank - 190388889999 (VietQR Chính)',
+    type: 'BANK',
+    accountNumber: '190388889999',
+    bankName: 'Techcombank',
+    branch: 'Chi nhánh Đà Nẵng / Hà Nội',
+    currentBalance: 432800000,
+    openingBalance: 300000000,
+    totalIncome: 620000000,
+    totalExpense: 487200000,
+    isActive: true,
+    color: 'red'
+  },
+  {
+    id: 'FUND-BANK-MB',
+    name: 'MBBank - 0932435377 (Phone House QR)',
+    type: 'BANK',
+    accountNumber: '0932435377',
+    bankName: 'MBBank',
+    branch: 'Chi nhánh Trung Tâm',
+    currentBalance: 215600000,
+    openingBalance: 150000000,
+    totalIncome: 310000000,
+    totalExpense: 244400000,
+    isActive: true,
+    color: 'blue'
+  },
+  {
+    id: 'FUND-POS-CARD',
+    name: 'Cổng MPOS / Quẹt Thẻ Tín Dụng',
+    type: 'POS_CARD',
+    accountNumber: 'MPOS-POS889',
+    bankName: 'MPOS Vietnam',
+    currentBalance: 68500000,
+    openingBalance: 20000000,
+    totalIncome: 120000000,
+    totalExpense: 71500000,
+    isActive: true,
+    color: 'emerald'
+  },
+  {
+    id: 'FUND-CREDIT-HDSAISON',
+    name: 'Tài Khoản Đối Soát Trả Góp HD Saison / Home Credit',
+    type: 'INSTALLMENT_CREDIT',
+    bankName: 'HD SAISON Finance',
+    currentBalance: 42000000,
+    openingBalance: 0,
+    totalIncome: 95000000,
+    totalExpense: 53000000,
+    isActive: true,
+    color: 'purple'
+  }
+];
+
+// INITIAL CASHBOOK TRANSACTIONS (Sổ Quỹ Thu - Chi)
+export const INITIAL_CASH_TRANSACTIONS: CashTransaction[] = [
+  {
+    id: 'TX-001',
+    code: 'PT-20250214-01',
+    type: 'RECEIPT',
+    category: 'SALES_REVENUE',
+    categoryName: 'Thu tiền bán lẻ iPhone 16 Pro Max',
+    amount: 34500000,
+    fundType: 'BANK',
+    fundName: 'Techcombank - 190388889999 (VietQR Chính)',
+    date: '2025-02-14 10:30',
+    partnerName: 'Nguyễn Văn Tuấn',
+    partnerType: 'CUSTOMER',
+    partnerPhone: '0987654321',
+    referenceCode: 'INV-20250214-001',
+    creator: 'Nhật Tân (Admin)',
+    notes: 'Khách thanh toán chuyển khoản quét mã VietQR mua iPhone 16 Pro Max 256GB Desert Titanium',
+    status: 'COMPLETED'
+  },
+  {
+    id: 'TX-002',
+    code: 'PC-20250214-01',
+    type: 'PAYMENT',
+    category: 'SUPPLIER_DEBT_PAY',
+    categoryName: 'Chi thanh toán tiền hàng cho Phone House',
+    amount: 50000000,
+    fundType: 'BANK',
+    fundName: 'Techcombank - 190388889999 (VietQR Chính)',
+    date: '2025-02-14 11:15',
+    partnerId: 'PT-SUPP-PHONEHOUSE-HQ',
+    partnerName: 'Phone House',
+    partnerType: 'SUPPLIER',
+    partnerPhone: '0932435377',
+    referenceCode: 'UNC-TECH-88902',
+    creator: 'Nhật Tân (Admin)',
+    notes: 'Chuyển khoản thanh toán đợt 1 tiền lô hàng iPhone 15/16 Like New',
+    status: 'COMPLETED'
+  },
+  {
+    id: 'TX-003',
+    code: 'PT-20250214-02',
+    type: 'RECEIPT',
+    category: 'SALES_REVENUE',
+    categoryName: 'Thu tiền bán iPhone 15 Pro 128GB (Tiền mặt)',
+    amount: 20500000,
+    fundType: 'CASH',
+    fundName: 'Quỹ Tiền Mặt Tại Két Cửa Hàng',
+    date: '2025-02-14 14:20',
+    partnerName: 'Lê Hoàng Nam',
+    partnerType: 'CUSTOMER',
+    partnerPhone: '0912345678',
+    referenceCode: 'INV-20250214-002',
+    creator: 'Linh (Bán Hàng POS)',
+    notes: 'Khách thanh toán tiền mặt tại quầy',
+    status: 'COMPLETED'
+  },
+  {
+    id: 'TX-004',
+    code: 'PC-20250214-02',
+    type: 'PAYMENT',
+    category: 'TRADEIN_BUYBACK',
+    categoryName: 'Chi tiền mặt thu mua máy cũ iPhone 13 Pro',
+    amount: 11500000,
+    fundType: 'CASH',
+    fundName: 'Quỹ Tiền Mặt Tại Két Cửa Hàng',
+    date: '2025-02-14 15:45',
+    partnerName: 'Phạm Thu Trang',
+    partnerType: 'CUSTOMER',
+    partnerPhone: '0934567890',
+    referenceCode: 'TID-20250214-001',
+    creator: 'Dương (Kỹ Thuật Apple)',
+    notes: 'Chi tiền mặt trả khách máy thu cũ iPhone 13 Pro 128GB màn zin keng pin 86%',
+    status: 'COMPLETED'
+  },
+  {
+    id: 'TX-005',
+    code: 'PT-20250213-01',
+    type: 'RECEIPT',
+    category: 'CUSTOMER_DEBT_COLLECT',
+    categoryName: 'Thu nợ khách buôn sỉ Hải Phòng',
+    amount: 15000000,
+    fundType: 'BANK',
+    fundName: 'MBBank - 0932435377 (Phone House QR)',
+    date: '2025-02-13 09:10',
+    partnerName: 'Trần Đại Nghĩa (Shop Mobile Hải Phòng)',
+    partnerType: 'CUSTOMER',
+    partnerPhone: '0903456789',
+    referenceCode: 'UNC-MB-54911',
+    creator: 'Nhật Tân (Admin)',
+    notes: 'Khách buôn chuyển khoản thanh toán một phần công nợ đợt lấy sỉ tuần trước',
+    status: 'COMPLETED'
+  },
+  {
+    id: 'TX-006',
+    code: 'PC-20250213-01',
+    type: 'PAYMENT',
+    category: 'MARKETING_ADS',
+    categoryName: 'Chi tiền quảng cáo TikTok Ads & Facebook Ads',
+    amount: 4500000,
+    fundType: 'POS_CARD',
+    fundName: 'Cổng MPOS / Quẹt Thẻ Tín Dụng',
+    date: '2025-02-13 16:00',
+    partnerName: 'Meta & TikTok For Business',
+    creator: 'Nhật Tân (Admin)',
+    notes: 'Thanh toán thẻ Visa chiến dịch video livestream chốt đơn iPhone 16 Pro Max',
+    status: 'COMPLETED'
+  },
+  {
+    id: 'TX-007',
+    code: 'PC-20250212-01',
+    type: 'PAYMENT',
+    category: 'STORE_RENT',
+    categoryName: 'Chi tiền thuê mặt bằng showroom tháng 02/2025',
+    amount: 25000000,
+    fundType: 'BANK',
+    fundName: 'Techcombank - 190388889999 (VietQR Chính)',
+    date: '2025-02-12 08:30',
+    partnerName: 'Chủ Nhà Showroom Phone House',
+    partnerPhone: '0905888999',
+    creator: 'Nhật Tân (Admin)',
+    notes: 'Thanh toán tiền nhà định kỳ tháng 2',
+    status: 'COMPLETED'
+  },
+  {
+    id: 'TX-008',
+    code: 'PT-20250212-02',
+    type: 'RECEIPT',
+    category: 'REPAIR_SERVICE',
+    categoryName: 'Thu tiền dịch vụ thay pin Pisen Dragon & ép kính',
+    amount: 1650000,
+    fundType: 'CASH',
+    fundName: 'Quỹ Tiền Mặt Tại Két Cửa Hàng',
+    date: '2025-02-12 17:15',
+    partnerName: 'Hoàng Văn Bách',
+    partnerPhone: '0978112233',
+    referenceCode: 'BH-20250212-004',
+    creator: 'Dương (Kỹ Thuật Apple)',
+    notes: 'Khách thay pin Pisen iPhone 12 Pro Max bảo hành 12 tháng',
+    status: 'COMPLETED'
   }
 ];

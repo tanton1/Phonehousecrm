@@ -15,7 +15,7 @@ import {
   UserCheck,
   Zap,
   Check
-} from 'lucide-react';
+, X } from 'lucide-react';
 
 interface WarrantyServiceViewProps {
   warrantyTickets: WarrantyTicket[];
@@ -401,17 +401,22 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
       {/* MODAL: Thêm Phiếu Tiếp Nhận */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white border border-orange-200 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl">
-            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-5 py-4 border-b border-orange-100 flex justify-between items-center">
-              <div className="flex items-center space-x-2">
+        <div className="fixed inset-0 bg-white sm:bg-black/60 sm:backdrop-blur-xs z-50 flex items-center justify-center sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-2xl overflow-hidden shadow-none sm:shadow-2xl flex flex-col border-0 sm:border sm:border-orange-200">
+            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-4 py-3.5 sm:px-5 sm:py-4 border-b border-orange-100 flex items-center gap-3 shrink-0">
+              <button onClick={() => setIsAddModalOpen(false)} className="sm:hidden p-1.5 -ml-2 text-zinc-400 hover:bg-zinc-100 rounded-lg">
+                <X className="w-5 h-5 text-zinc-600" />
+              </button>
+              <div className="flex items-center space-x-2 flex-1">
                 <Wrench className="w-5 h-5 text-orange-600" />
                 <h3 className="font-black text-zinc-900 text-base">Tiếp Nhận Máy Bảo Hành & Sửa Chữa</h3>
               </div>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-zinc-400 hover:text-zinc-600 font-bold">✕</button>
+              <button onClick={() => setIsAddModalOpen(false)} className="hidden sm:block text-zinc-400 hover:text-zinc-600 p-1.5 hover:bg-zinc-100 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={handleSaveTicket} className="p-5 sm:p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+            <form onSubmit={handleSaveTicket} className="p-4 sm:p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 bg-white">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Số IMEI Của Máy *</label>
@@ -549,7 +554,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 )}
               </div>
 
-              <div className="pt-2 border-t border-zinc-200 flex justify-end space-x-2">
+              <div className="pt-3 sm:pt-4 pb-[max(env(safe-area-inset-bottom),1rem)] sm:pb-0 border-t border-zinc-200 flex justify-end space-x-2 mt-auto sticky bottom-0 bg-white z-10">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}

@@ -9,7 +9,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { DeviceItem, Lead, TradeInAppraisal, WarrantyTicket, SalesInvoice, UserAccount, Partner } from '../types';
+import { DeviceItem, Lead, TradeInAppraisal, WarrantyTicket, SalesInvoice, UserAccount, Partner, FundAccount, CashTransaction } from '../types';
 import { 
   INITIAL_DEVICES, 
   INITIAL_LEADS, 
@@ -270,6 +270,26 @@ export async function addInvoiceToFirestore(invoice: SalesInvoice) {
   }
 }
 
+export async function updateInvoiceInFirestore(invoice: SalesInvoice) {
+  const path = `${INVOICES_COL}/${invoice.id}`;
+  try {
+    const docRef = doc(db, INVOICES_COL, invoice.id);
+    await setDoc(docRef, invoice, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteInvoiceFromFirestore(id: string) {
+  const path = `${INVOICES_COL}/${id}`;
+  try {
+    const docRef = doc(db, INVOICES_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
 // ----------------- USERS & PERMISSIONS -----------------
 export function subscribeToUsers(onData: (users: UserAccount[]) => void) {
   const colRef = collection(db, USERS_COL);
@@ -376,3 +396,70 @@ export async function deletePartnerFromFirestore(id: string) {
   }
 }
 
+
+const FUNDS_COL = 'funds';
+const CASH_TRANSACTIONS_COL = 'cashTransactions';
+
+export function subscribeToFunds(onData: (funds: FundAccount[]) => void) {
+  const colRef = collection(db, FUNDS_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as FundAccount);
+    onData(data);
+  }, (error) => handleFirestoreError(error, OperationType.LIST, FUNDS_COL));
+}
+
+export async function addFundToFirestore(fund: FundAccount) {
+  try {
+    await setDoc(doc(db, FUNDS_COL, fund.id), fund);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, FUNDS_COL);
+  }
+}
+
+export async function updateFundInFirestore(fund: FundAccount) {
+  try {
+    await updateDoc(doc(db, FUNDS_COL, fund.id), { ...fund });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, FUNDS_COL);
+  }
+}
+
+export async function deleteFundFromFirestore(id: string) {
+  try {
+    await deleteDoc(doc(db, FUNDS_COL, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, FUNDS_COL);
+  }
+}
+
+export function subscribeToCashTransactions(onData: (txs: CashTransaction[]) => void) {
+  const colRef = collection(db, CASH_TRANSACTIONS_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as CashTransaction);
+    onData(data);
+  }, (error) => handleFirestoreError(error, OperationType.LIST, CASH_TRANSACTIONS_COL));
+}
+
+export async function addCashTransactionToFirestore(tx: CashTransaction) {
+  try {
+    await setDoc(doc(db, CASH_TRANSACTIONS_COL, tx.id), tx);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, CASH_TRANSACTIONS_COL);
+  }
+}
+
+export async function updateCashTransactionInFirestore(tx: CashTransaction) {
+  try {
+    await updateDoc(doc(db, CASH_TRANSACTIONS_COL, tx.id), { ...tx });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, CASH_TRANSACTIONS_COL);
+  }
+}
+
+export async function deleteCashTransactionFromFirestore(id: string) {
+  try {
+    await deleteDoc(doc(db, CASH_TRANSACTIONS_COL, id));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, CASH_TRANSACTIONS_COL);
+  }
+}

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { DeviceItem, SalesInvoice } from '../types';
+import React, { useState, useEffect } from 'react';
+import { DeviceItem, SalesInvoice, Lead } from '../types';
 import { 
   ShoppingCart, 
   Search, 
@@ -16,103 +16,274 @@ import {
   Percent,
   Receipt,
   Zap,
-  Sparkles
+  Sparkles,
+  User,
+  Tag,
+  Gift,
+  Camera,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Scan,
+  ArrowRight,
+  X,
+  Phone,
+  MapPin,
+  Check,
+  SlidersHorizontal,
+  BatteryCharging,
+  AlertCircle,
+  FileText,
+  BadgePercent,
+  RefreshCw,
+  Clock,
+  Sparkle
 } from 'lucide-react';
 
 interface POSSalesViewProps {
   devices: DeviceItem[];
   invoices: SalesInvoice[];
+  leads?: Lead[];
   onCreateInvoice: (invoice: SalesInvoice) => void;
   onUpdateDeviceStatus: (imei: string, status: DeviceItem['status'], customerName?: string, phone?: string) => void;
   preSelectedDevice?: DeviceItem | null;
+  onNavigateToInvoices?: () => void;
+  funds: import('../types').FundAccount[];
+  onAddTransaction: (tx: import('../types').CashTransaction) => void;
 }
+
+// Phone model image mapping helper
+const getPhoneImage = (model: string, color: string = '') => {
+  const m = model.toLowerCase();
+  const c = color.toLowerCase();
+
+  if (m.includes('16 pro max') || m.includes('16 pro')) {
+    if (c.includes('sa mạc') || c.includes('desert') || c.includes('vàng')) {
+      return 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=300&auto=format&fit=crop&q=80';
+    }
+    if (c.includes('tự nhiên') || c.includes('natural')) {
+      return 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=300&auto=format&fit=crop&q=80';
+    }
+    return 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=300&auto=format&fit=crop&q=80';
+  }
+  if (m.includes('15 pro')) {
+    return 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=300&auto=format&fit=crop&q=80';
+  }
+  if (m.includes('14') || m.includes('13')) {
+    return 'https://images.unsplash.com/photo-1592750475338-74b7b21085ab?w=300&auto=format&fit=crop&q=80';
+  }
+  return 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?w=300&auto=format&fit=crop&q=80';
+};
 
 export const POSSalesView: React.FC<POSSalesViewProps> = ({
   devices,
   invoices,
+  leads = [],
   onCreateInvoice,
   onUpdateDeviceStatus,
-  preSelectedDevice
+  preSelectedDevice,
+  onNavigateToInvoices,
+  funds,
+  onAddTransaction
 }) => {
   // Available stock items
   const inStockDevices = devices.filter(d => d.status === 'in_stock');
 
-  // Cart & Customer State
-  const [customerName, setCustomerName] = useState('Nguyễn Văn Tuấn');
-  const [phone, setPhone] = useState('0909123456');
-  const [selectedDevices, setSelectedDevices] = useState<DeviceItem[]>(
-    preSelectedDevice ? [preSelectedDevice] : (inStockDevices.slice(0, 1))
-  );
+  // Active Stepper stage (1: Chọn máy, 2: Khách hàng, 3: Phụ kiện & Ưu đãi, 4: Thanh toán)
+  const [activeStep, setActiveStep] = useState<number>(1);
+
+  // Cart & Devices State
+  const [selectedDevices, setSelectedDevices] = useState<DeviceItem[]>(() => {
+    if (preSelectedDevice) return [preSelectedDevice];
+    
+    return [];
+  });
+
+  // Customer State
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerType, setCustomerType] = useState<'Thân thiết' | 'VIP' | 'Khách lẻ'>('Khách lẻ');
+  const [customerNotes, setCustomerNotes] = useState('');
 
   // Accessories bundle
-  const [accessories, setAccessories] = useState<Array<{ name: string; price: number; selected: boolean }>>([
-    { name: 'Củ sạc nhanh Apple / Anker 30W Type-C', price: 350000, selected: true },
-    { name: 'Kính cường lực KingKong chống nhìn trộm', price: 150000, selected: true },
-    { name: 'Ốp lưng từ tính MagSafe chống sốc', price: 180000, selected: true },
-    { name: 'Cáp sạc bọc dù Type-C to C siêu bền', price: 200000, selected: false }
+  const [accessories, setAccessories] = useState<Array<{ id: string; name: string; price: number; selected: boolean; note?: string }>>([
+    { id: 'acc-1', name: 'Củ sạc nhanh Apple 20W / Anker 30W Type-C', price: 350000, selected: true, note: 'Bảo hành 12 tháng' },
+    { id: 'acc-2', name: 'Kính cường lực KingKong chống nhìn trộm', price: 150000, selected: true, note: 'Dán miễn phí' },
+    { id: 'acc-3', name: 'Ốp lưng từ tính MagSafe chống sốc', price: 180000, selected: true, note: 'Chống ố vàng' },
+    { id: 'acc-4', name: 'Cáp sạc bọc dù Type-C to C siêu bền', price: 200000, selected: false, note: 'Độ dài 1m' },
+    { id: 'acc-5', name: 'Tai nghe Bluetooth Air-Pro 2 Hổ Vằn', price: 450000, selected: false, note: 'Pin trâu 6h' }
   ]);
 
-  // Warranty pack
-  const [warrantyPackage, setWarrantyPackage] = useState('Gói VIP 1 Đổi 1 trong 12 Tháng (Bao Nguồn + Màn + FaceID)');
+  // Warranty Package
+  const [warrantyPackage, setWarrantyPackage] = useState('Gói VIP: 12 tháng (Bao nguồn + Màn hình)');
   const [warrantyPrice, setWarrantyPrice] = useState(0);
 
-  // Discounts
-  const [discountAmount, setDiscountAmount] = useState(200000);
+  // Discounts & Trade-in
+  const [voucherCode, setVoucherCode] = useState('VOUCHER200K');
+  const [voucherDiscount, setVoucherDiscount] = useState(200000);
+  const [tradeInModel, setTradeInModel] = useState('');
   const [tradeInDiscount, setTradeInDiscount] = useState(0);
+
+  // Modals & Drawers State
+  const [showDevicePickerModal, setShowDevicePickerModal] = useState(false);
+  const [showScannerModal, setShowScannerModal] = useState(false);
+  const [scannerQuery, setScannerQuery] = useState('');
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [showAccessoriesModal, setShowAccessoriesModal] = useState(false);
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showDetailsDropdown, setShowDetailsDropdown] = useState(false);
 
   // Payment Method
   const [paymentMethod, setPaymentMethod] = useState<SalesInvoice['paymentMethod']>('Chuyển khoản QR');
+  const [cashGiven, setCashGiven] = useState<number>(0);
   const [installmentCompany, setInstallmentCompany] = useState('Home Credit (CCCD gắn chip)');
   const [installmentTenor, setInstallmentTenor] = useState(6);
+  const [installmentContractCode, setInstallmentContractCode] = useState('');
+  const [customDownPayment, setCustomDownPayment] = useState<number | null>(null);
   const [downPaymentPercent, setDownPaymentPercent] = useState(30);
 
+  // Thermal Slip Modal
   const [createdInvoiceForPrint, setCreatedInvoiceForPrint] = useState<SalesInvoice | null>(null);
 
-  // Add device to cart
-  const handleAddDeviceToCart = (device: DeviceItem) => {
+  // If preSelectedDevice changes from outside
+  useEffect(() => {
+    if (preSelectedDevice) {
+      if (!selectedDevices.some(d => d.imei === preSelectedDevice.imei)) {
+        setSelectedDevices([preSelectedDevice, ...selectedDevices]);
+      }
+    }
+  }, [preSelectedDevice]);
+
+  // Calculations
+  const devicesTotal = selectedDevices.reduce((sum, d) => sum + d.sellPrice, 0);
+  const selectedAccessoriesList = accessories.filter(a => a.selected);
+  const accessoriesTotal = selectedAccessoriesList.reduce((sum, a) => sum + a.price, 0);
+  const rawTotal = devicesTotal + accessoriesTotal + warrantyPrice;
+  const finalAmount = Math.max(0, rawTotal - voucherDiscount - tradeInDiscount);
+
+  // Installment calculations
+  const defaultDownPayment = Math.round((finalAmount * downPaymentPercent) / 100);
+  const downPaymentAmount = customDownPayment !== null ? customDownPayment : defaultDownPayment;
+  const remainingLoan = finalAmount - downPaymentAmount;
+  const monthlyPaymentAmount = installmentTenor > 0 ? Math.round(remainingLoan / installmentTenor) : 0;
+  const cashChange = Math.max(0, cashGiven - finalAmount);
+
+  // Handlers
+  const resetForm = () => {
+    setSelectedDevices([]);
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerAddress('');
+    setCustomerNotes('');
+    setCashGiven(0);
+    setPaymentMethod('Chuyển khoản QR');
+    setActiveStep(1);
+    setCustomDownPayment(null);
+  };
+  
+  const handleAddDevice = (device: DeviceItem) => {
     if (!selectedDevices.some(d => d.imei === device.imei)) {
       setSelectedDevices([...selectedDevices, device]);
     }
+    setShowDevicePickerModal(false);
+    setShowScannerModal(false);
   };
 
-  const handleRemoveDeviceFromCart = (imei: string) => {
+  const handleRemoveDevice = (imei: string) => {
     setSelectedDevices(selectedDevices.filter(d => d.imei !== imei));
   };
 
-  // Price calculations
-  const devicesTotal = selectedDevices.reduce((sum, d) => sum + d.sellPrice, 0);
-  const accessoriesTotal = accessories.filter(a => a.selected).reduce((sum, a) => sum + a.price, 0);
-  const rawTotal = devicesTotal + accessoriesTotal + warrantyPrice;
-  const finalAmount = Math.max(0, rawTotal - discountAmount - tradeInDiscount);
-
-  // Installment calculations
-  const downPaymentAmount = Math.round((finalAmount * downPaymentPercent) / 100);
-  const remainingLoan = finalAmount - downPaymentAmount;
-  const monthlyPaymentAmount = installmentTenor > 0 ? Math.round(remainingLoan / installmentTenor) : 0;
+  const handleApplyVoucher = (code: string, amount: number) => {
+    setVoucherCode(code);
+    setVoucherDiscount(amount);
+    setShowDiscountModal(false);
+  };
 
   const handleCheckout = () => {
     if (selectedDevices.length === 0) {
       alert('Vui lòng chọn ít nhất 1 cây máy để thanh toán!');
       return;
     }
-    if (!customerName || !phone) {
-      alert('Vui lòng nhập tên và số điện thoại khách hàng!');
+    if (!customerName || !customerPhone) {
+      alert('Vui lòng nhập thông tin khách hàng trước khi thanh toán!');
+      setShowCustomerModal(true);
       return;
     }
 
+    // THÊM: Tạo CashTransaction để dòng tiền vào Sổ Quỹ
+    let receiptAmount = 0;
+    let fundTypeToUse: import('../types').PaymentFundType = 'CASH';
+    
+    if (paymentMethod === 'Trả góp 0% / CCCD') {
+      receiptAmount = downPaymentAmount; // Thu tiền trả trước ngay lập tức
+      fundTypeToUse = 'CASH'; // Tạm thời mặc định tiền mặt cho khoản trả trước
+    } else {
+      receiptAmount = finalAmount;
+      if (paymentMethod === 'Chuyển khoản QR') fundTypeToUse = 'BANK';
+      if (paymentMethod === 'Tiền mặt') fundTypeToUse = 'CASH';
+      if (paymentMethod === 'Quẹt thẻ POS') fundTypeToUse = 'POS_CARD';
+    }
+
+    if (receiptAmount > 0) {
+      const fund = funds.find(f => f.type === fundTypeToUse) || funds[0];
+      if (fund) {
+        const cashTx: import('../types').CashTransaction = {
+          id: `TX-${Date.now()}`,
+          code: `PT-${Math.floor(1000 + Math.random() * 9000)}`,
+          type: 'RECEIPT',
+          category: 'SALES_REVENUE',
+          categoryName: 'Thu tiền bán hàng',
+          amount: receiptAmount,
+          fundType: fund.type,
+          fundName: fund.name,
+          date: new Date().toLocaleString('sv-SE').replace(' ', 'T'), // YYYY-MM-DDTHH:mm
+          partnerName: customerName,
+          partnerPhone: customerPhone,
+          creator: 'Nhật Tân (Admin)',
+          notes: `Thu tiền khách mua hàng (Đơn ${customerPhone})`,
+          status: 'COMPLETED'
+        };
+        onAddTransaction(cashTx);
+      }
+    }
+
     const newInvoice: SalesInvoice = {
-      id: `INV-${Date.now().toString().slice(-4)}`,
+      id: `INV-${Date.now().toString().slice(-6)}`,
+      invoiceCode: `HD-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Date.now().toString().slice(-4)}`,
       customerName,
-      customerPhone: phone,
+      customerPhone,
+      phone: customerPhone,
       devices: selectedDevices.map(d => ({
         imei: d.imei,
         model: d.model,
         storage: d.storage,
         price: d.sellPrice
       })),
-      accessories: accessories.filter(a => a.selected).map(a => ({ name: a.name, price: a.price })),
+      imeiList: selectedDevices.map(d => d.imei),
+      items: [
+        ...selectedDevices.map(d => ({
+          name: `${d.model} ${d.storage} (${d.color})`,
+          quantity: 1,
+          unitPrice: d.sellPrice,
+          totalPrice: d.sellPrice,
+          imei: d.imei,
+          type: 'phone' as const,
+          storage: d.storage,
+          color: d.color
+        })),
+        ...selectedAccessoriesList.map(a => ({
+          name: a.name,
+          quantity: 1,
+          unitPrice: a.price,
+          totalPrice: a.price,
+          type: 'accessory' as const
+        }))
+      ],
+      accessories: selectedAccessoriesList.map(a => ({ name: a.name, price: a.price })),
       totalAmount: rawTotal,
-      discountAmount,
+      discountAmount: voucherDiscount,
       tradeInDeduction: tradeInDiscount,
       finalAmount,
       paymentMethod,
@@ -123,154 +294,698 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
         monthlyPayment: monthlyPaymentAmount
       } : undefined,
       warrantyPackage,
-      salesStaff: 'Tuấn Bán Hàng',
-      createdAt: new Date().toISOString().split('T')[0]
+      salesStaff: 'Nhật ADMIN (Tuấn Bán Hàng)',
+      createdAt: new Date().toISOString().split('T')[0],
+      createdDate: new Date().toLocaleString('vi-VN', { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      status: paymentMethod === 'Trả góp 0% / CCCD' ? 'pending' : 'completed',
+      installmentDisbursementStatus: paymentMethod === 'Trả góp 0% / CCCD' ? 'PENDING' : undefined,
+      installmentExpectedAmount: paymentMethod === 'Trả góp 0% / CCCD' ? (finalAmount - downPaymentAmount) : undefined,
+      installmentContractCode: paymentMethod === 'Trả góp 0% / CCCD' ? installmentContractCode : undefined,
+      branch: 'Phone House Cầu Giấy (Apple Premium)'
     };
 
-    // Mark devices as sold
+    // Update status of all devices to sold in Firestore
     selectedDevices.forEach(d => {
-      onUpdateDeviceStatus(d.imei, 'sold', customerName, phone);
+      onUpdateDeviceStatus(d.imei, 'sold', customerName, customerPhone);
     });
 
     onCreateInvoice(newInvoice);
     setCreatedInvoiceForPrint(newInvoice);
+    setShowPaymentModal(false);
   };
 
   return (
-    <div className="space-y-5 pb-16">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-black text-zinc-900 flex items-center space-x-2">
-            <span>Điểm Bán Hàng & Xuất Hóa Đơn (POS)</span>
-            <span className="bg-orange-50 text-orange-700 border border-orange-200 text-xs px-2.5 py-0.5 rounded-full font-bold">
-              Xuất Theo IMEI 15 Số
+    <div className="w-full max-w-xl mx-auto space-y-3 sm:space-y-4 pb-32">
+      {/* 0. Top Bar Quick Actions */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center space-x-2">
+          <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-600">POS Thu Ngân</h2>
+        </div>
+        {onNavigateToInvoices && (
+          <button
+            onClick={onNavigateToInvoices}
+            className="text-xs font-medium text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/80 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs cursor-pointer"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Quản lý hóa đơn ({invoices.length})</span>
+          </button>
+        )}
+      </div>
+
+      {/* 1. TOP STEPPER (1 Chọn máy -> 2 Khách hàng -> 3 Phụ kiện -> 4 Thanh toán) */}
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-zinc-100 shadow-2xs p-3.5 sm:p-4">
+        <div className="relative flex items-center justify-between">
+          {/* Progress bar line */}
+          <div className="absolute left-8 right-8 top-3.5 -translate-y-1/2 h-0.5 bg-zinc-100 -z-0" />
+          <div 
+            className="absolute left-8 top-3.5 -translate-y-1/2 h-0.5 bg-orange-500 transition-all duration-300 -z-0"
+            style={{ 
+              width: activeStep === 1 ? '0%' : activeStep === 2 ? '33%' : activeStep === 3 ? '66%' : '100%' 
+            }}
+          />
+
+          {/* Step 1: Chọn máy */}
+          <button 
+            onClick={() => setActiveStep(1)}
+            className="flex flex-col items-center group relative z-10 focus:outline-none"
+          >
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all ${
+              selectedDevices.length > 0 
+                ? 'bg-orange-500 text-white ring-4 ring-orange-100 shadow-xs' 
+                : 'bg-orange-500 text-white'
+            }`}>
+              1
+            </div>
+            <span className={`text-[11px] mt-1.5 font-bold transition-colors ${
+              activeStep === 1 ? 'text-orange-600 font-extrabold' : 'text-zinc-700'
+            }`}>
+              Chọn máy
             </span>
-          </h2>
-          <p className="text-xs text-zinc-500 mt-0.5">
-            Quét mã IMEI xuất kho, tự động tạo gói bảo hành 1 đổi 1 & kích hoạt hợp đồng trả góp 0%
-          </p>
+          </button>
+
+          {/* Step 2: Khách hàng */}
+          <button 
+            onClick={() => {
+              setActiveStep(2);
+              setShowCustomerModal(true);
+            }}
+            className="flex flex-col items-center group relative z-10 focus:outline-none"
+          >
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all ${
+              customerName 
+                ? 'bg-zinc-100 text-zinc-700 border border-zinc-200 group-hover:bg-orange-50 group-hover:text-orange-600' 
+                : 'bg-zinc-100 text-zinc-400'
+            }`}>
+              2
+            </div>
+            <span className={`text-[11px] mt-1.5 font-medium transition-colors ${
+              activeStep === 2 ? 'text-orange-600 font-bold' : 'text-zinc-500'
+            }`}>
+              Khách hàng
+            </span>
+          </button>
+
+          {/* Step 3: Phụ kiện */}
+          <button 
+            onClick={() => {
+              setActiveStep(3);
+              setShowAccessoriesModal(true);
+            }}
+            className="flex flex-col items-center group relative z-10 focus:outline-none"
+          >
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black transition-all ${
+              selectedAccessoriesList.length > 0 
+                ? 'bg-zinc-100 text-zinc-700 border border-zinc-200 group-hover:bg-orange-50 group-hover:text-orange-600' 
+                : 'bg-zinc-100 text-zinc-400'
+            }`}>
+              3
+            </div>
+            <span className={`text-[11px] mt-1.5 font-medium transition-colors ${
+              activeStep === 3 ? 'text-orange-600 font-bold' : 'text-zinc-500'
+            }`}>
+              Phụ kiện
+            </span>
+          </button>
+
+          {/* Step 4: Thanh toán */}
+          <button 
+            onClick={() => {
+              setActiveStep(4);
+              setShowPaymentModal(true);
+            }}
+            className="flex flex-col items-center group relative z-10 focus:outline-none"
+          >
+            <div className="w-7 h-7 rounded-full bg-zinc-100 text-zinc-400 flex items-center justify-center text-xs font-black transition-all group-hover:bg-orange-50 group-hover:text-orange-600">
+              4
+            </div>
+            <span className={`text-[11px] mt-1.5 font-medium transition-colors ${
+              activeStep === 4 ? 'text-orange-600 font-bold' : 'text-zinc-500'
+            }`}>
+              Thanh toán
+            </span>
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left 2 Cols: Cart, Device Selection, Accessories & Payment method */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Customer info */}
-          <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3">
-            <h3 className="font-black text-zinc-900 text-sm flex items-center space-x-2">
-              <Receipt className="w-4 h-4 text-orange-600" />
-              <span>1. Thông Tin Khách Hàng Xuất Hóa Đơn</span>
-            </h3>
+      {/* 2. SCAN IMEI / SEARCH IMEI CARD */}
+      <div 
+        onClick={() => setShowScannerModal(true)}
+        className="bg-white hover:bg-orange-50/20 border border-zinc-200/90 hover:border-orange-300 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
+      >
+        <div className="flex items-center space-x-3">
+          {/* Orange scanner viewfinder icon in square */}
+          <div className="w-11 h-11 rounded-2xl bg-orange-50 border border-orange-200 flex items-center justify-center text-orange-600 shrink-0 group-hover:scale-105 transition-transform">
+            <Scan className="w-5 h-5 stroke-[2.5]" />
+          </div>
+          <div>
+            <div className="font-black text-zinc-900 text-sm group-hover:text-orange-600 transition-colors">
+              Quét IMEI hoặc nhập IMEI
+            </div>
+            <div className="text-[11px] text-zinc-500">
+              Tự động kiểm tra kho & thông tin bảo hành
+            </div>
+          </div>
+        </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Camera square icon button on right */}
+        <div className="w-10 h-10 rounded-xl border border-zinc-200 bg-white flex items-center justify-center text-zinc-700 group-hover:border-orange-300 group-hover:text-orange-600 shadow-2xs">
+          <Camera className="w-5 h-5" />
+        </div>
+      </div>
+
+      {/* 3. SELECTED PRODUCT CARD(S) */}
+      {selectedDevices.length === 0 ? (
+        <div className="bg-white border-2 border-dashed border-zinc-200 rounded-3xl p-8 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-orange-50 text-orange-600 flex items-center justify-center mx-auto">
+            <Smartphone className="w-6 h-6" />
+          </div>
+          <div>
+            <h4 className="font-bold text-zinc-900 text-sm">Chưa có máy nào trong đơn bán</h4>
+            <p className="text-xs text-zinc-500 mt-0.5">Vui lòng quét IMEI hoặc chọn máy từ kho iPhone có sẵn</p>
+          </div>
+          <button
+            onClick={() => setShowDevicePickerModal(true)}
+            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs rounded-xl shadow-xs"
+          >
+            + Chọn máy từ kho
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white border border-zinc-200/90 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs space-y-3">
+          {/* List of selected devices */}
+          {selectedDevices.map((device) => {
+            const phoneImg = getPhoneImage(device.model, device.color);
+
+            return (
+              <div 
+                key={device.imei}
+                className="flex items-center justify-between gap-3 pb-3 border-b border-zinc-100 last:border-0 last:pb-0"
+              >
+                {/* Left: Phone Image */}
+                <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-2xl bg-zinc-50 border border-zinc-100 flex items-center justify-center p-1.5 shrink-0 overflow-hidden shadow-2xs">
+                  <img
+                    src={phoneImg}
+                    alt={device.model}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-contain drop-shadow-md"
+                  />
+                </div>
+
+                {/* Middle: Details */}
+                <div className="flex-1 min-w-0 space-y-1">
+                  <h4 className="font-black text-zinc-900 text-sm sm:text-base tracking-tight truncate">
+                    {device.model} {device.storage}
+                  </h4>
+                  <div className="text-xs text-zinc-500 truncate">
+                    {device.color}
+                  </div>
+                  <div className="flex items-center space-x-1.5 text-[11px] text-zinc-500 font-mono">
+                    <span>IMEI: <strong className="text-orange-600 font-bold">{device.imei}</strong></span>
+                    <span>•</span>
+                    <span className="flex items-center text-emerald-700 font-bold">
+                      Pin {device.batteryHealth}%
+                      <span className="ml-1 inline-block w-4 h-2 bg-emerald-500 rounded-2xs align-middle" />
+                    </span>
+                  </div>
+
+                  {/* Price */}
+                  <div className="text-base sm:text-lg font-black text-orange-600 font-mono pt-0.5">
+                    {device.sellPrice.toLocaleString('vi-VN')}đ
+                  </div>
+                </div>
+
+                {/* Right: Delete button */}
+                <button
+                  onClick={() => handleRemoveDevice(device.imei)}
+                  className="w-10 h-10 rounded-xl border border-zinc-200 hover:border-red-200 bg-white hover:bg-red-50 text-zinc-400 hover:text-red-600 flex items-center justify-center transition-all shrink-0 shadow-2xs"
+                  title="Xóa máy khỏi giỏ"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            );
+          })}
+
+          {/* "+ Thêm sản phẩm" button with dashed outline border */}
+          <button
+            onClick={() => setShowDevicePickerModal(true)}
+            className="w-full py-2.5 sm:py-3 border-2 border-dashed border-orange-200 hover:border-orange-400 bg-orange-50/30 hover:bg-orange-50 text-orange-600 font-bold text-xs sm:text-sm rounded-xl sm:rounded-2xl flex items-center justify-center space-x-1.5 transition-all"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>Thêm sản phẩm</span>
+          </button>
+        </div>
+      )}
+
+      {/* 4. SECTION CARDS (Khách hàng, Phụ kiện & Bảo hành, Ưu đãi & Thu cũ) */}
+      <div className="space-y-2.5">
+        {/* Card 1: Khách hàng */}
+        <div 
+          onClick={() => setShowCustomerModal(true)}
+          className="bg-white hover:bg-orange-50/20 border border-zinc-200/90 hover:border-orange-300 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
+        >
+          <div className="flex items-start space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 mt-0.5">
+              <User className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-black text-zinc-900 text-sm">
+                Khách hàng
+              </div>
+              <div className="text-xs text-zinc-800 font-semibold mt-0.5">
+                {customerName}
+              </div>
+              <div className="text-[11px] text-zinc-500 font-mono">
+                {customerPhone}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-1 text-xs font-bold text-orange-600 group-hover:translate-x-0.5 transition-transform">
+            <span>Chọn / Thêm</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Card 2: Phụ kiện & Bảo hành */}
+        <div 
+          onClick={() => setShowAccessoriesModal(true)}
+          className="bg-white hover:bg-orange-50/20 border border-zinc-200/90 hover:border-orange-300 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
+        >
+          <div className="flex items-start space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 mt-0.5">
+              <Gift className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-black text-zinc-900 text-sm">
+                Phụ kiện & Bảo hành
+              </div>
+              <div className="text-xs text-zinc-800 font-semibold mt-0.5">
+                {selectedAccessoriesList.length} phụ kiện
+              </div>
+              <div className="text-[11px] text-zinc-500 truncate max-w-[180px] sm:max-w-xs">
+                {warrantyPackage}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-1 text-xs font-black text-orange-600 group-hover:translate-x-0.5 transition-transform font-mono">
+            <span>{accessoriesTotal.toLocaleString('vi-VN')}đ</span>
+            <ChevronRight className="w-4 h-4" />
+          </div>
+        </div>
+
+        {/* Card 3: Ưu đãi & Thu cũ */}
+        <div 
+          onClick={() => setShowDiscountModal(true)}
+          className="bg-white hover:bg-orange-50/20 border border-zinc-200/90 hover:border-orange-300 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs flex items-center justify-between cursor-pointer transition-all group"
+        >
+          <div className="flex items-start space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 mt-0.5">
+              <Tag className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-black text-zinc-900 text-sm">
+                Ưu đãi & Thu cũ
+              </div>
+              <div className="text-xs text-zinc-800 font-semibold mt-0.5">
+                {voucherDiscount > 0 ? `Voucher (${voucherCode})` : 'Voucher'}
+              </div>
+              <div className="text-[11px] text-zinc-500">
+                {tradeInDiscount > 0 ? `Thu cũ (${tradeInModel})` : 'Thu cũ đổi mới'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-1 text-right group-hover:translate-x-0.5 transition-transform">
+            <div>
+              <span className="block text-xs font-black text-red-600 font-mono">
+                {voucherDiscount > 0 ? `-${voucherDiscount.toLocaleString('vi-VN')}đ` : '0đ'}
+              </span>
+              <span className="text-[10px] text-zinc-400 font-medium">
+                {tradeInDiscount > 0 ? `Trừ -${tradeInDiscount.toLocaleString('vi-VN')}đ` : 'Chưa áp dụng'}
+              </span>
+            </div>
+            <ChevronRight className="w-4 h-4 text-orange-600 ml-1" />
+          </div>
+        </div>
+      </div>
+
+      {/* 5. STICKY BOTTOM DARK SUMMARY BAR */}
+      <div className="fixed bottom-14 sm:bottom-4 left-0 right-0 z-40 px-3 sm:px-4 max-w-xl mx-auto">
+        <div className="bg-zinc-900 text-white rounded-3xl p-3.5 sm:p-4 shadow-2xl border border-zinc-800 backdrop-blur-md">
+          {/* Collapsible Order Breakdown Details */}
+          {showDetailsDropdown && (
+            <div className="mb-3.5 pb-3.5 border-b border-zinc-800 space-y-2 text-xs">
+              <div className="flex justify-between items-center text-zinc-400">
+                <span>Tiền máy ({selectedDevices.length} cây):</span>
+                <span className="font-mono text-zinc-200 font-bold">{devicesTotal.toLocaleString('vi-VN')} đ</span>
+              </div>
+              <div className="flex justify-between items-center text-zinc-400">
+                <span>Phụ kiện ({selectedAccessoriesList.length} món):</span>
+                <span className="font-mono text-zinc-200 font-bold">+{accessoriesTotal.toLocaleString('vi-VN')} đ</span>
+              </div>
+              {voucherDiscount > 0 && (
+                <div className="flex justify-between items-center text-red-400">
+                  <span>Giảm giá Voucher:</span>
+                  <span className="font-mono font-bold">-{voucherDiscount.toLocaleString('vi-VN')} đ</span>
+                </div>
+              )}
+              {tradeInDiscount > 0 && (
+                <div className="flex justify-between items-center text-orange-400">
+                  <span>Trừ tiền Thu cũ đổi mới:</span>
+                  <span className="font-mono font-bold">-{tradeInDiscount.toLocaleString('vi-VN')} đ</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-zinc-400">
+                <span>Gói bảo hành:</span>
+                <span className="text-emerald-400 font-bold">{warrantyPackage}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3">
+            {/* Left: Total Price & Collapsible trigger */}
+            <div className="space-y-0.5">
+              <div className="text-[11px] text-zinc-400 font-medium">
+                Tổng thanh toán
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-orange-500 font-mono tracking-tight">
+                {finalAmount.toLocaleString('vi-VN')}đ
+              </div>
+              <button
+                onClick={() => setShowDetailsDropdown(!showDetailsDropdown)}
+                className="flex items-center space-x-1 text-[11px] text-zinc-400 hover:text-white font-medium transition-colors"
+              >
+                <span>{showDetailsDropdown ? 'Thu gọn chi tiết' : '^ Chi tiết đơn hàng'}</span>
+                {showDetailsDropdown ? <ChevronDown className="w-3.5 h-3.5" /> : null}
+              </button>
+            </div>
+
+            {/* Right: Large Orange Checkout Button */}
+            <button
+              onClick={() => setShowPaymentModal(true)}
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-sm sm:text-base px-6 sm:px-8 py-3.5 rounded-2xl shadow-lg shadow-orange-500/25 flex items-center space-x-2 active:scale-95 transition-all cursor-pointer"
+            >
+              <span>Thanh toán</span>
+              <ChevronRight className="w-4 h-4 stroke-[3]" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ======================================================== */}
+      {/* MODAL 1: SCANNER & FAST SEARCH IMEI */}
+      {/* ======================================================== */}
+      {showScannerModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-4 sm:p-5 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <Scan className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-zinc-900">Quét & Nhập IMEI 15 Số</h3>
+                  <p className="text-[10px] text-zinc-500">Tra cứu nhanh từ kho Phone House</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowScannerModal(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Simulated Camera Viewfinder */}
+            <div className="relative h-36 bg-zinc-900 rounded-2xl overflow-hidden flex flex-col items-center justify-center text-white border-2 border-orange-500/50 shadow-inner">
+              <div className="absolute inset-x-8 inset-y-4 border-2 border-dashed border-orange-400/80 rounded-xl flex items-center justify-center animate-pulse">
+                <div className="w-full h-0.5 bg-orange-500 shadow-[0_0_8px_#f97316] animate-bounce" />
+              </div>
+              <Camera className="w-6 h-6 text-orange-400 mb-1" />
+              <span className="text-[11px] font-bold text-zinc-300">Đang nhận diện Barcode / IMEI</span>
+            </div>
+
+            {/* Search input */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700">Hoặc nhập thủ công IMEI / Tên máy:</label>
+              <div className="relative">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Nhập 15 số IMEI hoặc '16 Pro'..."
+                  value={scannerQuery}
+                  onChange={(e) => setScannerQuery(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500 font-mono"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Quick in-stock suggestions */}
+            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                Máy Có Sẵn Trong Kho:
+              </span>
+              {inStockDevices
+                .filter(d => 
+                  !scannerQuery || 
+                  d.imei.includes(scannerQuery) || 
+                  d.model.toLowerCase().includes(scannerQuery.toLowerCase())
+                )
+                .slice(0, 4)
+                .map((device) => (
+                  <div
+                    key={device.imei}
+                    onClick={() => handleAddDevice(device)}
+                    className="p-2.5 bg-zinc-50 hover:bg-orange-50 border border-zinc-200 hover:border-orange-300 rounded-xl flex items-center justify-between cursor-pointer transition-all"
+                  >
+                    <div>
+                      <div className="font-bold text-xs text-zinc-900">{device.model} {device.storage}</div>
+                      <div className="text-[10px] text-zinc-500 font-mono">IMEI: {device.imei} • {device.color}</div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-xs text-orange-600 font-mono">{device.sellPrice.toLocaleString('vi-VN')}đ</span>
+                      <span className="block text-[9px] text-emerald-600 font-bold">Chọn +</span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 2: DEVICE PICKER FROM INVENTORY */}
+      {/* ======================================================== */}
+      {showDevicePickerModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl p-4 sm:p-5 space-y-3.5 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-zinc-900">Chọn Thêm Máy Từ Kho ({inStockDevices.length})</h3>
+                  <p className="text-[10px] text-zinc-500">Tất cả máy trạng thái 'Sẵn sàng bán'</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowDevicePickerModal(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* List */}
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {inStockDevices.map((device) => {
+                const isSelected = selectedDevices.some(d => d.imei === device.imei);
+                return (
+                  <div
+                    key={device.imei}
+                    onClick={() => {
+                      if (!isSelected) handleAddDevice(device);
+                      else handleRemoveDevice(device.imei);
+                    }}
+                    className={`p-3 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
+                      isSelected 
+                        ? 'bg-orange-50 border-orange-300 ring-2 ring-orange-200' 
+                        : 'bg-zinc-50 hover:bg-orange-50/50 border-zinc-200 hover:border-orange-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-zinc-200 flex items-center justify-center shrink-0">
+                        <Smartphone className="w-5 h-5 text-orange-500" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs sm:text-sm text-zinc-900">{device.model} {device.storage}</div>
+                        <div className="text-[11px] text-zinc-500 font-mono">
+                          IMEI: {device.imei} • Pin {device.batteryHealth}% • {device.condition}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="font-black text-xs sm:text-sm text-orange-600 font-mono">
+                        {device.sellPrice.toLocaleString('vi-VN')} đ
+                      </span>
+                      <span className={`block text-[10px] font-bold ${isSelected ? 'text-orange-600' : 'text-zinc-500'}`}>
+                        {isSelected ? '✓ Đã chọn' : '+ Chọn'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setShowDevicePickerModal(false)}
+              className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl text-xs"
+            >
+              Hoàn tất chọn máy ({selectedDevices.length})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 3: CUSTOMER SELECTION & ADD MODAL */}
+      {/* ======================================================== */}
+      {showCustomerModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-4 sm:p-5 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <User className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-zinc-900">Thông Tin Khách Hàng</h3>
+                  <p className="text-[10px] text-zinc-500">Lưu vào sổ CRM & in lên hóa đơn K80</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowCustomerModal(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Tên Khách Hàng *</label>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Tên khách hàng *</label>
                 <input
                   type="text"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                  placeholder="Ví dụ: Nguyễn Văn Tuấn"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500 font-semibold"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Số Điện Thoại / Zalo *</label>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Số điện thoại / Zalo *</label>
                 <input
                   type="text"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  placeholder="0909 123 456"
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500 font-mono"
                 />
               </div>
-            </div>
-          </div>
 
-          {/* Selected Devices in Cart */}
-          <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3">
-            <div className="flex justify-between items-center">
-              <h3 className="font-black text-zinc-900 text-sm flex items-center space-x-2">
-                <Smartphone className="w-4 h-4 text-orange-600" />
-                <span>2. Máy Đã Chọn Xuất Bán ({selectedDevices.length})</span>
-              </h3>
-            </div>
-
-            {selectedDevices.length === 0 ? (
-              <div className="p-6 text-center bg-zinc-50 rounded-2xl border border-zinc-200 text-xs text-zinc-500">
-                Chưa có máy nào trong giỏ. Hãy chọn một máy bên dưới!
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Địa chỉ nhận máy / Giao hàng</label>
+                <input
+                  type="text"
+                  value={customerAddress}
+                  onChange={(e) => setCustomerAddress(e.target.value)}
+                  placeholder="123 Cầu Giấy, Hà Nội"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                />
               </div>
-            ) : (
-              <div className="space-y-2">
-                {selectedDevices.map((d) => (
-                  <div 
-                    key={d.imei}
-                    className="p-3 bg-orange-50/50 rounded-2xl border border-orange-200 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <div className="font-bold text-zinc-900 text-sm">{d.model} {d.storage}</div>
-                      <div className="text-[11px] text-zinc-500 font-mono">
-                        IMEI: <strong className="text-orange-600">{d.imei}</strong> • Pin {d.batteryHealth}% • {d.color}
-                      </div>
-                    </div>
 
-                    <div className="flex items-center space-x-3">
-                      <span className="font-black text-zinc-900 font-mono text-sm">
-                        {d.sellPrice.toLocaleString('vi-VN')} đ
-                      </span>
+              {/* Quick Select from CRM Leads */}
+              {leads.length > 0 && (
+                <div className="pt-2 border-t border-zinc-100 space-y-1.5">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                    Khách Hàng Gần Đây Từ CRM:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {leads.slice(0, 3).map(l => (
                       <button
-                        onClick={() => handleRemoveDeviceFromCart(d.imei)}
-                        className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        key={l.id}
+                        type="button"
+                        onClick={() => {
+                          setCustomerName(l.name);
+                          setCustomerPhone(l.phone);
+                        }}
+                        className="px-2.5 py-1 bg-zinc-100 hover:bg-orange-50 border border-zinc-200 hover:border-orange-300 rounded-lg text-[11px] text-zinc-700 font-medium transition-all"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {l.name} ({l.phone})
                       </button>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Quick Picker from Stock */}
-            <div className="pt-2">
-              <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">
-                Chọn Nhanh Máy Trong Kho Để Thêm Vào Đơn:
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
-                {inStockDevices
-                  .filter(d => !selectedDevices.some(s => s.imei === d.imei))
-                  .slice(0, 6)
-                  .map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => handleAddDeviceToCart(d)}
-                      className="p-2.5 bg-zinc-50 hover:bg-orange-50/60 border border-zinc-200 hover:border-orange-300 rounded-xl text-left text-xs flex items-center justify-between transition-all"
-                    >
-                      <div className="truncate pr-2">
-                        <strong className="text-zinc-900 block truncate">{d.model} {d.storage}</strong>
-                        <span className="text-[10px] text-zinc-500 font-mono">{d.imei.slice(-6)} • Pin {d.batteryHealth}%</span>
-                      </div>
-                      <span className="font-bold text-orange-600 shrink-0">
-                        {Math.round(d.sellPrice / 1000000)}M
-                      </span>
-                    </button>
-                  ))}
-              </div>
+                </div>
+              )}
             </div>
+
+            <button
+              onClick={() => setShowCustomerModal(false)}
+              className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs"
+            >
+              Lưu Thông Tin Khách Hàng
+            </button>
           </div>
+        </div>
+      )}
 
-          {/* Accessories & Warranty Combos */}
-          <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3">
-            <h3 className="font-black text-zinc-900 text-sm flex items-center space-x-2">
-              <Package className="w-4 h-4 text-orange-600" />
-              <span>3. Gói Phụ Kiện Tặng Kèm & Bảo Hành</span>
-            </h3>
+      {/* ======================================================== */}
+      {/* MODAL 4: ACCESSORIES & WARRANTY BUNDLE */}
+      {/* ======================================================== */}
+      {showAccessoriesModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-4 sm:p-5 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <Gift className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-zinc-900">Phụ Kiện & Gói Bảo Hành</h3>
+                  <p className="text-[10px] text-zinc-500">Combo tặng kèm và bảo hành toàn diện</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowAccessoriesModal(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Accessories list */}
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Phụ kiện đính kèm:</span>
               {accessories.map((acc, idx) => (
-                <label 
-                  key={idx}
+                <label
+                  key={acc.id}
                   className={`p-2.5 rounded-xl border text-xs flex items-center justify-between cursor-pointer transition-all ${
                     acc.selected 
-                      ? 'bg-orange-50 border-orange-200 text-zinc-900 font-medium' 
+                      ? 'bg-orange-50 border-orange-200 text-zinc-900 font-semibold' 
                       : 'bg-zinc-50 border-zinc-200 text-zinc-600'
                   }`}
                 >
@@ -285,7 +1000,10 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                       }}
                       className="rounded text-orange-500 focus:ring-orange-400"
                     />
-                    <span className="truncate">{acc.name}</span>
+                    <div className="truncate">
+                      <span className="block truncate">{acc.name}</span>
+                      {acc.note && <span className="text-[10px] text-zinc-400 font-normal">{acc.note}</span>}
+                    </div>
                   </div>
                   <span className="text-orange-600 font-mono font-bold shrink-0">
                     +{acc.price.toLocaleString('vi-VN')}đ
@@ -294,180 +1012,313 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
               ))}
             </div>
 
-            {/* Warranty Package */}
-            <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs space-y-1.5">
-              <label className="font-bold text-zinc-900 flex items-center space-x-1.5">
+            {/* Warranty selector */}
+            <div className="space-y-2 pt-2 border-t border-zinc-100">
+              <label className="text-xs font-bold text-zinc-700 flex items-center space-x-1.5">
                 <ShieldCheck className="w-4 h-4 text-orange-600" />
                 <span>Gói Bảo Hành Kèm Theo:</span>
               </label>
               <select
                 value={warrantyPackage}
                 onChange={(e) => setWarrantyPackage(e.target.value)}
-                className="w-full bg-white border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 font-bold"
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 font-bold"
               >
-                <option value="Gói VIP 1 Đổi 1 trong 12 Tháng (Bao Nguồn + Màn + FaceID)">
-                  Gói VIP: 1 Đổi 1 trong 12 Tháng (Bao Nguồn + Màn Hình + FaceID) [Miễn Phí]
+                <option value="Gói VIP: 12 tháng (Bao nguồn + Màn hình)">
+                  Gói VIP: 12 tháng (Bao nguồn + Màn hình + FaceID) [Miễn Phí]
                 </option>
-                <option value="Gói Kim Cương 24 Tháng + Rơi Vỡ Vào Nước">
-                  Gói Kim Cương: 24 Tháng + Bảo Hành Rơi Vỡ / Vào Nước
+                <option value="Gói Kim Cương: 24 tháng (Rơi Vỡ + Vào Nước)">
+                  Gói Kim Cương: 24 tháng (Bao Rơi Vỡ / Vào Nước)
                 </option>
                 <option value="Bảo hành tiêu chuẩn 6 tháng phần cứng">
                   Bảo hành tiêu chuẩn 6 tháng phần cứng
                 </option>
               </select>
             </div>
+
+            <button
+              onClick={() => setShowAccessoriesModal(false)}
+              className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs"
+            >
+              Xác Nhận ({accessoriesTotal.toLocaleString('vi-VN')}đ)
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Right 1 Col: Billing Summary & Payment Calculator */}
-        <div className="space-y-4">
-          <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-sm space-y-4">
-            <h3 className="font-black text-zinc-900 text-base">Tổng Kết Thanh Toán</h3>
-
-            {/* Price lines */}
-            <div className="space-y-2 text-xs text-zinc-600">
-              <div className="flex justify-between">
-                <span>Tiền máy ({selectedDevices.length} cây):</span>
-                <span className="font-mono text-zinc-900 font-semibold">{devicesTotal.toLocaleString('vi-VN')} đ</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Phụ kiện kèm theo:</span>
-                <span className="font-mono text-zinc-900 font-semibold">{accessoriesTotal.toLocaleString('vi-VN')} đ</span>
-              </div>
-              
-              {/* Discount inputs */}
-              <div className="pt-2 border-t border-zinc-100 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-amber-700 font-bold">Giảm giá / Voucher:</span>
-                  <input
-                    type="number"
-                    step="50000"
-                    value={discountAmount}
-                    onChange={(e) => setDiscountAmount(Number(e.target.value))}
-                    className="w-28 bg-zinc-50 border border-zinc-300 rounded-lg px-2 py-1 text-right text-xs text-zinc-900 font-mono focus:outline-none focus:border-orange-500"
-                  />
+      {/* ======================================================== */}
+      {/* MODAL 5: DISCOUNTS & TRADE-IN */}
+      {/* ======================================================== */}
+      {showDiscountModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-4 sm:p-5 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <Tag className="w-4 h-4" />
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-orange-700 font-bold">Trừ tiền thu cũ:</span>
-                  <input
-                    type="number"
-                    step="100000"
-                    value={tradeInDiscount}
-                    onChange={(e) => setTradeInDiscount(Number(e.target.value))}
-                    className="w-28 bg-zinc-50 border border-zinc-300 rounded-lg px-2 py-1 text-right text-xs text-zinc-900 font-mono focus:outline-none focus:border-orange-500"
-                  />
+                <div>
+                  <h3 className="font-black text-sm text-zinc-900">Ưu Đãi Voucher & Thu Cũ</h3>
+                  <p className="text-[10px] text-zinc-500">Giảm trừ trực tiếp vào hóa đơn bán hàng</p>
                 </div>
               </div>
+              <button 
+                onClick={() => setShowDiscountModal(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
 
-              {/* Total */}
-              <div className="pt-3 border-t border-zinc-200 flex justify-between items-baseline">
-                <span className="font-black text-zinc-900 text-sm uppercase">Tổng Tiền Cần Thu:</span>
-                <div className="text-right">
-                  <span className="text-2xl font-black text-orange-600 font-mono">
-                    {finalAmount.toLocaleString('vi-VN')}
-                  </span>
-                  <span className="text-xs text-zinc-900 ml-1">đ</span>
-                </div>
+            {/* Voucher Presets */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-700">Mã Giảm Giá / Voucher:</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { code: 'VOUCHER100K', amount: 100000, label: '-100.000đ' },
+                  { code: 'VOUCHER200K', amount: 200000, label: '-200.000đ' },
+                  { code: 'VIP500K', amount: 500000, label: '-500.000đ' },
+                ].map(v => (
+                  <button
+                    key={v.code}
+                    type="button"
+                    onClick={() => {
+                      setVoucherCode(v.code);
+                      setVoucherDiscount(v.amount);
+                    }}
+                    className={`p-2 rounded-xl border text-xs font-bold transition-all ${
+                      voucherDiscount === v.amount 
+                        ? 'bg-orange-50 border-orange-300 text-orange-700' 
+                        : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-orange-50/50'
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom voucher input */}
+              <div className="pt-1">
+                <input
+                  type="number"
+                  placeholder="Số tiền giảm tùy chỉnh (VNĐ)"
+                  value={voucherDiscount || ''}
+                  onChange={(e) => setVoucherDiscount(Number(e.target.value))}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none focus:border-orange-500"
+                />
               </div>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="space-y-2 pt-2">
-              <label className="block text-xs font-bold text-zinc-900">Hình Thức Thanh Toán</label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  'Chuyển khoản QR',
-                  'Tiền mặt',
-                  'Quẹt thẻ POS',
-                  'Trả góp 0% / CCCD'
-                ].map((m) => (
+            {/* Trade In Deduction */}
+            <div className="space-y-2 pt-2 border-t border-zinc-100">
+              <label className="text-xs font-bold text-zinc-700">Thu Cũ Đổi Mới (Trừ tiền máy cũ):</label>
+              <input
+                type="text"
+                placeholder="Tên máy thu cũ (Ví dụ: iPhone 14 Pro 128GB VN/A)"
+                value={tradeInModel}
+                onChange={(e) => setTradeInModel(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 mb-1.5"
+              />
+              <input
+                type="number"
+                placeholder="Số tiền định giá thu vào (VNĐ)"
+                value={tradeInDiscount || ''}
+                onChange={(e) => setTradeInDiscount(Number(e.target.value))}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none focus:border-orange-500"
+              />
+            </div>
+
+            <button
+              onClick={() => setShowDiscountModal(false)}
+              className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs"
+            >
+              Áp Dụng Khuyến Mãi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 6: PAYMENT & CHECKOUT MODAL */}
+      {/* ======================================================== */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl p-4 sm:p-5 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-zinc-900">Chọn Hình Thức Thanh Toán</h3>
+                  <p className="text-[10px] text-zinc-500">Tổng tiền cần thanh toán: <strong className="text-orange-600 font-mono">{finalAmount.toLocaleString('vi-VN')}đ</strong></p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPaymentModal(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Payment method tabs */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'Chuyển khoản QR', label: 'Chuyển khoản VietQR', icon: QrCode },
+                { id: 'Tiền mặt', label: 'Tiền mặt', icon: Receipt },
+                { id: 'Quẹt thẻ POS', label: 'Quẹt thẻ MPOS', icon: CreditCard },
+                { id: 'Trả góp 0% / CCCD', label: 'Trả góp 0% / CCCD', icon: Percent }
+              ].map((m) => {
+                const Icon = m.icon;
+                const isSelected = paymentMethod === m.id;
+                return (
                   <button
-                    key={m}
+                    key={m.id}
                     type="button"
-                    onClick={() => setPaymentMethod(m as any)}
-                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all ${
-                      paymentMethod === m 
+                    onClick={() => setPaymentMethod(m.id as any)}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center space-x-2 transition-all ${
+                      isSelected 
                         ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-transparent shadow-xs' 
                         : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-orange-50/50'
                     }`}
                   >
-                    {m}
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{m.label}</span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
 
-            {/* If QR Code */}
+            {/* Dynamic Payment Details */}
             {paymentMethod === 'Chuyển khoản QR' && (
-              <div className="p-3 bg-orange-50/50 rounded-2xl border border-orange-100 text-center space-y-2">
-                <span className="text-[11px] text-zinc-700 font-bold block">Quét VietQR Tự Động Điền Nội Dung</span>
-                <div className="w-28 h-28 mx-auto bg-white p-2 rounded-xl border border-orange-200 flex items-center justify-center shadow-xs">
-                  <QrCode className="w-full h-full text-zinc-900" />
+              <div className="p-3.5 bg-orange-50/60 rounded-2xl border border-orange-200 text-center space-y-2">
+                <span className="text-[11px] text-zinc-700 font-bold block">Quét VietQR Tự Động Điền Số Tiền & Nội Dung</span>
+                <div className="w-32 h-32 mx-auto bg-white p-2 rounded-xl border border-orange-200 flex items-center justify-center shadow-xs">
+                  <img
+                    src={`https://api.vietqr.io/image/970407-1903666888999-compact2.jpg?amount=${finalAmount}&addInfo=PhoneHouse%20${customerPhone.replace(/\s+/g, '')}&accountName=PHONE%20HOUSE%20APPLE`}
+                    alt="VietQR"
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-contain"
+                  />
                 </div>
-                <div className="text-[10px] text-zinc-500 font-mono">
-                  Techcombank: 1903xxxxxx • iStore Pro
+                <div className="text-[10px] text-zinc-600 font-mono">
+                  Techcombank: <strong>1903666888999</strong> • PHONE HOUSE APPLE
                 </div>
               </div>
             )}
 
-            {/* If Installment */}
+            {paymentMethod === 'Tiền mặt' && (
+              <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-zinc-600">Tiền khách đưa:</span>
+                  <input
+                    type="number"
+                    value={cashGiven}
+                    onChange={(e) => setCashGiven(Number(e.target.value))}
+                    className="w-32 bg-white border border-zinc-300 rounded-lg px-2 py-1 text-right text-xs font-mono font-bold"
+                  />
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-zinc-200 font-bold">
+                  <span>Tiền thối lại:</span>
+                  <span className="text-emerald-600 font-mono text-sm">{cashChange.toLocaleString('vi-VN')} đ</span>
+                </div>
+              </div>
+            )}
+
             {paymentMethod === 'Trả góp 0% / CCCD' && (
-              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs space-y-2">
-                <span className="font-bold text-amber-900 block">Mô Phỏng Hợp Đồng Trả Góp 0%:</span>
-                <div className="flex justify-between text-zinc-700">
-                  <span>Trả trước ({downPaymentPercent}%):</span>
-                  <strong className="text-zinc-900 font-mono">{downPaymentAmount.toLocaleString('vi-VN')}đ</strong>
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs space-y-3">
+                <div>
+                  <label className="block text-zinc-600 mb-1 font-bold">Đối tác trả góp (HD Saison, HomeCredit...)</label>
+                  <select
+                    value={installmentCompany}
+                    onChange={(e) => setInstallmentCompany(e.target.value)}
+                    className="w-full bg-white border border-zinc-200 rounded-lg p-2 text-xs font-bold"
+                  >
+                    <option value="HD Saison">HD Saison</option>
+                    <option value="HomeCredit">HomeCredit</option>
+                    <option value="MPOS">MPOS Trả Góp Thẻ</option>
+                    <option value="Kredivo">Kredivo</option>
+                  </select>
                 </div>
-                <div className="flex justify-between text-zinc-700">
-                  <span>Góp mỗi tháng ({installmentTenor} tháng):</span>
-                  <strong className="text-orange-600 font-mono">{monthlyPaymentAmount.toLocaleString('vi-VN')}đ / tháng</strong>
+                <div>
+                  <label className="block text-zinc-600 mb-1 font-bold">Mã Hợp Đồng / Chuẩn chi</label>
+                  <input
+                    type="text"
+                    placeholder="Nhập mã HĐ hoặc để trống nhập sau..."
+                    value={installmentContractCode}
+                    onChange={(e) => setInstallmentContractCode(e.target.value)}
+                    className="w-full bg-white border border-zinc-200 rounded-lg p-2 text-xs"
+                  />
+                </div>
+                <div className="flex justify-between items-center bg-white p-2 border border-zinc-200 rounded-lg">
+                  <span className="text-zinc-600 font-bold">Trả trước (Khách thanh toán luôn):</span>
+                  <input
+                    type="number"
+                    value={downPaymentAmount}
+                    onChange={(e) => setCustomDownPayment(Number(e.target.value))}
+                    className="w-28 bg-zinc-50 border border-zinc-300 rounded px-2 py-1 text-right text-xs font-mono font-bold text-orange-600"
+                  />
+                </div>
+                <div className="flex justify-between text-zinc-700 bg-white p-2 border border-zinc-200 rounded-lg font-bold">
+                  <span>Số tiền chờ đối tác giải ngân:</span>
+                  <strong className="text-zinc-900 font-mono text-sm">{(finalAmount - downPaymentAmount).toLocaleString('vi-VN')}đ</strong>
                 </div>
               </div>
             )}
 
-            {/* Checkout Button */}
+            {/* Action Checkout Button */}
             <button
               onClick={handleCheckout}
-              className="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-sm rounded-xl flex items-center justify-center space-x-2 shadow-md shadow-orange-500/20 active:scale-95 transition-all"
+              className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-sm rounded-xl flex items-center justify-center space-x-2 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
             >
               <Receipt className="w-4 h-4" />
-              <span>Xuất Hóa Đơn & Trừ Kho IMEI</span>
+              <span>Xác Nhận & Xuất Hóa Đơn (K80)</span>
             </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* MODAL: In Hóa Đơn Bán Hàng K80 */}
+      {/* ======================================================== */}
+      {/* MODAL 7: THERMAL RECEIPT SLIP K80 */}
+      {/* ======================================================== */}
       {createdInvoiceForPrint && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white border border-orange-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-5 space-y-4">
-            <div className="flex justify-between items-center border-b border-zinc-200 pb-3">
-              <span className="font-black text-sm text-zinc-900">Hóa Đơn Bán Hàng K80</span>
-              <button onClick={() => setCreatedInvoiceForPrint(null)} className="text-zinc-400 hover:text-zinc-600 font-bold">✕</button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3.5 sm:p-4">
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-4 sm:p-5 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Printer className="w-5 h-5 text-orange-600" />
+                <span className="font-black text-sm text-zinc-900">Hóa Đơn Bán Hàng K80</span>
+              </div>
+              <button 
+                onClick={() => { setCreatedInvoiceForPrint(null); resetForm(); }} 
+                className="w-7 h-7 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-500 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
             </div>
 
             {/* Virtual Thermal Slip */}
-            <div className="bg-zinc-50 text-black p-4 rounded-xl border border-zinc-300 text-xs font-mono space-y-2 shadow-inner">
-              <div className="text-center font-black text-base text-orange-600">iStore Pro • APPLE STORE</div>
-              <div className="text-center text-[10px] text-zinc-600">Đ/c: 123 Phố Huế, Q. Hai Bà Trưng, Hà Nội</div>
-              <div className="text-center text-[10px] text-zinc-600">Hotline: 0909.888.999</div>
+            <div className="bg-zinc-50 text-black p-4 rounded-2xl border border-zinc-300 text-xs font-mono space-y-2 shadow-inner">
+              <div className="text-center font-black text-base text-orange-600">PHONE HOUSE • APPLE STORE</div>
+              <div className="text-center text-[10px] text-zinc-600">Đ/c: 123 Cầu Giấy, Q. Cầu Giấy, Hà Nội</div>
+              <div className="text-center text-[10px] text-zinc-600">Hotline: 0909.123.456</div>
               <div className="border-b border-dashed border-zinc-400 my-2" />
 
               <div className="flex justify-between font-bold">
-                <span>Số Hóa Đơn:</span>
-                <span>{createdInvoiceForPrint.id}</span>
+                <span>Số HĐ:</span>
+                <span>{createdInvoiceForPrint.invoiceCode || createdInvoiceForPrint.id}</span>
               </div>
               <div className="flex justify-between">
                 <span>Khách hàng:</span>
-                <span>{createdInvoiceForPrint.customerName}</span>
+                <span className="font-bold">{createdInvoiceForPrint.customerName}</span>
               </div>
               <div className="flex justify-between">
                 <span>SĐT:</span>
-                <span>{createdInvoiceForPrint.customerPhone}</span>
+                <span>{createdInvoiceForPrint.customerPhone || createdInvoiceForPrint.phone}</span>
               </div>
               <div className="flex justify-between">
-                <span>Ngày mua:</span>
-                <span>{createdInvoiceForPrint.createdAt}</span>
+                <span>Thời gian:</span>
+                <span>{createdInvoiceForPrint.createdDate || createdInvoiceForPrint.createdAt}</span>
               </div>
 
               {/* Items */}
@@ -502,7 +1353,13 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                     <span>-{createdInvoiceForPrint.discountAmount.toLocaleString('vi-VN')} đ</span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm font-black pt-1 border-t border-black">
+                {createdInvoiceForPrint.tradeInDeduction > 0 && (
+                  <div className="flex justify-between text-orange-600">
+                    <span>Trừ thu cũ:</span>
+                    <span>-{createdInvoiceForPrint.tradeInDeduction.toLocaleString('vi-VN')} đ</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-black pt-1 border-t border-black text-orange-600">
                   <span>THÀNH TIỀN:</span>
                   <span>{createdInvoiceForPrint.finalAmount.toLocaleString('vi-VN')} đ</span>
                 </div>
@@ -513,20 +1370,24 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
               </div>
 
               <div className="text-[9px] text-zinc-500 pt-2 text-center font-sans">
-                Cảm ơn quý khách đã tin tưởng mua sắm tại iStore Pro!
+                Cảm ơn quý khách đã mua sắm tại Phone House!
               </div>
             </div>
 
             <div className="flex space-x-2">
               <button
                 onClick={() => window.print()}
-                className="flex-1 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
+                className="flex-1 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
               >
                 In Hóa Đơn K80
               </button>
               <button
-                onClick={() => setCreatedInvoiceForPrint(null)}
-                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold"
+                onClick={() => {
+                  setCreatedInvoiceForPrint(null);
+                  resetForm();
+                  if (onNavigateToInvoices) onNavigateToInvoices();
+                }}
+                className="px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold"
               >
                 Đóng
               </button>

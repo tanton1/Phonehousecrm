@@ -1,3 +1,17 @@
+export interface ProductItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: 'Phụ kiện' | 'Linh kiện' | 'Dịch vụ';
+  brand: string;
+  buyPrice: number;
+  sellPrice: number;
+  stockQuantity: number;
+  minStockLevel: number;
+  status: 'active' | 'inactive';
+  notes?: string;
+}
+
 export interface DeviceItem {
   id: string;
   imei: string;
@@ -87,12 +101,32 @@ export interface WarrantyTicket {
   aiDiagnostic?: string;
 }
 
+export interface SalesInvoiceItem {
+  sku?: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  imei?: string;
+  type?: 'phone' | 'accessory' | 'service';
+  color?: string;
+  storage?: string;
+}
+
 export interface SalesInvoice {
   id: string;
   invoiceCode?: string;
   customerName: string;
   customerPhone?: string;
   phone?: string;
+  status?: 'completed' | 'pending' | 'cancelled';
+  priceList?: string;
+  salesChannel?: string;
+  sellerName?: string;
+  creatorName?: string;
+  branch?: string;
+  paidAmount?: number;
+  debtAmount?: number;
   imeiList?: string[];
   devices?: {
     model: string;
@@ -108,9 +142,11 @@ export interface SalesInvoice {
     color?: string;
     storage?: string;
   }[];
+  detailedItems?: SalesInvoiceItem[];
   accessories: {
     name: string;
     price: number;
+    quantity?: number;
   }[];
   warrantyPackage: string; // Gói tiêu chuẩn 6T, Gói VIP 1 Đổi 1 12 Tháng...
   totalAmount: number;
@@ -134,6 +170,10 @@ export interface SalesInvoice {
   createdAt?: string;
   createdDate?: string;
   notes?: string;
+  customerId?: string;
+  installmentDisbursementStatus?: 'PENDING' | 'DISBURSED';
+  installmentExpectedAmount?: number;
+  installmentContractCode?: string;
 }
 
 export interface ERPNextModuleDocType {
@@ -184,6 +224,69 @@ export interface RolePermissionInfo {
 export type PartnerType = 'CUSTOMER' | 'SUPPLIER' | 'BOTH';
 export type CustomerTier = 'STANDARD' | 'SILVER' | 'GOLD' | 'DIAMOND' | 'WHOLESALE';
 export type SupplierCategory = 'OFFICIAL_DISTRIBUTOR' | 'LIKE_NEW_WHOLESALER' | 'COMPONENTS' | 'FINANCE_PARTNER';
+
+// Cashbook (Sổ Quỹ) & Cashflow Management Types
+export type CashTransactionType = 'RECEIPT' | 'PAYMENT'; // Phiếu Thu (RECEIPT) / Phiếu Chi (PAYMENT)
+export type PaymentFundType = 'CASH' | 'BANK' | 'POS_CARD' | 'INSTALLMENT_CREDIT'; // Tiền mặt / Ngân hàng / Quẹt thẻ / Trả góp
+
+export type CashReceiptCategory = 
+  | 'SALES_REVENUE'        // Thu tiền bán hàng iPhone / Phụ kiện
+  | 'CUSTOMER_DEBT_COLLECT'// Thu tiền nợ khách hàng
+  | 'TRADEIN_DIFF_COLLECT' // Thu tiền bù chênh lệch Trade-in
+  | 'DEPOSIT'              // Thu tiền đặt cọc giữ máy
+  | 'REPAIR_SERVICE'       // Thu tiền dịch vụ sửa chữa / thay màn / pin
+  | 'CAPITAL_INVEST'       // Thu bổ sung vốn chủ sở hữu / quỹ dự phòng
+  | 'SUPPLIER_REFUND'      // NCC hoàn tiền hàng lỗi / chiết khấu
+  | 'OTHER_INCOME';        // Thu nhập khác
+
+export type CashPaymentCategory = 
+  | 'INVENTORY_PURCHASE'   // Chi nhập hàng iPhone mới / Like New
+  | 'SUPPLIER_DEBT_PAY'    // Chi thanh toán nợ Nhà Cung Cấp
+  | 'TRADEIN_BUYBACK'      // Chi tiền mặt thu mua máy cũ của khách
+  | 'STORE_RENT'           // Chi tiền thuê mặt bằng
+  | 'SALARY_BONUS'         // Chi lương, thưởng nhân viên & hoa hồng bán lẻ
+  | 'MARKETING_ADS'        // Chi quảng cáo Facebook / TikTok Ads / Seeding
+  | 'UTILITIES'            // Chi điện, nước, internet, văn phòng phẩm
+  | 'WARRANTY_PARTS'       // Chi mua linh kiện bảo hành / sửa chữa
+  | 'CUSTOMER_REFUND'      // Chi hoàn tiền đổi trả cho khách
+  | 'OTHER_EXPENSE';       // Chi phí khác
+
+export interface CashTransaction {
+  id: string;
+  code: string; // PT-20250215-01 / PC-20250215-01
+  type: CashTransactionType;
+  category: CashReceiptCategory | CashPaymentCategory;
+  categoryName: string;
+  amount: number;
+  fundType: PaymentFundType;
+  fundName: string; // Quỹ Tiền Mặt Tại Két, VietQR Techcombank, MPOS Quẹt Thẻ, HD Saison...
+  date: string; // ISO or YYYY-MM-DD HH:mm
+  partnerId?: string;
+  partnerName?: string;
+  partnerType?: PartnerType;
+  partnerPhone?: string;
+  referenceCode?: string; // Mã Hóa đơn HD-..., Phiếu Nhập PN-..., Ticket BH-...
+  creator: string; // Nhật Tân (Admin), Thu ngân Linh...
+  notes: string;
+  status: 'COMPLETED' | 'PENDING' | 'CANCELLED';
+  attachments?: string[];
+}
+
+export interface FundAccount {
+  id: string;
+  name: string;
+  type: PaymentFundType;
+  accountNumber?: string;
+  bankName?: string;
+  branch?: string;
+  qrCodeUrl?: string;
+  currentBalance: number;
+  openingBalance: number;
+  totalIncome: number;
+  totalExpense: number;
+  isActive: boolean;
+  color: string;
+}
 
 export interface PartnerDebtTransaction {
   id: string;

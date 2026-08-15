@@ -24,7 +24,7 @@ import {
   BadgePercent,
   Layers,
   ArrowRight
-} from 'lucide-react';
+, X } from 'lucide-react';
 import { UserAccount, UserRole, RolePermissionInfo } from '../types';
 import { ROLE_PERMISSIONS_CONFIG } from '../data/initialData';
 import { loginWithEmail, registerWithEmail } from '../lib/firebase';
@@ -624,27 +624,28 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
       {/* CREATE / EDIT USER MODAL */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-2xl border border-orange-100 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
-              <div className="flex items-center space-x-2">
-                <div className="w-9 h-9 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center">
-                  <UserPlus className="w-5 h-5" />
+        <div className="fixed inset-0 bg-white sm:bg-black/60 sm:backdrop-blur-xs z-50 flex items-center justify-center sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-lg overflow-hidden shadow-none sm:shadow-2xl flex flex-col border-0 sm:border sm:border-orange-200">
+            <div className="bg-white px-4 py-3.5 sm:px-6 sm:py-5 border-b border-orange-100 flex items-center gap-3 shrink-0">
+              <button onClick={() => setIsAddModalOpen(false)} className="sm:hidden p-1.5 -ml-2 text-zinc-400 hover:bg-zinc-100 rounded-lg">
+                <X className="w-5 h-5 text-zinc-600" />
+              </button>
+              <div className="flex items-center space-x-2 flex-1">
+                <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center">
+                  <UserPlus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-zinc-900 text-base">
-                    {editingUser ? 'Chỉnh Sửa Tài Khoản Nhân Viên' : 'Tạo Tài Khoản & Phân Quyền Mới'}
+                  <h3 className="font-bold text-zinc-900 text-base leading-tight">
+                    {editingUser ? 'Sửa Nhân Viên' : 'Tạo Nhân Viên Mới'}
                   </h3>
-                  <p className="text-xs text-zinc-500">Cấu hình vai trò và quyền hạn chi tiết</p>
+                  <p className="text-[10px] text-zinc-500">Cấu hình vai trò và phân quyền</p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg"
-              >
-                ✕
+              <button onClick={() => setIsAddModalOpen(false)} className="hidden sm:block text-zinc-400 hover:text-zinc-600 p-1.5 hover:bg-zinc-100 rounded-lg">
+                <X className="w-5 h-5" />
               </button>
             </div>
+            <div className="p-4 sm:p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 bg-white">
 
             <form onSubmit={handleSubmitUser} className="space-y-4 mt-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -752,7 +753,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 </div>
               )}
 
-              <div className="pt-3 border-t border-zinc-100 flex items-center justify-end space-x-2">
+              <div className="pt-3 sm:pt-4 pb-[max(env(safe-area-inset-bottom),1rem)] sm:pb-0 border-t border-zinc-100 flex items-center justify-end space-x-2 mt-auto sticky bottom-0 bg-white z-10">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
@@ -770,6 +771,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 </button>
               </div>
             </form>
+            </div>
           </div>
         </div>
       )}
