@@ -1,12 +1,16 @@
 import { 
-  DeviceItem, 
+  DeviceItem,
+  StockTransferSlip, 
   Lead, 
   TradeInAppraisal, 
   WarrantyTicket, 
   SalesInvoice, 
   Partner, 
   FundAccount, 
-  CashTransaction 
+  CashTransaction,
+  StoreBranch,
+  WarehouseInfo,
+  StoreSettings
 } from '../types';
 
 export const INITIAL_DEVICES: DeviceItem[] = [
@@ -23,6 +27,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 31000000,
     sellPrice: 34500000,
     status: 'in_stock',
+    warehouse: 'KHO_PHONEHOUSE',
     supplier: 'FPT Synnex Distro',
     receivedDate: '2025-02-10',
     warrantyPeriodMonths: 12,
@@ -43,6 +48,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 24200000,
     sellPrice: 27500000,
     status: 'in_stock',
+    warehouse: 'KHO_XSTORE',
     supplier: 'Nhập Khẩu US Direct',
     receivedDate: '2025-02-08',
     warrantyPeriodMonths: 12,
@@ -63,6 +69,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 22800000,
     sellPrice: 25900000,
     status: 'in_stock',
+    warehouse: 'KHO_TONG',
     supplier: 'Thu Cũ Khách Quen',
     receivedDate: '2025-02-05',
     warrantyPeriodMonths: 6,
@@ -83,6 +90,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 17800000,
     sellPrice: 20500000,
     status: 'in_stock',
+    warehouse: 'KHO_PHONEHOUSE',
     supplier: 'Kho Sỉ HCM',
     receivedDate: '2025-02-02',
     warrantyPeriodMonths: 6,
@@ -103,6 +111,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 16500000,
     sellPrice: 19200000,
     status: 'reserved',
+    warehouse: 'KHO_XSTORE',
     customerName: 'Nguyễn Văn Minh',
     customerPhone: '0988776655',
     supplier: 'Thu Cũ Đổi Mới',
@@ -125,6 +134,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 9800000,
     sellPrice: 11900000,
     status: 'in_stock',
+    warehouse: 'KHO_TONG',
     supplier: 'Thu Cũ Shop',
     receivedDate: '2025-01-25',
     warrantyPeriodMonths: 6,
@@ -145,6 +155,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 12500000,
     sellPrice: 14800000,
     status: 'warranty',
+    warehouse: 'KHO_PHONEHOUSE',
     supplier: 'Kho Sỉ HN',
     receivedDate: '2025-01-20',
     warrantyPeriodMonths: 6,
@@ -165,6 +176,7 @@ export const INITIAL_DEVICES: DeviceItem[] = [
     buyPrice: 14200000,
     sellPrice: 16700000,
     status: 'sold',
+    warehouse: 'KHO_XSTORE',
     soldDate: '2025-02-11',
     customerName: 'Lê Thu Hương',
     customerPhone: '0903123456',
@@ -1395,3 +1407,335 @@ export const INITIAL_CASH_TRANSACTIONS: CashTransaction[] = [
     status: 'COMPLETED'
   }
 ];
+
+
+export interface RepairServiceItem {
+  id: string;
+  category: 'THAY_MAN_HINH' | 'THAY_PIN' | 'EP_KINH' | 'FACE_ID' | 'MAINBOARD_NGUON' | 'CAMERA_LOA';
+  categoryName: string;
+  name: string;
+  compatibleModels: string;
+  costPrice: number;
+  sellPrice: number;
+  warrantyPeriodMonths: number;
+  durationMinutes: number;
+  notes?: string;
+}
+
+export const REPAIR_SERVICES_PRICELIST: RepairServiceItem[] = [
+  {
+    id: 'REP-01',
+    category: 'THAY_MAN_HINH',
+    categoryName: 'Thay Màn Hình iPhone',
+    name: 'Thay màn hình iPhone 13 Pro Max (Zin Bóc Máy)',
+    compatibleModels: 'iPhone 13 Pro Max',
+    costPrice: 4200000,
+    sellPrice: 5500000,
+    warrantyPeriodMonths: 6,
+    durationMinutes: 45,
+    notes: 'Màn Zin 120Hz ProMotion bóc máy, TrueTone & cảm ứng mượt mà'
+  },
+  {
+    id: 'REP-02',
+    category: 'THAY_MAN_HINH',
+    categoryName: 'Thay Màn Hình iPhone',
+    name: 'Câu dây đồng Fix Màn Xanh/Trắng 13PM (Không Thay Màn)',
+    compatibleModels: 'iPhone 13 Pro, iPhone 13 Pro Max',
+    costPrice: 200000,
+    sellPrice: 800000,
+    warrantyPeriodMonths: 6,
+    durationMinutes: 30,
+    notes: 'Công nghệ câu áp fix triệt để lỗi màn xanh trắng 13 Series trọn đời'
+  },
+  {
+    id: 'REP-03',
+    category: 'THAY_MAN_HINH',
+    categoryName: 'Thay Màn Hình iPhone',
+    name: 'Thay màn hình iPhone 14 Pro Max GX OLED 120Hz',
+    compatibleModels: 'iPhone 14 Pro Max',
+    costPrice: 2800000,
+    sellPrice: 3800000,
+    warrantyPeriodMonths: 6,
+    durationMinutes: 40,
+    notes: 'Màn hình linh kiện OLED GX hiển thị sắc nét 9/10 so với màn zin'
+  },
+  {
+    id: 'REP-04',
+    category: 'THAY_PIN',
+    categoryName: 'Thay Pin iPhone Chính Hãng',
+    name: 'Thay Pin iPhone 13/14 Pro Max Dung Lượng Cao Pisen Dragon',
+    compatibleModels: 'iPhone 13 Pro Max, iPhone 14 Pro Max',
+    costPrice: 550000,
+    sellPrice: 950000,
+    warrantyPeriodMonths: 12,
+    durationMinutes: 30,
+    notes: 'Bảo hành 12 tháng 1 đổi 1 kể cả chai phồng pin, fix 100% dung lượng'
+  },
+  {
+    id: 'REP-05',
+    category: 'THAY_PIN',
+    categoryName: 'Thay Pin iPhone Chính Hãng',
+    name: 'Thay Pin iPhone 15/15 Pro Max Zin Sàng Cáp',
+    compatibleModels: 'iPhone 15, 15 Plus, 15 Pro, 15 Pro Max',
+    costPrice: 850000,
+    sellPrice: 1450000,
+    warrantyPeriodMonths: 12,
+    durationMinutes: 45,
+    notes: 'Sàng IC cáp pin gốc, không báo linh kiện không xác định trong Cài đặt'
+  },
+  {
+    id: 'REP-06',
+    category: 'EP_KINH',
+    categoryName: 'Ép Kính / Ép Cảm Ứng',
+    name: 'Ép Kính iPhone 14 Pro / 14 Pro Max Keo OCA Chuẩn Nhà Máy',
+    compatibleModels: 'iPhone 14 Pro, 14 Pro Max',
+    costPrice: 350000,
+    sellPrice: 850000,
+    warrantyPeriodMonths: 12,
+    durationMinutes: 60,
+    notes: 'Kính Zin phủ Nano hạn chế vân tay, máy ép chân không tiêu chuẩn'
+  },
+  {
+    id: 'REP-07',
+    category: 'FACE_ID',
+    categoryName: 'Sửa Chữa Face ID & Camera',
+    name: 'Sửa Face ID Không Định Vị / Di Chuyển Lên Xuống (Dot Projector)',
+    compatibleModels: 'iPhone X đến iPhone 15 Pro Max',
+    costPrice: 300000,
+    sellPrice: 750000,
+    warrantyPeriodMonths: 6,
+    durationMinutes: 45,
+    notes: 'Sử dụng cáp JCID / Luban không cần hàn đục keo thấu kính'
+  },
+  {
+    id: 'REP-08',
+    category: 'MAINBOARD_NGUON',
+    categoryName: 'Sửa Chữa Phần Cứng Mainboard',
+    name: 'Fix IC Nguồn / Chập VCC_MAIN / Mất Nguồn Sạc',
+    compatibleModels: 'Tất cả dòng iPhone',
+    costPrice: 600000,
+    sellPrice: 1200000,
+    warrantyPeriodMonths: 3,
+    durationMinutes: 90,
+    notes: 'Đo đạc dò chạm chập bằng camera nhiệt Flir One Pro'
+  }
+];
+
+export const INITIAL_TRANSFERS: StockTransferSlip[] = [
+  {
+    id: 'TRF-001',
+    code: 'CK-20250214-001',
+    fromWarehouse: 'KHO_TONG',
+    fromWarehouseName: 'Kho Tổng (Central Warehouse)',
+    toWarehouse: 'KHO_PHONEHOUSE',
+    toWarehouseName: 'Kho PhoneHouse (Cầu Giấy)',
+    createdDate: '2025-02-14 09:30',
+    creator: 'Nhật Tân (Giám Đốc Kho)',
+    transporter: 'Nguyễn Văn Hùng (Shipper Nội Bộ)',
+    status: 'COMPLETED',
+    items: [
+      {
+        type: 'device',
+        id: 'DEV-001',
+        imei: '356890123456789',
+        name: 'iPhone 16 Pro Max 256GB Titan Sa Mạc VN/A',
+        model: 'iPhone 16 Pro Max',
+        color: 'Titan Sa Mạc (Desert)',
+        storage: '256GB',
+        condition: 'New Seal',
+        quantity: 1,
+        costPrice: 31000000
+      },
+      {
+        type: 'device',
+        id: 'DEV-002',
+        imei: '357901234567890',
+        name: 'iPhone 16 Pro 128GB Titan Tự Nhiên LL/A',
+        model: 'iPhone 16 Pro',
+        color: 'Titan Tự Nhiên (Natural)',
+        storage: '128GB',
+        condition: 'Like New 99%',
+        quantity: 1,
+        costPrice: 24200000
+      }
+    ],
+    totalQuantity: 2,
+    totalValue: 55200000,
+    notes: 'Điều chuyển bổ sung máy iPhone 16 Series phục vụ mở bán tại showroom Phone House Cầu Giấy',
+    receivedDate: '2025-02-14 11:15',
+    receiver: 'Tuấn (Cửa Hàng Trưởng Cầu Giấy)'
+  },
+  {
+    id: 'TRF-002',
+    code: 'CK-20250214-002',
+    fromWarehouse: 'KHO_TONG',
+    fromWarehouseName: 'Kho Tổng (Central Warehouse)',
+    toWarehouse: 'KHO_XSTORE',
+    toWarehouseName: 'Kho Xstore (Trần Duy Hưng)',
+    createdDate: '2025-02-14 14:00',
+    creator: 'Nhật Tân (Giám Đốc Kho)',
+    transporter: 'Trần Minh Đức (KTV Điều Vận)',
+    status: 'IN_TRANSIT',
+    items: [
+      {
+        type: 'device',
+        id: 'DEV-003',
+        imei: '354567890123456',
+        name: 'iPhone 15 Pro Max 256GB Titan Tự Nhiên VN/A',
+        model: 'iPhone 15 Pro Max',
+        color: 'Titan Tự Nhiên',
+        storage: '256GB',
+        condition: 'Like New 99%',
+        quantity: 1,
+        costPrice: 22800000
+      },
+      {
+        type: 'device',
+        id: 'DEV-004',
+        imei: '358901234567891',
+        name: 'iPhone 15 Pro 128GB Titan Xanh LL/A',
+        model: 'iPhone 15 Pro',
+        color: 'Titan Xanh (Blue)',
+        storage: '128GB',
+        condition: '98% Cấn Nhẹ',
+        quantity: 1,
+        costPrice: 17800000
+      }
+    ],
+    totalQuantity: 2,
+    totalValue: 40600000,
+    notes: 'Chuyển gấp cho chi nhánh Xstore Trần Duy Hưng trả khách đã đặt cọc giữ máy',
+    receiver: 'Hoàng (Quản Lý Xstore)'
+  },
+  {
+    id: 'TRF-003',
+    code: 'CK-20250215-001',
+    fromWarehouse: 'KHO_PHONEHOUSE',
+    fromWarehouseName: 'Kho PhoneHouse (Cầu Giấy)',
+    toWarehouse: 'KHO_XSTORE',
+    toWarehouseName: 'Kho Xstore (Trần Duy Hưng)',
+    createdDate: '2025-02-15 08:30',
+    creator: 'Tuấn (Cửa Hàng Trưởng)',
+    status: 'PENDING',
+    items: [
+      {
+        type: 'device',
+        id: 'DEV-006',
+        imei: '359012345678902',
+        name: 'iPhone 13 128GB Trắng Starlight VN/A',
+        model: 'iPhone 13',
+        color: 'Trắng Starlight',
+        storage: '128GB',
+        condition: 'Like New 99%',
+        quantity: 1,
+        costPrice: 9800000
+      }
+    ],
+    totalQuantity: 1,
+    totalValue: 9800000,
+    notes: 'Điều chuyển cân đối hàng tồn máy tầm trung cho Xstore'
+  }
+];
+
+export const INITIAL_BRANCHES: StoreBranch[] = [
+  {
+    id: 'BR-01',
+    code: 'CN-01',
+    name: 'Phone House - Showroom Cầu Giấy (Flagship)',
+    address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, TP. Hà Nội',
+    phone: '0988.888.999',
+    email: 'caugiay@phonehouse.vn',
+    manager: 'Tuấn Cửa Hàng Trưởng',
+    openingHours: '08:30 - 21:30 (Cả CN & Ngày Lễ)',
+    warehouseId: 'KHO_PHONEHOUSE',
+    isActive: true,
+    isHeadquarter: true,
+    taxCode: '0109888999',
+    bankAccount: {
+      bankName: 'Techcombank',
+      accountNumber: '190388889999',
+      accountHolder: 'PHONE HOUSE VIET NAM'
+    },
+    notes: 'Showroom bán lẻ chính và trung tâm tiếp nhận bảo hành máy Zin Apple'
+  },
+  {
+    id: 'BR-02',
+    code: 'CN-02',
+    name: 'Phone House - Chi Nhánh Xstore Trần Duy Hưng',
+    address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, TP. Hà Nội',
+    phone: '0966.333.444',
+    email: 'tranduyhung@phonehouse.vn',
+    manager: 'Hoàng Quản Lý Chi Nhánh',
+    openingHours: '09:00 - 21:30 (Hàng ngày)',
+    warehouseId: 'KHO_XSTORE',
+    isActive: true,
+    isHeadquarter: false,
+    taxCode: '0109888999-001',
+    bankAccount: {
+      bankName: 'MB Bank',
+      accountNumber: '888899996666',
+      accountHolder: 'PHONE HOUSE XSTORE'
+    },
+    notes: 'Điểm bán lẻ và đối soát hồ sơ trả góp duyệt nhanh 15 phút'
+  }
+];
+
+export const INITIAL_WAREHOUSES: WarehouseInfo[] = [
+  {
+    id: 'KHO_TONG',
+    name: 'Kho Tổng (Central Warehouse)',
+    shortName: 'Kho Tổng Phân Phối',
+    code: 'KT-01',
+    address: 'Khu Công Nghệ Cao / Kho Phân Phối Trung Tâm, Hà Nội',
+    manager: 'Nhật Tân (Giám Đốc Kho)',
+    phone: '0988.999.888',
+    color: 'from-orange-500 to-amber-500',
+    type: 'CENTRAL',
+    isMain: true,
+    capacityNotes: 'Sức chứa 2,000 máy iPhone & 10,000 phụ kiện linh kiện',
+    isActive: true
+  },
+  {
+    id: 'KHO_PHONEHOUSE',
+    name: 'Kho PhoneHouse (Cầu Giấy)',
+    shortName: 'Kho Cầu Giấy',
+    code: 'KPH-02',
+    address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, Hà Nội',
+    manager: 'Tuấn Cửa Hàng Trưởng',
+    phone: '0977.111.222',
+    color: 'from-amber-500 to-orange-500',
+    type: 'RETAIL_STORE',
+    capacityNotes: 'Kho bán lẻ tại showroom Cầu Giấy',
+    isActive: true
+  },
+  {
+    id: 'KHO_XSTORE',
+    name: 'Kho Xstore (Trần Duy Hưng)',
+    shortName: 'Kho Xstore',
+    code: 'KXS-03',
+    address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, Hà Nội',
+    manager: 'Hoàng Quản Lý Chi Nhánh',
+    phone: '0966.333.444',
+    color: 'from-blue-500 to-cyan-500',
+    type: 'RETAIL_STORE',
+    capacityNotes: 'Kho bán lẻ & máy demo chi nhánh Trần Duy Hưng',
+    isActive: true
+  }
+];
+
+export const INITIAL_STORE_SETTINGS: StoreSettings = {
+  companyName: 'CÔNG TY TNHH PHONE HOUSE VIỆT NAM',
+  brandName: 'Phone House',
+  hotline: '1900.8888 (0988.888.999)',
+  supportEmail: 'hotro@phonehouse.vn',
+  website: 'https://phonehouse.vn',
+  taxCode: '0109888999',
+  headquarterAddress: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, TP. Hà Nội',
+  slogan: 'Hệ Thống iPhone Zin Keng • Thu Cũ Đổi Mới Hàng Đầu',
+  printHeaderNote: 'Cảm ơn quý khách đã tin chọn Phone House! Kiểm tra máy và seal kỹ trước khi rời quầy.',
+  printFooterNote: 'Bảo hành 1 đổi 1 trong 30 ngày đầu • Bảo hành nguồn & màn hình theo gói cam kết.',
+  defaultWarrantyMonths: 12,
+  branches: INITIAL_BRANCHES,
+  warehouses: INITIAL_WAREHOUSES
+};
+

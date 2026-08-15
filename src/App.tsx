@@ -8,7 +8,11 @@ import {
   INITIAL_USERS,
   INITIAL_PARTNERS,
   INITIAL_FUNDS,
-  INITIAL_CASH_TRANSACTIONS
+  INITIAL_CASH_TRANSACTIONS,
+  INITIAL_TRANSFERS,
+  INITIAL_BRANCHES,
+  INITIAL_WAREHOUSES,
+  INITIAL_STORE_SETTINGS
 } from './data/initialData';
 import { 
   DeviceItem, 
@@ -20,11 +24,17 @@ import {
   Partner, 
   FundAccount, 
   CashTransaction,
-  ProductItem
+  ProductItem,
+  StockTransferSlip,
+  WarehouseId,
+  StoreBranch,
+  WarehouseInfo,
+  StoreSettings
 } from './types';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { InventoryView } from './components/InventoryView';
+import { WarehouseTransfersView } from './components/WarehouseTransfersView';
 import { ProductsView } from './components/ProductsView';
 import { CRMLeadsView } from './components/CRMLeadsView';
 import { TradeInView } from './components/TradeInView';
@@ -36,7 +46,9 @@ import { ERPNextPlanView } from './components/ERPNextPlanView';
 import { UserManagementView } from './components/UserManagementView';
 import { PartnersView } from './components/PartnersView';
 import { CashbookView } from './components/CashbookView';
+import { StoreSettingsView } from './components/StoreSettingsView';
 import { MoreHubView } from './components/MoreHubView';
+import { HRHubView } from './components/HRHubView';
 import { AICopilotModal } from './components/AICopilotModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
@@ -75,7 +87,26 @@ import {
   subscribeToCashTransactions,
   addCashTransactionToFirestore,
   updateCashTransactionInFirestore,
-  deleteCashTransactionFromFirestore
+  deleteCashTransactionFromFirestore,
+  executeFundTransferInFirestore,
+  subscribeToTransfers,
+  addTransferToFirestore,
+  updateTransferInFirestore,
+  deleteTransferFromFirestore,
+  subscribeToProducts,
+  addProductToFirestore,
+  updateProductInFirestore,
+  deleteProductFromFirestore,
+  subscribeToBranches,
+  addBranchToFirestore,
+  updateBranchInFirestore,
+  deleteBranchFromFirestore,
+  subscribeToWarehouses,
+  addWarehouseToFirestore,
+  updateWarehouseInFirestore,
+  deleteWarehouseFromFirestore,
+  subscribeToStoreSettings,
+  saveStoreSettingsToFirestore
 } from './services/firestoreService';
 
 export default function App() {
@@ -171,6 +202,42 @@ export default function App() {
     ];
   });
 
+  const [transfers, setTransfers] = useState<StockTransferSlip[]>(() => {
+    const saved = localStorage.getItem('phonehouse_transfers');
+    return saved ? JSON.parse(saved) : INITIAL_TRANSFERS;
+  });
+
+  const [branches, setBranches] = useState<StoreBranch[]>(() => {
+    const saved = localStorage.getItem('phonehouse_branches');
+    return saved ? JSON.parse(saved) : INITIAL_BRANCHES;
+  });
+
+  const [warehouses, setWarehouses] = useState<WarehouseInfo[]>(() => {
+    const saved = localStorage.getItem('phonehouse_warehouses');
+    return saved ? JSON.parse(saved) : INITIAL_WAREHOUSES;
+  });
+
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
+    const saved = localStorage.getItem('phonehouse_store_settings');
+    return saved ? JSON.parse(saved) : INITIAL_STORE_SETTINGS;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('phonehouse_transfers', JSON.stringify(transfers));
+  }, [transfers]);
+
+  useEffect(() => {
+    localStorage.setItem('phonehouse_branches', JSON.stringify(branches));
+  }, [branches]);
+
+  useEffect(() => {
+    localStorage.setItem('phonehouse_warehouses', JSON.stringify(warehouses));
+  }, [warehouses]);
+
+  useEffect(() => {
+    localStorage.setItem('phonehouse_store_settings', JSON.stringify(storeSettings));
+  }, [storeSettings]);
+
   // Current Logged-in User Account (Default to Admin nhattank16.1@gmail.com)
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     const saved = localStorage.getItem('phonehouse_active_user');
@@ -256,6 +323,36 @@ export default function App() {
       }
     });
 
+    const unsubTransfers = subscribeToTransfers((remoteTransfers) => {
+      if (remoteTransfers && remoteTransfers.length > 0) {
+        setTransfers(remoteTransfers);
+      }
+    });
+
+    const unsubProducts = subscribeToProducts((remoteProducts) => {
+      if (remoteProducts && remoteProducts.length > 0) {
+        setProducts(remoteProducts);
+      }
+    });
+
+    const unsubBranches = subscribeToBranches((remoteBranches) => {
+      if (remoteBranches && remoteBranches.length > 0) {
+        setBranches(remoteBranches);
+      }
+    });
+
+    const unsubWarehouses = subscribeToWarehouses((remoteWarehouses) => {
+      if (remoteWarehouses && remoteWarehouses.length > 0) {
+        setWarehouses(remoteWarehouses);
+      }
+    });
+
+    const unsubStoreSettings = subscribeToStoreSettings((remoteSettings) => {
+      if (remoteSettings) {
+        setStoreSettings(remoteSettings);
+      }
+    });
+
     return () => {
       unsubDevices();
       unsubLeads();
@@ -266,6 +363,11 @@ export default function App() {
       unsubPartners();
       unsubFunds();
       unsubCashTxs();
+      unsubTransfers();
+      unsubProducts();
+      unsubBranches();
+      unsubWarehouses();
+      unsubStoreSettings();
     };
   }, []);
 
@@ -513,6 +615,100 @@ export default function App() {
     }
   };
 
+  const handleAddTransfer = (slip: StockTransferSlip) => {
+    setTransfers(prev => [slip, ...prev]);
+    addTransferToFirestore(slip);
+  };
+
+  const handleUpdateTransfer = (updatedSlip: StockTransferSlip) => {
+    setTransfers(prev => prev.map(t => (t.id === updatedSlip.id ? updatedSlip : t)));
+    updateTransferInFirestore(updatedSlip);
+  };
+
+  const handleTransferFunds = async (
+    fromFundId: string, 
+    toFundId: string, 
+    amount: number, 
+    notes: string, 
+    creator: string = 'Nhật Tân (Admin)'
+  ) => {
+    const fromFund = funds.find(f => f.id === fromFundId || f.name === fromFundId);
+    const toFund = funds.find(f => f.id === toFundId || f.name === toFundId);
+    if (!fromFund || !toFund) return;
+
+    try {
+      const { txOut, txIn } = await executeFundTransferInFirestore(fromFund, toFund, amount, notes, creator);
+      setCashTransactions(prev => [txIn, txOut, ...prev]);
+      setFunds(prevFunds => prevFunds.map(f => {
+        if (f.id === fromFund.id) {
+          return {
+            ...f,
+            currentBalance: f.currentBalance - amount,
+            totalExpense: (f.totalExpense || 0) + amount
+          };
+        }
+        if (f.id === toFund.id) {
+          return {
+            ...f,
+            currentBalance: f.currentBalance + amount,
+            totalIncome: (f.totalIncome || 0) + amount
+          };
+        }
+        return f;
+      }));
+    } catch (err) {
+      console.error('Error transferring funds:', err);
+    }
+  };
+
+  const handleAddBranch = (newBranch: StoreBranch) => {
+    setBranches(prev => [...prev, newBranch]);
+    addBranchToFirestore(newBranch);
+  };
+
+  const handleUpdateBranch = (updatedBranch: StoreBranch) => {
+    setBranches(prev => prev.map(b => b.id === updatedBranch.id ? updatedBranch : b));
+    updateBranchInFirestore(updatedBranch);
+  };
+
+  const handleDeleteBranch = (branchId: string) => {
+    setBranches(prev => prev.filter(b => b.id !== branchId));
+    deleteBranchFromFirestore(branchId);
+  };
+
+  const handleAddWarehouse = (newWarehouse: WarehouseInfo) => {
+    setWarehouses(prev => [...prev, newWarehouse]);
+    addWarehouseToFirestore(newWarehouse);
+  };
+
+  const handleUpdateWarehouse = (updatedWarehouse: WarehouseInfo) => {
+    setWarehouses(prev => prev.map(w => w.id === updatedWarehouse.id ? updatedWarehouse : w));
+    updateWarehouseInFirestore(updatedWarehouse);
+  };
+
+  const handleDeleteWarehouse = (warehouseId: string) => {
+    setWarehouses(prev => prev.filter(w => w.id !== warehouseId));
+    deleteWarehouseFromFirestore(warehouseId);
+  };
+
+  const handleSaveStoreSettings = (newSettings: StoreSettings) => {
+    setStoreSettings(newSettings);
+    saveStoreSettingsToFirestore(newSettings);
+  };
+
+  const handleUpdateDevicesWarehouse = (deviceImeis: string[], targetWarehouse: WarehouseId) => {
+    setDevices(prevDevices =>
+      prevDevices.map(d => {
+        if (deviceImeis.includes(d.imei)) {
+          const updated = { ...d, warehouse: targetWarehouse };
+          updateDeviceInFirestore(updated);
+          return updated;
+        }
+        return d;
+      })
+    );
+  };
+
   const handleUpdateDeviceStatus = (
     imei: string, 
     status: DeviceItem['status'], 
@@ -560,6 +756,7 @@ export default function App() {
         stockCount={devices.filter(d => d.status === 'in_stock').length}
         leadCount={leads.filter(l => l.status !== 'won' && l.status !== 'lost').length}
         warrantyCount={warrantyTickets.filter(w => w.status !== 'delivered').length}
+        transferCount={transfers.length}
         userCount={users.length}
         isFirebaseSyncing={isFirebaseConnected}
       />
@@ -605,12 +802,32 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'transfers' && (
+          <WarehouseTransfersView
+            transfers={transfers}
+            devices={devices}
+            products={products}
+            onAddTransfer={handleAddTransfer}
+            onUpdateTransfer={handleUpdateTransfer}
+            onUpdateDevicesWarehouse={handleUpdateDevicesWarehouse}
+          />
+        )}
+
         {activeTab === 'products' && (
           <ProductsView
             products={products}
-            onAddProduct={(p) => setProducts([...products, p])}
-            onUpdateProduct={(p) => setProducts(products.map(prod => prod.id === p.id ? p : prod))}
-            onDeleteProduct={(id) => setProducts(products.filter(p => p.id !== id))}
+            onAddProduct={(p) => {
+              setProducts([...products, p]);
+              addProductToFirestore(p);
+            }}
+            onUpdateProduct={(p) => {
+              setProducts(products.map(prod => prod.id === p.id ? p : prod));
+              updateProductInFirestore(p);
+            }}
+            onDeleteProduct={(id) => {
+              setProducts(products.filter(p => p.id !== id));
+              deleteProductFromFirestore(id);
+            }}
           />
         )}
 
@@ -638,8 +855,10 @@ export default function App() {
           <WarrantyServiceView
             warrantyTickets={warrantyTickets}
             devices={devices}
+            funds={funds}
             onAddTicket={handleAddWarrantyTicket}
             onUpdateTicket={handleUpdateWarrantyTicket}
+            onAddTransaction={handleAddCashTransaction}
           />
         )}
 
@@ -648,6 +867,9 @@ export default function App() {
             devices={devices}
             invoices={invoices}
             leads={leads}
+            branches={branches}
+            warehouses={warehouses}
+            storeSettings={storeSettings}
             onCreateInvoice={handleCreateInvoice}
             onUpdateDeviceStatus={handleUpdateDeviceStatus}
             preSelectedDevice={posPreSelectedDevice}
@@ -691,7 +913,11 @@ export default function App() {
             funds={funds}
             partners={partners}
             onAddTransaction={handleAddCashTransaction}
-            onUpdateFunds={setFunds}
+            onUpdateFunds={(updatedFunds) => {
+              setFunds(updatedFunds);
+              updatedFunds.forEach(f => updateFundInFirestore(f));
+            }}
+            onTransferFunds={handleTransferFunds}
           />
         )}
 
@@ -704,6 +930,22 @@ export default function App() {
             onDeletePartner={handleDeletePartner}
             funds={funds}
             onAddTransaction={handleAddCashTransaction}
+          />
+        )}
+
+        {activeTab === 'store-settings' && (
+          <StoreSettingsView
+            branches={branches}
+            warehouses={warehouses}
+            settings={storeSettings}
+            onAddBranch={handleAddBranch}
+            onUpdateBranch={handleUpdateBranch}
+            onDeleteBranch={handleDeleteBranch}
+            onAddWarehouse={handleAddWarehouse}
+            onUpdateWarehouse={handleUpdateWarehouse}
+            onDeleteWarehouse={handleDeleteWarehouse}
+            onSaveSettings={handleSaveStoreSettings}
+            onBack={() => setActiveTab('more')}
           />
         )}
 
@@ -732,6 +974,10 @@ export default function App() {
             onUpdateUser={handleUpdateUser}
             onDeleteUser={handleDeleteUser}
           />
+        )}
+
+        {activeTab === 'hr-attendance' && (
+          <HRHubView />
         )}
 
         {activeTab === 'erpnext-plan' && (

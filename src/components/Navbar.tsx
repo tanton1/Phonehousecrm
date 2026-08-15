@@ -26,7 +26,11 @@ import {
   KeyRound,
   Wallet,
   Package,
-  FileText
+  FileText,
+  ArrowLeftRight,
+  Settings,
+  Store,
+  Clock
 } from 'lucide-react';
 import { auth, signInWithGoogle, logOut } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -47,6 +51,7 @@ interface NavbarProps {
   stockCount: number;
   leadCount: number;
   warrantyCount: number;
+  transferCount?: number;
   userCount?: number;
   isFirebaseSyncing?: boolean;
 }
@@ -65,6 +70,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   stockCount,
   leadCount,
   warrantyCount,
+  transferCount = 3,
   userCount = 5,
   isFirebaseSyncing = true
 }) => {
@@ -86,6 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Tổng Quan', icon: Layers },
     { id: 'inventory', label: 'Kho IMEI', icon: Smartphone, badge: stockCount },
+    { id: 'transfers', label: 'Chuyển Kho', icon: ArrowLeftRight, badge: transferCount },
     { id: 'products', label: 'Linh Phụ Kiện', icon: Package },
     { id: 'pos', label: 'Bán Hàng POS', icon: ShoppingCart },
     { id: 'invoices', label: 'Hóa Đơn', icon: FileText },
@@ -94,6 +101,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'crm', label: 'Khách Hàng (CRM)', icon: Users, badge: leadCount },
     { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: RefreshCw },
     { id: 'warranty', label: 'Bảo Hành & Sửa', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
+    { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
     { id: 'more', label: 'Nhiều Hơn (More)', icon: Menu },
     { id: 'users', label: 'Phân Quyền User', icon: ShieldCheck, badge: userCount },
     { id: 'erpnext-plan', label: 'Kiến Trúc ERPNext', icon: BookOpen },
@@ -127,6 +135,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       desc: 'Quản lý từng cây iPhone, pin, màn hình, tình trạng & giá vốn',
       icon: Smartphone,
       badge: `${stockCount} máy`,
+      color: 'text-orange-600 bg-orange-50 border-orange-200'
+    },
+    {
+      id: 'transfers',
+      label: 'Chuyển Kho & Điều Vận 3 Chi Nhánh',
+      desc: 'Điều chuyển máy & linh kiện giữa Kho Tổng, Kho PhoneHouse & Kho Xstore',
+      icon: ArrowLeftRight,
+      badge: `${transferCount} phiếu`,
       color: 'text-orange-600 bg-orange-50 border-orange-200'
     },
     {
@@ -174,6 +190,27 @@ export const Navbar: React.FC<NavbarProps> = ({
       color: 'text-red-600 bg-red-50 border-red-200'
     },
     {
+      id: 'installments',
+      label: 'Đối Soát Trả Góp',
+      desc: 'Quản lý giải ngân trả góp từ HD Saison, Home Credit, Mpos',
+      icon: Crown,
+      color: 'text-blue-600 bg-blue-50 border-blue-200'
+    },
+    {
+      id: 'hr-attendance',
+      label: 'Chấm Công, Ca Làm & Lương Thưởng',
+      desc: 'Check-in 4 yếu tố, ma trận xếp ca tuần, bóc tách hoa hồng IMEI & duyệt lương 5 bước',
+      icon: Clock,
+      color: 'text-orange-600 bg-orange-50 border-orange-200'
+    },
+    {
+      id: 'store-settings',
+      label: 'Cài Đặt Cửa Hàng & Kho Hàng',
+      desc: 'Cấu hình chi nhánh, danh sách kho, máy in bill K80 & thông tin doanh nghiệp',
+      icon: Building2,
+      color: 'text-orange-600 bg-orange-50 border-orange-200'
+    },
+    {
       id: 'users',
       label: 'Quản Lý Người Dùng & Phân Quyền',
       desc: 'Cấp tài khoản Admin, Cửa hàng trưởng, Nhân viên bán hàng, Kỹ thuật',
@@ -193,7 +230,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       {/* Top Desktop & Mobile Header Bar */}
-      {activeTab !== 'cashbook' && (
       <header className="bg-white/95 border-b border-orange-100 text-zinc-900 sticky top-0 z-30 shadow-2xs backdrop-blur-md">
         <div className="w-full max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -332,7 +368,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </header>
-      )}
 
       {/* Mobile Bottom Quick Navigation Bar (Matching exactly: Tổng quan | Hàng hoá | Bán hàng | Hoá đơn | Nhiều hơn) */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 border-t border-orange-100 px-2 py-1.5 z-30 flex items-center justify-around shadow-lg backdrop-blur-md">
@@ -457,6 +492,53 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <span className="flex items-center gap-1.5">➕ Nhập máy</span>
                   <ChevronRight className="w-3.5 h-3.5 text-orange-400" />
                 </button>
+              </div>
+            </div>
+
+            {/* All System Modules & Sub-pages Grid */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                <span>Tất Cả Phân Hệ & Trang Chức Năng</span>
+                <span className="text-[#FF4B16]">{allMenuItems.length} phân hệ</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[380px] overflow-y-auto pr-1">
+                {allMenuItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className={`p-2.5 rounded-2xl border text-left flex items-start space-x-3 transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-orange-50/90 border-orange-300 ring-2 ring-orange-500/20'
+                          : 'bg-zinc-50/80 hover:bg-orange-50/50 border-zinc-200/80 hover:border-orange-200'
+                      }`}
+                    >
+                      <div className={`p-2 rounded-xl border flex-shrink-0 mt-0.5 ${item.color}`}>
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-zinc-900 truncate">
+                            {item.label}
+                          </span>
+                          {item.badge && (
+                            <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded-full bg-orange-100 text-[#FF4B16] ml-1">
+                              {item.badge}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 line-clamp-1 mt-0.5">
+                          {item.desc}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

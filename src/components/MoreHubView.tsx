@@ -65,7 +65,9 @@ import {
   Headphones,
   Award,
   CircleDollarSign,
-  Scale
+  Scale,
+  Store,
+  Warehouse
 } from 'lucide-react';
 
 interface MoreHubViewProps {
@@ -234,6 +236,22 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       badge: `${devices.length} máy`
     },
     {
+      id: 'transfers',
+      label: 'Chuyển Kho & Điều Vận',
+      subtitle: 'Luân chuyển giữa 3 chi nhánh',
+      icon: ArrowLeftRight,
+      color: 'text-orange-600',
+      badge: '3 Chi nhánh'
+    },
+    {
+      id: 'products',
+      label: 'Kho Linh Kiện & Phụ Kiện',
+      subtitle: 'Màn hình, Pin zin, Ốp sạc',
+      icon: Package,
+      color: 'text-amber-600',
+      badge: 'Linh phụ kiện'
+    },
+    {
       id: 'pos',
       label: 'Bán Hàng POS Nhanh',
       subtitle: 'Quét barcode, VietQR, Giỏ hàng',
@@ -298,6 +316,30 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       badge: 'Bảo mật'
     },
     {
+      id: 'installments',
+      label: 'Đối Soát Trả Góp',
+      subtitle: 'HD Saison, Home Credit, Mpos',
+      icon: Scale,
+      color: 'text-blue-600',
+      badge: 'Giải ngân'
+    },
+    {
+      id: 'hr-attendance',
+      label: 'Chấm Công, Ca Làm & Lương',
+      subtitle: 'Check-in 4 lớp, KPI, Lịch tuần & Phiếu lương',
+      icon: Clock,
+      color: 'text-[#FF4B16]',
+      badge: 'HRM Suite'
+    },
+    {
+      id: 'store-settings',
+      label: 'Cài Đặt Cửa Hàng & Kho',
+      subtitle: 'Chi nhánh, kho hàng, máy in K80, logo',
+      icon: Settings,
+      color: 'text-orange-600',
+      badge: 'Hệ thống'
+    },
+    {
       id: 'erpnext-plan',
       label: 'Kiến Trúc Chuỗi ERPNext',
       subtitle: 'Quản trị chuỗi bán lẻ chuẩn QT',
@@ -352,16 +394,16 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             </div>
 
             <button
-              onClick={() => setIsEditingStoreInfo(true)}
+              onClick={() => onSelectTab('store-settings')}
               className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-md flex items-center justify-center text-white transition-all shrink-0 cursor-pointer"
-              title="Chỉnh sửa thông tin cửa hàng"
+              title="Cài đặt thông tin cửa hàng, chi nhánh & kho"
             >
-              <Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <Store className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
 
           <div 
-            onClick={() => setIsEditingStoreInfo(true)}
+            onClick={() => onSelectTab('store-settings')}
             className="mt-3 pt-2.5 border-t border-white/20 flex items-center justify-between text-[11px] sm:text-xs font-medium text-white/90 hover:text-white cursor-pointer group"
           >
             <div className="flex items-center space-x-1.5 truncate">
@@ -369,7 +411,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               <span className="truncate">Hotline: <strong className="text-amber-200">{storeInfo.phone}</strong> • MST: {storeInfo.taxCode}</span>
             </div>
             <span className="flex items-center text-amber-200 shrink-0 group-hover:translate-x-1 transition-transform ml-2">
-              Chi tiết <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+              Quản lý Cửa Hàng & Kho <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
             </span>
           </div>
         </div>
@@ -836,14 +878,17 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="space-y-1">
             <button
-              onClick={() => setIsEditingStoreInfo(true)}
+              onClick={() => onSelectTab('store-settings')}
               className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
             >
               <div className="flex items-center space-x-3 min-w-0">
-                <Settings className="w-5 h-5 text-zinc-500 group-hover:text-orange-600 shrink-0 transition-colors" />
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 group-hover:text-orange-600 truncate">Thiết lập thông tin cửa hàng & In bill</span>
+                <Store className="w-5 h-5 text-orange-600 group-hover:text-orange-700 shrink-0 transition-colors" />
+                <div className="min-w-0">
+                  <span className="text-xs sm:text-sm font-bold text-zinc-900 group-hover:text-orange-600 truncate block">Cài Đặt Cửa Hàng & Kho</span>
+                  <span className="text-[10px] sm:text-xs text-zinc-500 truncate block">Thiết lập chi nhánh, kho hàng, mẫu in bill K80 & thương hiệu</span>
+                </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-zinc-300 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-zinc-400 shrink-0" />
             </button>
 
             <button

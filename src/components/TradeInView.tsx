@@ -184,6 +184,8 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
       buyPrice: t.estimatedValue,
       sellPrice: Math.round((t.estimatedValue * 1.2) / 100000) * 100000,
       status: 'in_stock',
+      warehouse: 'KHO_PHONEHOUSE',
+      branch: 'Phone House Cầu Giấy (136 Cầu Giấy)',
       supplier: `Thu Cũ Khách (${t.customerName} - ${t.phone})`,
       receivedDate: new Date().toISOString().split('T')[0],
       warrantyPeriodMonths: 6,

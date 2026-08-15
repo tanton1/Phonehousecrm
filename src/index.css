@@ -1,1 +1,17 @@
 @import "tailwindcss";
+
+/* Prevent mobile browser (especially iOS Safari) from zooming when focusing inputs */
+@media screen and (max-width: 768px) {
+  input, select, textarea, [contenteditable="true"] {
+    font-size: 16px !important;
+  }
+}
+
+html, body {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
+  width: 100%;
+}
+

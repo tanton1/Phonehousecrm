@@ -1,3 +1,124 @@
+export type WarehouseId = 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE' | string;
+
+export interface WarehouseInfo {
+  id: WarehouseId;
+  name: string;
+  shortName: string;
+  code: string;
+  address: string;
+  manager: string;
+  phone: string;
+  color?: string;
+  isMain?: boolean;
+  type?: 'CENTRAL' | 'RETAIL_STORE' | 'REPAIR_WARRANTY' | 'TRANSIT';
+  capacityNotes?: string;
+  isActive?: boolean;
+}
+
+export interface StoreBranch {
+  id: string;
+  code: string; // CN-01, CN-02
+  name: string; // PhoneHouse Cầu Giấy, PhoneHouse Trần Duy Hưng
+  address: string;
+  phone: string;
+  email?: string;
+  manager: string;
+  openingHours: string;
+  warehouseId: WarehouseId | string;
+  isActive: boolean;
+  isHeadquarter?: boolean;
+  taxCode?: string;
+  bankAccount?: {
+    bankName: string;
+    accountNumber: string;
+    accountHolder: string;
+  };
+  notes?: string;
+}
+
+export interface StoreSettings {
+  companyName: string;
+  brandName: string;
+  hotline: string;
+  supportEmail: string;
+  website: string;
+  taxCode: string;
+  headquarterAddress: string;
+  slogan: string;
+  logoUrl?: string;
+  printHeaderNote: string;
+  printFooterNote: string;
+  defaultWarrantyMonths: number;
+  branches: StoreBranch[];
+  warehouses: WarehouseInfo[];
+}
+
+export const WAREHOUSE_LIST: WarehouseInfo[] = [
+  {
+    id: 'KHO_TONG',
+    name: 'Kho Tổng (Central Warehouse)',
+    shortName: 'Kho Tổng',
+    code: 'KT-01',
+    address: 'Khu Công Nghệ Cao / Kho Phân Phối Trung Tâm, Hà Nội',
+    manager: 'Nhật Tân (Giám Đốc Kho)',
+    phone: '0988.999.888',
+    color: 'from-orange-500 to-amber-500',
+    isMain: true
+  },
+  {
+    id: 'KHO_PHONEHOUSE',
+    name: 'Kho PhoneHouse (Cầu Giấy)',
+    shortName: 'Kho PhoneHouse',
+    code: 'KPH-02',
+    address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, Hà Nội',
+    manager: 'Tuấn Cửa Hàng Trưởng',
+    phone: '0977.111.222',
+    color: 'from-amber-500 to-orange-500'
+  },
+  {
+    id: 'KHO_XSTORE',
+    name: 'Kho Xstore (Trần Duy Hưng)',
+    shortName: 'Kho Xstore',
+    code: 'KXS-03',
+    address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, Hà Nội',
+    manager: 'Hoàng Quản Lý Chi Nhánh',
+    phone: '0966.333.444',
+    color: 'from-blue-500 to-cyan-500'
+  }
+];
+
+export interface StockTransferItem {
+  type: 'device' | 'product';
+  id: string; // Device ID or Product ID
+  imei?: string;
+  name: string;
+  model?: string;
+  color?: string;
+  storage?: string;
+  condition?: string;
+  quantity: number;
+  costPrice: number;
+}
+
+export interface StockTransferSlip {
+  id: string;
+  code: string; // CK-20250215-01
+  fromWarehouse: WarehouseId;
+  fromWarehouseName: string;
+  toWarehouse: WarehouseId;
+  toWarehouseName: string;
+  createdDate: string;
+  creator: string;
+  transporter?: string;
+  status: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'CANCELLED';
+  items: StockTransferItem[];
+  totalQuantity: number;
+  totalValue: number;
+  notes?: string;
+  receivedDate?: string;
+  receiver?: string;
+}
+
 export interface ProductItem {
   id: string;
   sku: string;
@@ -9,6 +130,7 @@ export interface ProductItem {
   stockQuantity: number;
   minStockLevel: number;
   status: 'active' | 'inactive';
+  warehouse?: WarehouseId | string;
   notes?: string;
 }
 
@@ -26,6 +148,8 @@ export interface DeviceItem {
   sellPrice: number;
   status: 'in_stock' | 'reserved' | 'sold' | 'warranty' | 'repairing';
   supplier: string;
+  warehouse?: WarehouseId | string; // 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE'
+  branch?: string;
   receivedDate: string;
   soldDate?: string;
   customerName?: string;
@@ -80,6 +204,21 @@ export interface TradeInAppraisal {
   aiReasoning?: string;
 }
 
+export interface WarrantyTicketPart {
+  id?: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+export interface WarrantyTicketTimeline {
+  time: string;
+  action: string;
+  note?: string;
+  user: string;
+}
+
 export interface WarrantyTicket {
   id: string;
   ticketNumber: string;
@@ -87,18 +226,33 @@ export interface WarrantyTicket {
   phone: string;
   imei: string;
   model: string;
-  issueType: 'Nguồn / Mất Nguồn' | 'Màn Hình / Cảm Ứng' | 'Pin / Phù Pin' | 'Face ID / Camera' | 'Sóng / Wifi' | 'Loa / Mic' | 'Khác';
+  color?: string;
+  storage?: string;
+  passcode?: string;
+  icloudStatus?: string;
+  deviceAppearance?: string;
+  accessoriesIncluded?: string;
+  issueType: 'Nguồn / Mất Nguồn' | 'Màn Hình / Cảm Ứng' | 'Pin / Phù Pin' | 'Face ID / Camera' | 'Sóng / Wifi' | 'Loa / Mic' | 'Khác' | 'Ép Kính / Thay Lưng' | 'Mainboard / IC Sạc';
   faultDescription: string;
   technician: string;
   status: 'received' | 'inspecting' | 'waiting_parts' | 'repairing' | 'ready' | 'delivered';
   isWarrantyFree: boolean; // Bảo hành miễn phí hay sửa dịch vụ
+  repairCategory?: 'WARRANTY_FREE' | 'REPAIR_SERVICE';
   estimatedCost: number;
   finalCost: number;
   receivedDate: string;
   expectedReturnDate: string;
   completedDate?: string;
+  deliveredDate?: string;
   solutionNotes?: string;
+  technicianNotes?: string;
   aiDiagnostic?: string;
+  partsUsed?: WarrantyTicketPart[];
+  warrantyMonthsAfterRepair?: number;
+  qcPassed?: boolean;
+  paymentStatus?: 'UNPAID' | 'PAID';
+  paymentFund?: string;
+  timeline?: WarrantyTicketTimeline[];
 }
 
 export interface SalesInvoiceItem {
@@ -125,6 +279,9 @@ export interface SalesInvoice {
   sellerName?: string;
   creatorName?: string;
   branch?: string;
+  branchId?: string;
+  warehouseId?: string;
+  warehouseName?: string;
   paidAmount?: number;
   debtAmount?: number;
   imeiList?: string[];
@@ -325,4 +482,301 @@ export interface Partner {
   lastInteraction?: string;
   notes?: string;
   tags?: string[];
+}
+
+// ==========================================
+// PHONEHOUSE HRM & PAYROLL SYSTEM TYPES
+// ==========================================
+
+export type StaffRole = 
+  | 'SALES'          // Nhân viên bán hàng showroom
+  | 'SALE_ONLINE'    // Sale Online / Trực page / Telesale
+  | 'TECHNICIAN'     // Kỹ thuật viên sửa chữa & kiểm định
+  | 'CASHIER'        // Thu ngân
+  | 'WAREHOUSE'      // Thủ kho
+  | 'STORE_MANAGER'  // Cửa hàng trưởng
+  | 'ACCOUNTANT'     // Kế toán
+  | 'ADMIN';         // Giám đốc / Ban quản trị
+
+export interface StaffMember {
+  id: string;
+  code: string; // NV-001, NV-002
+  name: string;
+  avatar: string;
+  role: StaffRole;
+  roleTitle: string;
+  phone: string;
+  email: string;
+  branchId: string;
+  branchName: string;
+  baseSalary: number;
+  monthlyTargetRevenue: number;
+  monthlyTargetOrders: number;
+  status: 'ACTIVE' | 'ON_LEAVE' | 'INACTIVE';
+  joinDate: string;
+  allowedWifiSSID?: string;
+  assignedFaceEmbedding?: boolean;
+}
+
+export type ShiftType = 'MORNING' | 'AFTERNOON' | 'EVENING' | 'FULL_DAY' | 'OFF';
+
+export interface ShiftDefinition {
+  id: string;
+  name: string; // Ca sáng, Ca chiều, Ca tối
+  type: ShiftType;
+  startTime: string; // '08:00'
+  endTime: string;   // '17:00'
+  breakDurationMinutes: number;
+  color: string;
+  badgeBg: string;
+  badgeText: string;
+}
+
+export interface DayShiftAssignment {
+  shiftId: string;
+  shiftName: string;
+  startTime: string;
+  endTime: string;
+  status: 'SCHEDULED' | 'CHECKED_IN' | 'COMPLETED' | 'SWAP_REQUESTED' | 'SWAP_APPROVED' | 'OFF';
+}
+
+export interface WeeklyShiftSchedule {
+  id: string;
+  staffId: string;
+  staffName: string;
+  role: StaffRole;
+  branchId: string;
+  weekStartDate: string; // YYYY-MM-DD
+  days: {
+    [dateStr: string]: DayShiftAssignment;
+  };
+}
+
+export type AttendanceVerificationStatus = 'VERIFIED' | 'PENDING' | 'FAILED';
+
+export interface AttendanceRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  role: StaffRole;
+  branchId: string;
+  branchName: string;
+  date: string; // YYYY-MM-DD
+  shiftName: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  
+  // Realtime Timestamps
+  checkInTime?: string; // HH:mm:ss
+  checkOutTime?: string;
+  workDurationMinutes: number;
+  breakDurationMinutes: number;
+  netWorkMinutes: number;
+  
+  // 4-Factor Verification Checklist
+  verification: {
+    gpsVerified: boolean;
+    gpsDistanceMeters?: number;
+    wifiVerified: boolean;
+    wifiSSID?: string;
+    faceVerified: boolean;
+    qrScanned: boolean;
+    checkInPhoto?: string;
+  };
+
+  // Status & Current Live Activity
+  status: 'ON_TIME' | 'LATE' | 'EARLY_LEAVE' | 'ABSENT' | 'IN_PROGRESS' | 'COMPLETED';
+  currentActivity?: 'WORKING' | 'BREAK' | 'OUTSIDE' | 'DELIVERY' | 'SUPPORT_TECH';
+  lateMinutes: number;
+  earlyMinutes: number;
+  otMinutes: number;
+
+  // Daily Live KPI Progress
+  kpiProgress: {
+    consultedCount: number;
+    targetConsulted: number;
+    orderCount: number;
+    targetOrders: number;
+    revenue: number;
+    targetRevenue: number;
+  };
+
+  activityHistory: Array<{
+    timestamp: string;
+    action: string;
+    notes?: string;
+  }>;
+}
+
+export interface LeaveRequest {
+  id: string;
+  code: string; // NP-202608-01
+  staffId: string;
+  staffName: string;
+  role: StaffRole;
+  branchName: string;
+  type: 'ANNUAL_LEAVE' | 'HALF_DAY' | 'UNPAID' | 'SHIFT_SWAP' | 'SICK_LEAVE';
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  reason: string;
+  swapWithStaffId?: string;
+  swapWithStaffName?: string;
+  swapDate?: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  approvedBy?: string;
+  approvedAt?: string;
+  createdAt: string;
+}
+
+export type CommissionType = 
+  | 'DEVICE_SALE'          // Hoa hồng bán máy iPhone / iPad / MacBook
+  | 'ACCESSORY_SALE'       // Hoa hồng ốp, sạc, dán cường lực
+  | 'CARE_PACKAGE'         // Gói bảo hành VIP / Rơi vỡ
+  | 'ONLINE_LEAD_SPLIT'    // 30% Sale Online
+  | 'STORE_CLOSER_SPLIT'   // 70% Nhân viên chốt đơn tại cửa hàng
+  | 'TECH_REPAIR'          // Hoa hồng / Điểm kỹ thuật viên sửa chữa
+  | 'TRADEIN_BONUS';       // Thưởng thu cũ đổi mới
+
+export interface CommissionTransaction {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  role: StaffRole;
+  orderId: string;
+  orderCode: string;
+  orderItemId?: string;
+  productName: string;
+  imei?: string;
+  branchId: string;
+  type: CommissionType;
+  baseAmount: number;     // Doanh số bán hoặc Giá trị đơn
+  profitAmount: number;   // Lợi nhuận gộp hợp lệ
+  commissionRate: number; // 2%, 3%, 5% hoặc điểm
+  commissionAmount: number; // Tiền hoa hồng thực nhận
+  status: 'PENDING' | 'CONFIRMED' | 'REVERSED' | 'PAID';
+  policyId: string;
+  policyVersion: string;
+  occurredAt: string;
+  approvedAt?: string;
+  notes?: string;
+}
+
+export interface TechnicianPerformanceRecord {
+  id: string;
+  repairOrderId: string;
+  repairCode: string;
+  customerName: string;
+  deviceModel: string;
+  imei: string;
+  issueDescription: string;
+  technicianId: string;
+  technicianName: string;
+  repairType: 'BATTERY' | 'SCREEN' | 'GLASS' | 'MAINBOARD' | 'CAMERA' | 'SPEAKER' | 'OTHER';
+  difficultyPoints: number; // Thay pin 1pt, Màn hình 2pt, Main 4pt
+  qualityScore: number;     // 100%
+  slaHoursTarget: number;
+  slaHoursActual: number;
+  isSlaMet: boolean;
+  revenue: number;
+  profit: number;
+  commissionAmount: number;
+  warrantyStatus: 'CLEAN' | 'UNDER_REVIEW' | 'TECH_FAULT' | 'PART_FAULT' | 'CUSTOMER_FAULT';
+  completedAt: string;
+}
+
+export interface SalaryPolicy {
+  id: string;
+  name: string;
+  role: StaffRole;
+  branchId?: string;
+  effectiveFrom: string;
+  version: string;
+  status: 'ACTIVE' | 'DRAFT';
+  baseSalary: number;
+  attendanceBonus: number; // 500k
+  deviceProfitPercent: number; // 2%
+  accessoryProfitPercent: number; // 3-5%
+  carePackagePercent: number; // 10%
+  onlineSaleSplitPercent: number; // 30%
+  storeCloserSplitPercent: number; // 70%
+  techPointRateVnd: number; // 50.000đ/điểm
+  overtimeHourlyRate: number; // 35.000đ - 50.000đ/h
+  kpiBonusTiers: Array<{
+    minPercent: number;
+    bonusAmount: number;
+  }>;
+}
+
+export interface PayrollLedgerItem {
+  id: string;
+  employeeId: string;
+  type: 
+    | 'BASE_SALARY'
+    | 'ATTENDANCE_BONUS'
+    | 'COMMISSION_DEVICE'
+    | 'COMMISSION_ACCESSORY'
+    | 'COMMISSION_TECH'
+    | 'KPI_BONUS'
+    | 'OVERTIME'
+    | 'ALLOWANCE'
+    | 'ORDER_RETURN_DEDUCTION'
+    | 'LATE_PENALTY'
+    | 'SALARY_ADVANCE'
+    | 'MANUAL_ADJUSTMENT';
+  title: string;
+  amount: number;
+  isAddition: boolean;
+  sourceCode?: string; // Mã HĐ, Mã IMEI, Mã đơn sửa, Mã phiếu tạm ứng
+  occurredAt: string;
+  description: string;
+}
+
+export interface MonthlyPayrollSlip {
+  id: string;
+  periodMonth: string; // '2026-08'
+  employeeId: string;
+  employeeName: string;
+  role: StaffRole;
+  roleTitle: string;
+  branchName: string;
+  bankAccount?: string;
+  bankName?: string;
+  
+  // Working days
+  standardWorkDays: number; // 26
+  actualWorkDays: number;   // 25.5
+  lateMinutesTotal: number;
+  otHoursTotal: number;
+
+  // Earnings
+  baseSalary: number;
+  attendanceBonus: number;
+  deviceCommissionTotal: number;
+  accessoryCommissionTotal: number;
+  techCommissionTotal: number;
+  kpiBonus: number;
+  overtimeAmount: number;
+  allowance: number;
+
+  // Deductions
+  returnDeductions: number;
+  advanceSalaryDeductions: number;
+  penaltyDeductions: number;
+
+  // Totals
+  grossTotal: number;
+  deductionsTotal: number;
+  netReceivable: number;
+
+  // Approval Pipeline
+  approvalStep: 1 | 2 | 3 | 4 | 5; // 1: CHT, 2: Kế toán, 3: Giám đốc, 4: Khóa kỳ, 5: Đã chi
+  status: 'DRAFT' | 'STORE_APPROVED' | 'ACCOUNTANT_APPROVED' | 'DIRECTOR_APPROVED' | 'LOCKED' | 'PAID';
+  approvalHistory: Array<{
+    step: number;
+    stepName: string;
+    approverName: string;
+    approvedAt: string;
+    notes?: string;
+  }>;
 }

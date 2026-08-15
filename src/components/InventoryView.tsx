@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { DeviceItem } from '../types';
+import { DeviceItem, StoreBranch, WarehouseInfo, WAREHOUSE_LIST } from '../types';
 import { 
   Smartphone, 
   Search, 
@@ -25,7 +25,9 @@ import {
   Boxes, 
   TrendingUp, 
   Sparkles,
-  X
+  X,
+  Building2,
+  Warehouse
 } from 'lucide-react';
 import {
   BarChart,
@@ -39,6 +41,8 @@ import {
 
 interface InventoryViewProps {
   devices: DeviceItem[];
+  branches?: StoreBranch[];
+  warehouses?: WarehouseInfo[];
   onAddDevice: (device: DeviceItem) => void;
   onUpdateDevice: (device: DeviceItem) => void;
   onDeleteDevice: (id: string) => void;
@@ -116,6 +120,8 @@ const DeviceImageThumbnail: React.FC<{ model: string; color: string }> = ({ mode
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
   devices,
+  branches = [],
+  warehouses = [],
   onAddDevice,
   onUpdateDevice,
   onDeleteDevice,
@@ -125,6 +131,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [selectedSeries, setSelectedSeries] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [selectedCondition, setSelectedCondition] = useState('ALL');
+  const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState('ALL');
   const [showCostPrice, setShowCostPrice] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedDeviceForBarcode, setSelectedDeviceForBarcode] = useState<DeviceItem | null>(null);
@@ -200,6 +207,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     return Object.values(modelMap).sort((a, b) => b.totalCount - a.totalCount);
   }, [inStockDevices]);
 
+  // Active warehouse options
+  const activeWarehouses = useMemo(() => {
+    if (warehouses && warehouses.length > 0) return warehouses;
+    return WAREHOUSE_LIST;
+  }, [warehouses]);
+
   // Form State for new device
   const [formData, setFormData] = useState<Partial<DeviceItem>>({
     model: 'iPhone 16 Pro Max',
@@ -211,6 +224,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     buyPrice: 31000000,
     sellPrice: 34500000,
     status: 'in_stock',
+    warehouse: 'KHO_PHONEHOUSE',
+    branch: 'Phone House Cầu Giấy (136 Cầu Giấy)',
     supplier: 'FPT Synnex Distro',
     warrantyPeriodMonths: 12,
     icloudStatus: 'Clean / Đã Thoát',
@@ -241,10 +256,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       const matchesStatus = selectedStatus === 'ALL' || d.status === selectedStatus;
       const matchesCondition = selectedCondition === 'ALL' || d.condition === selectedCondition;
       const matchesChartModel = !selectedChartModel || d.model === selectedChartModel;
+      
+      const matchesWarehouse = 
+        selectedWarehouseFilter === 'ALL' || 
+        d.warehouse === selectedWarehouseFilter ||
+        (selectedWarehouseFilter === 'KHO_PHONEHOUSE' && (!d.warehouse || d.warehouse.includes('PHONEHOUSE') || d.warehouse.includes('Cầu Giấy'))) ||
+        (selectedWarehouseFilter === 'KHO_XSTORE' && (d.warehouse?.includes('XSTORE') || d.warehouse?.includes('Đống Đa'))) ||
+        (selectedWarehouseFilter === 'KHO_TONG' && (d.warehouse?.includes('TONG') || d.warehouse?.includes('Tổng')));
 
-      return matchesSearch && matchesSeries && matchesStatus && matchesCondition && matchesChartModel;
+      return matchesSearch && matchesSeries && matchesStatus && matchesCondition && matchesChartModel && matchesWarehouse;
     });
-  }, [devices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel]);
+  }, [devices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, selectedWarehouseFilter]);
 
   const groupedDevices = useMemo(() => {
     const groups: Record<string, {
@@ -324,6 +346,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       buyPrice: Number(formData.buyPrice) || 31000000,
       sellPrice: Number(formData.sellPrice) || 34500000,
       status: (formData.status as any) || 'in_stock',
+      warehouse: formData.warehouse || 'KHO_PHONEHOUSE',
+      branch: formData.branch || 'Phone House Cầu Giấy (136 Cầu Giấy)',
       supplier: formData.supplier || 'FPT Synnex',
       receivedDate: new Date().toISOString().split('T')[0],
       warrantyPeriodMonths: Number(formData.warrantyPeriodMonths) || 12,
@@ -606,7 +630,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         <div className="flex items-center justify-between gap-1.5 pt-0.5">
           <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-0.5">
             {[
-              { id: 'ALL', label: 'Tất cả' },
+              { id: 'ALL', label: 'Tất cả model' },
               { id: '16', label: 'iPhone 16' },
               { id: '15', label: 'iPhone 15' },
               { id: '14', label: 'iPhone 14' },
@@ -616,7 +640,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <button
                 key={item.id}
                 onClick={() => setSelectedSeries(item.id)}
-                className={`text-xs px-3.5 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                className={`text-xs px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   selectedSeries === item.id
                     ? 'bg-[#F94A1F] text-white shadow-2xs font-bold'
                     : 'bg-zinc-100/90 text-zinc-700 hover:bg-zinc-200/80'
@@ -634,6 +658,50 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <Filter className="w-3.5 h-3.5" />
             <span>Bộ lọc</span>
           </button>
+        </div>
+
+        {/* Warehouse Filter Pills Row */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-1 bg-orange-50/50 p-1.5 rounded-2xl border border-orange-100/70">
+          <span className="text-[11px] font-extrabold text-orange-900 px-2 flex items-center space-x-1 shrink-0">
+            <Warehouse className="w-3.5 h-3.5 text-orange-600" />
+            <span>Kho hàng:</span>
+          </span>
+          <button
+            onClick={() => setSelectedWarehouseFilter('ALL')}
+            className={`text-xs px-2.5 py-1 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
+              selectedWarehouseFilter === 'ALL'
+                ? 'bg-orange-600 text-white shadow-xs'
+                : 'bg-white text-zinc-700 hover:bg-orange-100/80 border border-orange-200/50'
+            }`}
+          >
+            Tất cả kho ({inStockDevices.length})
+          </button>
+          {activeWarehouses.map((w) => {
+            const countInW = inStockDevices.filter(d => 
+              d.warehouse === w.id || 
+              (w.id === 'KHO_PHONEHOUSE' && (!d.warehouse || d.warehouse.includes('PHONEHOUSE') || d.warehouse.includes('Cầu Giấy'))) ||
+              (w.id === 'KHO_XSTORE' && (d.warehouse?.includes('XSTORE') || d.warehouse?.includes('Đống Đa'))) ||
+              (w.id === 'KHO_TONG' && (d.warehouse?.includes('TONG') || d.warehouse?.includes('Tổng')))
+            ).length;
+            return (
+              <button
+                key={w.id}
+                onClick={() => setSelectedWarehouseFilter(w.id)}
+                className={`text-xs px-2.5 py-1 rounded-xl font-bold whitespace-nowrap transition-all flex items-center space-x-1 cursor-pointer ${
+                  selectedWarehouseFilter === w.id
+                    ? 'bg-orange-600 text-white shadow-xs'
+                    : 'bg-white text-zinc-700 hover:bg-orange-100/80 border border-orange-200/50'
+                }`}
+              >
+                <span>{w.name}</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                  selectedWarehouseFilter === w.id ? 'bg-white text-orange-600' : 'bg-orange-100 text-orange-800'
+                }`}>
+                  {countInW}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
       </div>
@@ -720,6 +788,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                 : 'bg-amber-50 text-amber-700 border border-amber-100'
                             }`}>
                               {device.condition}
+                            </span>
+                            <span className="bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-lg border border-orange-200/80 flex items-center space-x-1">
+                              <Warehouse className="w-3 h-3 text-orange-500 inline" />
+                              <span>
+                                {device.warehouse === 'KHO_XSTORE' 
+                                  ? 'Kho Xstore (Đống Đa)' 
+                                  : device.warehouse === 'KHO_TONG' 
+                                  ? 'Kho Tổng' 
+                                  : 'Kho Cầu Giấy'}
+                              </span>
                             </span>
                             <span className="bg-white text-zinc-700 text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-zinc-200/80">
                               Pin {device.batteryHealth}%
@@ -936,6 +1014,58 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     value={formData.sellPrice}
                     onChange={(e) => setFormData({ ...formData, sellPrice: Number(e.target.value) })}
                     className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-[#F94A1F] font-mono font-bold focus:outline-none focus:bg-white focus:border-orange-500"
+                  />
+                </div>
+
+                {/* Kho Nhập Hàng */}
+                <div>
+                  <label className="block text-xs font-bold text-zinc-800 mb-1">Kho Lưu Trữ Nhập Hàng *</label>
+                  <select
+                    value={formData.warehouse}
+                    onChange={(e) => setFormData({ ...formData, warehouse: e.target.value })}
+                    className="w-full bg-orange-50/60 border border-orange-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                  >
+                    {activeWarehouses.map(w => (
+                      <option key={w.id} value={w.id}>
+                        🏢 {w.name} ({w.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Chi Nhánh Nhập Hàng */}
+                <div>
+                  <label className="block text-xs font-bold text-zinc-800 mb-1">Chi Nhánh Tiếp Nhận *</label>
+                  <select
+                    value={formData.branch}
+                    onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                    className="w-full bg-orange-50/60 border border-orange-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                  >
+                    {branches && branches.length > 0 ? (
+                      branches.map(b => (
+                        <option key={b.id} value={b.name}>
+                          🏪 {b.name} ({b.address})
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="Phone House Cầu Giấy (136 Cầu Giấy)">🏪 Phone House Cầu Giấy (136 Cầu Giấy)</option>
+                        <option value="Phone House Đống Đa (88 Tây Sơn)">🏪 Phone House Đống Đa (88 Tây Sơn)</option>
+                        <option value="Tổng Kho Phone House (Hà Nội)">🏪 Tổng Kho Phone House (Hà Nội)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+
+                {/* Nhà Cung Cấp */}
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-zinc-800 mb-1">Nhà Cung Cấp / Đối Tác Phân Phối</label>
+                  <input
+                    type="text"
+                    value={formData.supplier}
+                    onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+                    placeholder="VD: FPT Synnex, Digiworld, Apple Authorized, Khách Thu Cũ..."
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
                   />
                 </div>
               </div>

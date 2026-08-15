@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { DeviceItem, SalesInvoice, Lead } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST } from '../types';
 import { 
   ShoppingCart, 
   Search, 
@@ -37,13 +37,19 @@ import {
   BadgePercent,
   RefreshCw,
   Clock,
-  Sparkle
+  Sparkle,
+  Building2,
+  Warehouse,
+  Store
 } from 'lucide-react';
 
 interface POSSalesViewProps {
   devices: DeviceItem[];
   invoices: SalesInvoice[];
   leads?: Lead[];
+  branches?: StoreBranch[];
+  warehouses?: WarehouseInfo[];
+  storeSettings?: StoreSettings;
   onCreateInvoice: (invoice: SalesInvoice) => void;
   onUpdateDeviceStatus: (imei: string, status: DeviceItem['status'], customerName?: string, phone?: string) => void;
   preSelectedDevice?: DeviceItem | null;
@@ -79,6 +85,9 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   devices,
   invoices,
   leads = [],
+  branches = [],
+  warehouses = [],
+  storeSettings,
   onCreateInvoice,
   onUpdateDeviceStatus,
   preSelectedDevice,
@@ -89,13 +98,42 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   // Available stock items
   const inStockDevices = devices.filter(d => d.status === 'in_stock');
 
+  // Warehouses list
+  const activeWarehouses = useMemo(() => {
+    return warehouses && warehouses.length > 0 ? warehouses : WAREHOUSE_LIST;
+  }, [warehouses]);
+
+  // Selected Branch & Warehouse state
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
+    if (branches && branches.length > 0) return branches[0].id;
+    return 'BRANCH_1';
+  });
+
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>(() => {
+    if (warehouses && warehouses.length > 0) return warehouses[0].id;
+    return 'KHO_PHONEHOUSE';
+  });
+
+  const currentBranch = useMemo(() => {
+    return branches.find(b => b.id === selectedBranchId) || branches[0] || {
+      id: 'BRANCH_1',
+      name: 'Phone House Cầu Giấy (Apple Premium)',
+      address: '136 Cầu Giấy, Q. Cầu Giấy, Hà Nội',
+      phone: '0909.123.456',
+      code: 'HN-CG'
+    };
+  }, [branches, selectedBranchId]);
+
+  const currentWarehouse = useMemo(() => {
+    return activeWarehouses.find(w => w.id === selectedWarehouseId) || activeWarehouses[0];
+  }, [activeWarehouses, selectedWarehouseId]);
+
   // Active Stepper stage (1: Chọn máy, 2: Khách hàng, 3: Phụ kiện & Ưu đãi, 4: Thanh toán)
   const [activeStep, setActiveStep] = useState<number>(1);
 
   // Cart & Devices State
   const [selectedDevices, setSelectedDevices] = useState<DeviceItem[]>(() => {
     if (preSelectedDevice) return [preSelectedDevice];
-    
     return [];
   });
 
@@ -307,7 +345,10 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       installmentDisbursementStatus: paymentMethod === 'Trả góp 0% / CCCD' ? 'PENDING' : undefined,
       installmentExpectedAmount: paymentMethod === 'Trả góp 0% / CCCD' ? (finalAmount - downPaymentAmount) : undefined,
       installmentContractCode: paymentMethod === 'Trả góp 0% / CCCD' ? installmentContractCode : undefined,
-      branch: 'Phone House Cầu Giấy (Apple Premium)'
+      branch: currentBranch.name,
+      branchId: currentBranch.id,
+      warehouseId: currentWarehouse.id,
+      warehouseName: currentWarehouse.name
     };
 
     // Update status of all devices to sold in Firestore
@@ -337,6 +378,49 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
             <span>Quản lý hóa đơn ({invoices.length})</span>
           </button>
         )}
+      </div>
+
+      {/* Store & Warehouse Selection Bar */}
+      <div className="bg-white rounded-2xl sm:rounded-3xl border border-orange-200/80 p-3 shadow-2xs grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+        <div className="flex items-center space-x-2 bg-orange-50/50 p-2 rounded-xl border border-orange-100">
+          <Store className="w-4 h-4 text-orange-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Cửa hàng xuất bán:</span>
+            <select
+              value={selectedBranchId}
+              onChange={(e) => setSelectedBranchId(e.target.value)}
+              className="w-full bg-transparent font-bold text-zinc-900 focus:outline-none truncate text-xs cursor-pointer"
+            >
+              {branches && branches.length > 0 ? (
+                branches.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))
+              ) : (
+                <option value="BRANCH_1">Phone House Cầu Giấy (136 Cầu Giấy)</option>
+              )}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2 bg-orange-50/50 p-2 rounded-xl border border-orange-100">
+          <Warehouse className="w-4 h-4 text-orange-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Kho trừ tồn hàng:</span>
+            <select
+              value={selectedWarehouseId}
+              onChange={(e) => setSelectedWarehouseId(e.target.value)}
+              className="w-full bg-transparent font-bold text-zinc-900 focus:outline-none truncate text-xs cursor-pointer"
+            >
+              {activeWarehouses.map(w => (
+                <option key={w.id} value={w.id}>
+                  {w.name} ({w.code})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* 1. TOP STEPPER (1 Chọn máy -> 2 Khách hàng -> 3 Phụ kiện -> 4 Thanh toán) */}
@@ -830,8 +914,13 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                       </div>
                       <div>
                         <div className="font-bold text-xs sm:text-sm text-zinc-900">{device.model} {device.storage}</div>
-                        <div className="text-[11px] text-zinc-500 font-mono">
-                          IMEI: {device.imei} • Pin {device.batteryHealth}% • {device.condition}
+                        <div className="text-[11px] text-zinc-500 font-mono flex items-center space-x-1.5 flex-wrap gap-y-0.5">
+                          <span>IMEI: {device.imei.slice(-6)}</span>
+                          <span>• Pin {device.batteryHealth}%</span>
+                          <span>• {device.condition}</span>
+                          <span className="bg-orange-100/80 text-orange-800 text-[9px] font-bold px-1.5 py-0.2 rounded font-sans">
+                            🏢 {device.warehouse === 'KHO_XSTORE' ? 'Kho Xstore' : device.warehouse === 'KHO_TONG' ? 'Kho Tổng' : 'Kho Cầu Giấy'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -1250,14 +1339,44 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                     className="w-full bg-white border border-zinc-200 rounded-lg p-2 text-xs"
                   />
                 </div>
-                <div className="flex justify-between items-center bg-white p-2 border border-zinc-200 rounded-lg">
-                  <span className="text-zinc-600 font-bold">Trả trước (Khách thanh toán luôn):</span>
-                  <input
-                    type="number"
-                    value={downPaymentAmount}
-                    onChange={(e) => setCustomDownPayment(Number(e.target.value))}
-                    className="w-28 bg-zinc-50 border border-zinc-300 rounded px-2 py-1 text-right text-xs font-mono font-bold text-orange-600"
-                  />
+                <div className="space-y-1.5 bg-white p-2.5 border border-zinc-200 rounded-xl">
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-700 font-bold text-xs">Số tiền trả trước (Khách thanh toán):</span>
+                    <div className="flex items-center space-x-1">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={customDownPayment !== null ? customDownPayment.toLocaleString('vi-VN') : defaultDownPayment.toLocaleString('vi-VN')}
+                        onChange={(e) => {
+                          const rawVal = e.target.value.replace(/[^0-9]/g, '');
+                          setCustomDownPayment(rawVal === '' ? 0 : parseInt(rawVal, 10));
+                        }}
+                        className="w-32 bg-orange-50/70 border border-orange-300 focus:border-orange-500 focus:bg-white rounded-lg px-2.5 py-1 text-right text-xs font-mono font-black text-orange-700 focus:outline-none"
+                      />
+                      <span className="text-xs font-bold text-zinc-500">đ</span>
+                    </div>
+                  </div>
+                  {/* Quick percentage buttons */}
+                  <div className="flex items-center justify-end space-x-1 pt-1 border-t border-zinc-100">
+                    {[0, 10, 20, 30, 50].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() => {
+                          setDownPaymentPercent(pct);
+                          setCustomDownPayment(Math.round((finalAmount * pct) / 100));
+                        }}
+                        className={`text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors ${
+                          downPaymentAmount === Math.round((finalAmount * pct) / 100)
+                            ? 'bg-orange-500 text-white'
+                            : 'bg-zinc-100 text-zinc-600 hover:bg-orange-100 hover:text-orange-700'
+                        }`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex justify-between text-zinc-700 bg-white p-2 border border-zinc-200 rounded-lg font-bold">
                   <span>Số tiền chờ đối tác giải ngân:</span>
@@ -1299,14 +1418,24 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
             {/* Virtual Thermal Slip */}
             <div className="bg-zinc-50 text-black p-4 rounded-2xl border border-zinc-300 text-xs font-mono space-y-2 shadow-inner">
-              <div className="text-center font-black text-base text-orange-600">PHONE HOUSE • APPLE STORE</div>
-              <div className="text-center text-[10px] text-zinc-600">Đ/c: 123 Cầu Giấy, Q. Cầu Giấy, Hà Nội</div>
-              <div className="text-center text-[10px] text-zinc-600">Hotline: 0909.123.456</div>
+              <div className="text-center font-black text-base text-orange-600">
+                {storeSettings?.brandName || 'PHONE HOUSE'} • APPLE STORE
+              </div>
+              <div className="text-center text-[10px] text-zinc-600 font-bold">
+                {createdInvoiceForPrint.branch || currentBranch.name}
+              </div>
+              <div className="text-center text-[10px] text-zinc-500">
+                {currentBranch.address || '136 Cầu Giấy, Q. Cầu Giấy, Hà Nội'} • Hotline: {currentBranch.phone || '0909.123.456'}
+              </div>
               <div className="border-b border-dashed border-zinc-400 my-2" />
 
               <div className="flex justify-between font-bold">
                 <span>Số HĐ:</span>
                 <span>{createdInvoiceForPrint.invoiceCode || createdInvoiceForPrint.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Kho xuất:</span>
+                <span className="font-bold text-orange-700">{createdInvoiceForPrint.warehouseName || currentWarehouse.name}</span>
               </div>
               <div className="flex justify-between">
                 <span>Khách hàng:</span>

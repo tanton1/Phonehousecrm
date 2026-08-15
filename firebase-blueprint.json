@@ -175,6 +175,37 @@
         "notes": { "type": "string", "maxLength": 1000 }
       },
       "required": ["id", "type", "name", "phone"]
+    },
+    "FundAccount": {
+      "title": "FundAccount",
+      "description": "Cashbook fund account (Cash vault / Bank account)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "type": { "type": "string", "enum": ["CASH", "BANK", "OTHER"] },
+        "currentBalance": { "type": "number" },
+        "accountNumber": { "type": "string", "maxLength": 50 },
+        "bankName": { "type": "string", "maxLength": 100 },
+        "branch": { "type": "string", "maxLength": 100 },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "name", "type", "currentBalance"]
+    },
+    "CashTransaction": {
+      "title": "CashTransaction",
+      "description": "Cashbook receipt and payment transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 100 },
+        "type": { "type": "string", "enum": ["RECEIPT", "PAYMENT"] },
+        "amount": { "type": "number" },
+        "categoryName": { "type": "string", "maxLength": 100 },
+        "fundName": { "type": "string", "maxLength": 100 },
+        "date": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "code", "type", "amount"]
     }
   },
   "firestore": {
@@ -205,6 +236,14 @@
     "/partners/{partnerId}": {
       "schema": { "$ref": "#/entities/Partner" },
       "description": "Collection of retail & wholesale customers, device suppliers, parts distributors and financial partners"
+    },
+    "/funds/{fundId}": {
+      "schema": { "$ref": "#/entities/FundAccount" },
+      "description": "Collection of cashbook fund accounts and bank registers"
+    },
+    "/cashTransactions/{transId}": {
+      "schema": { "$ref": "#/entities/CashTransaction" },
+      "description": "Collection of cash receipt and payment transactions"
     }
   }
 }

@@ -24,10 +24,11 @@ interface CashbookViewProps {
   partners: Partner[];
   onAddTransaction: (transaction: CashTransaction) => void;
   onUpdateFunds?: (funds: FundAccount[]) => void;
+  onTransferFunds?: (fromFundId: string, toFundId: string, amount: number, notes: string, creator?: string) => Promise<void> | void;
 }
 
 export const CashbookView: React.FC<CashbookViewProps> = ({ 
-  transactions, funds, partners, onAddTransaction, onUpdateFunds 
+  transactions, funds, partners, onAddTransaction, onUpdateFunds, onTransferFunds 
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<'TRANSACTIONS' | 'ACCOUNTS' | 'REPORTS'>('TRANSACTIONS');
   const [selectedFundFilter, setSelectedFundFilter] = useState<string>('ALL');
@@ -198,43 +199,50 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     setIsFundModalOpen(false);
   };
 
-  const handleSubmitTransfer = (e: React.FormEvent) => {
+  const handleSubmitTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     const amountNum = parseFloat(transferData.amount.replace(/[^0-9]/g, '')) || 0;
     if (amountNum <= 0) { alert('Số tiền không hợp lệ'); return; }
-    if (transferData.fromFundName === transferData.toFundName) { alert('Hai quỹ phải khác nhau'); return; }
+    if (transferData.fromFundName === transferData.toFundName) { alert('Quỹ nguồn và quỹ đích phải khác nhau'); return; }
 
-    const fromFund = funds.find(f => f.name === transferData.fromFundName);
-    const toFund = funds.find(f => f.name === transferData.toFundName);
+    const fromFund = funds.find(f => f.name === transferData.fromFundName || f.id === transferData.fromFundName);
+    const toFund = funds.find(f => f.name === transferData.toFundName || f.id === transferData.toFundName);
     if (!fromFund || !toFund) return;
 
     if (fromFund.currentBalance < amountNum) {
-      if (!confirm('Số dư quỹ nguồn không đủ. Vẫn tiếp tục?')) return;
+      if (!confirm(`Số dư của ${fromFund.name} (${formatCurrency(fromFund.currentBalance)}) thấp hơn số tiền chuyển (${formatCurrency(amountNum)}). Bạn có chắc chắn muốn tiếp tục?`)) {
+        return;
+      }
     }
 
-    const now = new Date();
-    const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
-    
-    const txOut: CashTransaction = {
-      id: `TX-${Date.now()}-OUT`,
-      code: `PC-${Math.floor(1000 + Math.random() * 9000)}`,
-      type: 'PAYMENT',
-      category: 'OTHER_EXPENSE',
-      categoryName: 'Chuyển quỹ nội bộ (Chi)',
-      amount: amountNum,
-      fundType: fromFund.type,
-      fundName: fromFund.name,
-      date: dateStr,
-      creator: 'Nhật Tân (Admin)',
-      notes: transferData.notes,
-      status: 'COMPLETED'
-    };
-    onAddTransaction(txOut);
+    if (onTransferFunds) {
+      await onTransferFunds(fromFund.id, toFund.id, amountNum, transferData.notes, 'Nhật Tân (Admin)');
+    } else {
+      // Fallback local update
+      const now = new Date();
+      const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
+      const transferRefCode = `TRF-${Date.now().toString().slice(-6)}`;
+      
+      const txOut: CashTransaction = {
+        id: `TX-${Date.now()}-OUT`,
+        code: `PC-${transferRefCode}-OUT`,
+        type: 'PAYMENT',
+        category: 'OTHER_EXPENSE',
+        categoryName: 'Chuyển quỹ nội bộ (Chi)',
+        amount: amountNum,
+        fundType: fromFund.type,
+        fundName: fromFund.name,
+        date: dateStr,
+        creator: 'Nhật Tân (Admin)',
+        referenceCode: transferRefCode,
+        notes: transferData.notes || `Chuyển sang ${toFund.name}`,
+        status: 'COMPLETED'
+      };
+      onAddTransaction(txOut);
 
-    setTimeout(() => {
       const txIn: CashTransaction = {
-        id: `TX-${Date.now()}-IN`,
-        code: `PT-${Math.floor(1000 + Math.random() * 9000)}`,
+        id: `TX-${Date.now() + 1}-IN`,
+        code: `PT-${transferRefCode}-IN`,
         type: 'RECEIPT',
         category: 'OTHER_INCOME',
         categoryName: 'Chuyển quỹ nội bộ (Thu)',
@@ -243,13 +251,33 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         fundName: toFund.name,
         date: dateStr,
         creator: 'Nhật Tân (Admin)',
-        notes: transferData.notes,
+        referenceCode: transferRefCode,
+        notes: transferData.notes || `Nhận từ ${fromFund.name}`,
         status: 'COMPLETED'
       };
       onAddTransaction(txIn);
-    }, 100);
+
+      if (onUpdateFunds) {
+        const updatedFunds = funds.map(f => {
+          if (f.id === fromFund.id) {
+            return { ...f, currentBalance: f.currentBalance - amountNum, totalExpense: f.totalExpense + amountNum };
+          }
+          if (f.id === toFund.id) {
+            return { ...f, currentBalance: f.currentBalance + amountNum, totalIncome: f.totalIncome + amountNum };
+          }
+          return f;
+        });
+        onUpdateFunds(updatedFunds);
+      }
+    }
 
     setIsTransferModalOpen(false);
+    setTransferData({
+      fromFundName: funds.find(f => f.type === 'CASH')?.name || '',
+      toFundName: funds.find(f => f.type === 'BANK')?.name || '',
+      amount: '',
+      notes: 'Chuyển quỹ nội bộ'
+    });
   };
 
   const handleSubmitReconcile = (e: React.FormEvent) => {
@@ -475,8 +503,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                           {fund.type === 'CASH' ? <Wallet className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-[#171717] truncate">{fund.name.split('-')[0].trim()}</p>
-                          {fund.type === 'BANK' && <p className="text-[10px] text-zinc-500 font-mono">**** {fund.name.slice(-4)}</p>}
+                          <p className="text-xs font-bold text-[#171717] truncate">{(fund.name || 'Quỹ').split('-')[0]?.trim() || fund.name}</p>
+                          {fund.type === 'BANK' && <p className="text-[10px] text-zinc-500 font-mono">**** {(fund.name || '').slice(-4)}</p>}
                           {fund.type === 'CASH' && <p className="text-[10px] text-zinc-500 truncate">Két trung tâm</p>}
                         </div>
                       </div>
@@ -545,18 +573,18 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   >
                     <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
                       <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-zinc-100 flex items-center justify-center text-sm font-black text-zinc-500 shrink-0 uppercase">
-                        {tx.partnerName.split(' ').map(n=>n[0]).slice(0,2).join('')}
+                        {(tx.partnerName || 'Khách').split(' ').filter(Boolean).map(n=>n[0]).slice(0,2).join('') || 'PH'}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-bold text-[#171717] text-sm truncate">{tx.partnerName}</p>
+                        <p className="font-bold text-[#171717] text-sm truncate">{tx.partnerName || 'Khách vãng lai / Đối tác'}</p>
                         <div className="flex items-center space-x-2 mt-0.5">
                           <span className="text-[10px] font-mono text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded-md">{tx.code}</span>
-                          <span className="text-[11px] text-zinc-500 flex items-center"><Clock className="w-3 h-3 mr-0.5"/> {tx.date.split(' ')[1]}</span>
+                          <span className="text-[11px] text-zinc-500 flex items-center"><Clock className="w-3 h-3 mr-0.5"/> {(tx.date || '').split(' ')[1] || tx.date}</span>
                         </div>
                         <p className="text-[11px] text-zinc-600 mt-1 truncate">{tx.notes || tx.categoryName}</p>
                         <p className="text-[10px] text-zinc-400 flex items-center mt-1">
                           {tx.fundType === 'CASH' ? <Wallet className="w-3 h-3 mr-1" /> : <Building2 className="w-3 h-3 mr-1" />}
-                          {tx.fundName.split('-')[0].trim()}
+                          {(tx.fundName || '').split('-')[0]?.trim() || tx.fundName || 'Quỹ tiền'}
                         </p>
                       </div>
                     </div>
@@ -582,56 +610,215 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         )}
 
         {activeMainTab === 'ACCOUNTS' && (
-          <div className="space-y-4 animate-in fade-in pb-20">
-            <div className="flex items-center justify-between">
+          <div className="space-y-6 animate-in fade-in pb-20">
+            {/* Header & Quick Action Buttons */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-[#EAECF0]">
               <div>
-                <h3 className="font-bold text-[#171717] text-lg">Quản lý Tài khoản</h3>
-                <p className="text-xs text-zinc-500">Danh sách các quỹ tiền mặt và tài khoản ngân hàng</p>
+                <h3 className="font-black text-[#171717] text-lg">Quản Lý Quỹ Tiền Mặt & Tài Khoản Ngân Hàng</h3>
+                <p className="text-xs text-zinc-500">Đối soát số dư thực tế, quản lý két tiền mặt tại showroom và tài khoản VietQR</p>
               </div>
-              <button onClick={() => handleOpenFundModal()} className="flex items-center space-x-1 bg-[#16A36A] hover:bg-[#128a59] text-white px-3 py-2 rounded-xl text-xs font-bold transition-colors shadow-md shadow-emerald-500/20 cursor-pointer">
-                <Plus className="w-4 h-4" />
-                <span>Thêm quỹ</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button 
+                  onClick={handleOpenTransferModal} 
+                  className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20 cursor-pointer"
+                >
+                  <ArrowRightLeft className="w-4 h-4" />
+                  <span>Chuyển quỹ nội bộ</span>
+                </button>
+                <button 
+                  onClick={handleOpenReconcileModal} 
+                  className="flex items-center space-x-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-500/20 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Đối soát số dư</span>
+                </button>
+                <button 
+                  onClick={() => handleOpenFundModal()} 
+                  className="flex items-center space-x-1.5 bg-[#16A36A] hover:bg-[#128a59] text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-500/20 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Thêm quỹ</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Account Summary Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-2xl p-4 shadow-sm border border-zinc-800">
+                <p className="text-xs text-zinc-400 font-medium mb-1">Tổng Số Dư Toàn Bộ Quỹ</p>
+                <p className="text-xl font-black text-orange-400">
+                  {formatCurrency(funds.reduce((acc, f) => acc + (f.currentBalance || 0), 0))}
+                </p>
+                <p className="text-[10px] text-zinc-400 mt-1">{funds.length} tài khoản & két tiền</p>
+              </div>
+
+              <div className="bg-orange-50/70 border border-orange-100 rounded-2xl p-4">
+                <p className="text-xs text-orange-700 font-bold mb-1">Tiền Mặt Tại Các Két</p>
+                <p className="text-xl font-black text-[#FF5A1F]">
+                  {formatCurrency(funds.filter(f => f.type === 'CASH').reduce((acc, f) => acc + (f.currentBalance || 0), 0))}
+                </p>
+                <p className="text-[10px] text-orange-600/80 mt-1">Sẵn sàng thanh toán thu mua & chi phí</p>
+              </div>
+
+              <div className="bg-blue-50/70 border border-blue-100 rounded-2xl p-4">
+                <p className="text-xs text-blue-700 font-bold mb-1">Tài Khoản Ngân Hàng & VietQR</p>
+                <p className="text-xl font-black text-blue-700">
+                  {formatCurrency(funds.filter(f => f.type !== 'CASH').reduce((acc, f) => acc + (f.currentBalance || 0), 0))}
+                </p>
+                <p className="text-[10px] text-blue-600/80 mt-1">Thu tiền chuyển khoản & POS quẹt thẻ</p>
+              </div>
             </div>
             
+            {/* Account Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {funds.map((fund, idx) => (
-                <div key={fund.id} className="bg-white border border-[#EAECF0] rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-shadow">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        fund.type === 'CASH' ? 'bg-orange-50 text-[#FF5A1F]' : 
-                        fund.type === 'BANK' ? 'bg-blue-50 text-blue-600' : 'bg-zinc-100 text-zinc-600'
-                      }`}>
-                        {fund.type === 'CASH' ? <Wallet className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
+              {funds.map((fund) => (
+                <div key={fund.id} className="bg-white border border-[#EAECF0] rounded-3xl p-5 flex flex-col justify-between hover:shadow-lg transition-all">
+                  <div>
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold ${
+                          fund.type === 'CASH' ? 'bg-orange-50 text-[#FF5A1F]' : 
+                          fund.type === 'BANK' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                        }`}>
+                          {fund.type === 'CASH' ? <Wallet className="w-6 h-6" /> : <Building2 className="w-6 h-6" />}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-black text-[#171717] text-base">{(fund.name || 'Quỹ').split('-')[0]?.trim() || fund.name}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              fund.type === 'CASH' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {fund.type === 'CASH' ? 'Két tiền mặt' : 'Ngân hàng'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-zinc-500 mt-0.5">{fund.type === 'BANK' ? `${fund.bankName || ''} - ${fund.accountNumber || ''}` : 'Tiền mặt tại quầy bán lẻ'}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-bold text-[#171717]">{fund.name.split('-')[0].trim()}</p>
-                        <p className="text-xs text-zinc-500">{fund.type === 'BANK' ? fund.bankName + (fund.accountNumber ? ` - ${fund.accountNumber}` : '') : 'Tiền mặt'}</p>
-                      </div>
-                    </div>
-                    <div className="flex space-x-1">
-                      <button onClick={() => handleOpenFundModal(fund)} className="p-1.5 text-zinc-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors cursor-pointer">
-                        Sửa
+                      <button onClick={() => handleOpenFundModal(fund)} className="p-2 text-zinc-400 hover:text-orange-500 hover:bg-orange-50 rounded-xl transition-colors cursor-pointer" title="Sửa thông tin quỹ">
+                        <span className="text-xs font-bold">Sửa</span>
                       </button>
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-zinc-500 mb-1 uppercase font-bold tracking-wider">Số dư hiện tại</p>
-                    <p className="text-2xl font-black text-[#171717]">{formatCurrency(fund.currentBalance)}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-zinc-100">
-                    <div>
-                      <p className="text-[10px] text-zinc-500">Tổng thu lũy kế</p>
-                      <p className="text-xs font-bold text-[#16A36A]">+{formatCompact(fund.totalIncome)}</p>
+
+                    <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-100">
+                      <p className="text-[10px] text-zinc-500 mb-1 uppercase font-bold tracking-wider">Số dư khả dụng hiện tại</p>
+                      <p className="text-2xl font-black text-[#171717]">{formatCurrency(fund.currentBalance)}</p>
                     </div>
-                    <div>
-                      <p className="text-[10px] text-zinc-500">Tổng chi lũy kế</p>
-                      <p className="text-xs font-bold text-[#E23C55]">-{formatCompact(fund.totalExpense)}</p>
+
+                    <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-zinc-100">
+                      <div>
+                        <p className="text-[10px] text-zinc-500">Tổng thu lũy kế</p>
+                        <p className="text-xs font-bold text-[#16A36A]">+{formatCompact(fund.totalIncome)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-zinc-500">Tổng chi lũy kế</p>
+                        <p className="text-xs font-bold text-[#E23C55]">-{formatCompact(fund.totalExpense)}</p>
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Fund Actions */}
+                  <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setTransferData(prev => ({ ...prev, fromFundName: fund.name }));
+                        setIsTransferModalOpen(true);
+                      }}
+                      className="flex-1 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 transition-colors cursor-pointer"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      <span>Chuyển từ quỹ này</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleOpenCreateModal('RECEIPT');
+                        setFormData(prev => ({ ...prev, fundName: fund.name, fundType: fund.type }));
+                      }}
+                      className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      + Nạp tiền
+                    </button>
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Internal Transfers History Log Table */}
+            <div className="bg-white border border-[#EAECF0] rounded-3xl p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+                <div className="flex items-center space-x-2">
+                  <ArrowRightLeft className="w-5 h-5 text-blue-600" />
+                  <h4 className="font-black text-zinc-900 text-base">Lịch Sử Chuyển Quỹ Nội Bộ (Transfer Log)</h4>
+                </div>
+                <span className="text-xs text-zinc-500 font-medium">
+                  {transactions.filter(t => t.categoryName.includes('Chuyển quỹ') || t.referenceCode?.startsWith('TRF-')).length} giao dịch chuyển tiền
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-zinc-50 text-zinc-500 font-bold border-b border-zinc-100">
+                      <th className="p-3">Mã phiếu / Tham chiếu</th>
+                      <th className="p-3">Thời gian</th>
+                      <th className="p-3">Loại</th>
+                      <th className="p-3">Tài khoản quỹ</th>
+                      <th className="p-3">Số tiền</th>
+                      <th className="p-3">Người thực hiện</th>
+                      <th className="p-3">Ghi chú</th>
+                      <th className="p-3 text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {transactions
+                      .filter(t => t.categoryName.includes('Chuyển quỹ') || t.referenceCode?.startsWith('TRF-'))
+                      .slice(0, 10)
+                      .map((tx) => (
+                        <tr key={tx.id} className="hover:bg-zinc-50/80 transition-colors">
+                          <td className="p-3 font-mono font-bold text-zinc-800">
+                            <div>{tx.code}</div>
+                            {tx.referenceCode && (
+                              <div className="text-[10px] text-orange-600 font-medium">{tx.referenceCode}</div>
+                            )}
+                          </td>
+                          <td className="p-3 text-zinc-500 whitespace-nowrap">{tx.date}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                              tx.type === 'RECEIPT' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                            }`}>
+                              {tx.type === 'RECEIPT' ? 'Nhận Chuyển (+)' : 'Chuyển Đi (-)'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-medium text-zinc-800">{(tx.fundName || 'Quỹ').split('-')[0]}</td>
+                          <td className={`p-3 font-black whitespace-nowrap ${
+                            tx.type === 'RECEIPT' ? 'text-[#16A36A]' : 'text-[#E23C55]'
+                          }`}>
+                            {tx.type === 'RECEIPT' ? '+' : '-'}{formatCurrency(tx.amount)}
+                          </td>
+                          <td className="p-3 text-zinc-600">{tx.creator}</td>
+                          <td className="p-3 text-zinc-500 max-w-xs truncate">{tx.notes}</td>
+                          <td className="p-3 text-right">
+                            <button
+                              onClick={() => {
+                                setSelectedTx(tx);
+                                setIsPrintModalOpen(true);
+                              }}
+                              className="px-2 py-1 bg-zinc-100 hover:bg-orange-50 hover:text-orange-600 text-zinc-600 rounded-lg text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              In phiếu
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    {transactions.filter(t => t.categoryName.includes('Chuyển quỹ') || t.referenceCode?.startsWith('TRF-')).length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="p-8 text-center text-zinc-400">
+                          Chưa có giao dịch chuyển quỹ nội bộ nào. Nhấn "Chuyển quỹ nội bộ" ở trên để thực hiện!
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -869,44 +1056,175 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
           </div>
         </div>
       )}
-      {isTransferModalOpen && (
-  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-in fade-in">
-    <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl">
-      <div className="p-5 border-b border-zinc-100 flex items-center justify-between">
-        <h3 className="font-bold text-lg">Chuyển quỹ nội bộ</h3>
-        <button onClick={() => setIsTransferModalOpen(false)} className="p-1.5 hover:bg-zinc-100 rounded-xl cursor-pointer"><X className="w-5 h-5" /></button>
-      </div>
-      <form onSubmit={handleSubmitTransfer} className="p-5 space-y-4">
-        <div className="grid grid-cols-2 gap-2 items-center">
-          <div>
-            <label className="block text-xs font-bold text-zinc-500 mb-1">Từ quỹ (Nguồn)</label>
-            <select value={transferData.fromFundName} onChange={e => setTransferData({...transferData, fromFundName: e.target.value})} className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold">
-              {funds.map(f => <option key={f.id} value={f.name}>{f.name.split('-')[0]} ({formatCompact(f.currentBalance)})</option>)}
-            </select>
+      {isTransferModalOpen && (() => {
+        const fromFundObj = funds.find(f => f.name === transferData.fromFundName || f.id === transferData.fromFundName);
+        const toFundObj = funds.find(f => f.name === transferData.toFundName || f.id === transferData.toFundName);
+        const amountNum = parseFloat(transferData.amount.replace(/[^0-9]/g, '')) || 0;
+        const fromBalanceAfter = (fromFundObj?.currentBalance || 0) - amountNum;
+        const toBalanceAfter = (toFundObj?.currentBalance || 0) + amountNum;
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-blue-100">
+              <div className="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center justify-between">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                    <ArrowRightLeft className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-zinc-900 text-base">Chuyển Quỹ Tiền Nội Bộ</h3>
+                    <p className="text-[11px] text-zinc-500">Cập nhật số dư 2 quỹ tức thời và ghi nhật ký thu/chi</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsTransferModalOpen(false)} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-white rounded-xl cursor-pointer">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitTransfer} className="p-5 space-y-4">
+                {/* Visual Transfer Flow Selection */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200">
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">1. Quỹ Nguồn (Rút / Chuyển Đi)</label>
+                    <select 
+                      value={transferData.fromFundName} 
+                      onChange={e => setTransferData({...transferData, fromFundName: e.target.value})} 
+                      className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-blue-500"
+                    >
+                      {funds.map(f => (
+                        <option key={f.id} value={f.name}>
+                          {(f.name || 'Quỹ').split('-')[0]} (Dư: {formatCompact(f.currentBalance)})
+                        </option>
+                      ))}
+                    </select>
+                    {fromFundObj && (
+                      <div className="mt-2 pt-2 border-t border-zinc-200/60 text-[11px] flex justify-between">
+                        <span className="text-zinc-500">Số dư hiện tại:</span>
+                        <span className="font-bold text-zinc-900">{formatCurrency(fromFundObj.currentBalance)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200">
+                    <label className="block text-xs font-bold text-zinc-600 mb-1">2. Quỹ Đích (Nạp / Nhận Tiền)</label>
+                    <select 
+                      value={transferData.toFundName} 
+                      onChange={e => setTransferData({...transferData, toFundName: e.target.value})} 
+                      className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-blue-500"
+                    >
+                      {funds.map(f => (
+                        <option key={f.id} value={f.name}>
+                          {(f.name || 'Quỹ').split('-')[0]} (Dư: {formatCompact(f.currentBalance)})
+                        </option>
+                      ))}
+                    </select>
+                    {toFundObj && (
+                      <div className="mt-2 pt-2 border-t border-zinc-200/60 text-[11px] flex justify-between">
+                        <span className="text-zinc-500">Số dư hiện tại:</span>
+                        <span className="font-bold text-zinc-900">{formatCurrency(toFundObj.currentBalance)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Amount Input */}
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Số Tiền Cần Chuyển (VNĐ) *</label>
+                  <div className="relative">
+                    <input 
+                      required 
+                      type="text" 
+                      placeholder="0" 
+                      value={transferData.amount} 
+                      onChange={e => {
+                        const val = e.target.value.replace(/[^0-9]/g, '');
+                        setTransferData({...transferData, amount: val ? parseInt(val).toLocaleString('vi-VN') : ''});
+                      }} 
+                      className="w-full px-4 py-3 bg-white border border-blue-200 rounded-2xl text-2xl font-black text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-sm text-zinc-400">VNĐ</span>
+                  </div>
+
+                  {/* Quick Amount Suggestion Buttons */}
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {[1000000, 2000000, 5000000, 10000000, 50000000].map(amt => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setTransferData(prev => ({ ...prev, amount: amt.toLocaleString('vi-VN') }))}
+                        className="px-2.5 py-1 bg-zinc-100 hover:bg-blue-50 hover:text-blue-700 text-zinc-600 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        +{formatCompact(amt)}
+                      </button>
+                    ))}
+                    {fromFundObj && fromFundObj.currentBalance > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setTransferData(prev => ({ ...prev, amount: fromFundObj.currentBalance.toLocaleString('vi-VN') }))}
+                        className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        Tất cả số dư ({formatCompact(fromFundObj.currentBalance)})
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Simulated Balance After Transfer */}
+                {amountNum > 0 && (
+                  <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-100 text-xs space-y-1.5">
+                    <div className="font-bold text-blue-900 flex items-center justify-between">
+                      <span>Dự toán số dư sau khi chuyển:</span>
+                      <span className="text-[10px] text-blue-600 uppercase font-mono">Tức thời</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-blue-200/50">
+                      <div>
+                        <span className="text-zinc-500 text-[11px]">{(fromFundObj?.name || 'Quỹ nguồn').split('-')[0]}: </span>
+                        <span className={`font-black ${fromBalanceAfter < 0 ? 'text-rose-600' : 'text-zinc-900'}`}>
+                          {formatCurrency(fromBalanceAfter)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500 text-[11px]">{(toFundObj?.name || 'Quỹ đích').split('-')[0]}: </span>
+                        <span className="font-black text-emerald-600">
+                          {formatCurrency(toBalanceAfter)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Ghi chú / Lý do chuyển tiền</label>
+                  <input 
+                    type="text" 
+                    value={transferData.notes} 
+                    onChange={e => setTransferData({...transferData, notes: e.target.value})} 
+                    placeholder="Ví dụ: Rút tiền mặt nộp vào VietQR Techcombank..."
+                    className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs text-zinc-900 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsTransferModalOpen(false)}
+                    className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold rounded-xl text-xs cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="flex-[2] py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 text-xs flex items-center justify-center space-x-1.5 cursor-pointer"
+                  >
+                    <ArrowRightLeft className="w-4 h-4" />
+                    <span>Xác Nhận & Cập Nhật Firestore</span>
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-bold text-zinc-500 mb-1">Đến quỹ (Đích)</label>
-            <select value={transferData.toFundName} onChange={e => setTransferData({...transferData, toFundName: e.target.value})} className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold">
-              {funds.map(f => <option key={f.id} value={f.name}>{f.name.split('-')[0]} ({formatCompact(f.currentBalance)})</option>)}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-zinc-500 mb-1">Số tiền chuyển</label>
-          <input required type="text" placeholder="0" value={transferData.amount} onChange={e => {
-            const val = e.target.value.replace(/[^0-9]/g, '');
-            setTransferData({...transferData, amount: val ? parseInt(val).toLocaleString('vi-VN') : ''});
-          }} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-xl text-xl font-black text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500" />
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-zinc-500 mb-1">Ghi chú</label>
-          <input type="text" value={transferData.notes} onChange={e => setTransferData({...transferData, notes: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
-        </div>
-        <button type="submit" className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-500/30 cursor-pointer">Xác nhận chuyển</button>
-      </form>
-    </div>
-  </div>
-)}
+        );
+      })()}
 
 {isReconcileModalOpen && (
   <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-in fade-in">
@@ -1031,7 +1349,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-500">Tài khoản quỹ:</span>
-                  <span className="font-semibold text-right">{selectedTx.fundName.split('-')[0]}</span>
+                  <span className="font-semibold text-right">{(selectedTx.fundName || 'Quỹ').split('-')[0]}</span>
                 </div>
                 {selectedTx.referenceCode && (
                   <div className="flex justify-between">

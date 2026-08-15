@@ -811,10 +811,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </span>
           </div>
 
-          <div className="col-span-2 pt-2 border-t border-zinc-100">
+          <div className="pt-2 border-t border-zinc-100">
             <span className="text-zinc-400 block text-[11px] font-normal">Chi nhánh xuất hàng</span>
-            <span className="font-medium text-zinc-800 mt-0.5 block">
-              {selectedInvoice.branch || 'Phone House Cầu Giấy (Apple Premium)'}
+            <span className="font-semibold text-zinc-800 mt-0.5 block">
+              🏪 {selectedInvoice.branch || 'Phone House Cầu Giấy (Apple Premium)'}
+            </span>
+          </div>
+
+          <div className="pt-2 border-t border-zinc-100">
+            <span className="text-zinc-400 block text-[11px] font-normal">Kho xuất trừ tồn</span>
+            <span className="font-semibold text-orange-700 mt-0.5 block">
+              🏢 {selectedInvoice.warehouseName || (selectedInvoice.warehouseId === 'KHO_XSTORE' ? 'Kho Xstore (Đống Đa)' : selectedInvoice.warehouseId === 'KHO_TONG' ? 'Kho Tổng (Hà Nội)' : 'Kho PhoneHouse (Cầu Giấy)')}
             </span>
           </div>
         </div>

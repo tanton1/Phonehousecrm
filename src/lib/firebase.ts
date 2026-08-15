@@ -45,9 +45,25 @@ export interface FirestoreErrorInfo {
   };
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): void {
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  const lowerMsg = errorMsg.toLowerCase();
+
+  // Gracefully ignore or warn on transient IndexedDB closure, tab hidden, or offline lifecycle states
+  if (
+    lowerMsg.includes('closing') ||
+    lowerMsg.includes('hidden') ||
+    lowerMsg.includes('database is closing') ||
+    lowerMsg.includes('client is offline') ||
+    lowerMsg.includes('terminated') ||
+    lowerMsg.includes('unavailable')
+  ) {
+    console.warn(`[Firestore Lifecycle] Non-critical state (${operationType} at ${path}):`, errorMsg);
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,

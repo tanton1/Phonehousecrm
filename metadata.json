@@ -1,6 +1,6 @@
 {
   "name": "iPhone Shop CRM & ERP",
-  "description": "Hệ thống Quản lý Khách hàng (CRM), Quản lý Kho IMEI, Thu cũ đổi mới (Trade-in), Tiếp nhận Bảo hành & Bán hàng POS cho cửa hàng iPhone, kế thừa kiến trúc Frappe/ERPNext.",
+  "description": "Hệ thống Quản lý Khách hàng (CRM), Quản lý Kho IMEI, Thu cũ đổi mới (Trade-in), Chấm công - Ca làm - Hoa hồng - Tính lương, Tiếp nhận Bảo hành & Bán hàng POS cho chuỗi bán lẻ PhoneHouse.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
