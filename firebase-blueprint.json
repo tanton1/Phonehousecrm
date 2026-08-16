@@ -6,6 +6,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "model": { "type": "string", "maxLength": 100 },
         "imei": { "type": "string", "maxLength": 18, "pattern": "^[0-9]{15}$" },
         "storage": { "type": "string", "maxLength": 30 },
@@ -35,6 +36,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "name": { "type": "string", "maxLength": 100 },
         "phone": { "type": "string", "maxLength": 30 },
         "source": { "type": "string", "maxLength": 50 },
@@ -56,6 +58,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "customerName": { "type": "string", "maxLength": 100 },
         "phone": { "type": "string", "maxLength": 30 },
         "oldModel": { "type": "string", "maxLength": 100 },
@@ -89,6 +92,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "customerName": { "type": "string", "maxLength": 100 },
         "phone": { "type": "string", "maxLength": 30 },
         "model": { "type": "string", "maxLength": 100 },
@@ -114,6 +118,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "orderCode": { "type": "string", "maxLength": 100 },
         "customerName": { "type": "string", "maxLength": 100 },
         "customerPhone": { "type": "string", "maxLength": 30 },
@@ -140,6 +145,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "email": { "type": "string", "maxLength": 100 },
         "displayName": { "type": "string", "maxLength": 100 },
         "role": { 
@@ -161,6 +167,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "type": { "type": "string", "enum": ["CUSTOMER", "SUPPLIER", "BOTH"] },
         "name": { "type": "string", "maxLength": 150 },
         "phone": { "type": "string", "maxLength": 40 },
@@ -182,6 +189,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "name": { "type": "string", "maxLength": 150 },
         "type": { "type": "string", "enum": ["CASH", "BANK", "OTHER"] },
         "currentBalance": { "type": "number" },
@@ -198,6 +206,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
+        "branchId": { "type": "string", "maxLength": 50 },
         "code": { "type": "string", "maxLength": 100 },
         "type": { "type": "string", "enum": ["RECEIPT", "PAYMENT"] },
         "amount": { "type": "number" },

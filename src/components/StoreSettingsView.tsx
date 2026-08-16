@@ -57,6 +57,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   isFirebaseConnected = true
 }) => {
   const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print'>('branches');
+  const [warehouseSystemFilter, setWarehouseSystemFilter] = useState<'ALL' | 'TONG' | 'PHONEHOUSE' | 'XSTORE'>('ALL');
   
   // Company info form state
   const [companyForm, setCompanyForm] = useState<StoreSettings>(settings);
@@ -74,6 +75,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     manager: '',
     openingHours: '08:30 - 21:30',
     warehouseId: 'KHO_PHONEHOUSE',
+    systemType: 'PHONEHOUSE',
     isActive: true,
     isHeadquarter: false,
     taxCode: '',
@@ -97,7 +99,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     manager: '',
     phone: '',
     color: 'from-orange-500 to-amber-500',
-    type: 'RETAIL_STORE',
+    systemType: 'TONG',
+    type: 'CENTRAL',
+    technicianName: '',
+    technicianId: '',
+    parentWarehouseId: 'KHO_TONG',
     capacityNotes: '',
     isMain: false,
     isActive: true
@@ -115,6 +121,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       manager: '',
       openingHours: '08:30 - 21:30',
       warehouseId: warehouses[0]?.id || 'KHO_PHONEHOUSE',
+      systemType: 'PHONEHOUSE',
       isActive: true,
       isHeadquarter: false,
       taxCode: '',
@@ -158,6 +165,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         manager: branchForm.manager || '',
         openingHours: branchForm.openingHours || '08:30 - 21:30',
         warehouseId: branchForm.warehouseId || 'KHO_PHONEHOUSE',
+        systemType: branchForm.systemType || 'PHONEHOUSE',
         isActive: branchForm.isActive ?? true,
         isHeadquarter: branchForm.isHeadquarter ?? false,
         taxCode: branchForm.taxCode || '',
@@ -180,8 +188,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       address: '',
       manager: '',
       phone: '',
-      color: 'from-orange-500 to-amber-500',
-      type: 'RETAIL_STORE',
+      color: 'from-purple-600 to-indigo-600',
+      systemType: 'TONG',
+      type: 'TECHNICIAN_SUB',
+      technicianName: '',
+      technicianId: '',
+      parentWarehouseId: 'KHO_TONG',
       capacityNotes: '',
       isMain: false,
       isActive: true
@@ -202,10 +214,17 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       return;
     }
 
+    const systemColor = warehouseForm.systemType === 'TONG' 
+      ? 'from-purple-600 to-indigo-600' 
+      : warehouseForm.systemType === 'PHONEHOUSE' 
+        ? 'from-orange-500 to-amber-500' 
+        : 'from-blue-600 to-cyan-500';
+
     if (editingWarehouse) {
       const updated: WarehouseInfo = {
         ...editingWarehouse,
-        ...(warehouseForm as WarehouseInfo)
+        ...(warehouseForm as WarehouseInfo),
+        color: systemColor
       };
       onUpdateWarehouse(updated);
     } else {
@@ -217,8 +236,13 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         address: warehouseForm.address || '',
         manager: warehouseForm.manager || '',
         phone: warehouseForm.phone || '',
-        color: warehouseForm.color || 'from-orange-500 to-amber-500',
+        color: systemColor,
+        systemType: warehouseForm.systemType || 'TONG',
+        systemName: warehouseForm.systemType === 'TONG' ? 'Tổng Hệ Thống' : warehouseForm.systemType === 'PHONEHOUSE' ? 'PhoneHouse Retail' : 'Xstore Premium',
         type: warehouseForm.type || 'RETAIL_STORE',
+        technicianName: warehouseForm.technicianName,
+        technicianId: warehouseForm.technicianId,
+        parentWarehouseId: warehouseForm.type === 'TECHNICIAN_SUB' ? (warehouseForm.parentWarehouseId || 'KHO_TONG') : undefined,
         capacityNotes: warehouseForm.capacityNotes || '',
         isMain: warehouseForm.isMain ?? false,
         isActive: warehouseForm.isActive ?? true
@@ -227,6 +251,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     }
     setIsWarehouseModalOpen(false);
   };
+
+  const filteredWarehouses = warehouses.filter(w => {
+    if (warehouseSystemFilter === 'ALL') return true;
+    return (w.systemType || 'TONG') === warehouseSystemFilter;
+  });
 
   const handleSaveCompanySettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -455,98 +484,231 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         <div className="space-y-4 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-zinc-200">
             <div>
-              <h3 className="font-black text-zinc-900 text-base">Danh Sách Hệ Thống Kho Hàng</h3>
-              <p className="text-xs text-zinc-500">Quản lý kho tổng, kho bán lẻ tại cửa hàng và kho sửa chữa bảo hành máy</p>
+              <h3 className="font-black text-zinc-900 text-base">Danh Sách Hệ Thống Kho Hàng & Kho Kỹ Thuật</h3>
+              <p className="text-xs text-zinc-500">
+                Quản lý kho Tổng, các kho con cho từng Kỹ thuật viên, kho bán lẻ PhoneHouse và kho Xstore độc lập.
+              </p>
             </div>
             <button
               onClick={handleOpenAddWarehouse}
-              className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm shadow-md shadow-orange-500/20 transition-all cursor-pointer"
+              className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl font-bold text-sm shadow-md shadow-purple-500/20 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Thêm Kho Hàng Mới</span>
+              <span>+ Thêm Kho / Kho KTV Mới</span>
+            </button>
+          </div>
+
+          {/* System Filter Pills */}
+          <div className="flex flex-wrap gap-2 items-center bg-white p-2.5 rounded-2xl border border-zinc-200 text-xs font-bold">
+            <span className="text-zinc-400 px-2 uppercase text-[11px] tracking-wider">Lọc theo hệ thống:</span>
+            <button
+              onClick={() => setWarehouseSystemFilter('ALL')}
+              className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                warehouseSystemFilter === 'ALL'
+                  ? 'bg-zinc-900 text-white shadow-sm'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+              }`}
+            >
+              Tất Cả Hệ Thống ({warehouses.length})
+            </button>
+
+            <button
+              onClick={() => setWarehouseSystemFilter('TONG')}
+              className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+                warehouseSystemFilter === 'TONG'
+                  ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
+                  : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+              <span>Tổng Kho & Kho KTV Con ({warehouses.filter(w => (w.systemType || 'TONG') === 'TONG').length})</span>
+            </button>
+
+            <button
+              onClick={() => setWarehouseSystemFilter('PHONEHOUSE')}
+              className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+                warehouseSystemFilter === 'PHONEHOUSE'
+                  ? 'bg-orange-500 text-white shadow-sm shadow-orange-500/30'
+                  : 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+              <span>Hệ Thống PhoneHouse ({warehouses.filter(w => w.systemType === 'PHONEHOUSE').length})</span>
+            </button>
+
+            <button
+              onClick={() => setWarehouseSystemFilter('XSTORE')}
+              className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+                warehouseSystemFilter === 'XSTORE'
+                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
+                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-100'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+              <span>Hệ Thống Xstore ({warehouses.filter(w => w.systemType === 'XSTORE').length})</span>
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {warehouses.map((wh) => (
-              <div 
-                key={wh.id}
-                className="bg-white rounded-3xl p-5 border border-zinc-200 hover:shadow-lg transition-all flex flex-col justify-between"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                        <Warehouse className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-bold px-2 py-0.5 bg-zinc-100 text-zinc-700 rounded-md">
-                            {wh.code}
-                          </span>
-                          {wh.isMain && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
-                              Kho Tổng Phân Phối
-                            </span>
-                          )}
+            {filteredWarehouses.map((wh) => {
+              const isTong = (wh.systemType || 'TONG') === 'TONG';
+              const isPhoneHouse = wh.systemType === 'PHONEHOUSE';
+              const isXstore = wh.systemType === 'XSTORE';
+              const isTechSub = wh.type === 'TECHNICIAN_SUB';
+
+              return (
+                <div 
+                  key={wh.id}
+                  className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
+                    isTechSub 
+                      ? 'border-indigo-200 hover:border-indigo-400 hover:shadow-indigo-500/5'
+                      : isTong 
+                        ? 'border-purple-200 hover:border-purple-400 hover:shadow-purple-500/5'
+                        : isPhoneHouse 
+                          ? 'border-orange-200 hover:border-orange-400 hover:shadow-orange-500/5'
+                          : 'border-blue-200 hover:border-blue-400 hover:shadow-blue-500/5'
+                  } hover:shadow-lg`}
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                          isTechSub 
+                            ? 'bg-indigo-50 text-indigo-600'
+                            : isTong
+                              ? 'bg-purple-50 text-purple-600'
+                              : isPhoneHouse
+                                ? 'bg-orange-50 text-orange-600'
+                                : 'bg-blue-50 text-blue-600'
+                        }`}>
+                          <Warehouse className="w-6 h-6" />
                         </div>
-                        <h4 className="font-black text-zinc-900 text-base mt-1">{wh.name}</h4>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-mono text-xs font-bold px-2 py-0.5 bg-zinc-100 text-zinc-700 rounded-md">
+                              {wh.code}
+                            </span>
+                            {/* System Badge */}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isTong 
+                                ? 'bg-purple-100 text-purple-800' 
+                                : isPhoneHouse 
+                                  ? 'bg-orange-100 text-orange-800' 
+                                  : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {isTong ? 'Tổng Hệ Thống' : isPhoneHouse ? 'PhoneHouse' : 'Xstore'}
+                            </span>
+
+                            {wh.isMain && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">
+                                Kho Trung Tâm
+                              </span>
+                            )}
+                          </div>
+                          <h4 className="font-black text-zinc-900 text-base mt-1">{wh.name}</h4>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => handleOpenEditWarehouse(wh)}
+                          className="p-2 text-zinc-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-colors cursor-pointer"
+                          title="Sửa kho"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        {warehouses.length > 1 && (
+                          <button
+                            onClick={() => {
+                              if (confirm(`Bạn có chắc muốn xóa kho "${wh.name}"?`)) {
+                                onDeleteWarehouse(wh.id);
+                              }
+                            }}
+                            className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                            title="Xóa kho"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-1">
-                      <button
-                        onClick={() => handleOpenEditWarehouse(wh)}
-                        className="p-2 text-zinc-400 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-colors cursor-pointer"
-                        title="Sửa kho"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      {warehouses.length > 1 && (
-                        <button
-                          onClick={() => {
-                            if (confirm(`Bạn có chắc muốn xóa kho "${wh.name}"?`)) {
-                              onDeleteWarehouse(wh.id);
-                            }
-                          }}
-                          className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                          title="Xóa kho"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                    {/* Warehouse Type Label */}
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-bold px-2.5 py-1 rounded-xl flex items-center gap-1.5 ${
+                        isTechSub
+                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                          : wh.type === 'CENTRAL'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-100'
+                            : 'bg-zinc-100 text-zinc-700 border border-zinc-200'
+                      }`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                        {isTechSub
+                          ? 'Kho Kỹ Thuật Viên Con'
+                          : wh.type === 'CENTRAL'
+                            ? 'Kho Tổng Phân Phối'
+                            : wh.type === 'REPAIR_WARRANTY'
+                              ? 'Kho Bảo Hành & Tiếp Nhận'
+                              : wh.type === 'TRANSIT'
+                                ? 'Kho Trung Chuyển (Transit)'
+                                : 'Kho Bán Lẻ Cửa Hàng'}
+                      </span>
+
+                      {isTechSub && wh.parentWarehouseId && (
+                        <span className="text-[11px] text-zinc-500 font-medium">
+                          Kho cha: <strong>Kho Tổng (KT-01)</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Assigned Technician Banner if Tech Sub */}
+                    {isTechSub && (
+                      <div className="bg-indigo-50/80 border border-indigo-100 rounded-2xl p-2.5 text-xs text-indigo-900 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">👨‍🔧</span>
+                          <div>
+                            <div className="font-bold">KTV Phụ Trách: {wh.technicianName || wh.manager}</div>
+                            <div className="text-[10px] text-indigo-600 font-mono">{wh.technicianId || 'KTV Nội Bộ'}</div>
+                          </div>
+                        </div>
+                        <span className="px-2 py-0.5 bg-indigo-200/60 text-indigo-800 rounded-lg text-[10px] font-bold">
+                          Test & Sửa máy
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="space-y-2 text-xs text-zinc-600 bg-zinc-50 rounded-2xl p-3.5 border border-zinc-100">
+                      <div className="flex items-start space-x-2">
+                        <MapPin className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
+                        <span className="font-medium text-zinc-800">{wh.address}</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-zinc-200/60">
+                        <span className="text-zinc-500">Người phụ trách / Thủ kho:</span>
+                        <span className="font-bold text-zinc-900">{wh.manager || wh.technicianName || 'Chưa gán'}</span>
+                      </div>
+                      {wh.phone && (
+                        <div className="flex items-center justify-between pt-1 border-t border-zinc-200/60">
+                          <span className="text-zinc-500">Điện thoại liên hệ:</span>
+                          <span className="font-bold text-zinc-900">{wh.phone}</span>
+                        </div>
+                      )}
+                      {wh.capacityNotes && (
+                        <div className="pt-1 border-t border-zinc-200/60 text-zinc-500 text-[11px]">
+                          Đặc điểm / Sức chứa: <span className="font-medium text-zinc-700">{wh.capacityNotes}</span>
+                        </div>
                       )}
                     </div>
                   </div>
 
-                  <div className="space-y-2 text-xs text-zinc-600 bg-zinc-50 rounded-2xl p-3.5 border border-zinc-100">
-                    <div className="flex items-start space-x-2">
-                      <MapPin className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
-                      <span className="font-medium text-zinc-800">{wh.address}</span>
-                    </div>
-                    <div className="flex items-center justify-between pt-1 border-t border-zinc-200/60">
-                      <span className="text-zinc-500">Thủ kho / Phụ trách:</span>
-                      <span className="font-bold text-zinc-900">{wh.manager}</span>
-                    </div>
-                    <div className="flex items-center justify-between pt-1 border-t border-zinc-200/60">
-                      <span className="text-zinc-500">Điện thoại liên hệ:</span>
-                      <span className="font-bold text-zinc-900">{wh.phone}</span>
-                    </div>
-                    {wh.capacityNotes && (
-                      <div className="pt-1 border-t border-zinc-200/60 text-zinc-500 text-[11px]">
-                        Sức chứa: <span className="font-medium text-zinc-700">{wh.capacityNotes}</span>
-                      </div>
-                    )}
+                  <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
+                    <span className="text-zinc-400 font-mono">ID: {wh.id}</span>
+                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full font-bold text-[10px]">
+                      Đang Hoạt Động
+                    </span>
                   </div>
                 </div>
-
-                <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
-                  <span className="text-zinc-400 font-mono">ID: {wh.id}</span>
-                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full font-bold text-[10px]">
-                    Khả Dụng
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -964,12 +1126,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       {/* ================= MODAL: THÊM / SỬA KHO HÀNG ================= */}
       {isWarehouseModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-orange-100 flex flex-col max-h-[90vh]">
-            <div className="p-5 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-100 flex items-center justify-between shrink-0">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-purple-100 flex flex-col max-h-[90vh]">
+            <div className="p-5 bg-gradient-to-r from-purple-50 via-indigo-50 to-orange-50 border-b border-purple-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
-                <Warehouse className="w-5 h-5 text-amber-600" />
+                <Warehouse className="w-5 h-5 text-purple-600" />
                 <h3 className="font-black text-zinc-900 text-base">
-                  {editingWarehouse ? 'Cập Nhật Kho Hàng' : 'Tạo Kho Hàng Mới'}
+                  {editingWarehouse ? 'Cập Nhật Kho Hàng' : 'Tạo Kho Hàng / Kho KTV Mới'}
                 </h3>
               </div>
               <button
@@ -981,39 +1143,143 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveWarehouse} className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+              {/* System Brand Selection */}
+              <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
+                <label className="block text-xs font-bold text-zinc-800">
+                  Thuộc Hệ Thống Nào? <span className="text-purple-600">*</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'TONG', type: warehouseForm.type || 'TECHNICIAN_SUB' })}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
+                      warehouseForm.systemType === 'TONG'
+                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-2 ring-purple-600 ring-offset-1'
+                        : 'bg-white text-zinc-700 hover:bg-purple-50 border border-zinc-200'
+                    }`}
+                  >
+                    <span>🟣 TỔNG KHO</span>
+                    <span className="text-[10px] opacity-80 font-normal">Central & KTV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'PHONEHOUSE', type: 'RETAIL_STORE' })}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
+                      warehouseForm.systemType === 'PHONEHOUSE'
+                        ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30 ring-2 ring-orange-500 ring-offset-1'
+                        : 'bg-white text-zinc-700 hover:bg-orange-50 border border-zinc-200'
+                    }`}
+                  >
+                    <span>🟠 PHONEHOUSE</span>
+                    <span className="text-[10px] opacity-80 font-normal">Hệ thống Retail</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'XSTORE', type: 'RETAIL_STORE' })}
+                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
+                      warehouseForm.systemType === 'XSTORE'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-2 ring-blue-600 ring-offset-1'
+                        : 'bg-white text-zinc-700 hover:bg-blue-50 border border-zinc-200'
+                    }`}
+                  >
+                    <span>🔵 XSTORE</span>
+                    <span className="text-[10px] opacity-80 font-normal">Store Độc Lập</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Mã kho *</label>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Mã kho / Mã KTV *</label>
                   <input
                     type="text"
                     required
-                    placeholder="KT-01"
+                    placeholder="KT-01, KTV-NAM..."
                     value={warehouseForm.code}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, code: e.target.value })}
                     className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Loại kho</label>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Phân loại kho</label>
                   <select
                     value={warehouseForm.type}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, type: e.target.value as any })}
                     className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-900"
                   >
-                    <option value="CENTRAL">Kho Tổng Phân Phối</option>
-                    <option value="RETAIL_STORE">Kho Bán Lẻ Tại Cửa Hàng</option>
-                    <option value="REPAIR_WARRANTY">Kho Bảo Hành & Linh Kiện</option>
-                    <option value="TRANSIT">Kho Trung Chuyển / Transit</option>
+                    <option value="CENTRAL">Kho Tổng Phân Phối (Central Hub)</option>
+                    <option value="TECHNICIAN_SUB">Kho Con Kỹ Thuật Viên (Gán cho từng KTV)</option>
+                    <option value="RETAIL_STORE">Kho Cửa Hàng Bán Lẻ (Showroom)</option>
+                    <option value="REPAIR_WARRANTY">Kho Tiếp Nhận & Bảo Hành</option>
+                    <option value="TRANSIT">Kho Trung Chuyển (Transit)</option>
                   </select>
                 </div>
               </div>
+
+              {/* Special Section if TECHNICIAN_SUB */}
+              {warehouseForm.type === 'TECHNICIAN_SUB' && (
+                <div className="p-3.5 bg-indigo-50/80 border border-indigo-200 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950">
+                    <span>👨‍🔧</span>
+                    <span>Thiết Lập Kỹ Thuật Viên Phụ Trách Kho Này</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">Tên Kỹ Thuật Viên *</label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: Lê Hoàng Nam, Trọng, Dương..."
+                        value={warehouseForm.technicianName || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setWarehouseForm({ 
+                            ...warehouseForm, 
+                            technicianName: val,
+                            manager: warehouseForm.manager || val,
+                            name: warehouseForm.name || (val ? `Kho KTV ${val}` : ''),
+                            shortName: warehouseForm.shortName || (val ? `Kho KTV ${val}` : '')
+                          });
+                        }}
+                        className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs text-zinc-900 font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">Mã KTV / Nhân viên</label>
+                      <input
+                        type="text"
+                        placeholder="STAFF_003, KTV-01..."
+                        value={warehouseForm.technicianId || ''}
+                        onChange={(e) => setWarehouseForm({ ...warehouseForm, technicianId: e.target.value })}
+                        className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs text-zinc-900 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-indigo-900 mb-1">Kho cha trực thuộc</label>
+                    <select
+                      value={warehouseForm.parentWarehouseId || 'KHO_TONG'}
+                      onChange={(e) => setWarehouseForm({ ...warehouseForm, parentWarehouseId: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs text-zinc-900 font-medium"
+                    >
+                      <option value="KHO_TONG">Kho Tổng Trung Tâm (KHO_TONG - KT-01)</option>
+                      {warehouses.filter(w => w.type === 'CENTRAL' && w.id !== warehouseForm.id).map(w => (
+                        <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">Tên kho hàng đầy đủ *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ví dụ: Kho Tổng (Central Warehouse)"
+                  placeholder="Ví dụ: Kho KTV Nam (Kỹ Thuật Phần Cứng), Kho Tổng..."
                   value={warehouseForm.name}
                   onChange={(e) => setWarehouseForm({ ...warehouseForm, name: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900"
@@ -1025,7 +1291,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="Ví dụ: Kho Tổng, Kho Cầu Giấy"
+                  placeholder="Ví dụ: Kho KTV Nam, Kho Tổng, Kho Cầu Giấy..."
                   value={warehouseForm.shortName}
                   onChange={(e) => setWarehouseForm({ ...warehouseForm, shortName: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm text-zinc-900"
@@ -1033,11 +1299,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Địa chỉ kho *</label>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Địa chỉ / Vị trí bàn làm việc *</label>
                 <input
                   type="text"
                   required
-                  placeholder="Địa chỉ thực tế của kho lưu hàng"
+                  placeholder="Bàn Kỹ Thuật 01 - Trạm Kỹ Thuật Tổng / Địa chỉ kho"
                   value={warehouseForm.address}
                   onChange={(e) => setWarehouseForm({ ...warehouseForm, address: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm text-zinc-900"
@@ -1049,7 +1315,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Thủ kho / Người phụ trách</label>
                   <input
                     type="text"
-                    placeholder="Tên thủ kho"
+                    placeholder="Tên người phụ trách"
                     value={warehouseForm.manager}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, manager: e.target.value })}
                     className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm text-zinc-900"
@@ -1068,10 +1334,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Ghi chú sức chứa / Đặc điểm kho</label>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Ghi chú sức chứa / Chuyên môn kho</label>
                 <input
                   type="text"
-                  placeholder="Ví dụ: Sức chứa 2,000 máy iPhone, có camera giám sát 24/7"
+                  placeholder="Ví dụ: Kho tiếp nhận máy kiểm tra Face ID, Mainboard, Ép kính..."
                   value={warehouseForm.capacityNotes}
                   onChange={(e) => setWarehouseForm({ ...warehouseForm, capacityNotes: e.target.value })}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm text-zinc-900"
@@ -1084,9 +1350,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     type="checkbox"
                     checked={warehouseForm.isMain}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, isMain: e.target.checked })}
-                    className="w-4 h-4 text-amber-500 rounded"
+                    className="w-4 h-4 text-purple-600 rounded"
                   />
-                  <span className="text-xs font-bold text-zinc-700">Kho Trung Tâm (Central)</span>
+                  <span className="text-xs font-bold text-zinc-700">Kho Trung Tâm Trực Thuộc</span>
                 </label>
 
                 <label className="flex items-center space-x-2 cursor-pointer">
@@ -1110,7 +1376,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-sm shadow-md shadow-amber-500/20"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-xl text-sm shadow-md shadow-purple-500/20"
                 >
                   {editingWarehouse ? 'Lưu Thay Đổi' : 'Tạo Kho Hàng'}
                 </button>

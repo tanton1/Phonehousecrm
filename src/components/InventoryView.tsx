@@ -1,5 +1,17 @@
 import React, { useState, useMemo } from 'react';
-import { DeviceItem, StoreBranch, WarehouseInfo, WAREHOUSE_LIST } from '../types';
+import { 
+  DeviceItem, 
+  StoreBranch, 
+  WarehouseInfo, 
+  WAREHOUSE_LIST, 
+  Partner, 
+  FundAccount, 
+  CashTransaction,
+  StockTransferSlip,
+  WarrantyTicket,
+  SalesInvoice,
+  UserAccount
+} from '../types';
 import { 
   Smartphone, 
   Search, 
@@ -27,7 +39,13 @@ import {
   Sparkles,
   X,
   Building2,
-  Warehouse
+  Warehouse,
+  ArrowLeftRight,
+  Camera,
+  Image as ImageIcon,
+  History,
+  ShieldCheck,
+  UserCheck
 } from 'lucide-react';
 import {
   BarChart,
@@ -38,15 +56,29 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
+import { StockInModal } from './StockInModal';
+import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal';
+import { DeviceDetailModal } from './DeviceDetailModal';
 
 interface InventoryViewProps {
   devices: DeviceItem[];
   branches?: StoreBranch[];
   warehouses?: WarehouseInfo[];
+  partners?: Partner[];
+  funds?: FundAccount[];
+  transfers?: StockTransferSlip[];
+  warrantyTickets?: WarrantyTicket[];
+  invoices?: SalesInvoice[];
+  users?: UserAccount[];
   onAddDevice: (device: DeviceItem) => void;
+  onAddMultipleDevices?: (devices: DeviceItem[]) => void;
   onUpdateDevice: (device: DeviceItem) => void;
   onDeleteDevice: (id: string) => void;
   onQuickSell: (device: DeviceItem) => void;
+  onOpenTransferModal?: (device: DeviceItem) => void;
+  onAddCashTransaction?: (tx: CashTransaction) => void;
+  onUpdatePartner?: (partner: Partner) => void;
+  onAddPartner?: (partner: Partner) => void;
 }
 
 // Device Image Thumbnail Component
@@ -122,10 +154,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   devices,
   branches = [],
   warehouses = [],
+  partners = [],
+  funds = [],
+  transfers = [],
+  warrantyTickets = [],
+  invoices = [],
+  users = [],
   onAddDevice,
+  onAddMultipleDevices,
   onUpdateDevice,
   onDeleteDevice,
-  onQuickSell
+  onQuickSell,
+  onOpenTransferModal,
+  onAddCashTransaction,
+  onUpdatePartner,
+  onAddPartner
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeries, setSelectedSeries] = useState('ALL');
@@ -134,7 +177,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState('ALL');
   const [showCostPrice, setShowCostPrice] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [previewingPhoto, setPreviewingPhoto] = useState<string | null>(null);
   const [selectedDeviceForBarcode, setSelectedDeviceForBarcode] = useState<DeviceItem | null>(null);
+  const [selectedDeviceForDetail, setSelectedDeviceForDetail] = useState<DeviceItem | null>(null);
   const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [selectedChartModel, setSelectedChartModel] = useState<string | null>(null);
   const [activeMenuDeviceId, setActiveMenuDeviceId] = useState<string | null>(null);
@@ -398,7 +444,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     <div className="w-full space-y-3 sm:space-y-4 pb-12">
       
       {/* 1. Header Section */}
-      <div className="flex items-center justify-between pt-0.5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-0.5">
         <div>
           <div className="flex items-center space-x-2">
             <h2 className="text-xl sm:text-2xl font-extrabold text-zinc-900 tracking-tight">Kho IMEI</h2>
@@ -411,16 +457,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            handleGenerateImei();
-            setIsAddModalOpen(true);
-          }}
-          className="bg-[#F94A1F] hover:bg-[#e03d14] text-white text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
-        >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>Nhập máy IMEI</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setIsAnalysisModalOpen(true)}
+            className="bg-orange-50 hover:bg-orange-100 text-[#F94A1F] border border-orange-200 text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
+          >
+            <ArrowLeftRight className="w-4 h-4" />
+            <span>Phân Tích Kho vs Chi Nhánh</span>
+          </button>
+
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-[#F94A1F] hover:bg-[#e03d14] text-white text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>Nhập máy IMEI</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. Top Overview Card (4 Cols matching screenshot) */}
@@ -805,6 +858,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             <span className="bg-white text-zinc-700 text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-zinc-200/80">
                               {device.region}
                             </span>
+                            {device.supplier && (
+                              <span className="bg-zinc-100 text-zinc-700 text-[10px] font-medium px-2 py-0.5 rounded-lg border border-zinc-200">
+                                NCC: {device.supplier}
+                              </span>
+                            )}
+                            {device.images && device.images.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setPreviewingPhoto(device.images![0]);
+                                }}
+                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-orange-100 text-orange-950 text-[10px] font-bold border border-orange-300 hover:bg-orange-200 transition-colors cursor-pointer"
+                                title="Xem ảnh thực tế chụp máy"
+                              >
+                                <Camera className="w-3 h-3 text-[#F94A1F]" />
+                                <span>📸 {device.images.length} Ảnh</span>
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -819,6 +891,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           </div>
 
                           <div className="flex items-center space-x-1">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedDeviceForDetail(device);
+                              }}
+                              className="px-2.5 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200/80 rounded-lg text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer shadow-2xs"
+                              title="Xem Chi Tiết, Lịch Sử & Timeline Máy"
+                            >
+                              <History className="w-3.5 h-3.5 text-orange-600" />
+                              <span>Lịch Sử</span>
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -879,213 +962,56 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         )}
       </div>
 
-      {/* MODAL: Nhập Máy IMEI Mới */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 bg-white sm:bg-black/60 sm:backdrop-blur-xs z-50 flex items-center justify-center sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-2xl overflow-hidden shadow-none sm:shadow-2xl flex flex-col border-0 sm:border sm:border-orange-200">
-            <div className="bg-[#F94A1F] px-4 py-3.5 sm:px-5 sm:py-4 flex justify-between items-center text-white shrink-0">
+      {/* MODAL: Nhập Hàng Mới Siêu Nâng Cấp (Batch IMEI, Tải Ảnh, NCC, Kho, Dòng Tiền) */}
+      <StockInModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        branches={branches}
+        warehouses={activeWarehouses}
+        partners={partners}
+        funds={funds}
+        onAddDevice={onAddDevice}
+        onAddMultipleDevices={onAddMultipleDevices}
+        onAddCashTransaction={onAddCashTransaction}
+        onUpdatePartner={onUpdatePartner}
+        onAddPartner={onAddPartner}
+      />
+
+      {/* MODAL: Phân Tích Kho vs Chi Nhánh Chuyên Sâu */}
+      <WarehouseVsBranchAnalysisModal
+        isOpen={isAnalysisModalOpen}
+        onClose={() => setIsAnalysisModalOpen(false)}
+      />
+
+      {/* MODAL: Xem Ảnh Thực Tế Máy */}
+      {previewingPhoto && (
+        <div 
+          className="fixed inset-0 bg-black/80 backdrop-blur-xs z-50 flex items-center justify-center p-4"
+          onClick={() => setPreviewingPhoto(null)}
+        >
+          <div className="relative max-w-2xl w-full bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl border border-zinc-700" onClick={e => e.stopPropagation()}>
+            <div className="p-4 bg-zinc-800 flex items-center justify-between text-white border-b border-zinc-700">
               <div className="flex items-center space-x-2">
-                <button onClick={() => setIsAddModalOpen(false)} className="sm:hidden p-1.5 -ml-2 hover:bg-white/10 rounded-lg">
-                  <X className="w-5 h-5" />
-                </button>
-                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-white/20 flex items-center justify-center">
-                  <Smartphone className="w-4 h-4 text-white" />
-                </div>
-                <h3 className="font-extrabold text-base">Nhập Định Danh Máy</h3>
+                <Camera className="w-5 h-5 text-orange-500" />
+                <span className="font-bold text-sm">Hình Ảnh Thực Tế Thiết Bị</span>
               </div>
-              <button onClick={() => setIsAddModalOpen(false)} className="hidden sm:block text-white hover:text-orange-100 p-1.5 hover:bg-white/10 rounded-lg">
+              <button 
+                onClick={() => setPreviewingPhoto(null)}
+                className="p-1.5 hover:bg-zinc-700 rounded-xl text-zinc-400 hover:text-white transition-colors cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            <form onSubmit={handleSaveNewDevice} className="p-4 sm:p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 bg-white">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* IMEI & Generator */}
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-xs font-bold text-zinc-800">Số IMEI (15 số) *</label>
-                    <button
-                      type="button"
-                      onClick={handleGenerateImei}
-                      className="text-[11px] text-[#F94A1F] hover:underline font-bold"
-                    >
-                      Tạo IMEI Mẫu
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={formData.imei}
-                    onChange={(e) => setFormData({ ...formData, imei: e.target.value })}
-                    placeholder="35xxxxxxxxxxxxx"
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none focus:bg-white focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Dòng Máy *</label>
-                  <select
-                    value={formData.model}
-                    onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500 font-bold"
-                  >
-                    <option value="iPhone 16 Pro Max">iPhone 16 Pro Max</option>
-                    <option value="iPhone 16 Pro">iPhone 16 Pro</option>
-                    <option value="iPhone 16 Plus">iPhone 16 Plus</option>
-                    <option value="iPhone 16">iPhone 16</option>
-                    <option value="iPhone 15 Pro Max">iPhone 15 Pro Max</option>
-                    <option value="iPhone 15 Pro">iPhone 15 Pro</option>
-                    <option value="iPhone 15 Plus">iPhone 15 Plus</option>
-                    <option value="iPhone 15">iPhone 15</option>
-                    <option value="iPhone 14 Pro Max">iPhone 14 Pro Max</option>
-                    <option value="iPhone 13 Pro Max">iPhone 13 Pro Max</option>
-                    <option value="iPhone 12 Pro Max">iPhone 12 Pro Max</option>
-                    <option value="iPhone 11 Pro Max">iPhone 11 Pro Max</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Dung Lượng</label>
-                  <select
-                    value={formData.storage}
-                    onChange={(e) => setFormData({ ...formData, storage: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                  >
-                    <option value="128GB">128GB</option>
-                    <option value="256GB">256GB</option>
-                    <option value="512GB">512GB</option>
-                    <option value="1TB">1TB</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Màu Sắc</label>
-                  <input
-                    type="text"
-                    value={formData.color}
-                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Mã Xuất Xứ</label>
-                  <select
-                    value={formData.region}
-                    onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                  >
-                    <option value="VN/A (Chính hãng)">VN/A (Việt Nam)</option>
-                    <option value="LL/A (Mỹ - eSIM)">LL/A (Mỹ)</option>
-                    <option value="ZA/A (2 SIM Vật Lý)">ZA/A (Hồng Kông)</option>
-                    <option value="KH/A (Hàn Quốc)">KH/A (Hàn Quốc)</option>
-                    <option value="J/A (Nhật Bản)">J/A (Nhật Bản)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Pin (% Battery Health)</label>
-                  <input
-                    type="number"
-                    min="50"
-                    max="100"
-                    value={formData.batteryHealth}
-                    onChange={(e) => setFormData({ ...formData, batteryHealth: Number(e.target.value) })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Giá Vốn Nhập (VNĐ)</label>
-                  <input
-                    type="number"
-                    step="100000"
-                    value={formData.buyPrice}
-                    onChange={(e) => setFormData({ ...formData, buyPrice: Number(e.target.value) })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 font-mono focus:outline-none focus:bg-white focus:border-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Giá Bán Niêm Yết (VNĐ)</label>
-                  <input
-                    type="number"
-                    step="100000"
-                    value={formData.sellPrice}
-                    onChange={(e) => setFormData({ ...formData, sellPrice: Number(e.target.value) })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-[#F94A1F] font-mono font-bold focus:outline-none focus:bg-white focus:border-orange-500"
-                  />
-                </div>
-
-                {/* Kho Nhập Hàng */}
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Kho Lưu Trữ Nhập Hàng *</label>
-                  <select
-                    value={formData.warehouse}
-                    onChange={(e) => setFormData({ ...formData, warehouse: e.target.value })}
-                    className="w-full bg-orange-50/60 border border-orange-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                  >
-                    {activeWarehouses.map(w => (
-                      <option key={w.id} value={w.id}>
-                        🏢 {w.name} ({w.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Chi Nhánh Nhập Hàng */}
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Chi Nhánh Tiếp Nhận *</label>
-                  <select
-                    value={formData.branch}
-                    onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-                    className="w-full bg-orange-50/60 border border-orange-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                  >
-                    {branches && branches.length > 0 ? (
-                      branches.map(b => (
-                        <option key={b.id} value={b.name}>
-                          🏪 {b.name} ({b.address})
-                        </option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="Phone House Cầu Giấy (136 Cầu Giấy)">🏪 Phone House Cầu Giấy (136 Cầu Giấy)</option>
-                        <option value="Phone House Đống Đa (88 Tây Sơn)">🏪 Phone House Đống Đa (88 Tây Sơn)</option>
-                        <option value="Tổng Kho Phone House (Hà Nội)">🏪 Tổng Kho Phone House (Hà Nội)</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-
-                {/* Nhà Cung Cấp */}
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-zinc-800 mb-1">Nhà Cung Cấp / Đối Tác Phân Phối</label>
-                  <input
-                    type="text"
-                    value={formData.supplier}
-                    onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                    placeholder="VD: FPT Synnex, Digiworld, Apple Authorized, Khách Thu Cũ..."
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-3 sm:pt-4 pb-[max(env(safe-area-inset-bottom),1rem)] sm:pb-0 border-t border-zinc-200 flex justify-end space-x-2 mt-auto sticky bottom-0 bg-white z-10">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold cursor-pointer"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-[#F94A1F] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
-                >
-                  Lưu & Tạo Thẻ Kho
-                </button>
-              </div>
-            </form>
+            <div className="p-4 flex items-center justify-center bg-black/40 min-h-[300px]">
+              <img 
+                src={previewingPhoto} 
+                alt="Ảnh thiết bị" 
+                className="max-h-[70vh] w-auto object-contain rounded-2xl shadow-lg"
+              />
+            </div>
+            <div className="p-3 bg-zinc-800 text-center text-xs text-zinc-400">
+              Ảnh kiểm định ngoại quan khi nhập hàng được nén tự động và lưu trữ an toàn.
+            </div>
           </div>
         </div>
       )}
@@ -1135,6 +1061,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL: Chi Tiết Máy & Lịch Sử Timeline Toàn Diện (Transfers, KCS, Bảo Hành, Bàn Giao) */}
+      <DeviceDetailModal
+        device={selectedDeviceForDetail}
+        isOpen={Boolean(selectedDeviceForDetail)}
+        onClose={() => setSelectedDeviceForDetail(null)}
+        transfers={transfers}
+        warrantyTickets={warrantyTickets}
+        invoices={invoices}
+        warehouses={warehouses}
+        users={users}
+        onUpdateDevice={onUpdateDevice}
+        onQuickSell={onQuickSell}
+        onOpenTransferModal={onOpenTransferModal}
+        onPrintBarcode={(dev) => {
+          setSelectedDeviceForDetail(null);
+          setSelectedDeviceForBarcode(dev);
+        }}
+      />
 
     </div>
   );

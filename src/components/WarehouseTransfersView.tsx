@@ -4,8 +4,10 @@ import {
   ProductItem, 
   StockTransferSlip, 
   StockTransferItem, 
-  WarehouseId, 
-  WAREHOUSE_LIST 
+  WarehouseId,
+  WarehouseInfo,
+  UserAccount,
+  WarrantyTicket
 } from '../types';
 import { 
   ArrowLeftRight, 
@@ -33,25 +35,37 @@ import {
   Layers,
   MapPin,
   TrendingUp,
-  Boxes
+  Boxes,
+  Wrench,
+  Zap,
+  Award,
+  Sparkles,
+  CheckSquare,
+  DollarSign
 } from 'lucide-react';
 
 interface WarehouseTransfersViewProps {
   transfers: StockTransferSlip[];
   devices: DeviceItem[];
   products: ProductItem[];
+  warehouses: WarehouseInfo[];
+  users?: UserAccount[];
   onAddTransfer: (slip: StockTransferSlip) => void;
   onUpdateTransfer: (slip: StockTransferSlip) => void;
   onUpdateDevicesWarehouse: (deviceIds: string[], targetWarehouse: WarehouseId) => void;
+  onAddWarrantyTicket?: (ticket: WarrantyTicket) => void;
 }
 
 export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   transfers,
   devices,
   products,
+  warehouses,
+  users = [],
   onAddTransfer,
   onUpdateTransfer,
-  onUpdateDevicesWarehouse
+  onUpdateDevicesWarehouse,
+  onAddWarrantyTicket
 }) => {
   // Tabs: 'SLIPS' | 'WAREHOUSES' | 'ANALYTICS'
   const [activeTab, setActiveTab] = useState<'SLIPS' | 'WAREHOUSES' | 'ANALYTICS'>('SLIPS');
@@ -63,6 +77,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
 
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createStep, setCreateStep] = useState<1 | 2 | 3>(1);
   const [activeSlipDetails, setActiveSlipDetails] = useState<StockTransferSlip | null>(null);
   const [printSlip, setPrintSlip] = useState<StockTransferSlip | null>(null);
 
@@ -73,6 +88,18 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   const [notes, setNotes] = useState('');
   const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
   const [deviceSearchTerm, setDeviceSearchTerm] = useState('');
+
+  // Integrated Tech Task Auto-Assignment State
+  const [autoCreateTechTask, setAutoCreateTechTask] = useState(true);
+  const [taskType, setTaskType] = useState<'INBOUND_QC' | 'RETAIL_REPAIR' | 'WARRANTY' | 'SPECIAL_COMPONENT'>('INBOUND_QC');
+  const [selectedTechnician, setSelectedTechnician] = useState('KTV Trọng (Chuyên Màn & Ép Kính)');
+  const [taskCommission, setTaskCommission] = useState<number>(100000);
+  const [expectedReturnDate, setExpectedReturnDate] = useState<string>(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  });
+  const [taskInstructions, setTaskInstructions] = useState('QC Kiểm tra 18 chức năng hàng nhập kho & làm mới máy trước khi xuất bán.');
 
   // Available devices in selected fromWarehouse
   const availableDevicesInSource = useMemo(() => {
@@ -175,7 +202,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
     }
   };
 
-  // Handle Create New Transfer Slip
+  // Handle Create New Transfer Slip + Auto Tech Task Assignment (1-Step Flow)
   const handleCreateTransfer = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -203,14 +230,15 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       costPrice: d.buyPrice
     }));
 
-    const fromWhInfo = WAREHOUSE_LIST.find(w => w.id === fromWarehouse);
-    const toWhInfo = WAREHOUSE_LIST.find(w => w.id === toWarehouse);
+    const fromWhInfo = warehouses.find(w => w.id === fromWarehouse);
+    const toWhInfo = warehouses.find(w => w.id === toWarehouse);
 
     const totalVal = transferItems.reduce((sum, item) => sum + item.costPrice * item.quantity, 0);
+    const slipCode = `CK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
 
     const newSlip: StockTransferSlip = {
       id: `TRF-${Date.now()}`,
-      code: `CK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
+      code: slipCode,
       fromWarehouse,
       fromWarehouseName: fromWhInfo ? fromWhInfo.name : fromWarehouse,
       toWarehouse,
@@ -218,19 +246,64 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       createdDate: new Date().toLocaleString('sv-SE').replace('T', ' '),
       creator: 'Nhật Tân (Admin Kho)',
       transporter: transporter || 'KTV Điều Vận Nội Bộ',
-      status: 'IN_TRANSIT', // Default to In Transit immediately
+      status: 'IN_TRANSIT',
       items: transferItems,
       totalQuantity: transferItems.length,
       totalValue: totalVal,
-      notes: notes || 'Điều chuyển phân phối hàng hóa nội bộ giữa các chi nhánh'
+      notes: notes || (autoCreateTechTask ? `[GIAO TASK KTV 1-BƯỚC] ${taskInstructions}` : 'Điều chuyển phân phối hàng hóa nội bộ giữa các chi nhánh')
     };
 
+    // 1. Save Transfer Slip
     onAddTransfer(newSlip);
+
+    // 2. Auto-generate Tech Tasks for each device if enabled
+    if (autoCreateTechTask && onAddWarrantyTicket) {
+      const issueTypeMapped = 
+        taskType === 'INBOUND_QC' ? 'Khác' :
+        taskType === 'RETAIL_REPAIR' ? 'Mainboard / IC Sạc' :
+        taskType === 'WARRANTY' ? 'Màn Hình / Cảm Ứng' : 'Ép Kính / Thay Lưng';
+
+      selectedDevicesList.forEach((dev, idx) => {
+        const ticket: WarrantyTicket = {
+          id: `TICK-TRF-${Date.now()}-${idx}`,
+          ticketNumber: `TASK-${slipCode}-${idx + 1}`,
+          customerName: `Hàng Lô Phân Phối (${fromWhInfo?.shortName || 'Kho Tổng'})`,
+          phone: '0900000000',
+          model: dev.model,
+          imei: dev.imei,
+          issueType: issueTypeMapped,
+          taskType: taskType === 'INBOUND_QC' ? 'INBOUND_QC' : taskType === 'WARRANTY' ? 'WARRANTY' : 'RETAIL_REPAIR',
+          faultDescription: `[CHUYỂN KHO 1-BƯỚC từ ${fromWhInfo?.shortName || 'Kho'} ➔ ${toWhInfo?.shortName || 'KTV'}] ${taskInstructions}`,
+          status: 'received',
+          isWarrantyFree: taskType === 'WARRANTY',
+          receivedDate: new Date().toISOString().slice(0, 10),
+          expectedReturnDate: expectedReturnDate || new Date().toISOString().slice(0, 10),
+          estimatedCost: dev.buyPrice + taskCommission,
+          finalCost: dev.buyPrice + taskCommission,
+          technician: selectedTechnician,
+          commissionAmount: taskCommission,
+          techChecklist: [
+            { id: '1', step: 'Kiểm tra màn hình & cảm ứng', isPassed: false },
+            { id: '2', step: 'Kiểm tra Pin & Dòng sạc', isPassed: false },
+            { id: '3', step: 'Kiểm tra FaceID / TouchID', isPassed: false },
+            { id: '4', step: 'Kiểm tra Camera & Loa', isPassed: false },
+            { id: '5', step: 'Nâng cấp / Vệ sinh máy', isPassed: false }
+          ],
+          solutionNotes: `Mã phiếu chuyển: ${slipCode} | Hoa hồng KTV: ${taskCommission.toLocaleString('vi-VN')} đ | Hạn hoàn thành: ${expectedReturnDate}`
+        };
+        onAddWarrantyTicket(ticket);
+      });
+    }
+
+    // Reset & Close
     setIsCreateModalOpen(false);
+    setCreateStep(1);
     setSelectedDeviceIds([]);
     setTransporter('');
     setNotes('');
     setDeviceSearchTerm('');
+    
+    alert(`✅ Đã xuất thành công Phiếu Chuyển Kho ${slipCode} (${selectedDevicesList.length} máy)!${autoCreateTechTask ? `\n⚡ Tự động phân công ${selectedDevicesList.length} Task lên Bảng Kanban KTV (${selectedTechnician}) với mức thưởng hoa hồng ${taskCommission.toLocaleString('vi-VN')} đ/máy.` : ''}`);
   };
 
   // Handle Mark Slip as Completed (Auto update warehouse of devices)
@@ -348,7 +421,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
 
       {/* 2. 3 WAREHOUSES OVERVIEW CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 sm:gap-4">
-        {WAREHOUSE_LIST.map((wh) => {
+        {warehouses.map((wh) => {
           const stats = warehouseStats[wh.id] || { count: 0, value: 0, activeTransfersIn: 0, activeTransfersOut: 0 };
           const isMain = wh.isMain;
 
@@ -710,20 +783,45 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       {/* TAB 2: WAREHOUSES INVENTORY DETAIL */}
       {activeTab === 'WAREHOUSES' && (
         <div className="space-y-4">
-          <div className="flex items-center space-x-2">
-            {WAREHOUSE_LIST.map((wh) => (
-              <button
-                key={wh.id}
-                onClick={() => setSelectedWarehouseDetail(wh.id)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  selectedWarehouseDetail === wh.id
-                    ? 'bg-orange-600 text-white shadow-xs'
-                    : 'bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-50'
-                }`}
-              >
-                {wh.name} ({warehouseStats[wh.id]?.count || 0})
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            {warehouses.map((wh) => {
+              const isSelected = selectedWarehouseDetail === wh.id;
+              const isTong = (wh.systemType || 'TONG') === 'TONG';
+              const isPhoneHouse = wh.systemType === 'PHONEHOUSE';
+              const isTechSub = wh.type === 'TECHNICIAN_SUB';
+
+              return (
+                <button
+                  key={wh.id}
+                  onClick={() => setSelectedWarehouseDetail(wh.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? isTong 
+                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
+                        : isPhoneHouse 
+                          ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/30'
+                          : 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
+                      : isTechSub
+                        ? 'bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100'
+                        : isTong
+                          ? 'bg-purple-50 text-purple-700 border border-purple-100 hover:bg-purple-100'
+                          : isPhoneHouse
+                            ? 'bg-orange-50 text-orange-700 border border-orange-100 hover:bg-orange-100'
+                            : 'bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100'
+                  }`}
+                >
+                  {isTechSub && <span>👨‍🔧</span>}
+                  <span>{wh.shortName}</span>
+                  <span className={`px-1.5 py-0.5 rounded-lg text-[10px] ml-1 ${
+                    isSelected 
+                      ? 'bg-white/20 text-white' 
+                      : 'bg-white/60 text-current mix-blend-multiply'
+                  }`}>
+                    {warehouseStats[wh.id]?.count || 0}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Device inventory in selected warehouse */}
@@ -731,7 +829,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-4 pb-3 border-b border-zinc-100">
               <div>
                 <h3 className="font-black text-zinc-900 text-base flex items-center space-x-2">
-                  <span>Danh Sách Máy Tồn Tại {WAREHOUSE_LIST.find(w => w.id === selectedWarehouseDetail)?.name}</span>
+                  <span>Danh Sách Máy Tồn Tại {warehouses.find(w => w.id === selectedWarehouseDetail)?.name}</span>
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">
                   Theo dõi chính xác từng cây iPhone đang lưu trữ thực tế tại chi nhánh này
@@ -889,195 +987,552 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
         </div>
       )}
 
-      {/* MODAL 1: TẠO PHIẾU CHUYỂN KHO MỚI */}
+      {/* MODAL 1: TẠO PHIẾU CHUYỂN KHO & PHÂN CÔNG TASK KTV (1 BƯỚC) */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-5 py-4 border-b border-orange-100 flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-orange-500 text-white flex items-center justify-center">
-                  <ArrowLeftRight className="w-4 h-4" />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[92vh] sm:rounded-3xl sm:max-w-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200">
+            {/* Header with PhoneHouse Brand Gradient */}
+            <div className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 text-white px-5 py-3.5 flex items-center justify-between shrink-0 shadow-sm">
+              <div className="flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-inner">
+                  <ArrowLeftRight className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-black text-zinc-900 text-base">Tạo Phiếu Xuất Kho Điều Chuyển</h3>
-                  <p className="text-[11px] text-zinc-500">Chọn kho nguồn, kho đích và các thiết bị iPhone cần vận chuyển</p>
+                  <div className="flex items-center space-x-2">
+                    <h3 className="font-black text-base tracking-tight">Quy Trình Điều Chuyển & Giao Task KTV (1-Bước)</h3>
+                    <span className="px-2 py-0.5 bg-white/20 text-white text-[10px] font-black rounded-full border border-white/30 uppercase">
+                      PHONEHOUSE OPTIMIZED
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-orange-100">
+                    Phân phối hàng hóa kho tổng, giao việc KTV & gắn hoa hồng tự động chỉ với 1 lượt thao tác
+                  </p>
                 </div>
               </div>
               <button 
-                onClick={() => setIsCreateModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 p-1.5 hover:bg-zinc-100 rounded-lg cursor-pointer"
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                  setCreateStep(1);
+                }}
+                className="text-white/80 hover:text-white p-1.5 hover:bg-white/10 rounded-xl cursor-pointer transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleCreateTransfer} className="p-4 sm:p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 bg-white">
-              {/* Warehouse Selection Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-4 bg-orange-50/40 rounded-2xl border border-orange-100">
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center space-x-1">
-                    <span>Kho Xuất Hàng (Kho Nguồn) *</span>
-                  </label>
-                  <select
-                    value={fromWarehouse}
-                    onChange={(e) => {
-                      setFromWarehouse(e.target.value as WarehouseId);
-                      setSelectedDeviceIds([]); // reset selection when source changes
-                    }}
-                    className="w-full bg-white border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:border-orange-500"
-                  >
-                    {WAREHOUSE_LIST.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name} ({warehouseStats[w.id]?.count || 0} máy khả dụng)
-                      </option>
-                    ))}
-                  </select>
-                </div>
+            {/* Stepper Navigation Bar */}
+            <div className="bg-orange-50/70 border-b border-orange-100 px-4 py-2.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-1 sm:space-x-2 w-full max-w-xl mx-auto justify-between">
+                {/* Step 1 */}
+                <button
+                  type="button"
+                  onClick={() => setCreateStep(1)}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    createStep === 1 
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20' 
+                      : 'text-zinc-600 hover:bg-orange-100/60'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                    createStep === 1 ? 'bg-white text-orange-600' : 'bg-orange-200 text-orange-800'
+                  }`}>1</span>
+                  <span>Kho & IMEI Máy</span>
+                </button>
 
-                <div>
-                  <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center space-x-1">
-                    <span>Kho Nhận Hàng (Kho Đích) *</span>
-                  </label>
-                  <select
-                    value={toWarehouse}
-                    onChange={(e) => setToWarehouse(e.target.value as WarehouseId)}
-                    className="w-full bg-white border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold text-orange-700 focus:border-orange-500"
-                  >
-                    {WAREHOUSE_LIST.map((w) => (
-                      <option key={w.id} value={w.id} disabled={w.id === fromWarehouse}>
-                        {w.name} {w.id === fromWarehouse ? '(Trùng kho xuất)' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <ChevronRight className="w-4 h-4 text-orange-300 shrink-0" />
+
+                {/* Step 2 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedDeviceIds.length === 0) {
+                      alert('Vui lòng chọn ít nhất 1 máy ở Bước 1!');
+                      return;
+                    }
+                    setCreateStep(2);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    createStep === 2 
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20' 
+                      : 'text-zinc-600 hover:bg-orange-100/60'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                    createStep === 2 ? 'bg-white text-orange-600' : 'bg-orange-200 text-orange-800'
+                  }`}>2</span>
+                  <span className="flex items-center space-x-1">
+                    <span>Task KTV & Hoa Hồng</span>
+                    {autoCreateTechTask && (
+                      <span className="bg-amber-400 text-zinc-900 text-[9px] px-1.5 py-0.2 rounded-full font-black">
+                        ⚡ ON
+                      </span>
+                    )}
+                  </span>
+                </button>
+
+                <ChevronRight className="w-4 h-4 text-orange-300 shrink-0" />
+
+                {/* Step 3 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedDeviceIds.length === 0) {
+                      alert('Vui lòng chọn ít nhất 1 máy ở Bước 1!');
+                      return;
+                    }
+                    setCreateStep(3);
+                  }}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    createStep === 3 
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20' 
+                      : 'text-zinc-600 hover:bg-orange-100/60'
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                    createStep === 3 ? 'bg-white text-orange-600' : 'bg-orange-200 text-orange-800'
+                  }`}>3</span>
+                  <span>Xác Nhận 1-Bước</span>
+                </button>
               </div>
+            </div>
 
-              {/* Transporter & Notes */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Nhân Viên / KTV Vận Chuyển</label>
-                  <input
-                    type="text"
-                    value={transporter}
-                    onChange={(e) => setTransporter(e.target.value)}
-                    placeholder="VD: KTV Minh Đức (Shipper Nội Bộ)"
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:bg-white focus:border-orange-500"
-                  />
-                </div>
+            {/* Modal Form Container */}
+            <form onSubmit={handleCreateTransfer} className="p-4 sm:p-5 overflow-y-auto custom-scrollbar flex-1 bg-white space-y-4">
+              
+              {/* STEP 1: CHỌN KHO & DANH SÁCH MÁY IMEI */}
+              {createStep === 1 && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {/* Warehouse Selection Row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-gradient-to-r from-orange-50/60 to-amber-50/40 rounded-2xl border border-orange-200/80">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center justify-between">
+                        <span>Kho Xuất Hàng (Kho Nguồn) *</span>
+                        <span className="text-[10px] text-orange-600 font-semibold">Tồn khả dụng</span>
+                      </label>
+                      <select
+                        value={fromWarehouse}
+                        onChange={(e) => {
+                          setFromWarehouse(e.target.value as WarehouseId);
+                          setSelectedDeviceIds([]);
+                        }}
+                        className="w-full bg-white border border-orange-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:border-orange-500 shadow-xs"
+                      >
+                        {warehouses.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name} ({warehouseStats[w.id]?.count || 0} máy khả dụng)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Lý Do / Ghi Chú Điều Chuyển</label>
-                  <input
-                    type="text"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="VD: Bổ sung máy Like New cho showroom Cầu Giấy"
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:bg-white focus:border-orange-500"
-                  />
-                </div>
-              </div>
-
-              {/* Device Selector From Source Warehouse */}
-              <div className="space-y-2 pt-2">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <label className="text-xs font-bold text-zinc-900 flex items-center space-x-1.5">
-                      <Smartphone className="w-3.5 h-3.5 text-orange-600" />
-                      <span>Chọn Danh Sách Máy Cần Chuyển (Đã chọn: {selectedDeviceIds.length} máy)</span>
-                    </label>
-                    <p className="text-[11px] text-zinc-500">
-                      Hiển thị các máy đang có sẵn trong {WAREHOUSE_LIST.find(w => w.id === fromWarehouse)?.shortName}
-                    </p>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center justify-between">
+                        <span>Kho Nhận Hàng (Kho Đích) *</span>
+                        {toWarehouse.includes('KTV') && (
+                          <span className="text-[10px] text-amber-700 font-bold bg-amber-100 px-1.5 py-0.5 rounded">
+                            🛠️ Kho Kỹ Thuật
+                          </span>
+                        )}
+                      </label>
+                      <select
+                        value={toWarehouse}
+                        onChange={(e) => {
+                          const targetWh = e.target.value as WarehouseId;
+                          setToWarehouse(targetWh);
+                          if (targetWh.includes('KTV') || targetWh.includes('TECH')) {
+                            setAutoCreateTechTask(true);
+                          }
+                        }}
+                        className="w-full bg-white border border-orange-200 rounded-xl px-3 py-2 text-xs font-bold text-orange-700 focus:border-orange-500 shadow-xs"
+                      >
+                        {warehouses.map((w) => (
+                          <option key={w.id} value={w.id} disabled={w.id === fromWarehouse}>
+                            {w.name} {w.id === fromWarehouse ? '(Trùng kho xuất)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="flex items-center space-x-2">
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  {/* Transporter & Notes */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 mb-1">KTV / Người Vận Chuyển Nội Bộ</label>
                       <input
                         type="text"
-                        value={deviceSearchTerm}
-                        onChange={(e) => setDeviceSearchTerm(e.target.value)}
-                        placeholder="Lọc nhanh model, IMEI..."
-                        className="bg-zinc-50 border border-zinc-200 rounded-lg pl-8 pr-2 py-1 text-xs text-zinc-800 w-44 focus:bg-white focus:border-orange-500"
+                        value={transporter}
+                        onChange={(e) => setTransporter(e.target.value)}
+                        placeholder="VD: KTV Minh Đức (Chuyển nội bộ)"
+                        className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-900 focus:bg-white focus:border-orange-500"
                       />
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleSelectAllDevicesInModal}
-                      className="text-xs text-orange-600 font-bold hover:underline px-2 py-1 bg-orange-50 rounded-lg border border-orange-200"
-                    >
-                      {selectedDeviceIds.length === modalFilteredDevices.length ? 'Bỏ chọn hết' : 'Chọn tất cả'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Device List Box */}
-                <div className="border border-zinc-200 rounded-2xl max-h-56 overflow-y-auto divide-y divide-zinc-100 bg-zinc-50/50">
-                  {modalFilteredDevices.length === 0 ? (
-                    <div className="p-6 text-center text-xs text-zinc-500 italic">
-                      Không có máy khả dụng nào trong kho xuất này hoặc không khớp từ khóa tìm kiếm.
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 mb-1">Ghi Chú Đơn Hàng / Lý Do</label>
+                      <input
+                        type="text"
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="VD: Chuyển lô 13PM kiểm tra fix màn xanh"
+                        className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-900 focus:bg-white focus:border-orange-500"
+                      />
                     </div>
-                  ) : (
-                    modalFilteredDevices.map((dev) => {
-                      const isSelected = selectedDeviceIds.includes(dev.id);
+                  </div>
 
-                      return (
-                        <div 
-                          key={dev.id}
-                          onClick={() => handleToggleSelectDevice(dev.id)}
-                          className={`p-2.5 flex items-center justify-between transition-colors cursor-pointer text-xs ${
-                            isSelected ? 'bg-orange-50/90 text-zinc-900 font-medium' : 'hover:bg-zinc-100/80 text-zinc-700'
-                          }`}
+                  {/* Device List Picker */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
+                      <div className="flex items-center space-x-2">
+                        <Smartphone className="w-4 h-4 text-orange-600" />
+                        <span className="text-xs font-bold text-zinc-900">
+                          Chọn Máy Trong Kho ({selectedDeviceIds.length}/{modalFilteredDevices.length} máy chọn)
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={deviceSearchTerm}
+                            onChange={(e) => setDeviceSearchTerm(e.target.value)}
+                            placeholder="Lọc IMEI, model..."
+                            className="bg-white border border-zinc-200 rounded-lg pl-8 pr-2 py-1 text-[11px] text-zinc-800 w-36 sm:w-44 focus:border-orange-500"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleSelectAllDevicesInModal}
+                          className="text-[11px] text-orange-700 font-bold px-2.5 py-1 bg-orange-50 hover:bg-orange-100 rounded-lg border border-orange-200 cursor-pointer"
                         >
-                          <div className="flex items-center space-x-3">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {}} // handled by parent div onClick
-                              className="rounded text-orange-500 focus:ring-orange-400 w-4 h-4 cursor-pointer"
-                            />
-                            <div>
-                              <div className="font-bold text-zinc-900">{dev.model} {dev.storage} ({dev.color})</div>
-                              <div className="text-[11px] text-zinc-500 font-mono">
-                                IMEI: <span className="text-zinc-800 font-bold">{dev.imei}</span> • {dev.condition} • Pin {dev.batteryHealth}%
+                          {selectedDeviceIds.length === modalFilteredDevices.length ? 'Bỏ chọn' : 'Chọn tất cả'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="border border-zinc-200 rounded-2xl max-h-48 sm:max-h-56 overflow-y-auto divide-y divide-zinc-100 bg-white">
+                      {modalFilteredDevices.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-zinc-500 italic">
+                          Không tìm thấy máy phù hợp nào trong kho xuất này.
+                        </div>
+                      ) : (
+                        modalFilteredDevices.map((dev) => {
+                          const isSelected = selectedDeviceIds.includes(dev.id);
+
+                          return (
+                            <div 
+                              key={dev.id}
+                              onClick={() => handleToggleSelectDevice(dev.id)}
+                              className={`p-2.5 flex items-center justify-between transition-colors cursor-pointer text-xs ${
+                                isSelected ? 'bg-orange-50/90 text-zinc-900 font-medium' : 'hover:bg-zinc-50 text-zinc-700'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-3">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                  className="rounded text-orange-500 focus:ring-orange-400 w-4 h-4 cursor-pointer"
+                                />
+                                <div>
+                                  <div className="font-bold text-zinc-900">{dev.model} {dev.storage} <span className="text-zinc-500 font-normal">({dev.color})</span></div>
+                                  <div className="text-[11px] text-zinc-500 font-mono">
+                                    IMEI: <strong className="text-zinc-800">{dev.imei}</strong> • Pin {dev.batteryHealth}% • {dev.condition}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="text-right font-mono">
+                                <div className="font-bold text-zinc-900">{dev.buyPrice.toLocaleString('vi-VN')} đ</div>
+                                <span className="text-[10px] text-zinc-400">Giá nhập gốc</span>
                               </div>
                             </div>
-                          </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                          <div className="text-right font-mono">
-                            <div className="font-bold text-zinc-900">{dev.buyPrice.toLocaleString('vi-VN')} đ</div>
-                            <span className="text-[10px] text-zinc-500">Giá vốn</span>
+              {/* STEP 2: PHÂN CÔNG TASK KTV & ĐỊNH MỨC HOA HỒNG */}
+              {createStep === 2 && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {/* Auto Task Toggle Box */}
+                  <div className="p-3.5 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl text-white shadow-md flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
+                        <Zap className="w-5 h-5 text-amber-200" />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-sm">Tự Động Tạo Task & Phân Công KTV</h4>
+                        <p className="text-[11px] text-orange-100">
+                          Tự động đẩy {selectedDeviceIds.length} máy lên Bảng Kanban KTV & tính hoa hồng ngay khi xuất phiếu
+                        </p>
+                      </div>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={autoCreateTechTask} 
+                        onChange={(e) => setAutoCreateTechTask(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-white/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-white/90"></div>
+                    </label>
+                  </div>
+
+                  {autoCreateTechTask ? (
+                    <div className="p-4 bg-orange-50/40 border border-orange-200 rounded-2xl space-y-3.5">
+                      {/* Task Type Grid */}
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-800 mb-1.5 flex items-center space-x-1">
+                          <Wrench className="w-3.5 h-3.5 text-orange-600" />
+                          <span>Loại Task Kỹ Thuật Cần Xử Lý *</span>
+                        </label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {[
+                            { id: 'INBOUND_QC', name: 'KCS Hàng Nhập Kho', desc: 'Kiểm tra 18 bước', defaultComm: 50000 },
+                            { id: 'RETAIL_REPAIR', name: 'Sửa Chữa Nâng Cấp', desc: 'Sàng cáp, fix màn', defaultComm: 120000 },
+                            { id: 'WARRANTY', name: 'Bảo Hành Khắc Phục', desc: 'Xử lý lỗi bảo hành', defaultComm: 80000 },
+                            { id: 'SPECIAL_COMPONENT', name: 'Thay Linh Kiện Special', desc: 'Pin Pisen, Kính', defaultComm: 100000 }
+                          ].map((t) => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onClick={() => {
+                                setTaskType(t.id as any);
+                                setTaskCommission(t.defaultComm);
+                              }}
+                              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                                taskType === t.id
+                                  ? 'bg-orange-500 text-white border-orange-500 shadow-sm'
+                                  : 'bg-white text-zinc-800 border-zinc-200 hover:border-orange-300'
+                              }`}
+                            >
+                              <div className="font-bold text-xs">{t.name}</div>
+                              <div className={`text-[10px] mt-0.5 ${taskType === t.id ? 'text-orange-100' : 'text-zinc-500'}`}>
+                                {t.desc}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Tech Assignee & Commission Inputs */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-800 mb-1">
+                            Kỹ Thuật Viên Phụ Trách Task *
+                          </label>
+                          <select
+                            value={selectedTechnician}
+                            onChange={(e) => setSelectedTechnician(e.target.value)}
+                            className="w-full bg-white border border-zinc-300 rounded-xl px-3 py-2 text-xs font-bold text-zinc-900 focus:border-orange-500"
+                          >
+                            <option value="KTV Trọng (Chuyên Màn & Ép Kính)">KTV Trọng (Chuyên Màn & Ép Kính)</option>
+                            <option value="KTV Nam (Chuyên Mainboard & FaceID)">KTV Nam (Chuyên Mainboard & FaceID)</option>
+                            <option value="KTV Dương (Chuyên Thay Pin & Chỉnh Chuẩn KCS)">KTV Dương (Chuyên Thay Pin & KCS)</option>
+                            {users.filter(u => u.role === 'TECHNICIAN' || u.role === 'ADMIN').map(u => (
+                              <option key={u.id} value={`${u.name} (${u.role})`}>{u.name} - {u.email}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center justify-between">
+                            <span className="flex items-center space-x-1">
+                              <Award className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Mức Thưởng Hoa Hồng KTV / Máy (VNĐ) *</span>
+                            </span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              value={taskCommission}
+                              onChange={(e) => setTaskCommission(Number(e.target.value))}
+                              step={10000}
+                              className="w-full bg-white border border-orange-300 rounded-xl px-3 py-2 text-xs font-mono font-black text-orange-700 focus:border-orange-500"
+                            />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center space-x-1">
+                              {[50000, 100000, 150000].map((amt) => (
+                                <button
+                                  key={amt}
+                                  type="button"
+                                  onClick={() => setTaskCommission(amt)}
+                                  className="px-1.5 py-0.5 bg-orange-100 hover:bg-orange-200 text-orange-800 text-[9px] font-bold rounded"
+                                >
+                                  {(amt/1000).toFixed(0)}k
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      );
-                    })
+                      </div>
+
+                      {/* Deadline & Instructions */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-zinc-700 mb-1">Hạn Trả Máy (Deadline)</label>
+                          <input
+                            type="date"
+                            value={expectedReturnDate}
+                            onChange={(e) => setExpectedReturnDate(e.target.value)}
+                            className="w-full bg-white border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-900 focus:border-orange-500"
+                          />
+                        </div>
+
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-bold text-zinc-700 mb-1">Mô Tả Yêu Cầu Kỹ Thuật Chi Tiết</label>
+                          <input
+                            type="text"
+                            value={taskInstructions}
+                            onChange={(e) => setTaskInstructions(e.target.value)}
+                            placeholder="VD: Kiểm tra sàng cáp IC màn gốc, dán ron áp suất kỹ..."
+                            className="w-full bg-white border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-900 focus:border-orange-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 text-center text-xs text-zinc-500 bg-zinc-50 rounded-2xl border border-zinc-200 border-dashed">
+                      Đã tắt tính năng tự động tạo Task KTV. Phiếu chỉ thực hiện chuyển kho thuần túy.
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
 
-              {/* Bottom Submit Actions */}
-              <div className="pt-3 border-t border-zinc-200 flex justify-between items-center sticky bottom-0 bg-white z-10">
-                <div className="text-xs text-zinc-600">
-                  Tổng máy điều chuyển: <strong className="text-orange-600">{selectedDeviceIds.length} máy</strong>
+              {/* STEP 3: XÁC NHẬN PHIẾU XUẤT 1-BƯỚC */}
+              {createStep === 3 && (
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 p-4 rounded-2xl border border-orange-200 space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-orange-200/60">
+                      <div className="flex items-center space-x-2">
+                        <Sparkles className="w-5 h-5 text-orange-600" />
+                        <h4 className="font-black text-sm text-zinc-900">Tóm Tắt Phiếu Xuất & Phân Công Tự Động</h4>
+                      </div>
+                      <span className="text-xs font-black text-orange-700 bg-orange-100 px-2.5 py-0.5 rounded-full">
+                        {selectedDeviceIds.length} Máy Chọn
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      {/* Transfer Summary */}
+                      <div className="bg-white p-3 rounded-xl border border-orange-100 space-y-1.5">
+                        <div className="text-[10px] text-zinc-500 uppercase font-bold">1. Tuyến Vận Chuyển</div>
+                        <div className="font-bold text-zinc-900 flex items-center space-x-1">
+                          <span>{warehouses.find(w => w.id === fromWarehouse)?.shortName}</span>
+                          <ArrowRight className="w-3.5 h-3.5 text-orange-500" />
+                          <span className="text-orange-700">{warehouses.find(w => w.id === toWarehouse)?.shortName}</span>
+                        </div>
+                        <div className="text-[11px] text-zinc-600">
+                          Người vận chuyển: <strong className="text-zinc-800">{transporter || 'Nội bộ'}</strong>
+                        </div>
+                        <div className="text-[11px] text-zinc-600">
+                          Tổng giá vốn nhập: <strong className="text-orange-600 font-mono">
+                            {devices.filter(d => selectedDeviceIds.includes(d.id)).reduce((s, d) => s + d.buyPrice, 0).toLocaleString('vi-VN')} đ
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Tech Task Summary */}
+                      <div className="bg-white p-3 rounded-xl border border-orange-100 space-y-1.5">
+                        <div className="text-[10px] text-zinc-500 uppercase font-bold">2. Task KTV & Thưởng</div>
+                        {autoCreateTechTask ? (
+                          <>
+                            <div className="font-bold text-zinc-900">{selectedTechnician}</div>
+                            <div className="text-[11px] text-zinc-600">
+                              Loại công việc: <strong className="text-amber-700">{taskType}</strong>
+                            </div>
+                            <div className="text-[11px] text-zinc-600">
+                              Hoa hồng mỗi máy: <strong className="text-emerald-700 font-mono font-bold">+{taskCommission.toLocaleString('vi-VN')} đ</strong>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-zinc-400 italic text-[11px]">Không tạo Task KTV</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Final Cost Calculation Preview Formula */}
+                    <div className="p-3 bg-white rounded-xl border border-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                      <div>
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase block">Dự Báo Giá Vốn Cuối Cùng Trung Bình / Máy (Cost_Final)</span>
+                        <div className="font-mono font-bold text-zinc-900 text-sm mt-0.5">
+                          {selectedDeviceIds.length > 0 ? (
+                            Math.round(
+                              (devices.filter(d => selectedDeviceIds.includes(d.id)).reduce((s, d) => s + d.buyPrice, 0) / selectedDeviceIds.length) + (autoCreateTechTask ? taskCommission : 0)
+                            ).toLocaleString('vi-VN')
+                          ) : 0} đ <span className="text-zinc-500 text-[10px] font-normal">(Chưa gồm linh kiện tiêu hao khi KTV xử lý)</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[10px] bg-orange-50 text-orange-800 p-2 rounded-lg border border-orange-200 font-mono font-semibold">
+                        Cost_Final = Cost_Goc + Commission_KTV + Cost_LinhKien
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal Sticky Bottom Navigation */}
+              <div className="pt-3 border-t border-zinc-200 flex justify-between items-center bg-white sticky bottom-0 z-10 shrink-0">
+                <div className="text-xs text-zinc-600 flex items-center space-x-2">
+                  <span className="font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                    Đã chọn {selectedDeviceIds.length} máy
+                  </span>
+                  <span className="text-zinc-400">|</span>
+                  <span>Bước {createStep}/3</span>
                 </div>
 
                 <div className="flex items-center space-x-2">
                   <button
                     type="button"
-                    onClick={() => setIsCreateModalOpen(false)}
-                    className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold"
+                    onClick={() => {
+                      setIsCreateModalOpen(false);
+                      setCreateStep(1);
+                    }}
+                    className="px-3.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                   >
                     Hủy
                   </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95"
-                  >
-                    Tạo & Xuất Phiếu Điều Chuyển
-                  </button>
+
+                  {createStep > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setCreateStep((createStep - 1) as 1 | 2)}
+                      className="px-3.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      ⬅ Quay Lại
+                    </button>
+                  )}
+
+                  {createStep < 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedDeviceIds.length === 0) {
+                          alert('Vui lòng chọn ít nhất 1 máy để tiếp tục!');
+                          return;
+                        }
+                        setCreateStep((createStep + 1) as 2 | 3);
+                      }}
+                      className="px-4 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1"
+                    >
+                      <span>Tiếp Tục</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white font-black rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1.5"
+                    >
+                      <Zap className="w-4 h-4 text-amber-200" />
+                      <span>Xác Nhận Tạo Phiếu & Giao Task KTV (1-Bước)</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </form>

@@ -1,4 +1,6 @@
-export type WarehouseId = 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE' | string;
+export type SystemBrand = 'TONG' | 'PHONEHOUSE' | 'XSTORE';
+export type WarehouseType = 'CENTRAL' | 'RETAIL_STORE' | 'TECHNICIAN_SUB' | 'REPAIR_WARRANTY' | 'TRANSIT';
+export type WarehouseId = 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE' | 'KHO_KTV_NAM' | 'KHO_KTV_TRONG' | 'KHO_KTV_DUONG' | 'KHO_KT_TONG' | string;
 
 export interface WarehouseInfo {
   id: WarehouseId;
@@ -10,7 +12,12 @@ export interface WarehouseInfo {
   phone: string;
   color?: string;
   isMain?: boolean;
-  type?: 'CENTRAL' | 'RETAIL_STORE' | 'REPAIR_WARRANTY' | 'TRANSIT';
+  systemType?: SystemBrand; // 'TONG' | 'PHONEHOUSE' | 'XSTORE'
+  systemName?: string;
+  type?: WarehouseType;
+  technicianId?: string; // ID của Kỹ thuật viên nếu là kho con KTV
+  technicianName?: string; // Tên KTV phụ trách
+  parentWarehouseId?: WarehouseId; // Kho cha (ví dụ KHO_TONG)
   capacityNotes?: string;
   isActive?: boolean;
 }
@@ -25,6 +32,7 @@ export interface StoreBranch {
   manager: string;
   openingHours: string;
   warehouseId: WarehouseId | string;
+  systemType?: SystemBrand; // 'TONG' | 'PHONEHOUSE' | 'XSTORE'
   isActive: boolean;
   isHeadquarter?: boolean;
   taxCode?: string;
@@ -54,36 +62,120 @@ export interface StoreSettings {
 }
 
 export const WAREHOUSE_LIST: WarehouseInfo[] = [
+  // 1. HỆ THỐNG TỔNG (CENTRAL HEADQUARTERS)
   {
     id: 'KHO_TONG',
-    name: 'Kho Tổng (Central Warehouse)',
+    name: 'Tổng Kho Trung Tâm (Central Hub)',
     shortName: 'Kho Tổng',
     code: 'KT-01',
     address: 'Khu Công Nghệ Cao / Kho Phân Phối Trung Tâm, Hà Nội',
     manager: 'Nhật Tân (Giám Đốc Kho)',
     phone: '0988.999.888',
-    color: 'from-orange-500 to-amber-500',
-    isMain: true
+    color: 'from-purple-600 to-indigo-600',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'CENTRAL',
+    isMain: true,
+    capacityNotes: 'Sức chứa 2.000 thiết bị & linh kiện phân phối'
   },
+  {
+    id: 'KHO_KT_TONG',
+    name: 'Kho Kỹ Thuật Tổng (Lab & KCS)',
+    shortName: 'Kho KT Tổng',
+    code: 'KT-LAB-01',
+    address: 'Tầng 2 - Trung Tâm Kỹ Thuật & Thẩm Định Tổng Kho',
+    manager: 'Trưởng Phòng Kỹ Thuật',
+    phone: '0988.777.666',
+    color: 'from-indigo-500 to-blue-600',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'TECHNICIAN_SUB',
+    parentWarehouseId: 'KHO_TONG',
+    technicianName: 'Bộ Phận Kỹ Thuật & KCS',
+    capacityNotes: 'Kho thẩm định, test chức năng & chạy phần mềm'
+  },
+  {
+    id: 'KHO_KTV_NAM',
+    name: 'Kho KTV Nam (Kỹ Thuật Phần Cứng)',
+    shortName: 'Kho KTV Nam',
+    code: 'KTV-NAM',
+    address: 'Bàn Kỹ Thuật 01 - Trạm Kỹ Thuật Tổng',
+    manager: 'KTV Nam (Main & Phần Cứng)',
+    phone: '0912.345.678',
+    color: 'from-indigo-600 to-sky-500',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'TECHNICIAN_SUB',
+    parentWarehouseId: 'KHO_TONG',
+    technicianId: 'STAFF_003',
+    technicianName: 'Lê Hoàng Nam (KTV Phần Cứng)',
+    capacityNotes: 'Kho nhận máy chờ xử lý phần cứng, mainboard'
+  },
+  {
+    id: 'KHO_KTV_TRONG',
+    name: 'Kho KTV Trọng (Ép Kính & Màn Hình)',
+    shortName: 'Kho KTV Trọng',
+    code: 'KTV-TRONG',
+    address: 'Bàn Kỹ Thuật 02 - Trạm Kỹ Thuật Tổng',
+    manager: 'KTV Trọng (Ép Kính)',
+    phone: '0912.888.999',
+    color: 'from-sky-500 to-teal-500',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'TECHNICIAN_SUB',
+    parentWarehouseId: 'KHO_TONG',
+    technicianId: 'STAFF_004',
+    technicianName: 'Phạm Văn Trọng (KTV Ép Kính)',
+    capacityNotes: 'Kho máy đang bóc tách & thay kính/màn hình'
+  },
+  {
+    id: 'KHO_KTV_DUONG',
+    name: 'Kho KTV Dương (Thay Pin & Test KCS)',
+    shortName: 'Kho KTV Dương',
+    code: 'KTV-DUONG',
+    address: 'Bàn Kỹ Thuật 03 - Trạm Kỹ Thuật Tổng',
+    manager: 'KTV Dương (KCS & Linh Kiện)',
+    phone: '0912.555.444',
+    color: 'from-teal-500 to-emerald-500',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'TECHNICIAN_SUB',
+    parentWarehouseId: 'KHO_TONG',
+    technicianId: 'STAFF_005',
+    technicianName: 'Hoàng Minh Dương (KTV Linh Kiện)',
+    capacityNotes: 'Kho máy kiểm tra KCS cuối trước khi bàn giao chi nhánh'
+  },
+
+  // 2. HỆ THỐNG PHONEHOUSE (RETAIL CHAIN)
   {
     id: 'KHO_PHONEHOUSE',
     name: 'Kho PhoneHouse (Cầu Giấy)',
-    shortName: 'Kho PhoneHouse',
+    shortName: 'Kho PhoneHouse CG',
     code: 'KPH-02',
     address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, Hà Nội',
     manager: 'Tuấn Cửa Hàng Trưởng',
     phone: '0977.111.222',
-    color: 'from-amber-500 to-orange-500'
+    color: 'from-orange-500 to-amber-500',
+    systemType: 'PHONEHOUSE',
+    systemName: 'PhoneHouse Retail',
+    type: 'RETAIL_STORE',
+    capacityNotes: 'Sức chứa 500 máy phục vụ bán lẻ & trải nghiệm'
   },
+
+  // 3. HỆ THỐNG XSTORE (PREMIUM STORE)
   {
     id: 'KHO_XSTORE',
     name: 'Kho Xstore (Trần Duy Hưng)',
-    shortName: 'Kho Xstore',
+    shortName: 'Kho Xstore TDH',
     code: 'KXS-03',
     address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, Hà Nội',
     manager: 'Hoàng Quản Lý Chi Nhánh',
     phone: '0966.333.444',
-    color: 'from-blue-500 to-cyan-500'
+    color: 'from-blue-600 to-cyan-500',
+    systemType: 'XSTORE',
+    systemName: 'Xstore Apple Premium',
+    type: 'RETAIL_STORE',
+    capacityNotes: 'Sức chứa 600 máy cao cấp & phụ kiện chính hãng'
   }
 ];
 
@@ -119,6 +211,84 @@ export interface StockTransferSlip {
   receiver?: string;
 }
 
+// ==========================================
+// PURCHASE ORDER & STOCK-IN MANAGEMENT TYPES
+// ==========================================
+
+export type PurchaseOrderStatus = 'DRAFT' | 'QC_CHECKING' | 'COMPLETED' | 'CANCELLED';
+export type PurchasePaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID';
+
+export interface PurchaseOrderItem {
+  id: string;
+  type: 'device' | 'product';
+  modelOrName: string; // e.g. "iPhone 16 Pro Max 256GB Titan Sa Mạc"
+  color?: string;
+  storage?: string;
+  condition?: 'New Seal' | 'Like New 99%' | '98% Cấn Nhẹ' | '95% Trầy Xước' | 'Hàng Cũ Trưng Bày';
+  region?: string; // 'VN/A (Chính hãng)', 'LL/A (Mỹ - eSim)', 'ZA/A (2 Sim vật lý)'...
+  batteryHealth?: number;
+  imeiList?: string[]; // Danh sách IMEI (15 số) cho thiết bị
+  quantity: number;
+  importPrice: number; // Giá vốn / Giá nhập từng sản phẩm
+  expectedSellPrice?: number; // Giá bán lẻ niêm yết dự kiến
+  totalAmount: number; // quantity * importPrice
+  notes?: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  code: string; // PN-20260816-01
+  supplierId: string;
+  supplierName: string;
+  supplierPhone?: string;
+  supplierAddress?: string;
+  supplierTaxCode?: string;
+  warehouseId: WarehouseId | string;
+  warehouseName: string;
+  orderDate: string; // YYYY-MM-DD
+  receivedDate?: string;
+  creatorName: string; // Nhật Tân (Giám Đốc), Cửa hàng trưởng...
+  qcInspector?: string; // KTV kiểm định KCS
+  status: PurchaseOrderStatus;
+  paymentStatus: PurchasePaymentStatus;
+  paymentMethod?: 'Tiền mặt tại két' | 'Chuyển khoản VietQR' | 'Ghi nhận công nợ NCC' | 'Hỗn hợp';
+  fundId?: string; // Quỹ chi tiền nếu có thanh toán ngay
+  fundName?: string;
+  items: PurchaseOrderItem[];
+  totalQuantity: number;
+  subTotal: number;
+  discountAmount?: number;
+  shippingFee?: number;
+  totalAmount: number; // Tổng giá trị phiếu nhập sau chiết khấu + ship
+  paidAmount: number; // Tiền đã trả cho NCC
+  debtAmount: number; // Tiền nợ NCC còn lại (totalAmount - paidAmount)
+  notes?: string;
+  attachments?: string[];
+  history?: ActionLogEntry[];
+}
+
+
+export type CatalogCategory = 'DEVICE' | 'PART' | 'ACCESSORY';
+
+export interface MasterCatalogItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: CatalogCategory;
+  // Specifications
+  model?: string;
+  storage?: string;
+  color?: string;
+  condition?: string;
+  region?: string;
+  compatibleModels?: string[]; // For parts/accessories
+  // Default Pricing
+  defaultImportPrice: number;
+  defaultRetailPrice: number;
+  minStockLevel?: number;
+  notes?: string;
+}
+
 export interface ProductItem {
   id: string;
   sku: string;
@@ -134,8 +304,25 @@ export interface ProductItem {
   notes?: string;
 }
 
+export interface DeviceHistoryLog {
+  id: string;
+  timestamp: string; // YYYY-MM-DD HH:mm or ISO string
+  type: 'STOCK_IN' | 'WAREHOUSE_TRANSFER' | 'WARRANTY_QC' | 'RESPONSIBILITY_CHANGE' | 'STATUS_CHANGE' | 'SALE' | 'MANUAL_NOTE';
+  title: string;
+  description: string;
+  performedBy: string; // Staff/KTV/Admin name
+  fromWarehouse?: string;
+  toWarehouse?: string;
+  ticketCode?: string;
+  slipCode?: string;
+  invoiceCode?: string;
+  statusBadge?: string;
+  metadata?: Record<string, any>;
+}
+
 export interface DeviceItem {
   id: string;
+  branchId?: string;
   imei: string;
   serialNo: string;
   model: string;
@@ -158,10 +345,18 @@ export interface DeviceItem {
   notes?: string;
   icloudStatus: 'Clean / Đã Thoát' | 'Chưa Check';
   screenStatus: 'Zin Màn Keng' | 'Zin Ép Kính' | 'Màn Thay GX/OLED' | 'Trầy Phẩy';
+  images?: string[];
+  imageUrl?: string;
+  batchCode?: string;
+  supplierId?: string;
+  currentCustodian?: string; // Người hiện đang chịu trách nhiệm trực tiếp (Thủ kho / KTV / NV Bán)
+  technicianAssigned?: string; // KTV đang giữ / xử lý máy
+  history?: DeviceHistoryLog[]; // Danh sách sự kiện lịch sử (Timeline)
 }
 
 export interface Lead {
   id: string;
+  branchId?: string;
   name: string;
   phone: string;
   zalo?: string;
@@ -180,6 +375,7 @@ export interface Lead {
 
 export interface TradeInAppraisal {
   id: string;
+  branchId?: string;
   customerName: string;
   phone: string;
   oldModel: string;
@@ -212,6 +408,13 @@ export interface WarrantyTicketPart {
   totalPrice: number;
 }
 
+export interface ActionLogEntry {
+  time: string;
+  action: string;
+  note?: string;
+  user: string;
+}
+
 export interface WarrantyTicketTimeline {
   time: string;
   action: string;
@@ -219,9 +422,34 @@ export interface WarrantyTicketTimeline {
   user: string;
 }
 
+export interface SparePart {
+  id: string;
+  branchId?: string;
+  sku: string;
+  name: string;
+  category: 'PIN' | 'MAN_HINH' | 'CAMERA' | 'CAP_SÁC' | 'VO_TRONG' | 'MAINBOARD' | 'KHAC';
+  costPrice: number;
+  retailPrice: number;
+  stockQuantity: number;
+  minStockLevel: number;
+  compatibleModels: string[];
+}
+
+export interface TechChecklistStep {
+  id: string;
+  step: string;
+  isPassed: boolean;
+  notes?: string;
+}
+
 export interface WarrantyTicket {
   id: string;
+  branchId?: string;
   ticketNumber: string;
+  taskType?: 'INBOUND_QC' | 'WARRANTY' | 'RETAIL_REPAIR'; // Phân loại Phiếu
+  assigneeId?: string; // ID của Kỹ Thuật Viên
+  commissionAmount?: number; // Hoa hồng cho KTV
+  techChecklist?: TechChecklistStep[]; // Checklist kiểm tra máy
   customerName: string;
   phone: string;
   imei: string;
@@ -331,6 +559,7 @@ export interface SalesInvoice {
   installmentDisbursementStatus?: 'PENDING' | 'DISBURSED';
   installmentExpectedAmount?: number;
   installmentContractCode?: string;
+  history?: ActionLogEntry[];
 }
 
 export interface ERPNextModuleDocType {
@@ -354,6 +583,7 @@ export interface UserAccount {
   email: string;
   displayName: string;
   role: UserRole;
+  branchId?: string; // TONG, CN01, CN02...
   phone?: string;
   active: boolean;
   createdAt: string;
@@ -410,6 +640,7 @@ export type CashPaymentCategory =
 
 export interface CashTransaction {
   id: string;
+  branchId?: string;
   code: string; // PT-20250215-01 / PC-20250215-01
   type: CashTransactionType;
   category: CashReceiptCategory | CashPaymentCategory;
@@ -431,6 +662,7 @@ export interface CashTransaction {
 
 export interface FundAccount {
   id: string;
+  branchId?: string;
   name: string;
   type: PaymentFundType;
   accountNumber?: string;
@@ -456,6 +688,7 @@ export interface PartnerDebtTransaction {
 
 export interface Partner {
   id: string;
+  branchId?: string;
   type: PartnerType;
   name: string;
   phone: string;

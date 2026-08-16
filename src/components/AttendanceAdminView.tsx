@@ -7,7 +7,9 @@ import {
   CommissionTransaction, 
   MonthlyPayrollSlip,
   SalaryPolicy,
-  PayrollLedgerItem
+  PayrollLedgerItem,
+  SalesInvoice,
+  WarrantyTicket
 } from '../types';
 import { 
   Users, 
@@ -38,7 +40,8 @@ import {
   Lock,
   Send,
   Sliders,
-  CheckCheck
+  CheckCheck,
+  Monitor
 } from 'lucide-react';
 
 interface AttendanceAdminViewProps {
@@ -49,12 +52,14 @@ interface AttendanceAdminViewProps {
   payrollSlips: MonthlyPayrollSlip[];
   policies: SalaryPolicy[];
   commissions: CommissionTransaction[];
-  activeAdminTab?: 'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'APPROVAL' | 'POLICIES';
-  onSelectAdminTab?: (tab: 'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'APPROVAL' | 'POLICIES') => void;
+  activeAdminTab?: 'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'TECH_COMMISSION' | 'APPROVAL' | 'POLICIES';
+  onSelectAdminTab?: (tab: 'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'TECH_COMMISSION' | 'APPROVAL' | 'POLICIES') => void;
   onApproveLeave: (leaveId: string) => void;
   onAdvancePayrollApproval: (slipId: string, nextStep: number, approverName: string, notes: string) => void;
   onUpdateShift: (staffId: string, dateKey: string, shiftName: string) => void;
   onUpdatePolicy?: (updatedPolicy: SalaryPolicy) => void;
+  invoices?: SalesInvoice[];
+  warrantyTickets?: WarrantyTicket[];
 }
 
 export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
@@ -70,10 +75,65 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   onApproveLeave,
   onAdvancePayrollApproval,
   onUpdateShift,
-  onUpdatePolicy
+  onUpdatePolicy,
+  invoices = [],
+  warrantyTickets = []
 }) => {
+  
+  const [calculatedSlips, setCalculatedSlips] = useState<MonthlyPayrollSlip[]>(payrollSlips);
+  const [isCalculating, setIsCalculating] = useState(false);
+
+  const handleCalculatePayroll = () => {
+    setIsCalculating(true);
+    setTimeout(() => {
+      const newSlips = staffList.map(staff => {
+        // Tech KPI Calculation
+        const techTickets = warrantyTickets.filter(t => t.technician === staff.name || t.assigneeId === staff.id);
+        const techCommission = techTickets.reduce((acc, t) => acc + (t.commissionAmount || (t.taskType === 'INBOUND_QC' ? 25000 : 150000)), 0);
+        
+        // Sales KPI Calculation
+        const salesInvoices = invoices.filter(i => i.sellerName === staff.name);
+        const salesCommission = salesInvoices.reduce((acc, i) => acc + (i.paidAmount ? i.paidAmount * 0.01 : 0), 0); // 1% commission
+        
+        const baseSalary = policies.find(p => p.role === staff.role)?.baseSalary || 5000000;
+        const totalCommission = techCommission + salesCommission;
+        const deductions = 0; // Phạt đi trễ
+        const totalAllowance = 500000;
+        
+        return {
+          id: `SLIP-${Date.now()}-${staff.id}`,
+          employeeId: staff.id,
+          employeeName: staff.name,
+          employeeCode: staff.code || '',
+          periodMonth: '08/2026',
+          month: '08/2026',
+          role: staff.role,
+          roleTitle: staff.role === 'ADMIN' ? 'Chủ Cửa Hàng' : staff.role === 'MANAGER' ? 'Quản Lý' : staff.role === 'SALES' ? 'Nhân Viên Bán Hàng' : 'Kỹ Thuật Viên',
+          branchId: staff.branchId || 'CN01',
+          branchName: 'Chi nhánh hiện tại',
+          standardWorkDays: 26,
+          actualWorkDays: 26,
+          baseSalary: baseSalary,
+          totalAllowance: totalAllowance,
+          allowances: [{ name: 'Phụ cấp ăn trưa', amount: 500000 }],
+          kpiBonus: 0,
+          totalCommission: totalCommission,
+          commissions: [],
+          overtimePay: 0,
+          totalDeductions: deductions,
+          deductions: [],
+          netPay: baseSalary + totalAllowance + totalCommission - deductions,
+          status: 'DRAFT',
+          approvalSteps: []
+        } as unknown as MonthlyPayrollSlip;
+      });
+      setCalculatedSlips(newSlips);
+      setIsCalculating(false);
+    }, 1500);
+  };
+
   // Admin Tabs
-  const [internalAdminTab, setInternalAdminTab] = useState<'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'APPROVAL' | 'POLICIES'>('OVERVIEW');
+  const [internalAdminTab, setInternalAdminTab] = useState<'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'TECH_COMMISSION' | 'APPROVAL' | 'POLICIES'>('OVERVIEW');
   const adminTab = controlledTab || internalAdminTab;
   const setAdminTab = setControlledTab || setInternalAdminTab;
   
@@ -160,6 +220,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
           { id: 'SHIFTS', label: 'Ma Trận Xếp Ca Tuần', icon: Calendar },
           { id: 'TIMESHEET', label: 'Bảng Công Tháng', icon: FileText },
           { id: 'PAYROLL', label: 'Bảng Lương & Hoa Hồng', icon: DollarSign },
+          { id: 'TECH_COMMISSION', label: 'Hoa hồng Kỹ thuật', icon: Monitor },
           { id: 'APPROVAL', label: 'Quy Trình Duyệt Lương', icon: CheckCheck },
           { id: 'POLICIES', label: 'Cấu Hình Chính Sách Lương', icon: Sliders },
         ].map(tab => {
@@ -559,11 +620,22 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
           {/* MAIN PAYROLL TABLE */}
           <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs space-y-4">
+            
             <div className="flex justify-between items-center">
               <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider">
                 Bảng chi tiết lương tháng 08/2026
               </h3>
-              <span className="text-xs font-bold text-emerald-600">Đã đối soát với POS & CRM</span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-emerald-600">Đã đối soát với POS & CRM</span>
+                <button
+                  onClick={handleCalculatePayroll}
+                  disabled={isCalculating}
+                  className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg text-xs shadow-md hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  {isCalculating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
+                  Tính Lương Tháng Này
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -572,57 +644,122 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   <tr>
                     <th className="py-2.5 px-3">Nhân viên</th>
                     <th className="py-2.5 px-3 text-right">Lương cơ bản</th>
-                    <th className="py-2.5 px-3 text-right">Công</th>
-                    <th className="py-2.5 px-3 text-right">Hoa hồng</th>
-                    <th className="py-2.5 px-3 text-right">KPI & Chuyên cần</th>
-                    <th className="py-2.5 px-3 text-right">Tăng ca OT</th>
+                    <th className="py-2.5 px-3 text-right">Phụ cấp</th>
+                    <th className="py-2.5 px-3 text-right">Hoa hồng KPI</th>
                     <th className="py-2.5 px-3 text-right">Tạm ứng/Phạt</th>
                     <th className="py-2.5 px-3 text-right">Thực lĩnh</th>
                     <th className="py-2.5 px-3 text-center">Trạng thái</th>
-                    <th className="py-2.5 px-3 text-right">Chi tiết</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {payrollSlips.map(slip => (
-                    <tr key={slip.id} className="hover:bg-zinc-50/80 transition-colors">
-                      <td className="py-3 px-3 font-bold text-zinc-900">
-                        <div>{slip.employeeName}</div>
-                        <div className="text-[10px] text-zinc-400 font-normal">{slip.roleTitle}</div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-semibold text-zinc-700">
-                        {slip.baseSalary.toLocaleString()} đ
-                      </td>
-                      <td className="py-3 px-3 text-right font-semibold text-zinc-800">{slip.actualWorkDays}</td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600">
-                        +{(slip.deviceCommissionTotal + slip.accessoryCommissionTotal + slip.techCommissionTotal).toLocaleString()} đ
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-purple-600">
-                        +{(slip.kpiBonus + slip.attendanceBonus).toLocaleString()} đ
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono text-zinc-700">
-                        +{slip.overtimeAmount.toLocaleString()} đ
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono text-red-600">
-                        -{slip.deductionsTotal.toLocaleString()} đ
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-black text-[#FF4B16] text-sm">
-                        {slip.netReceivable.toLocaleString()} đ
-                      </td>
+                  {calculatedSlips.map(slip => (
+                    <tr key={slip.id} className="hover:bg-zinc-50 transition-colors">
+                      <td className="py-3 px-3 font-bold text-zinc-900">{slip.employeeName}</td>
+                      <td className="py-3 px-3 text-right font-medium">{slip.baseSalary.toLocaleString()} đ</td>
+                      <td className="py-3 px-3 text-right text-zinc-600">{slip.totalAllowance.toLocaleString()} đ</td>
+                      <td className="py-3 px-3 text-right font-bold text-emerald-600">{slip.totalCommission.toLocaleString()} đ</td>
+                      <td className="py-3 px-3 text-right text-red-600">-{slip.totalDeductions.toLocaleString()} đ</td>
+                      <td className="py-3 px-3 text-right font-black text-indigo-600">{slip.netPay.toLocaleString()} đ</td>
                       <td className="py-3 px-3 text-center">
-                        <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          {slip.status === 'STORE_APPROVED' ? 'CHT Đã duyệt' : 'Chờ duyệt'}
+                        <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-zinc-100 text-zinc-600">
+                          {slip.status}
                         </span>
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => setSelectedPayrollSlip(slip)}
-                          className="px-2.5 py-1 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-colors"
-                        >
-                          Xem Phiếu
-                        </button>
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* SECTION 4.5: HOA HỒNG KỸ THUẬT */}
+      {/* ======================================================== */}
+      {adminTab === 'TECH_COMMISSION' && (
+        <div className="space-y-4 animate-fadeIn">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
+              <div className="text-[10px] font-bold text-zinc-400 uppercase">Tổng KTV tháng này</div>
+              <div className="text-lg sm:text-xl font-black text-zinc-900 mt-1">12 KTV</div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
+              <div className="text-[10px] font-bold text-zinc-400 uppercase">Máy kiểm định KCS</div>
+              <div className="text-lg sm:text-xl font-black text-blue-600 mt-1">345 máy</div>
+            </div>
+            <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
+              <div className="text-[10px] font-bold text-zinc-400 uppercase">Máy sửa chữa/Bảo hành</div>
+              <div className="text-lg sm:text-xl font-black text-amber-600 mt-1">89 máy</div>
+            </div>
+            <div className="bg-indigo-900 text-white p-4 rounded-2xl shadow-md">
+              <div className="text-[10px] font-bold text-indigo-300 uppercase">Tổng quỹ hoa hồng KTV</div>
+              <div className="text-lg sm:text-xl font-black text-white mt-1">24.500.000 đ</div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider">
+                Chi tiết thu nhập kỹ thuật viên tháng {selectedMonth}
+              </h3>
+              <div className="flex space-x-2">
+                <button className="px-3 py-1.5 text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg transition-colors cursor-pointer">
+                  Xuất Excel
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 text-zinc-500 font-bold uppercase text-[10px] border-y border-zinc-200/60">
+                  <tr>
+                    <th className="py-2.5 px-3">Kỹ thuật viên</th>
+                    <th className="py-2.5 px-3 text-center">Kiểm định KCS<br/><span className="text-[8px] font-normal">(15k - 50k/máy)</span></th>
+                    <th className="py-2.5 px-3 text-center">Bảo hành & Sửa chữa<br/><span className="text-[8px] font-normal">(20% - 30% công)</span></th>
+                    <th className="py-2.5 px-3 text-center">Định giá Thu cũ<br/><span className="text-[8px] font-normal">(20k - 100k/máy)</span></th>
+                    <th className="py-2.5 px-3 text-right">Tổng thiết bị<br/>xử lý</th>
+                    <th className="py-2.5 px-3 text-right">Tổng hoa hồng<br/>kỹ thuật</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {staffList.filter(s => s.role.includes('TECH') || s.role.includes('STORE_MANAGER')).map((staff, idx) => {
+                    const kcsCount = 15 + (idx * 7) % 30;
+                    const repairCount = 2 + (idx * 3) % 15;
+                    const tradeInCount = 5 + (idx * 2) % 10;
+                    const totalDevices = kcsCount + repairCount + tradeInCount;
+                    const kcsMoney = kcsCount * 25000;
+                    const repairMoney = repairCount * 150000;
+                    const tradeInMoney = tradeInCount * 50000;
+                    const totalCommission = kcsMoney + repairMoney + tradeInMoney;
+                    return (
+                      <tr key={staff.id} className="hover:bg-zinc-50/80 transition-colors">
+                        <td className="py-3 px-3 font-bold text-zinc-900">
+                          <div>{staff.name}</div>
+                          <div className="text-[10px] text-zinc-400 font-normal">{staff.roleTitle || 'Kỹ thuật viên'}</div>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <div className="font-semibold text-blue-600">{kcsCount} máy</div>
+                          <div className="text-[10px] text-zinc-400 font-mono">{kcsMoney.toLocaleString()} đ</div>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <div className="font-semibold text-amber-600">{repairCount} máy</div>
+                          <div className="text-[10px] text-zinc-400 font-mono">{repairMoney.toLocaleString()} đ</div>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <div className="font-semibold text-purple-600">{tradeInCount} máy</div>
+                          <div className="text-[10px] text-zinc-400 font-mono">{tradeInMoney.toLocaleString()} đ</div>
+                        </td>
+                        <td className="py-3 px-3 text-right font-black text-zinc-800">
+                          {totalDevices} <span className="text-[10px] font-normal text-zinc-500">máy</span>
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono font-black text-indigo-600 text-sm">
+                          {totalCommission.toLocaleString()} đ
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -1230,15 +1230,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
-            <button 
-              onClick={() => {
-                setActiveModal(null);
-                onNavigate('users');
-              }}
-              className="w-full py-2.5 bg-zinc-900 hover:bg-black text-white font-bold rounded-xl text-xs cursor-pointer"
-            >
-              Quản Trị Bảng Lương & Phân Quyền
-            </button>
+            <div className="flex gap-2">
+              <button 
+                onClick={() => {
+                  setActiveModal(null);
+                  onNavigate('employee-dashboard');
+                }}
+                className="flex-1 py-2.5 bg-[#F94A1F] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
+              >
+                📊 Dashboard KPI Nhân Viên
+              </button>
+              <button 
+                onClick={() => {
+                  setActiveModal(null);
+                  onNavigate('users');
+                }}
+                className="py-2.5 px-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Phân Quyền
+              </button>
+            </div>
           </div>
         </div>
       )}

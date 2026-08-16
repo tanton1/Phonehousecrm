@@ -1,22 +1,29 @@
-# Security Specification & Threat Model for iStore CRM
+# Security Specification (Phase 0)
 
 ## 1. Data Invariants
-1. **Device Inventory Integrity**: Every device in `/devices/{deviceId}` must have a valid 15-digit numeric IMEI, non-negative price, valid condition, and allowed status (`in_stock`, `sold`, `reserved`, `trade_in_pending`, `under_repair`).
-2. **Lead Tracking**: Every CRM lead in `/leads/{leadId}` must contain valid customer contact name and phone number with length constraints (max 100 chars for name, max 30 for phone).
-3. **Trade-In Valuation**: Every appraisal in `/tradeIns/{tradeInId}` must have non-negative numerical valuation values and valid status (`pending_inspection`, `customer_accepted`, `completed_swapped`, `customer_rejected`).
-4. **Warranty Service**: Every ticket in `/warrantyTickets/{ticketId}` must reference an IMEI and valid service status (`received`, `inspecting`, `waiting_parts`, `repairing`, `ready`, `delivered`).
-5. **Sales Invoices**: Completed POS invoices in `/invoices/{invoiceId}` must have non-negative total and final amounts with recognized payment methods (`cash`, `bank_transfer`, `mpos_card`, `installment_hd_saison`).
 
-## 2. The "Dirty Dozen" Threat Payloads
-1. **Payload 1 (Ghost Field Injection)**: Attempt to inject `isSuperAdmin: true` into a `/devices/{deviceId}` record. -> Blocked by validation helper.
-2. **Payload 2 (Invalid IMEI Format)**: Attempt to save device with IMEI `"12345ABCDE"` (non-numeric, too short). -> Blocked by regex & size guard.
-3. **Payload 3 (Negative Price Poisoning)**: Attempt to save device with `sellPrice: -5000000`. -> Blocked by `sellPrice >= 0` check.
-4. **Payload 4 (Buffer Overflow Attack on Customer Name)**: Attempt to save lead with 50KB character string name. -> Blocked by `name.size() <= 100` check.
-5. **Payload 5 (Unrecognized Status Shortcut)**: Attempt to update ticket status to `"bypassed_warranty"`. -> Blocked by status enum gate.
-6. **Payload 6 (Corrupt Trade-In Base Value)**: Attempt to write `baseValuation: -1000000`. -> Blocked by range guard.
-7. **Payload 7 (Denial of Wallet Document ID Injection)**: Attempt to create doc with 10KB string ID. -> Blocked by `isValidId(docId)`.
-8. **Payload 8 (Terminal State Tampering)**: Attempt to change invoice after final checkout without admin privileges. -> Blocked by immutable constraints.
-9. **Payload 9 (Blanket Query Scraping)**: Attempting to bypass filtered queries without authentication context. -> Blocked by authentication & field validation.
-10. **Payload 10 (Spoofed Payment Method)**: Attempt to write invoice with `paymentMethod: "crypto_token_unverified"`. -> Blocked by paymentMethod enum gate.
-11. **Payload 11 (Battery Health Out of Range)**: Attempt to write `batteryHealth: 150` or `-20`. -> Blocked by range `0 <= batteryHealth && batteryHealth <= 100`.
-12. **Payload 12 (Direct Root Collection Write Bypass)**: Attempt to write to arbitrary root `/root/secret` collection. -> Blocked by default deny rule `match /{document=**} { allow read, write: if false; }`.
+1.  **Branch Isolation**: A user can only access (read/write) records (devices, leads, invoices, etc.) if the record's `branchId` matches the user's `branchId`.
+2.  **Cross-Branch Access**: A user with the role `ADMIN` or `MANAGER` can access data across any branch.
+3.  **Authentication Requirement**: Unauthenticated access is completely forbidden. All actions require a verified email (or valid auth token).
+4.  **Immutability**: A user cannot modify their own role or `branchId` (only `ADMIN` can update other users).
+5.  **Strict Schema**: Every collection strictly validates incoming documents against defined keys and data types (no ghost fields).
+6.  **Id Poisoning Guard**: Document IDs must conform to a strict string size.
+
+## 2. The "Dirty Dozen" Payloads
+
+1.  **Identity Spoofing**: Attempt to update another user's profile (`role` or `branchId`).
+2.  **Branch Data Leak**: A `SALES` user in `BR-01` attempts to list invoices belonging to `BR-02`.
+3.  **Shadow Update**: Include a `GhostField: true` in an invoice payload.
+4.  **Cross-Branch Create**: A `SALES` user in `BR-01` tries to create a Lead assigned to `BR-02`.
+5.  **Denial of Wallet**: Create a document with an ID of 2,000 characters.
+6.  **Unauthenticated Access**: Attempt to read devices without an auth token.
+7.  **Data Poisoning (Type Mismatch)**: Update a device's `sellPrice` with a 1MB string instead of a number.
+8.  **Self-Escalation**: A `SALES` user updates their own user profile to set `role = "ADMIN"`.
+9.  **Missing Required Fields**: Create a new Trade-In without `customerName`.
+10. **State Shortcutting**: Bypass validation checks for `TradeInAppraisal` by providing only `status = "completed"`.
+11. **Admin Override Test**: An `ADMIN` successfully updates a document in a branch they don't explicitly belong to.
+12. **System Config Tampering**: A `SALES` user attempts to update global settings or branch configurations.
+
+## 3. The Test Runner
+
+(To be implemented via ESLint security rule checker for Firestore rules)

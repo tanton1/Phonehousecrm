@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem } from '../types';
-import { 
+import { ActivityLog } from "./ActivityLog";
+import { History,  
   FileText, 
   Search, 
   ChevronRight, 
@@ -150,7 +151,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     if (!selectedInvoice) return;
     const updatedInvoice: SalesInvoice = {
       ...selectedInvoice,
-      status: newStatus
+      status: newStatus, history: [ ...(selectedInvoice.history || []), { time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16), action: `Chuyển trạng thái: ${STATUS_CONFIG[newStatus]?.label || newStatus}`, user: "Admin (Current User)" } ]
     };
     setSelectedInvoice(updatedInvoice);
     if (onUpdateInvoice) {
@@ -332,7 +333,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     if (!selectedInvoice) return;
     const updated = {
       ...selectedInvoice,
-      notes: noteContent
+      notes: noteContent, history: [ ...(selectedInvoice.history || []), { time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16), action: "Cập nhật ghi chú", note: noteContent, user: "Admin (Current User)" } ]
     };
     setSelectedInvoice(updated);
     if (onUpdateInvoice) {
@@ -780,6 +781,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </p>
           )}
         </div>
+
+        {/* 6a. Activity Log / History Card */}
+        {selectedInvoice.history && selectedInvoice.history.length > 0 && (
+          <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs">
+            <ActivityLog logs={selectedInvoice.history} className="space-y-2.5" />
+          </div>
+        )}
 
         {/* 6. Metadata Details Card */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs grid grid-cols-2 gap-3 sm:gap-4 text-xs">

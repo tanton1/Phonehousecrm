@@ -1,4 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { INITIAL_TODAY_ATTENDANCE_LIST } from "./data/attendanceData";
+import { RoleSwitcher, WorkspaceMode } from './components/RoleSwitcher';
+import { SalesWorkspaceView } from './components/SalesWorkspaceView';
+import { TechWorkspaceView } from './components/TechWorkspaceView';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   INITIAL_DEVICES, 
   INITIAL_LEADS, 
@@ -12,7 +16,8 @@ import {
   INITIAL_TRANSFERS,
   INITIAL_BRANCHES,
   INITIAL_WAREHOUSES,
-  INITIAL_STORE_SETTINGS
+  INITIAL_STORE_SETTINGS,
+  INITIAL_PURCHASE_ORDERS
 } from './data/initialData';
 import { 
   DeviceItem, 
@@ -29,12 +34,19 @@ import {
   WarehouseId,
   StoreBranch,
   WarehouseInfo,
-  StoreSettings
+  StoreSettings,
+  SparePart,
+  PurchaseOrder
 } from './types';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
+import { PurchaseOrdersView } from './components/PurchaseOrdersView';
 import { InventoryView } from './components/InventoryView';
 import { WarehouseTransfersView } from './components/WarehouseTransfersView';
+
+import { MasterCatalogView } from './components/MasterCatalogView';
+import { INITIAL_CATALOG_ITEMS } from './data/catalogData';
+import { MasterCatalogItem } from './types';
 import { ProductsView } from './components/ProductsView';
 import { CRMLeadsView } from './components/CRMLeadsView';
 import { TradeInView } from './components/TradeInView';
@@ -49,10 +61,12 @@ import { CashbookView } from './components/CashbookView';
 import { StoreSettingsView } from './components/StoreSettingsView';
 import { MoreHubView } from './components/MoreHubView';
 import { HRHubView } from './components/HRHubView';
+import { EmployeeDashboardView } from './components/EmployeeDashboardView';
 import { AICopilotModal } from './components/AICopilotModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
-import { testFirestoreConnection } from './lib/firebase';
+import { testFirestoreConnection, auth } from './lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import { 
   seedInitialDataIfEmpty,
   subscribeToDevices,
@@ -106,12 +120,15 @@ import {
   updateWarehouseInFirestore,
   deleteWarehouseFromFirestore,
   subscribeToStoreSettings,
-  saveStoreSettingsToFirestore
+  saveStoreSettingsToFirestore,
+  subscribeToSpareParts,
+  updateSparePartInFirestore
 } from './services/firestoreService';
 
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ADMIN');
 
   // Persistence State
   const [devices, setDevices] = useState<DeviceItem[]>(() => {
@@ -158,6 +175,9 @@ export default function App() {
     const saved = localStorage.getItem('phonehouse_cash_transactions');
     return saved ? JSON.parse(saved) : INITIAL_CASH_TRANSACTIONS;
   });
+
+  
+  const [catalogItems, setCatalogItems] = useState<MasterCatalogItem[]>(INITIAL_CATALOG_ITEMS);
 
   const [products, setProducts] = useState<ProductItem[]>(() => {
     const saved = localStorage.getItem('phonehouse_products');
@@ -207,6 +227,11 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_TRANSFERS;
   });
 
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
+    const saved = localStorage.getItem('phonehouse_purchase_orders');
+    return saved ? JSON.parse(saved) : INITIAL_PURCHASE_ORDERS;
+  });
+
   const [branches, setBranches] = useState<StoreBranch[]>(() => {
     const saved = localStorage.getItem('phonehouse_branches');
     return saved ? JSON.parse(saved) : INITIAL_BRANCHES;
@@ -217,10 +242,16 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_WAREHOUSES;
   });
 
+  const [spareParts, setSpareParts] = useState<SparePart[]>([]);
+
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
     const saved = localStorage.getItem('phonehouse_store_settings');
     return saved ? JSON.parse(saved) : INITIAL_STORE_SETTINGS;
   });
+
+  useEffect(() => {
+    localStorage.setItem('phonehouse_purchase_orders', JSON.stringify(purchaseOrders));
+  }, [purchaseOrders]);
 
   useEffect(() => {
     localStorage.setItem('phonehouse_transfers', JSON.stringify(transfers));
@@ -259,101 +290,242 @@ export default function App() {
   const [posPreSelectedDevice, setPosPreSelectedDevice] = useState<DeviceItem | null>(null);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(true);
 
+  // Global Branch Selection for ADMIN
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
+  
+  // Calculate the currently active branch to filter by (ADMIN can select, others use their assigned branch)
+  
+    const [attendanceRecords, setAttendanceRecords] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
+
+  // Time-tracking functions
+  const handleCheckIn = (time: string) => {
+    if (!currentUser) return;
+    setAttendanceRecords(prev => {
+      const today = new Date().toISOString().split('T')[0];
+      const existing = prev.find(a => a.staffId === currentUser.id && a.date === today);
+      if (existing) {
+        return prev.map(a => a.id === existing.id ? { ...a, checkInTime: time, status: 'ON_TIME' } : a);
+      } else {
+        // Create new record
+        return [...prev, {
+          id: `ATT_${Date.now()}`,
+          staffId: currentUser.id,
+          staffName: currentUser.displayName,
+          role: currentUser.role,
+          branchId: currentUser.branchId || 'CN01',
+          branchName: 'Chi nhánh hiện tại',
+          date: today,
+          shiftName: 'Ca làm việc',
+          scheduledStart: '08:00',
+          scheduledEnd: '17:30',
+          checkInTime: time,
+          status: 'ON_TIME',
+          workDurationMinutes: 0,
+          breakDurationMinutes: 0,
+          netWorkMinutes: 0,
+          verification: { method: 'WIFI_IP', verified: true }
+        }];
+      }
+    });
+  };
+
+  const handleCheckOut = (time: string) => {
+    if (!currentUser) return;
+    setAttendanceRecords(prev => {
+      const today = new Date().toISOString().split('T')[0];
+      return prev.map(a => 
+        (a.staffId === currentUser.id && a.date === today) 
+          ? { ...a, checkOutTime: time } 
+          : a
+      );
+    });
+  };
+
+  const currentAttendance = attendanceRecords.find(a => a.staffId === currentUser?.id && a.date === new Date().toISOString().split('T')[0]);
+
+  const activeBranchId = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER' 
+    ? (currentUser.role === 'MANAGER' && selectedBranchId === 'ALL' ? currentUser.branchId : selectedBranchId)
+    : currentUser?.branchId;
+
+  // Filtered Data based on Active Branch
+  const filteredDevices = activeBranchId === 'ALL' || !activeBranchId 
+    ? devices 
+    : devices.filter(d => 
+        d.branchId === activeBranchId || 
+        (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.parentWarehouseId === activeBranchId) ||
+        (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.systemType === branches.find(b => b.id === activeBranchId)?.systemType)
+      );
+
+  const filteredLeads = activeBranchId === 'ALL' || !activeBranchId 
+    ? leads 
+    : leads.filter(l => l.branchId === activeBranchId || !l.branchId); // Fallback to all if lead has no branch yet
+
+  const filteredTradeIns = activeBranchId === 'ALL' || !activeBranchId 
+    ? tradeIns 
+    : tradeIns.filter(t => t.branchId === activeBranchId || !t.branchId);
+
+  const filteredWarrantyTickets = activeBranchId === 'ALL' || !activeBranchId 
+    ? warrantyTickets 
+    : warrantyTickets.filter(w => w.branchId === activeBranchId || !w.branchId);
+
+  const filteredInvoices = activeBranchId === 'ALL' || !activeBranchId 
+    ? invoices 
+    : invoices.filter(i => {
+        const currentBranchName = branches.find(b => b.id === activeBranchId)?.name;
+        return i.branch === currentBranchName || !i.branch; // Assuming invoice.branch holds the branch name currently
+      });
+
+  const filteredCashTransactions = activeBranchId === 'ALL' || !activeBranchId 
+    ? cashTransactions 
+    : cashTransactions.filter(c => c.branchId === activeBranchId || !c.branchId);
+
+  const filteredUsers = activeBranchId === 'ALL' || !activeBranchId 
+    ? users 
+    : users.filter(u => u.branchId === activeBranchId);
+
+  const filteredPartners = activeBranchId === 'ALL' || !activeBranchId 
+    ? partners 
+    : partners.filter(p => p.branchId === activeBranchId || !p.branchId);
+
+  const filteredTransfers = activeBranchId === 'ALL' || !activeBranchId 
+    ? transfers 
+    : transfers.filter(t => {
+        // A transfer is visible if the branch's warehouse is either the source or the destination
+        const currentWarehouseId = branches.find(b => b.id === activeBranchId)?.warehouseId;
+        return t.fromWarehouse === currentWarehouseId || t.toWarehouse === currentWarehouseId;
+      });
+
   // Initialize Firebase and subscribe to real-time collections
   useEffect(() => {
     // 1. Test connection to Firestore on boot
     testFirestoreConnection().then((ok) => {
       setIsFirebaseConnected(ok);
-      // 2. Seed initial data if Firestore is empty
-      seedInitialDataIfEmpty();
     });
 
-    // 3. Setup real-time Firestore subscriptions
-    const unsubDevices = subscribeToDevices((remoteDevices) => {
-      if (remoteDevices && remoteDevices.length > 0) {
-        setDevices(remoteDevices);
-      }
-    });
+    let unsubDevices = () => {};
+    let unsubLeads = () => {};
+    let unsubTradeIns = () => {};
+    let unsubWarranty = () => {};
+    let unsubInvoices = () => {};
+    let unsubUsers = () => {};
+    let unsubPartners = () => {};
+    let unsubFunds = () => {};
+    let unsubCashTxs = () => {};
+    let unsubTransfers = () => {};
+    let unsubProducts = () => {};
+    let unsubBranches = () => {};
+    let unsubWarehouses = () => {};
+    let unsubStoreSettings = () => {};
 
-    const unsubLeads = subscribeToLeads((remoteLeads) => {
-      if (remoteLeads && remoteLeads.length > 0) {
-        setLeads(remoteLeads);
-      }
-    });
+    // 2. Setup real-time Firestore subscriptions only when authenticated
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        seedInitialDataIfEmpty();
 
-    const unsubTradeIns = subscribeToTradeIns((remoteTradeIns) => {
-      if (remoteTradeIns && remoteTradeIns.length > 0) {
-        setTradeIns(remoteTradeIns);
-      }
-    });
+        unsubDevices = subscribeToDevices((remoteDevices) => {
+          if (remoteDevices && remoteDevices.length > 0) {
+            setDevices(remoteDevices);
+          }
+        });
 
-    const unsubWarranty = subscribeToWarrantyTickets((remoteWarranty) => {
-      if (remoteWarranty && remoteWarranty.length > 0) {
-        setWarrantyTickets(remoteWarranty);
-      }
-    });
+        unsubLeads = subscribeToLeads((remoteLeads) => {
+          if (remoteLeads && remoteLeads.length > 0) {
+            setLeads(remoteLeads);
+          }
+        });
 
-    const unsubInvoices = subscribeToInvoices((remoteInvoices) => {
-      if (remoteInvoices && remoteInvoices.length > 0) {
-        setInvoices(remoteInvoices);
-      }
-    });
+        unsubTradeIns = subscribeToTradeIns((remoteTradeIns) => {
+          if (remoteTradeIns && remoteTradeIns.length > 0) {
+            setTradeIns(remoteTradeIns);
+          }
+        });
 
-    const unsubUsers = subscribeToUsers((remoteUsers) => {
-      if (remoteUsers && remoteUsers.length > 0) {
-        setUsers(remoteUsers);
-      }
-    });
+        unsubWarranty = subscribeToWarrantyTickets((remoteWarranty) => {
+          if (remoteWarranty && remoteWarranty.length > 0) {
+            setWarrantyTickets(remoteWarranty);
+          }
+        });
 
-    const unsubPartners = subscribeToPartners((remotePartners) => {
-      if (remotePartners && remotePartners.length > 0) {
-        setPartners(remotePartners);
-      }
-    });
+        unsubInvoices = subscribeToInvoices((remoteInvoices) => {
+          if (remoteInvoices && remoteInvoices.length > 0) {
+            setInvoices(remoteInvoices);
+          }
+        });
 
-    const unsubFunds = subscribeToFunds((remoteFunds) => {
-      if (remoteFunds && remoteFunds.length > 0) {
-        setFunds(remoteFunds);
-      }
-    });
+        unsubUsers = subscribeToUsers((remoteUsers) => {
+          if (remoteUsers && remoteUsers.length > 0) {
+            setUsers(remoteUsers);
+          }
+        });
 
-    const unsubCashTxs = subscribeToCashTransactions((remoteTxs) => {
-      if (remoteTxs && remoteTxs.length > 0) {
-        setCashTransactions(remoteTxs);
-      }
-    });
+        unsubPartners = subscribeToPartners((remotePartners) => {
+          if (remotePartners && remotePartners.length > 0) {
+            setPartners(remotePartners);
+          }
+        });
 
-    const unsubTransfers = subscribeToTransfers((remoteTransfers) => {
-      if (remoteTransfers && remoteTransfers.length > 0) {
-        setTransfers(remoteTransfers);
-      }
-    });
+        unsubFunds = subscribeToFunds((remoteFunds) => {
+          if (remoteFunds && remoteFunds.length > 0) {
+            setFunds(remoteFunds);
+          }
+        });
 
-    const unsubProducts = subscribeToProducts((remoteProducts) => {
-      if (remoteProducts && remoteProducts.length > 0) {
-        setProducts(remoteProducts);
-      }
-    });
+        unsubCashTxs = subscribeToCashTransactions((remoteTxs) => {
+          if (remoteTxs && remoteTxs.length > 0) {
+            setCashTransactions(remoteTxs);
+          }
+        });
 
-    const unsubBranches = subscribeToBranches((remoteBranches) => {
-      if (remoteBranches && remoteBranches.length > 0) {
-        setBranches(remoteBranches);
-      }
-    });
+        unsubTransfers = subscribeToTransfers((remoteTransfers) => {
+          if (remoteTransfers && remoteTransfers.length > 0) {
+            setTransfers(remoteTransfers);
+          }
+        });
 
-    const unsubWarehouses = subscribeToWarehouses((remoteWarehouses) => {
-      if (remoteWarehouses && remoteWarehouses.length > 0) {
-        setWarehouses(remoteWarehouses);
-      }
-    });
+        unsubProducts = subscribeToProducts((remoteProducts) => {
+          if (remoteProducts && remoteProducts.length > 0) {
+            setProducts(remoteProducts);
+          }
+        });
 
-    const unsubStoreSettings = subscribeToStoreSettings((remoteSettings) => {
-      if (remoteSettings) {
-        setStoreSettings(remoteSettings);
+        unsubBranches = subscribeToBranches((remoteBranches) => {
+          if (remoteBranches && remoteBranches.length > 0) {
+            setBranches(remoteBranches);
+          }
+        });
+
+        unsubWarehouses = subscribeToWarehouses((remoteWarehouses) => {
+          if (remoteWarehouses && remoteWarehouses.length > 0) {
+            setWarehouses(remoteWarehouses);
+          }
+        });
+
+        unsubStoreSettings = subscribeToStoreSettings((remoteSettings) => {
+          if (remoteSettings) {
+            setStoreSettings(remoteSettings);
+          }
+        });
+      } else {
+        // User is signed out, clean up subscriptions
+        unsubDevices();
+        unsubLeads();
+        unsubTradeIns();
+        unsubWarranty();
+        unsubInvoices();
+        unsubUsers();
+        unsubPartners();
+        unsubFunds();
+        unsubCashTxs();
+        unsubTransfers();
+        unsubProducts();
+        unsubBranches();
+        unsubWarehouses();
+        unsubStoreSettings();
       }
     });
 
     return () => {
+      unsubscribeAuth();
       unsubDevices();
       unsubLeads();
       unsubTradeIns();
@@ -371,46 +543,62 @@ export default function App() {
     };
   }, []);
 
+  // Safe set localStorage helper to catch QuotaExceededError safely
+  const safeSetLocalStorage = useCallback((key: string, data: any) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+      console.warn(`localStorage full or quota exceeded for ${key}:`, e);
+    }
+  }, []);
+
   // Sync to localStorage as offline cache
   useEffect(() => {
-    localStorage.setItem('istore_devices', JSON.stringify(devices));
-  }, [devices]);
+    // Strip heavy base64 images for localStorage cache to preserve browser quota
+    const sanitizedDevices = devices.map(d => {
+      if (d.images && d.images.some(img => img.startsWith('data:'))) {
+        return { ...d, images: undefined };
+      }
+      return d;
+    });
+    safeSetLocalStorage('istore_devices', sanitizedDevices);
+  }, [devices, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('istore_leads', JSON.stringify(leads));
-  }, [leads]);
+    safeSetLocalStorage('istore_leads', leads);
+  }, [leads, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('istore_tradeins', JSON.stringify(tradeIns));
-  }, [tradeIns]);
+    safeSetLocalStorage('istore_tradeins', tradeIns);
+  }, [tradeIns, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('istore_warranty', JSON.stringify(warrantyTickets));
-  }, [warrantyTickets]);
+    safeSetLocalStorage('istore_warranty', warrantyTickets);
+  }, [warrantyTickets, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('istore_invoices', JSON.stringify(invoices));
-  }, [invoices]);
+    safeSetLocalStorage('istore_invoices', invoices);
+  }, [invoices, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('istore_users', JSON.stringify(users));
-  }, [users]);
+    safeSetLocalStorage('istore_users', users);
+  }, [users, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('istore_partners', JSON.stringify(partners));
-  }, [partners]);
+    safeSetLocalStorage('istore_partners', partners);
+  }, [partners, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('phonehouse_funds', JSON.stringify(funds));
-  }, [funds]);
+    safeSetLocalStorage('phonehouse_funds', funds);
+  }, [funds, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('phonehouse_cash_transactions', JSON.stringify(cashTransactions));
-  }, [cashTransactions]);
+    safeSetLocalStorage('phonehouse_cash_transactions', cashTransactions);
+  }, [cashTransactions, safeSetLocalStorage]);
 
   useEffect(() => {
-    localStorage.setItem('phonehouse_products', JSON.stringify(products));
-  }, [products]);
+    safeSetLocalStorage('phonehouse_products', products);
+  }, [products, safeSetLocalStorage]);
 
   // Keyboard shortcut ⌘K or Ctrl+K for search
   useEffect(() => {
@@ -428,6 +616,11 @@ export default function App() {
   const handleAddDevice = (device: DeviceItem) => {
     setDevices([device, ...devices]);
     addDeviceToFirestore(device);
+  };
+
+  const handleAddMultipleDevices = (newDevices: DeviceItem[]) => {
+    setDevices(prev => [...newDevices, ...prev]);
+    newDevices.forEach(d => addDeviceToFirestore(d));
   };
 
   const handleUpdateDevice = (device: DeviceItem) => {
@@ -696,6 +889,174 @@ export default function App() {
     saveStoreSettingsToFirestore(newSettings);
   };
 
+  // ==========================================
+  // PURCHASE ORDERS (NHẬP HÀNG & NCC) HANDLERS
+  // ==========================================
+  const handleAddPurchaseOrder = (order: PurchaseOrder, autoCreateDevices: boolean) => {
+    setPurchaseOrders(prev => [order, ...prev]);
+
+    // 1. Nếu có công nợ nợ NCC -> Tăng số dư nợ của đối tác NCC
+    if (order.debtAmount > 0) {
+      const supplier = partners.find(p => p.id === order.supplierId);
+      if (supplier) {
+        const newTx = {
+          id: `TX-DEBT-${Date.now().toString().slice(-6)}`,
+          date: order.orderDate,
+          type: 'DEBT_INCREASE' as const,
+          amount: order.debtAmount,
+          note: `Nhập hàng phiếu ${order.code}`,
+          referenceId: order.id
+        };
+        handleUpdatePartner({
+          ...supplier,
+          outstandingDebt: (supplier.outstandingDebt || 0) + order.debtAmount,
+          debtTransactions: [newTx, ...(supplier.debtTransactions || [])]
+        });
+      }
+    }
+
+    // 2. Nếu có thanh toán tiền ngay cho NCC -> Trừ quỹ & sinh phiếu chi Sổ Quỹ
+    if (order.paidAmount > 0 && order.fundId) {
+      const targetFund = funds.find(f => f.id === order.fundId);
+      if (targetFund) {
+        const updatedFunds = funds.map(f => {
+          if (f.id === order.fundId) {
+            return { ...f, currentBalance: f.currentBalance - order.paidAmount };
+          }
+          return f;
+        });
+        setFunds(updatedFunds);
+        updatedFunds.forEach(f => updateFundInFirestore(f));
+
+        const cashTx: CashTransaction = {
+          id: `CTX-${Date.now()}`,
+          code: `PC-${Date.now().toString().slice(-6)}`,
+          date: order.orderDate,
+          type: 'PAYMENT',
+          category: 'INVENTORY_PURCHASE',
+          categoryName: 'Chi nhập hàng iPhone mới / Like New',
+          amount: order.paidAmount,
+          fundType: targetFund.type,
+          fundName: targetFund.name,
+          partnerId: order.supplierId,
+          partnerName: order.supplierName,
+          partnerType: 'SUPPLIER',
+          referenceCode: order.code,
+          notes: `Thanh toán phiếu nhập ${order.code} - ${order.supplierName}`,
+          creator: order.creatorName,
+          status: 'COMPLETED'
+        };
+        handleAddCashTransaction(cashTx);
+      }
+    }
+
+    // 3. Nếu chọn autoCreateDevices và phiếu đã hoàn tất -> Tự động thêm DeviceItem vào kho
+    if (autoCreateDevices && order.status === 'COMPLETED') {
+      const newDevicesToAdd: DeviceItem[] = [];
+      order.items.forEach((item, itemIdx) => {
+        if (item.type === 'device') {
+          const count = item.quantity || (item.imeiList && item.imeiList.length) || 1;
+          for (let i = 0; i < count; i++) {
+            const imei = item.imeiList && item.imeiList[i] 
+              ? item.imeiList[i] 
+              : `35${Math.floor(1000000000000 + Math.random() * 9000000000000)}`;
+            
+            const newDevice: DeviceItem = {
+              id: `DEV-IMP-${Date.now()}-${itemIdx}-${i}`,
+              imei,
+              serialNo: `SN-${Date.now().toString().slice(-6)}${i}`,
+              model: item.modelOrName,
+              color: item.color || 'Titan Tự Nhiên',
+              storage: item.storage || '128GB',
+              condition: (item.condition as any) || 'New Seal',
+              region: item.region || 'VN/A (Chính hãng)',
+              batteryHealth: item.batteryHealth || 100,
+              buyPrice: item.importPrice,
+              sellPrice: item.expectedSellPrice || Math.round(item.importPrice * 1.15),
+              status: 'in_stock',
+              warehouse: (order.warehouseId as WarehouseId) || 'KHO_TONG',
+              supplier: order.supplierName,
+              supplierId: order.supplierId,
+              receivedDate: order.orderDate,
+              warrantyPeriodMonths: 12,
+              icloudStatus: 'Clean / Đã Thoát',
+              screenStatus: 'Zin Màn Keng',
+              notes: `Nhập tự động từ phiếu ${order.code}`
+            };
+            newDevicesToAdd.push(newDevice);
+          }
+        }
+      });
+
+      if (newDevicesToAdd.length > 0) {
+        handleAddMultipleDevices(newDevicesToAdd);
+      }
+    }
+  };
+
+  const handleUpdatePurchaseOrder = (updatedOrder: PurchaseOrder) => {
+    setPurchaseOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+  };
+
+  const handleDeletePurchaseOrder = (orderId: string) => {
+    setPurchaseOrders(prev => prev.filter(o => o.id !== orderId));
+  };
+
+  const handlePaySupplierDebt = (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => {
+    const targetFund = funds.find(f => f.id === fundId);
+    const supplier = partners.find(p => p.id === supplierId);
+
+    // 1. Trừ quỹ
+    if (targetFund) {
+      const updatedFunds = funds.map(f => {
+        if (f.id === fundId) {
+          return { ...f, currentBalance: f.currentBalance - amount };
+        }
+        return f;
+      });
+      setFunds(updatedFunds);
+      updatedFunds.forEach(f => updateFundInFirestore(f));
+
+      // 2. Thêm CashTransaction
+      const cashTx: CashTransaction = {
+        id: `CTX-PAY-${Date.now()}`,
+        code: `PC-${Date.now().toString().slice(-6)}`,
+        date: new Date().toISOString().split('T')[0],
+        type: 'PAYMENT',
+        category: 'SUPPLIER_DEBT_PAY',
+        categoryName: 'Chi thanh toán nợ Nhà Cung Cấp',
+        amount,
+        fundType: targetFund.type,
+        fundName: targetFund.name,
+        partnerId: supplierId,
+        partnerName: supplier?.name || 'Nhà Cung Cấp',
+        partnerType: 'SUPPLIER',
+        referenceCode: orderId,
+        notes: note || `Thanh toán nợ NCC ${supplier?.name || ''}`,
+        creator: currentUser ? currentUser.displayName : 'Admin PhoneHouse',
+        status: 'COMPLETED'
+      };
+      handleAddCashTransaction(cashTx);
+    }
+
+    // 3. Giảm công nợ NCC
+    if (supplier) {
+      const newTx = {
+        id: `TX-DEBT-PAY-${Date.now().toString().slice(-6)}`,
+        date: new Date().toISOString().split('T')[0],
+        type: 'DEBT_DECREASE' as const,
+        amount,
+        note: note || `Trả nợ phiếu nhập hàng`,
+        referenceId: orderId
+      };
+      handleUpdatePartner({
+        ...supplier,
+        outstandingDebt: Math.max(0, (supplier.outstandingDebt || 0) - amount),
+        debtTransactions: [newTx, ...(supplier.debtTransactions || [])]
+      });
+    }
+  };
+
   const handleUpdateDevicesWarehouse = (deviceImeis: string[], targetWarehouse: WarehouseId) => {
     setDevices(prevDevices =>
       prevDevices.map(d => {
@@ -733,8 +1094,50 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans selection:bg-orange-500 selection:text-white">
-      {/* Top Navigation Bar */}
+    <>
+      <RoleSwitcher currentMode={workspaceMode} onModeChange={setWorkspaceMode} />
+
+      {workspaceMode === 'SALES' && (
+        <SalesWorkspaceView 
+          devices={filteredDevices}
+          invoices={filteredInvoices}
+          leads={filteredLeads}
+          branches={branches}
+          warehouses={warehouses}
+          storeSettings={storeSettings}
+          onCreateInvoice={handleCreateInvoice}
+          onUpdateDeviceStatus={handleUpdateDeviceStatus}
+          preSelectedDevice={posPreSelectedDevice}
+          onNavigateToInvoices={() => setActiveTab('invoices')}
+          funds={funds}
+          onAddTransaction={handleAddCashTransaction}
+          onOpenNewDeviceModal={() => setActiveTab('inventory')}
+          onAddLead={handleAddLead}
+          onUpdateLead={handleUpdateLead}
+          onConvertLeadToSale={handleConvertLeadToSale}
+          currentUser={currentUser}
+          users={filteredUsers}
+          warrantyTickets={filteredWarrantyTickets}
+          onCheckIn={handleCheckIn}
+          onCheckOut={handleCheckOut}
+          attendanceRecord={currentAttendance}
+        />
+      )}
+
+      {workspaceMode === 'TECH' && (
+        <TechWorkspaceView 
+          tasks={filteredWarrantyTickets}
+          devices={filteredDevices}
+          currentUser={currentUser}
+          onCheckIn={handleCheckIn}
+          onCheckOut={handleCheckOut}
+          attendanceRecord={currentAttendance}
+        />
+      )}
+
+      {workspaceMode === 'ADMIN' && (
+        <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans selection:bg-orange-500 selection:text-white">
+          {/* Top Navigation Bar */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -753,12 +1156,15 @@ export default function App() {
           localStorage.removeItem('phonehouse_active_user');
           setIsLoginModalOpen(true);
         }}
-        stockCount={devices.filter(d => d.status === 'in_stock').length}
-        leadCount={leads.filter(l => l.status !== 'won' && l.status !== 'lost').length}
-        warrantyCount={warrantyTickets.filter(w => w.status !== 'delivered').length}
-        transferCount={transfers.length}
-        userCount={users.length}
+        stockCount={filteredDevices.filter(d => d.status === 'in_stock').length}
+        leadCount={filteredLeads.filter(l => l.status !== 'won' && l.status !== 'lost').length}
+        warrantyCount={filteredWarrantyTickets.filter(w => w.status !== 'delivered').length}
+        transferCount={filteredTransfers.length}
+        userCount={filteredUsers.length}
         isFirebaseSyncing={isFirebaseConnected}
+        selectedBranchId={selectedBranchId}
+        onBranchChange={setSelectedBranchId}
+        branches={branches}
       />
 
       {/* Main Content View Area */}
@@ -777,11 +1183,11 @@ export default function App() {
 
         {activeTab === 'dashboard' && (
           <DashboardView
-            devices={devices}
-            leads={leads}
-            tradeIns={tradeIns}
-            warrantyTickets={warrantyTickets}
-            invoices={invoices}
+            devices={filteredDevices}
+            leads={filteredLeads}
+            tradeIns={filteredTradeIns}
+            warrantyTickets={filteredWarrantyTickets}
+            invoices={filteredInvoices}
             onNavigate={(tab) => setActiveTab(tab)}
             onOpenPOS={() => {
               setPosPreSelectedDevice(null);
@@ -792,24 +1198,64 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'purchase-orders' && (
+          <PurchaseOrdersView
+            purchaseOrders={purchaseOrders}
+            partners={partners}
+            warehouses={warehouses}
+            funds={funds}
+            currentUser={currentUser}
+            onAddPurchaseOrder={handleAddPurchaseOrder}
+            onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
+            onDeletePurchaseOrder={handleDeletePurchaseOrder}
+            onPaySupplierDebt={handlePaySupplierDebt}
+          />
+        )}
+
         {activeTab === 'inventory' && (
           <InventoryView
-            devices={devices}
+            devices={filteredDevices}
+            branches={branches}
+            warehouses={warehouses}
+            partners={partners}
+            funds={funds}
+            transfers={transfers}
+            warrantyTickets={warrantyTickets}
+            invoices={invoices}
+            users={filteredUsers}
             onAddDevice={handleAddDevice}
+            onAddMultipleDevices={handleAddMultipleDevices}
             onUpdateDevice={handleUpdateDevice}
             onDeleteDevice={handleDeleteDevice}
             onQuickSell={handleQuickSell}
+            onOpenTransferModal={() => setActiveTab('transfers')}
+            onAddCashTransaction={handleAddCashTransaction}
+            onUpdatePartner={handleUpdatePartner}
+            onAddPartner={handleAddPartner}
           />
         )}
 
         {activeTab === 'transfers' && (
           <WarehouseTransfersView
-            transfers={transfers}
-            devices={devices}
+            transfers={filteredTransfers}
+            devices={filteredDevices}
             products={products}
+            warehouses={warehouses}
+            users={filteredUsers}
             onAddTransfer={handleAddTransfer}
             onUpdateTransfer={handleUpdateTransfer}
             onUpdateDevicesWarehouse={handleUpdateDevicesWarehouse}
+            onAddWarrantyTicket={handleAddWarrantyTicket}
+          />
+        )}
+
+        
+        {activeTab === 'master-catalog' && (
+          <MasterCatalogView 
+            items={catalogItems}
+            onAddItem={(item) => setCatalogItems([...catalogItems, item])}
+            onUpdateItem={(item) => setCatalogItems(catalogItems.map(i => i.id === item.id ? item : i))}
+            onDeleteItem={(id) => setCatalogItems(catalogItems.filter(i => i.id !== id))}
           />
         )}
 
@@ -833,8 +1279,8 @@ export default function App() {
 
         {activeTab === 'crm' && (
           <CRMLeadsView
-            leads={leads}
-            devices={devices}
+            leads={filteredLeads}
+            devices={filteredDevices}
             onAddLead={handleAddLead}
             onUpdateLead={handleUpdateLead}
             onConvertLeadToSale={handleConvertLeadToSale}
@@ -843,8 +1289,8 @@ export default function App() {
 
         {activeTab === 'tradein' && (
           <TradeInView
-            tradeIns={tradeIns}
-            devices={devices}
+            tradeIns={filteredTradeIns}
+            devices={filteredDevices}
             onAddTradeIn={handleAddTradeIn}
             onUpdateTradeIn={handleUpdateTradeIn}
             onImportToInventory={handleAddDevice}
@@ -853,9 +1299,12 @@ export default function App() {
 
         {activeTab === 'warranty' && (
           <WarrantyServiceView
-            warrantyTickets={warrantyTickets}
-            devices={devices}
+            warrantyTickets={filteredWarrantyTickets}
+            devices={filteredDevices}
             funds={funds}
+            users={users}
+            spareParts={spareParts}
+            onUpdateSparePart={(updatedPart) => updateSparePartInFirestore(updatedPart)}
             onAddTicket={handleAddWarrantyTicket}
             onUpdateTicket={handleUpdateWarrantyTicket}
             onAddTransaction={handleAddCashTransaction}
@@ -864,9 +1313,9 @@ export default function App() {
 
         {activeTab === 'pos' && (
           <POSSalesView
-            devices={devices}
-            invoices={invoices}
-            leads={leads}
+            devices={filteredDevices}
+            invoices={filteredInvoices}
+            leads={filteredLeads}
             branches={branches}
             warehouses={warehouses}
             storeSettings={storeSettings}
@@ -881,8 +1330,8 @@ export default function App() {
 
         {activeTab === 'invoices' && (
           <InvoicesView
-            invoices={invoices}
-            devices={devices}
+            invoices={filteredInvoices}
+            devices={filteredDevices}
             onNavigateToPOS={() => {
               setPosPreSelectedDevice(null);
               setActiveTab('pos');
@@ -894,7 +1343,7 @@ export default function App() {
 
         {activeTab === 'installments' && (
           <InstallmentReconciliationView
-            invoices={invoices}
+            invoices={filteredInvoices}
             funds={funds}
             partners={partners}
             onUpdateInvoice={handleUpdateInvoice}
@@ -909,7 +1358,7 @@ export default function App() {
 
         {activeTab === 'cashbook' && (
           <CashbookView
-            transactions={cashTransactions}
+            transactions={filteredCashTransactions}
             funds={funds}
             partners={partners}
             onAddTransaction={handleAddCashTransaction}
@@ -923,8 +1372,8 @@ export default function App() {
 
         {activeTab === 'partners' && (
           <PartnersView
-            partners={partners}
-            devices={devices}
+            partners={filteredPartners}
+            devices={filteredDevices}
             onAddPartner={handleAddPartner}
             onUpdatePartner={handleUpdatePartner}
             onDeletePartner={handleDeletePartner}
@@ -961,15 +1410,15 @@ export default function App() {
               setCurrentUser(null);
               setIsLoginModalOpen(true);
             }}
-            partners={partners}
-            invoices={invoices}
-            devices={devices}
+            partners={filteredPartners}
+            invoices={filteredInvoices}
+            devices={filteredDevices}
           />
         )}
 
         {activeTab === 'users' && (
           <UserManagementView
-            users={users}
+            users={filteredUsers}
             onAddUser={handleAddUser}
             onUpdateUser={handleUpdateUser}
             onDeleteUser={handleDeleteUser}
@@ -977,7 +1426,27 @@ export default function App() {
         )}
 
         {activeTab === 'hr-attendance' && (
-          <HRHubView />
+          <HRHubView 
+            attendanceRecords={attendanceRecords} 
+            invoices={filteredInvoices}
+            warrantyTickets={warrantyTickets}
+          />
+        )}
+
+        {(activeTab === 'employee-dashboard' || activeTab === 'employee-kpi') && (
+          <EmployeeDashboardView
+            invoices={filteredInvoices}
+            warrantyTickets={filteredWarrantyTickets}
+            currentUser={currentUser}
+            users={filteredUsers}
+            devices={filteredDevices}
+            onNavigate={(tab) => setActiveTab(tab)}
+            onOpenPOS={() => {
+              setPosPreSelectedDevice(null);
+              setActiveTab('pos');
+            }}
+            onOpenNewWarranty={() => setActiveTab('warranty')}
+          />
         )}
 
         {activeTab === 'erpnext-plan' && (
@@ -1065,6 +1534,8 @@ export default function App() {
         </div>
       </footer>
     </div>
+      )}
+    </>
   );
 }
 

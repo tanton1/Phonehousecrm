@@ -22,7 +22,8 @@ import {
   ProductItem,
   StoreBranch,
   WarehouseInfo,
-  StoreSettings
+  StoreSettings,
+  SparePart
 } from '../types';
 import { 
   INITIAL_DEVICES, 
@@ -37,7 +38,10 @@ import {
   INITIAL_WAREHOUSES,
   INITIAL_STORE_SETTINGS,
   INITIAL_FUNDS,
-  INITIAL_CASH_TRANSACTIONS
+  INITIAL_CASH_TRANSACTIONS,
+  INITIAL_SPARE_PARTS,
+  REPAIR_SERVICES_PRICELIST,
+  RepairServiceItem
 } from '../data/initialData';
 
 // Collection Names
@@ -53,6 +57,10 @@ const PRODUCTS_COL = 'products';
 const BRANCHES_COL = 'branches';
 const WAREHOUSES_COL = 'warehouses';
 const SETTINGS_COL = 'storeSettings';
+const SPARE_PARTS_COL = 'spareParts';
+const FUNDS_COL = 'funds';
+const CASH_TRANSACTIONS_COL = 'cashTransactions';
+const REPAIR_SERVICES_COL = 'repairServices';
 
 // Helper to strip undefined values so Firestore setDoc does not throw
 export function cleanDataForFirestore<T>(data: T): T {
@@ -142,6 +150,11 @@ export async function seedInitialDataIfEmpty() {
         batch.set(ref, cleanDataForFirestore(tx));
       });
 
+      INITIAL_SPARE_PARTS.forEach((part) => {
+        const ref = doc(db, SPARE_PARTS_COL, part.id);
+        batch.set(ref, cleanDataForFirestore(part));
+      });
+
       const settingsRef = doc(db, SETTINGS_COL, 'main');
       batch.set(settingsRef, cleanDataForFirestore(INITIAL_STORE_SETTINGS));
 
@@ -157,6 +170,28 @@ export async function seedInitialDataIfEmpty() {
           fundBatch.set(ref, cleanDataForFirestore(f));
         });
         await fundBatch.commit();
+      }
+
+      // Check if spare parts need seeding
+      const partsSnap = await getDocs(collection(db, SPARE_PARTS_COL));
+      if (partsSnap.empty) {
+        const partsBatch = writeBatch(db);
+        INITIAL_SPARE_PARTS.forEach((p) => {
+          const ref = doc(db, SPARE_PARTS_COL, p.id);
+          partsBatch.set(ref, cleanDataForFirestore(p));
+        });
+        await partsBatch.commit();
+      }
+
+      // Check if repair services need seeding
+      const repairSnap = await getDocs(collection(db, REPAIR_SERVICES_COL));
+      if (repairSnap.empty) {
+        const repairBatch = writeBatch(db);
+        REPAIR_SERVICES_PRICELIST.forEach((r) => {
+          const ref = doc(db, REPAIR_SERVICES_COL, r.id);
+          repairBatch.set(ref, cleanDataForFirestore(r));
+        });
+        await repairBatch.commit();
       }
     }
   } catch (error) {
@@ -479,10 +514,6 @@ export async function deletePartnerFromFirestore(id: string) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }
 }
-
-
-const FUNDS_COL = 'funds';
-const CASH_TRANSACTIONS_COL = 'cashTransactions';
 
 export function subscribeToFunds(onData: (funds: FundAccount[]) => void) {
   const colRef = collection(db, FUNDS_COL);
@@ -827,3 +858,99 @@ export async function saveStoreSettingsToFirestore(settings: StoreSettings) {
   }
 }
 
+
+// ----------------- SPARE PARTS -----------------
+export function subscribeToSpareParts(onData: (parts: SparePart[]) => void) {
+  const colRef = collection(db, SPARE_PARTS_COL);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const items: SparePart[] = [];
+      snapshot.forEach((doc) => {
+        items.push(doc.data() as SparePart);
+      });
+      onData(items);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, SPARE_PARTS_COL);
+    }
+  );
+}
+
+export async function addSparePartToFirestore(part: SparePart) {
+  const path = `${SPARE_PARTS_COL}/${part.id}`;
+  try {
+    const docRef = doc(db, SPARE_PARTS_COL, part.id);
+    await setDoc(docRef, cleanDataForFirestore(part));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateSparePartInFirestore(part: SparePart) {
+  const path = `${SPARE_PARTS_COL}/${part.id}`;
+  try {
+    const docRef = doc(db, SPARE_PARTS_COL, part.id);
+    await setDoc(docRef, cleanDataForFirestore(part), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteSparePartFromFirestore(id: string) {
+  const path = `${SPARE_PARTS_COL}/${id}`;
+  try {
+    const docRef = doc(db, SPARE_PARTS_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ----------------- REPAIR SERVICES (BẢNG GIÁ DỊCH VỤ SỬA CHỮA) -----------------
+export function subscribeToRepairServices(onData: (items: RepairServiceItem[]) => void) {
+  const colRef = collection(db, REPAIR_SERVICES_COL);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const items: RepairServiceItem[] = [];
+      snapshot.forEach((doc) => {
+        items.push(doc.data() as RepairServiceItem);
+      });
+      onData(items);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, REPAIR_SERVICES_COL);
+    }
+  );
+}
+
+export async function addRepairServiceToFirestore(item: RepairServiceItem) {
+  const path = `${REPAIR_SERVICES_COL}/${item.id}`;
+  try {
+    const docRef = doc(db, REPAIR_SERVICES_COL, item.id);
+    await setDoc(docRef, cleanDataForFirestore(item));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateRepairServiceInFirestore(item: RepairServiceItem) {
+  const path = `${REPAIR_SERVICES_COL}/${item.id}`;
+  try {
+    const docRef = doc(db, REPAIR_SERVICES_COL, item.id);
+    await setDoc(docRef, cleanDataForFirestore(item), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteRepairServiceFromFirestore(id: string) {
+  const path = `${REPAIR_SERVICES_COL}/${id}`;
+  try {
+    const docRef = doc(db, REPAIR_SERVICES_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}

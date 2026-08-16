@@ -172,6 +172,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showDetailsDropdown, setShowDetailsDropdown] = useState(false);
+  const [showRecentInvoicesDrawer, setShowRecentInvoicesDrawer] = useState(false);
 
   // Payment Method
   const [paymentMethod, setPaymentMethod] = useState<SalesInvoice['paymentMethod']>('Chuyển khoản QR');
@@ -348,7 +349,12 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       branch: currentBranch.name,
       branchId: currentBranch.id,
       warehouseId: currentWarehouse.id,
-      warehouseName: currentWarehouse.name
+      warehouseName: currentWarehouse.name,
+      history: [{
+        time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16),
+        action: paymentMethod === 'Trả góp 0% / CCCD' ? 'Tạo đơn trả góp' : 'Tạo đơn hàng thành công',
+        user: "Nhật ADMIN"
+      }]
     };
 
     // Update status of all devices to sold in Firestore
@@ -369,15 +375,27 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-600">POS Thu Ngân</h2>
         </div>
-        {onNavigateToInvoices && (
-          <button
-            onClick={onNavigateToInvoices}
-            className="text-xs font-medium text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/80 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs cursor-pointer"
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Quản lý hóa đơn ({invoices.length})</span>
-          </button>
-        )}
+        <div className="flex items-center space-x-2">
+          {onNavigateToInvoices && (
+            <button
+              onClick={() => setShowRecentInvoicesDrawer(true)}
+              className="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs cursor-pointer"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Đơn hôm nay</span>
+            </button>
+          )}
+          {onNavigateToInvoices && (
+            <button
+              onClick={onNavigateToInvoices}
+              className="text-xs font-medium text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/80 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Quản lý hóa đơn ({invoices.length})</span>
+              <span className="sm:hidden">Tất cả</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Store & Warehouse Selection Bar */}
@@ -1521,6 +1539,109 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                 Đóng
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* RECENT INVOICES DRAWER */}
+      {showRecentInvoicesDrawer && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-zinc-900/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white w-full max-w-sm h-full flex flex-col shadow-2xl animate-slideInRight">
+            <div className="flex items-center justify-between p-4 border-b border-zinc-100 bg-zinc-50/50">
+              <div className="flex items-center space-x-2">
+                <Receipt className="w-5 h-5 text-emerald-600" />
+                <h3 className="font-bold text-zinc-900">Đơn Hàng Hôm Nay</h3>
+              </div>
+              <button
+                onClick={() => setShowRecentInvoicesDrawer(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 hover:text-zinc-700 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-zinc-50">
+              {invoices.length > 0 ? (
+                invoices.slice(0, 5).map((inv) => (
+                  <div key={inv.id} className="bg-white p-3 rounded-xl border border-zinc-200/80 shadow-2xs space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="font-bold text-sm text-zinc-900">{inv.customerName}</span>
+                        <span className="block text-[10px] text-zinc-500 font-mono mt-0.5">{inv.invoiceCode || inv.id}</span>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        inv.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
+                        inv.status === 'pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                        'bg-zinc-100 text-zinc-600'
+                      }`}>
+                        {inv.status === 'completed' ? 'Hoàn tất' : inv.status === 'pending' ? 'Chờ xử lý' : inv.status}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-end border-t border-zinc-100 pt-2">
+                      <div className="text-[11px] text-zinc-500 space-y-0.5">
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          <span>{inv.createdDate || inv.createdAt}</span>
+                        </div>
+                        <div className="font-medium text-zinc-700">
+                          {inv.paymentMethod}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="block text-xs font-black text-orange-600 font-mono">
+                          {inv.finalAmount.toLocaleString('vi-VN')} đ
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex space-x-2 pt-2">
+                      <button
+                        onClick={() => {
+                          setCreatedInvoiceForPrint(inv);
+                          setShowRecentInvoicesDrawer(false);
+                        }}
+                        className="flex-1 py-1.5 text-[11px] font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <Printer className="w-3 h-3" />
+                        <span>In Phiếu</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (onNavigateToInvoices) {
+                            setShowRecentInvoicesDrawer(false);
+                            onNavigateToInvoices();
+                          }
+                        }}
+                        className="flex-1 py-1.5 text-[11px] font-semibold text-zinc-600 bg-zinc-100 hover:bg-zinc-200 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span>Chi Tiết</span>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-zinc-500 py-10 text-xs flex flex-col items-center">
+                  <Receipt className="w-8 h-8 text-zinc-300 mb-2" />
+                  <span>Chưa có hóa đơn nào hôm nay.</span>
+                </div>
+              )}
+            </div>
+            
+            {invoices.length > 5 && onNavigateToInvoices && (
+              <div className="p-3 bg-white border-t border-zinc-100">
+                <button
+                  onClick={() => {
+                    setShowRecentInvoicesDrawer(false);
+                    onNavigateToInvoices();
+                  }}
+                  className="w-full py-2.5 text-xs font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Xem Tất Cả Hóa Đơn
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,14 +1,23 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { 
+  subscribeToRepairServices, 
+  addRepairServiceToFirestore 
+} from '../services/firestoreService';
 import { 
   WarrantyTicket, 
   DeviceItem, 
   FundAccount, 
-  CashTransaction 
+  CashTransaction,
+  UserAccount,
+  SparePart
 } from '../types';
 import { 
   REPAIR_SERVICES_PRICELIST, 
   RepairServiceItem 
 } from '../data/initialData';
+import { ActivityLog } from './ActivityLog';
+import { TechKanbanBoard } from './TechKanbanBoard';
+import { TechKPIReport } from './TechKPIReport';
 import { 
   Wrench, 
   Plus, 
@@ -29,6 +38,7 @@ import {
   DollarSign,
   Tag,
   Layers,
+  KanbanSquare,
   Activity,
   History,
   Lock,
@@ -44,8 +54,11 @@ interface WarrantyServiceViewProps {
   warrantyTickets: WarrantyTicket[];
   devices: DeviceItem[];
   funds?: FundAccount[];
+  users?: UserAccount[];
+  spareParts?: SparePart[];
   onAddTicket: (ticket: WarrantyTicket) => void;
   onUpdateTicket: (ticket: WarrantyTicket) => void;
+  onUpdateSparePart?: (part: SparePart) => void;
   onAddTransaction?: (tx: CashTransaction) => void;
 }
 
@@ -53,12 +66,15 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   warrantyTickets,
   devices,
   funds = [],
+  users = [],
+  spareParts = [],
   onAddTicket,
   onUpdateTicket,
+  onUpdateSparePart,
   onAddTransaction
 }) => {
-  // Tabs: 'TICKETS' | 'PRICELIST' | 'STATS'
-  const [activeTab, setActiveTab] = useState<'TICKETS' | 'PRICELIST' | 'STATS'>('TICKETS');
+  // Tabs: 'TICKETS' | 'KANBAN' | 'PRICELIST' | 'STATS' | 'KPI'
+  const [activeTab, setActiveTab] = useState<'TICKETS' | 'KANBAN' | 'PRICELIST' | 'STATS' | 'KPI'>('TICKETS');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -66,12 +82,181 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAddPriceModalOpen, setIsAddPriceModalOpen] = useState(false);
+  const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
+
   const [activeTicketDetails, setActiveTicketDetails] = useState<WarrantyTicket | null>(null);
   const [printTicket, setPrintTicket] = useState<WarrantyTicket | null>(null);
+
+  // Price list state with Firestore & localStorage sync
+  const [priceList, setPriceList] = useState<RepairServiceItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('phonehouse_repair_pricelist');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return REPAIR_SERVICES_PRICELIST;
+  });
+
+  useEffect(() => {
+    const unsubscribe = subscribeToRepairServices((items) => {
+      if (items && items.length > 0) {
+        setPriceList(items);
+        try {
+          localStorage.setItem('phonehouse_repair_pricelist', JSON.stringify(items));
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Price list search & filter
   const [priceSearchTerm, setPriceSearchTerm] = useState('');
   const [selectedPriceCategory, setSelectedPriceCategory] = useState<string>('ALL');
+
+  // Form State for New Price List Item
+  const [newPriceFormData, setNewPriceFormData] = useState({
+    name: '',
+    category: 'THAY_MAN_HINH',
+    categoryName: 'Thay Màn Hình iPhone',
+    compatibleModels: 'iPhone 13 - 15 Series',
+    costPrice: 500000,
+    sellPrice: 950000,
+    techCommission: 100000,
+    warrantyPeriodMonths: 6,
+    durationMinutes: 30,
+    notes: ''
+  });
+
+  // Form State for New Tech Commission Task
+  const [newTaskFormData, setNewTaskFormData] = useState({
+    taskName: '',
+    taskType: 'RETAIL_REPAIR' as 'RETAIL_REPAIR' | 'INBOUND_QC' | 'WARRANTY' | 'SPECIAL_COMPONENT',
+    technician: 'KTV Trọng (Chuyên Màn & Ép Kính)',
+    commissionAmount: 100000,
+    customerName: 'Khách Lẻ / Nội Bộ',
+    phone: '0900000000',
+    model: 'iPhone 13 Pro Max',
+    imei: '',
+    estimatedCost: 650000,
+    expectedReturnDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+    notes: ''
+  });
+
+  // Filtered Price List
+  const filteredPriceList = useMemo(() => {
+    return priceList.filter(item => {
+      const matchCat = selectedPriceCategory === 'ALL' || item.category === selectedPriceCategory;
+      const matchSearch = 
+        item.name.toLowerCase().includes(priceSearchTerm.toLowerCase()) ||
+        item.compatibleModels.toLowerCase().includes(priceSearchTerm.toLowerCase()) ||
+        (item.notes && item.notes.toLowerCase().includes(priceSearchTerm.toLowerCase()));
+      return matchCat && matchSearch;
+    });
+  }, [priceList, priceSearchTerm, selectedPriceCategory]);
+
+  // Handle Save New Price List Item
+  const handleSaveNewPriceItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPriceFormData.name.trim()) return;
+
+    const newItem: RepairServiceItem = {
+      id: `REP-${Date.now().toString().slice(-6)}`,
+      category: newPriceFormData.category,
+      categoryName: newPriceFormData.categoryName,
+      name: newPriceFormData.name,
+      compatibleModels: newPriceFormData.compatibleModels,
+      costPrice: Number(newPriceFormData.costPrice) || 0,
+      sellPrice: Number(newPriceFormData.sellPrice) || 0,
+      techCommission: Number(newPriceFormData.techCommission) || 0,
+      warrantyPeriodMonths: Number(newPriceFormData.warrantyPeriodMonths) || 6,
+      durationMinutes: Number(newPriceFormData.durationMinutes) || 30,
+      notes: newPriceFormData.notes
+    };
+
+    const updated = [newItem, ...priceList];
+    setPriceList(updated);
+    addRepairServiceToFirestore(newItem);
+    try {
+      localStorage.setItem('phonehouse_repair_pricelist', JSON.stringify(updated));
+    } catch (err) {
+      console.error(err);
+    }
+
+    setIsAddPriceModalOpen(false);
+    setNewPriceFormData({
+      name: '',
+      category: 'THAY_MAN_HINH',
+      categoryName: 'Thay Màn Hình iPhone',
+      compatibleModels: 'iPhone 13 - 15 Series',
+      costPrice: 500000,
+      sellPrice: 950000,
+      techCommission: 100000,
+      warrantyPeriodMonths: 6,
+      durationMinutes: 30,
+      notes: ''
+    });
+  };
+
+  // Handle Save New Tech Task
+  const handleSaveNewTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTaskFormData.taskName.trim()) return;
+
+    const matchedUser = users.find(u => 
+      u.displayName.toLowerCase().includes(newTaskFormData.technician.toLowerCase()) || 
+      newTaskFormData.technician.toLowerCase().includes(u.displayName.toLowerCase())
+    );
+    const assigneeId = matchedUser ? matchedUser.email : 'tech@phonehouse.vn';
+
+    const ticketNumber = `TASK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
+
+    const newTicket: WarrantyTicket = {
+      id: `WRN-${Date.now().toString().slice(-6)}`,
+      ticketNumber,
+      taskType: newTaskFormData.taskType,
+      assigneeId,
+      technician: newTaskFormData.technician,
+      commissionAmount: Number(newTaskFormData.commissionAmount) || 0,
+      customerName: newTaskFormData.customerName || 'Khách Lẻ / Nội Bộ',
+      phone: newTaskFormData.phone || '0900000000',
+      model: newTaskFormData.model || 'iPhone 13 Pro Max',
+      imei: newTaskFormData.imei || `IMEI-${Math.floor(100000000000000 + Math.random() * 900000000000000)}`,
+      issueType: 'Khác',
+      faultDescription: `${newTaskFormData.taskName}${newTaskFormData.notes ? ` - ${newTaskFormData.notes}` : ''}`,
+      status: 'received',
+      isWarrantyFree: newTaskFormData.taskType === 'INBOUND_QC' || newTaskFormData.taskType === 'WARRANTY',
+      repairCategory: newTaskFormData.taskType === 'INBOUND_QC' || newTaskFormData.taskType === 'WARRANTY' ? 'WARRANTY_FREE' : 'REPAIR_SERVICE',
+      estimatedCost: Number(newTaskFormData.estimatedCost) || 0,
+      finalCost: Number(newTaskFormData.estimatedCost) || 0,
+      receivedDate: new Date().toISOString().split('T')[0],
+      expectedReturnDate: newTaskFormData.expectedReturnDate,
+      solutionNotes: `Task KTV phân công: ${newTaskFormData.technician} - Mức hoa hồng: ${Number(newTaskFormData.commissionAmount).toLocaleString('vi-VN')} đ`,
+      warrantyMonthsAfterRepair: 6,
+      paymentStatus: 'UNPAID'
+    };
+
+    onAddTicket(newTicket);
+    setIsAddTaskModalOpen(false);
+    setActiveTab('KANBAN');
+
+    setNewTaskFormData({
+      taskName: '',
+      taskType: 'RETAIL_REPAIR',
+      technician: 'KTV Trọng (Chuyên Màn & Ép Kính)',
+      commissionAmount: 100000,
+      customerName: 'Khách Lẻ / Nội Bộ',
+      phone: '0900000000',
+      model: 'iPhone 13 Pro Max',
+      imei: '',
+      estimatedCost: 650000,
+      expectedReturnDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+      notes: ''
+    });
+  };
 
   // AI Diagnostic State
   const [isDiagnosing, setIsDiagnosing] = useState(false);
@@ -225,6 +410,10 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   };
 
   // Status Change Workflow
+  const handleTicketClick = (ticket: WarrantyTicket) => {
+    setActiveTicketDetails(ticket);
+  };
+
   const handleUpdateStatus = (ticket: WarrantyTicket, newStatus: WarrantyTicket['status']) => {
     const now = new Date().toLocaleString('sv-SE').replace('T', ' ').slice(0, 16);
     let actionDesc = '';
@@ -308,18 +497,6 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       return matchesSearch && matchesStatus && matchesType;
     });
   }, [warrantyTickets, searchTerm, statusFilter, typeFilter]);
-
-  // Filtered Price List
-  const filteredPriceList = useMemo(() => {
-    return REPAIR_SERVICES_PRICELIST.filter(item => {
-      const matchCat = selectedPriceCategory === 'ALL' || item.category === selectedPriceCategory;
-      const matchSearch = 
-        item.name.toLowerCase().includes(priceSearchTerm.toLowerCase()) ||
-        item.compatibleModels.toLowerCase().includes(priceSearchTerm.toLowerCase()) ||
-        (item.notes && item.notes.toLowerCase().includes(priceSearchTerm.toLowerCase()));
-      return matchCat && matchSearch;
-    });
-  }, [priceSearchTerm, selectedPriceCategory]);
 
   // Statistics Summary
   const stats = useMemo(() => {
@@ -415,36 +592,55 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
           </div>
         </div>
 
-        {/* Action Button */}
-        <button
-          onClick={() => {
-            setFormData({
-              customerName: '',
-              phone: '',
-              imei: '',
-              model: 'iPhone 13 Pro Max',
-              color: 'Titan Tự Nhiên',
-              storage: '128GB',
-              passcode: '',
-              icloudStatus: 'Clean / Khách Nhớ Mật Khẩu',
-              deviceAppearance: 'Máy Đẹp Keng 99%',
-              accessoriesIncluded: 'Máy trần',
-              issueType: 'Màn Hình / Cảm Ứng',
-              faultDescription: 'Màn hình bị trắng/xanh toàn bộ khi đang lướt mạng',
-              technician: 'KTV Trọng (Chuyên Màn)',
-              isWarrantyFree: true,
-              repairCategory: 'WARRANTY_FREE',
-              estimatedCost: 0,
-              warrantyMonthsAfterRepair: 6,
-              expectedReturnDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0]
-            });
-            setIsAddModalOpen(true);
-          }}
-          className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Tiếp Nhận Máy Mới</span>
-        </button>
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={() => {
+              setFormData({
+                customerName: '',
+                phone: '',
+                imei: '',
+                model: 'iPhone 13 Pro Max',
+                color: 'Titan Tự Nhiên',
+                storage: '128GB',
+                passcode: '',
+                icloudStatus: 'Clean / Khách Nhớ Mật Khẩu',
+                deviceAppearance: 'Máy Đẹp Keng 99%',
+                accessoriesIncluded: 'Máy trần',
+                issueType: 'Màn Hình / Cảm Ứng',
+                faultDescription: 'Màn hình bị trắng/xanh toàn bộ khi đang lướt mạng',
+                technician: 'KTV Trọng (Chuyên Màn)',
+                commissionAmount: 100000,
+                isWarrantyFree: true,
+                repairCategory: 'WARRANTY_FREE',
+                estimatedCost: 0,
+                warrantyMonthsAfterRepair: 6,
+                expectedReturnDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0]
+              });
+              setIsAddModalOpen(true);
+            }}
+            className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Tiếp Nhận Máy</span>
+          </button>
+
+          <button
+            onClick={() => setIsAddPriceModalOpen(true)}
+            className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
+          >
+            <DollarSign className="w-4 h-4" />
+            <span>+ Tạo Bảng Giá Dịch Vụ</span>
+          </button>
+
+          <button
+            onClick={() => setIsAddTaskModalOpen(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-emerald-600/20 active:scale-95 cursor-pointer"
+          >
+            <Wrench className="w-4 h-4" />
+            <span>+ Phân Công Task KTV</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. STATS CARDS */}
@@ -489,6 +685,18 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
           <FileText className="w-3.5 h-3.5" />
           <span>Danh Sách Phiếu Tiếp Nhận ({warrantyTickets.length})</span>
         </button>
+        
+        <button
+          onClick={() => setActiveTab('KANBAN')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
+            activeTab === 'KANBAN'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
+          }`}
+        >
+          <KanbanSquare className="w-3.5 h-3.5" />
+          <span>Bảng Kỹ Thuật (Tech Board)</span>
+        </button>
 
         <button
           onClick={() => setActiveTab('PRICELIST')}
@@ -512,6 +720,18 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
         >
           <Activity className="w-3.5 h-3.5" />
           <span>Quy Trình & Tỷ Lệ Bảo Hành</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('KPI')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
+            activeTab === 'KPI'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
+          }`}
+        >
+          <DollarSign className="w-3.5 h-3.5" />
+          <span>Báo Cáo KPI Kỹ Thuật</span>
         </button>
       </div>
 
@@ -775,11 +995,20 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
         </div>
       )}
 
+      {/* TAB: KANBAN BOARD */}
+      {activeTab === 'KANBAN' && (
+        <TechKanbanBoard 
+          tasks={filteredTickets} 
+          onTaskClick={handleTicketClick} 
+          onOpenAddTaskModal={() => setIsAddTaskModalOpen(true)}
+        />
+      )}
+
       {/* TAB 2: PRICELIST */}
       {activeTab === 'PRICELIST' && (
         <div className="space-y-4">
-          <div className="bg-white p-4 rounded-2xl border border-orange-100 shadow-xs flex flex-col sm:flex-row justify-between gap-3">
-            <div className="relative flex-1">
+          <div className="bg-white p-4 rounded-2xl border border-orange-100 shadow-xs flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div className="relative flex-1 w-full">
               <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
@@ -790,18 +1019,30 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
               />
             </div>
 
-            <select
-              value={selectedPriceCategory}
-              onChange={(e) => setSelectedPriceCategory(e.target.value)}
-              className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 font-bold focus:outline-none focus:border-orange-500"
-            >
-              <option value="ALL">Tất Cả Danh Mục Sửa Chữa</option>
-              <option value="THAY_MAN_HINH">Thay Màn Hình iPhone</option>
-              <option value="THAY_PIN">Thay Pin iPhone Chính Hãng</option>
-              <option value="EP_KINH">Ép Kính / Ép Cảm Ứng</option>
-              <option value="FACE_ID">Sửa Chữa Face ID</option>
-              <option value="MAINBOARD_NGUON">Phần Cứng Mainboard / IC Nguồn</option>
-            </select>
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+              <select
+                value={selectedPriceCategory}
+                onChange={(e) => setSelectedPriceCategory(e.target.value)}
+                className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-800 font-bold focus:outline-none focus:border-orange-500"
+              >
+                <option value="ALL">Tất Cả Danh Mục Sửa Chữa</option>
+                <option value="THAY_MAN_HINH">Thay Màn Hình iPhone</option>
+                <option value="THAY_PIN">Thay Pin iPhone Chính Hãng</option>
+                <option value="EP_KINH">Ép Kính / Ép Cảm Ứng</option>
+                <option value="FACE_ID">Sửa Chữa Face ID</option>
+                <option value="MAINBOARD_NGUON">Phần Cứng Mainboard / IC Nguồn</option>
+                <option value="CAMERA_LOA">Thay Camera / Loa / Mic / Lưng</option>
+                <option value="KHAC">Dịch Vụ Khác</option>
+              </select>
+
+              <button
+                onClick={() => setIsAddPriceModalOpen(true)}
+                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl flex items-center space-x-1.5 shadow-sm active:scale-95 cursor-pointer whitespace-nowrap"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Tạo Bảng Giá / Dịch Vụ Mới</span>
+              </button>
+            </div>
           </div>
 
           {/* Pricing Grid */}
@@ -833,6 +1074,14 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     <span>Thời gian hoàn thành: <strong>{item.durationMinutes} phút</strong></span>
                     <span>Bảo hành: <strong className="text-emerald-700">{item.warrantyPeriodMonths} tháng</strong></span>
                   </div>
+
+                  {Boolean(item.techCommission) && (
+                    <div className="mt-1.5 pt-1.5 border-t border-zinc-200/60 flex justify-between items-center text-[11px] font-bold text-amber-800 bg-amber-50/80 p-1.5 rounded-lg">
+                      <span>💰 Hoa hồng KTV:</span>
+                      <span className="font-mono text-xs">{item.techCommission?.toLocaleString('vi-VN')} đ</span>
+                    </div>
+                  )}
+
                   {item.notes && <p className="text-[11px] text-zinc-500 italic pt-1 border-t border-zinc-200">{item.notes}</p>}
                 </div>
 
@@ -844,6 +1093,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                         issueType: item.categoryName.includes('Pin') ? 'Pin / Phù Pin' : item.categoryName.includes('Màn') ? 'Màn Hình / Cảm Ứng' : 'Khác',
                         faultDescription: `Yêu cầu dịch vụ: ${item.name}`,
                         estimatedCost: item.sellPrice,
+                        commissionAmount: item.techCommission || 50000,
                         isWarrantyFree: false,
                         warrantyMonthsAfterRepair: item.warrantyPeriodMonths
                       }));
@@ -904,6 +1154,17 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB: KPI (Lương Kỹ Thuật) */}
+      {activeTab === 'KPI' && (
+        <div className="h-[70vh] bg-white rounded-3xl border border-zinc-200 overflow-hidden shadow-xs">
+          <TechKPIReport 
+            tickets={warrantyTickets} 
+            users={users} 
+            onOpenAddTaskModal={() => setIsAddTaskModalOpen(true)}
+          />
         </div>
       )}
 
@@ -1129,7 +1390,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
               )}
 
               {/* Row: KTV & Cost & Return Date */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Kỹ Thuật Phụ Trách</label>
                   <input
@@ -1141,7 +1402,18 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Báo Giá Tạm Tính (VNĐ)</label>
+                  <label className="block text-xs font-bold text-amber-800 mb-1">Hoa Hồng KTV (VNĐ)</label>
+                  <input
+                    type="number"
+                    step={10000}
+                    value={formData.commissionAmount || 0}
+                    onChange={(e) => setFormData({ ...formData, commissionAmount: Number(e.target.value) })}
+                    className="w-full bg-amber-50/60 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-900 font-mono font-bold focus:bg-white focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Báo Giá Khách (VNĐ)</label>
                   <input
                     type="number"
                     disabled={formData.isWarrantyFree}
@@ -1255,6 +1527,115 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 )}
               </div>
 
+                            {/* Tiêu Hao Linh Kiện (Spare Parts Deduction) */}
+              <div className="space-y-3 pt-3 border-t border-zinc-100">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-black text-zinc-900 uppercase text-[11px] tracking-wider flex items-center">
+                    <Wrench className="w-3.5 h-3.5 mr-1 text-orange-600" />
+                    Linh Kiện Tiêu Hao
+                  </h4>
+                </div>
+                
+                {/* Danh sách linh kiện đã dùng */}
+                {activeTicketDetails.partsUsed && activeTicketDetails.partsUsed.length > 0 ? (
+                  <div className="space-y-2">
+                    {activeTicketDetails.partsUsed.map((part, idx) => (
+                      <div key={idx} className="flex justify-between items-center p-2 bg-orange-50/50 border border-orange-100 rounded-lg">
+                        <div>
+                          <div className="font-semibold text-zinc-800">{part.name}</div>
+                          <div className="text-[10px] text-zinc-500">SL: {part.quantity} x {part.unitPrice.toLocaleString('vi-VN')} đ</div>
+                        </div>
+                        <div className="font-bold text-orange-700">
+                          {part.totalPrice.toLocaleString('vi-VN')} đ
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-zinc-400 text-center p-3 bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+                    Chưa có linh kiện nào được sử dụng
+                  </div>
+                )}
+
+                {/* Form thêm linh kiện */}
+                {activeTicketDetails.status !== 'delivered' && activeTicketDetails.status !== 'ready' && spareParts.length > 0 && (
+                  <div className="flex space-x-2 mt-2">
+                    <select 
+                      id="sparePartSelect"
+                      className="flex-1 bg-white border border-zinc-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+                      defaultValue=""
+                    >
+                      <option value="" disabled>-- Chọn linh kiện kho --</option>
+                      {spareParts.filter(p => p.stockQuantity > 0).map(p => (
+                        <option key={p.id} value={p.id}>{p.name} (Tồn: {p.stockQuantity}) - {p.retailPrice.toLocaleString('vi-VN')}đ</option>
+                      ))}
+                    </select>
+                    <input 
+                      type="number" 
+                      id="sparePartQty"
+                      min="1" 
+                      defaultValue="1"
+                      className="w-16 bg-white border border-zinc-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500 text-center"
+                    />
+                    <button
+                      onClick={() => {
+                        const selectEl = document.getElementById('sparePartSelect') as HTMLSelectElement;
+                        const qtyEl = document.getElementById('sparePartQty') as HTMLInputElement;
+                        const partId = selectEl?.value;
+                        const qty = parseInt(qtyEl?.value || '1');
+                        
+                        if (!partId || qty <= 0) return;
+                        
+                        const part = spareParts.find(p => p.id === partId);
+                        if (!part) return;
+
+                        if (qty > part.stockQuantity) {
+                          alert('Số lượng tồn kho không đủ!');
+                          return;
+                        }
+
+                        const usedPart = {
+                          id: part.id,
+                          name: part.name,
+                          quantity: qty,
+                          unitPrice: part.retailPrice,
+                          totalPrice: part.retailPrice * qty
+                        };
+
+                        const currentParts = activeTicketDetails.partsUsed || [];
+                        const updatedTicket = {
+                          ...activeTicketDetails,
+                          partsUsed: [...currentParts, usedPart],
+                          finalCost: (activeTicketDetails.finalCost || activeTicketDetails.estimatedCost || 0) + (part.retailPrice * qty)
+                        };
+
+                        // 1. Update Ticket
+                        onUpdateTicket(updatedTicket);
+                        setActiveTicketDetails(updatedTicket);
+                        
+                        // 2. Deduct from SpareParts inventory
+                        if (onUpdateSparePart) {
+                          onUpdateSparePart({
+                            ...part,
+                            stockQuantity: part.stockQuantity - qty
+                          });
+                        }
+                        
+                        // Reset
+                        selectEl.value = "";
+                        qtyEl.value = "1";
+                      }}
+                      className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-bold transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Activity Log / Timeline */}
+              <ActivityLog logs={activeTicketDetails.timeline} title="Lịch Sử Cập Nhật (Activity Log)" />
+
               {/* Action Progress Flow */}
               <div className="space-y-2 pt-2 border-t border-zinc-100">
                 <h4 className="font-black text-zinc-900 uppercase text-[11px] tracking-wider">Cập Nhật Tiến Độ</h4>
@@ -1315,6 +1696,340 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 Đóng
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: TẠO BẢNG GIÁ DỊCH VỤ SỬA CHỮA MỚI */}
+      {isAddPriceModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full sm:max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-amber-200 max-h-[90vh]">
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-4 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-bold">
+                  <DollarSign className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">Thêm Dịch Vụ Sửa Chữa & Bảng Giá Mới</h3>
+                  <p className="text-[11px] text-amber-100">Định giá linh kiện, thời gian hoàn thành & định mức hoa hồng KTV</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsAddPriceModalOpen(false)}
+                className="text-white/80 hover:text-white p-1.5 hover:bg-white/10 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewPriceItem} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto custom-scrollbar flex-1 bg-white text-xs">
+              <div>
+                <label className="block font-bold text-zinc-800 mb-1">Tên Dịch Vụ Sửa Chữa *</label>
+                <input
+                  type="text"
+                  required
+                  value={newPriceFormData.name}
+                  onChange={(e) => setNewPriceFormData({ ...newPriceFormData, name: e.target.value })}
+                  placeholder="VD: Thay Pin Pisen iPhone 15 Pro Max, Ép kính 14PM,..."
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:bg-white focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Nhóm Hạng Mục *</label>
+                  <select
+                    value={newPriceFormData.category}
+                    onChange={(e) => {
+                      const cat = e.target.value;
+                      const catNames: Record<string, string> = {
+                        'THAY_MAN_HINH': 'Thay Màn Hình iPhone',
+                        'THAY_PIN': 'Thay Pin iPhone Chính Hãng',
+                        'EP_KINH': 'Ép Kính / Ép Cảm Ứng',
+                        'FACE_ID': 'Sửa Chữa Face ID',
+                        'MAINBOARD_NGUON': 'Phần Cứng Mainboard / IC Nguồn',
+                        'CAMERA_LOA': 'Thay Camera / Loa / Mic / Lưng',
+                        'KHAC': 'Dịch Vụ Khác'
+                      };
+                      setNewPriceFormData({
+                        ...newPriceFormData,
+                        category: cat,
+                        categoryName: catNames[cat] || 'Dịch Vụ Khác'
+                      });
+                    }}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-amber-500"
+                  >
+                    <option value="THAY_MAN_HINH">Thay Màn Hình iPhone</option>
+                    <option value="THAY_PIN">Thay Pin iPhone Chính Hãng</option>
+                    <option value="EP_KINH">Ép Kính / Ép Cảm Ứng</option>
+                    <option value="FACE_ID">Sửa Chữa Face ID</option>
+                    <option value="MAINBOARD_NGUON">Mainboard / IC Nguồn</option>
+                    <option value="CAMERA_LOA">Camera / Loa / Mic / Lưng</option>
+                    <option value="KHAC">Dịch Vụ Kỹ Thuật Khác</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Dòng Máy Áp Dụng *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newPriceFormData.compatibleModels}
+                    onChange={(e) => setNewPriceFormData({ ...newPriceFormData, compatibleModels: e.target.value })}
+                    placeholder="VD: iPhone 13 Pro Max, Toàn bộ Series 14..."
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Giá Vốn Linh Kiện (VNĐ)</label>
+                  <input
+                    type="number"
+                    step={50000}
+                    value={newPriceFormData.costPrice}
+                    onChange={(e) => setNewPriceFormData({ ...newPriceFormData, costPrice: Number(e.target.value) })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-mono font-bold text-zinc-900 focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-orange-700 mb-1">Giá Báo Khách / Phí (VNĐ)</label>
+                  <input
+                    type="number"
+                    step={50000}
+                    value={newPriceFormData.sellPrice}
+                    onChange={(e) => setNewPriceFormData({ ...newPriceFormData, sellPrice: Number(e.target.value) })}
+                    className="w-full bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 font-mono font-black text-orange-900 focus:border-orange-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-amber-800 mb-1">Hoa Hồng KTV (VNĐ)</label>
+                  <input
+                    type="number"
+                    step={10000}
+                    value={newPriceFormData.techCommission}
+                    onChange={(e) => setNewPriceFormData({ ...newPriceFormData, techCommission: Number(e.target.value) })}
+                    className="w-full bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 font-mono font-black text-amber-900 focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Thời Gian Sửa (Phút)</label>
+                  <input
+                    type="number"
+                    value={newPriceFormData.durationMinutes}
+                    onChange={(e) => setNewPriceFormData({ ...newPriceFormData, durationMinutes: Number(e.target.value) })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-bold text-zinc-900 focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Thời Gian Bảo Hành (Tháng)</label>
+                  <input
+                    type="number"
+                    value={newPriceFormData.warrantyPeriodMonths}
+                    onChange={(e) => setNewPriceFormData({ ...newPriceFormData, warrantyPeriodMonths: Number(e.target.value) })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-bold text-zinc-900 focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-zinc-700 mb-1">Ghi Chú & Lưu Ý Kỹ Thuật</label>
+                <textarea
+                  rows={2}
+                  value={newPriceFormData.notes}
+                  onChange={(e) => setNewPriceFormData({ ...newPriceFormData, notes: e.target.value })}
+                  placeholder="VD: Dán ron chống nước sau khi hoàn thành, sàng cáp IC zin gốc..."
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl p-2.5 text-zinc-900 focus:bg-white focus:border-amber-500"
+                />
+              </div>
+
+              <div className="pt-2 border-t border-zinc-200 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddPriceModalOpen(false)}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl font-bold cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                >
+                  Lưu Bảng Giá Mới
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: PHÂN CÔNG TASK KTV & ĐỊNH MỨC HOA HỒNG */}
+      {isAddTaskModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full sm:max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-emerald-200 max-h-[90vh]">
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-bold">
+                  <Wrench className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">Phân Công Task KTV & Hoa Hồng</h3>
+                  <p className="text-[11px] text-emerald-100">Giao việc kỹ thuật, quy định mức thưởng hoa hồng & hạn deadline</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsAddTaskModalOpen(false)}
+                className="text-white/80 hover:text-white p-1.5 hover:bg-white/10 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveNewTask} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto custom-scrollbar flex-1 bg-white text-xs">
+              <div>
+                <label className="block font-bold text-zinc-800 mb-1">Tên Công Việc / Task Kỹ Thuật *</label>
+                <input
+                  type="text"
+                  required
+                  value={newTaskFormData.taskName}
+                  onChange={(e) => setNewTaskFormData({ ...newTaskFormData, taskName: e.target.value })}
+                  placeholder="VD: Thay Màn Hình & Fix TrueTone 13PM, KCS Kiểm Tra Lô 10 Máy Nhập..."
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:bg-white focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Loại Task Công Việc *</label>
+                  <select
+                    value={newTaskFormData.taskType}
+                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, taskType: e.target.value as any })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-emerald-500"
+                  >
+                    <option value="RETAIL_REPAIR">Sửa Chữa Dịch Vụ Khách Lẻ</option>
+                    <option value="INBOUND_QC">KCS Kiểm Tra Hàng Kho Nhập</option>
+                    <option value="WARRANTY">Bảo Hành 1 Đổi 1 / Sửa BH</option>
+                    <option value="SPECIAL_COMPONENT">Định Dạng / Ép Kính Linh Kiện Đặc Biệt</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Kỹ Thuật Viên Phụ Trách *</label>
+                  <select
+                    value={newTaskFormData.technician}
+                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, technician: e.target.value })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-emerald-500"
+                  >
+                    {users && users.filter(u => u.role === 'TECHNICIAN' || u.role === 'ADMIN' || u.role === 'MANAGER').length > 0 ? (
+                      users.filter(u => u.role === 'TECHNICIAN' || u.role === 'ADMIN' || u.role === 'MANAGER').map(u => (
+                        <option key={u.id} value={u.displayName}>
+                          {u.displayName} ({u.role})
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value="KTV Trọng (Chuyên Màn & Ép Kính)">KTV Trọng (Chuyên Màn & Ép Kính)</option>
+                        <option value="KTV Nam (Chuyên Mainboard & IC)">KTV Nam (Chuyên Mainboard & IC)</option>
+                        <option value="KTV Dương (Chuyên Pin & KCS)">KTV Dương (Chuyên Pin & KCS)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200">
+                  <label className="block font-bold text-amber-900 mb-1">Mức Hoa Hồng KTV (VNĐ) *</label>
+                  <input
+                    type="number"
+                    step={10000}
+                    required
+                    value={newTaskFormData.commissionAmount}
+                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, commissionAmount: Number(e.target.value) })}
+                    className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 font-mono font-black text-amber-900 text-sm focus:border-amber-500"
+                  />
+                  <span className="text-[10px] text-amber-700 mt-0.5 block">Sẽ được tự động tính vào lương KTV khi hoàn thành</span>
+                </div>
+
+                <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200">
+                  <label className="block font-bold text-emerald-900 mb-1">Báo Giá Dịch Vụ Khách (VNĐ)</label>
+                  <input
+                    type="number"
+                    step={50000}
+                    value={newTaskFormData.estimatedCost}
+                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, estimatedCost: Number(e.target.value) })}
+                    className="w-full bg-white border border-emerald-300 rounded-xl px-3 py-2 font-mono font-black text-emerald-900 text-sm focus:border-emerald-500"
+                  />
+                  <span className="text-[10px] text-emerald-700 mt-0.5 block">Nhập 0đ nếu là task QC nhập kho hoặc bảo hành miễn phí</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Tên Khách / Đối Tác</label>
+                  <input
+                    type="text"
+                    value={newTaskFormData.customerName}
+                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, customerName: e.target.value })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Model Dòng Máy</label>
+                  <input
+                    type="text"
+                    value={newTaskFormData.model}
+                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, model: e.target.value })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-zinc-700 mb-1">Hạn Hoàn Thành</label>
+                  <input
+                    type="date"
+                    value={newTaskFormData.expectedReturnDate}
+                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, expectedReturnDate: e.target.value })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-zinc-700 mb-1">Yêu Cầu & Ghi Chú Kỹ Thuật Chi Tiết</label>
+                <textarea
+                  rows={2}
+                  value={newTaskFormData.notes}
+                  onChange={(e) => setNewTaskFormData({ ...newTaskFormData, notes: e.target.value })}
+                  placeholder="Ghi rõ tiêu chuẩn kiểm tra hoặc chú ý bảo quản máy..."
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl p-2.5 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="pt-2 border-t border-zinc-200 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddTaskModalOpen(false)}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl font-bold cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                >
+                  Phân Công Task Ngay
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Smartphone, 
   Search, 
@@ -30,11 +30,23 @@ import {
   ArrowLeftRight,
   Settings,
   Store,
-  Clock
+  Clock,
+  TrendingUp,
+  Award,
+  UserCheck,
+  MapPin,
+  CheckCircle2,
+  DollarSign,
+  Scale,
+  CalendarClock,
+  RotateCcw,
+  SlidersHorizontal,
+  Bot,
+  PackageCheck
 } from 'lucide-react';
 import { auth, signInWithGoogle, logOut } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { UserAccount } from '../types';
+import { UserAccount, StoreBranch } from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 
 interface NavbarProps {
@@ -54,6 +66,21 @@ interface NavbarProps {
   transferCount?: number;
   userCount?: number;
   isFirebaseSyncing?: boolean;
+  selectedBranchId: string;
+  onBranchChange: (branchId: string) => void;
+  branches: StoreBranch[];
+}
+
+export interface MenuItemDef {
+  id: string;
+  label: string;
+  desc: string;
+  icon: any;
+  groupId: string;
+  groupName: string;
+  badge?: string;
+  color: string;
+  highlight?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -72,11 +99,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   warrantyCount,
   transferCount = 3,
   userCount = 5,
-  isFirebaseSyncing = true
+  isFirebaseSyncing = true,
+  selectedBranchId,
+  onBranchChange,
+  branches
 }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -91,9 +119,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const navItems = [
     { id: 'dashboard', label: 'Tổng Quan', icon: Layers },
+    { id: 'purchase-orders', label: 'Nhập Hàng (NCC)', icon: PackageCheck },
     { id: 'inventory', label: 'Kho IMEI', icon: Smartphone, badge: stockCount },
     { id: 'transfers', label: 'Chuyển Kho', icon: ArrowLeftRight, badge: transferCount },
-    { id: 'products', label: 'Linh Phụ Kiện', icon: Package },
+    { id: 'master-catalog', label: 'Danh Mục Hàng Hóa', icon: Database },
+    { id: 'products', label: 'Linh Phụ Kiện (Kho Kỹ Thuật)', icon: Package },
     { id: 'pos', label: 'Bán Hàng POS', icon: ShoppingCart },
     { id: 'invoices', label: 'Hóa Đơn', icon: FileText },
     { id: 'cashbook', label: 'Sổ Quỹ Thu Chi', icon: Wallet },
@@ -101,130 +131,11 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'crm', label: 'Khách Hàng (CRM)', icon: Users, badge: leadCount },
     { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: RefreshCw },
     { id: 'warranty', label: 'Bảo Hành & Sửa', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
+    { id: 'employee-dashboard', label: 'Dashboard Nhân Viên', icon: TrendingUp },
     { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
     { id: 'more', label: 'Nhiều Hơn (More)', icon: Menu },
     { id: 'users', label: 'Phân Quyền User', icon: ShieldCheck, badge: userCount },
     { id: 'erpnext-plan', label: 'Kiến Trúc ERPNext', icon: BookOpen },
-  ];
-
-  const allMenuItems = [
-    {
-      id: 'dashboard',
-      label: 'Tổng Quan Hệ Thống',
-      desc: 'Doanh thu, tồn kho, lợi nhuận gộp & tiến độ bán lẻ thời gian thực',
-      icon: Layers,
-      color: 'text-amber-600 bg-amber-50 border-amber-200'
-    },
-    {
-      id: 'invoices',
-      label: 'Quản Lý Hóa Đơn & Doanh Thu',
-      desc: 'Chi tiết từng đơn hàng, in hóa đơn K80, mã VietQR & quản lý công nợ',
-      icon: FileText,
-      color: 'text-orange-600 bg-orange-50 border-orange-200'
-    },
-    {
-      id: 'cashbook',
-      label: 'Sổ Quỹ & Dòng Tiền Thu Chi',
-      desc: 'Quản lý két tiền mặt, tài khoản VietQR, cổng MPOS, dòng tiền thuần & hạch toán',
-      icon: Wallet,
-      color: 'text-emerald-600 bg-emerald-50 border-emerald-200'
-    },
-    {
-      id: 'inventory',
-      label: 'Kho Máy 15 Số IMEI',
-      desc: 'Quản lý từng cây iPhone, pin, màn hình, tình trạng & giá vốn',
-      icon: Smartphone,
-      badge: `${stockCount} máy`,
-      color: 'text-orange-600 bg-orange-50 border-orange-200'
-    },
-    {
-      id: 'transfers',
-      label: 'Chuyển Kho & Điều Vận 3 Chi Nhánh',
-      desc: 'Điều chuyển máy & linh kiện giữa Kho Tổng, Kho PhoneHouse & Kho Xstore',
-      icon: ArrowLeftRight,
-      badge: `${transferCount} phiếu`,
-      color: 'text-orange-600 bg-orange-50 border-orange-200'
-    },
-    {
-      id: 'products',
-      label: 'Kho Linh Kiện & Phụ Kiện',
-      desc: 'Quản lý ốp lưng, sạc dự phòng, màn hình, pin thay thế, dịch vụ',
-      icon: Package,
-      color: 'text-orange-600 bg-orange-50 border-orange-200'
-    },
-    {
-      id: 'pos',
-      label: 'Điểm Bán Lẻ POS & Hóa Đơn K80',
-      desc: 'Lên đơn thanh toán, trừ tồn kho, tính trả góp 0% & in hóa đơn nhiệt',
-      icon: ShoppingCart,
-      color: 'text-emerald-600 bg-emerald-50 border-emerald-200'
-    },
-    {
-      id: 'partners',
-      label: 'Đối Tác, Khách Hàng 360° & Nhà Cung Cấp',
-      desc: 'Quản lý khách lẻ VIP, khách buôn sỉ, nguồn nhập Like New & đối soát công nợ',
-      icon: Building2,
-      color: 'text-cyan-600 bg-cyan-50 border-cyan-200'
-    },
-    {
-      id: 'crm',
-      label: 'Quản Lý Khách Hàng CRM',
-      desc: 'Nuôi dưỡng lead TikTok/Facebook/Zalo, kịch bản tư vấn AI',
-      icon: Users,
-      badge: `${leadCount} lead`,
-      color: 'text-blue-600 bg-blue-50 border-blue-200'
-    },
-    {
-      id: 'tradein',
-      label: 'Thu Cũ Đổi Mới (Trade-in AI)',
-      desc: 'Kiểm định 12 bước, AI định giá máy cũ và tính tiền bù',
-      icon: RefreshCw,
-      color: 'text-purple-600 bg-purple-50 border-purple-200'
-    },
-    {
-      id: 'warranty',
-      label: 'Phiếu Bảo Hành & Sửa Chữa',
-      desc: 'Bảo hành 1 đổi 1, tiếp nhận sửa chữa, AI chẩn đoán lỗi',
-      icon: Wrench,
-      badge: warrantyCount > 0 ? `${warrantyCount} phiếu` : undefined,
-      color: 'text-red-600 bg-red-50 border-red-200'
-    },
-    {
-      id: 'installments',
-      label: 'Đối Soát Trả Góp',
-      desc: 'Quản lý giải ngân trả góp từ HD Saison, Home Credit, Mpos',
-      icon: Crown,
-      color: 'text-blue-600 bg-blue-50 border-blue-200'
-    },
-    {
-      id: 'hr-attendance',
-      label: 'Chấm Công, Ca Làm & Lương Thưởng',
-      desc: 'Check-in 4 yếu tố, ma trận xếp ca tuần, bóc tách hoa hồng IMEI & duyệt lương 5 bước',
-      icon: Clock,
-      color: 'text-orange-600 bg-orange-50 border-orange-200'
-    },
-    {
-      id: 'store-settings',
-      label: 'Cài Đặt Cửa Hàng & Kho Hàng',
-      desc: 'Cấu hình chi nhánh, danh sách kho, máy in bill K80 & thông tin doanh nghiệp',
-      icon: Building2,
-      color: 'text-orange-600 bg-orange-50 border-orange-200'
-    },
-    {
-      id: 'users',
-      label: 'Quản Lý Người Dùng & Phân Quyền',
-      desc: 'Cấp tài khoản Admin, Cửa hàng trưởng, Nhân viên bán hàng, Kỹ thuật',
-      icon: ShieldCheck,
-      badge: `${userCount} user`,
-      color: 'text-rose-600 bg-rose-50 border-rose-200'
-    },
-    {
-      id: 'erpnext-plan',
-      label: 'Kiến Trúc ERPNext & Frappe',
-      desc: 'Tài liệu DocTypes, Docker compose & kế thừa doanh nghiệp',
-      icon: BookOpen,
-      color: 'text-indigo-600 bg-indigo-50 border-indigo-200'
-    }
   ];
 
   return (
@@ -259,6 +170,25 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Actions */}
             <div className="flex items-center space-x-2">
+              {/* Branch Selector (Desktop) */}
+              {currentUser && (
+                <div className="hidden lg:flex items-center space-x-1 bg-zinc-50 border border-zinc-200 rounded-xl px-2 py-1 mr-2">
+                  <MapPin className="w-3.5 h-3.5 text-zinc-400" />
+                  <select
+                    value={selectedBranchId}
+                    onChange={(e) => onBranchChange(e.target.value)}
+                    disabled={currentUser.role !== 'ADMIN' && currentUser.role !== 'MANAGER'}
+                    className="bg-transparent text-xs font-semibold text-zinc-700 outline-none border-none py-1 w-32 truncate appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-80"
+                    title={currentUser.role !== 'ADMIN' ? 'Chỉ Admin mới có thể đổi chi nhánh' : 'Chọn chi nhánh'}
+                  >
+                    <option value="ALL">Toàn Hệ Thống</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Mobile Search Button */}
               <button
                 onClick={onOpenQuickSearch}
@@ -323,11 +253,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </button>
 
-              {/* Menu 'Nhiều Hơn' Desktop Quick Toggle */}
+              {/* Menu 'Nhiều Hơn' 3 Gạch Desktop Quick Navigation */}
               <button
-                onClick={() => setIsMoreMenuOpen(true)}
-                className="p-2 text-zinc-600 hover:text-orange-600 hover:bg-orange-50 rounded-xl border border-zinc-200 transition-colors cursor-pointer"
-                title="Xem tất cả menu chức năng"
+                onClick={() => setActiveTab('more')}
+                className={`p-2 rounded-xl border transition-colors cursor-pointer ${
+                  activeTab === 'more'
+                    ? 'text-orange-600 bg-orange-50 border-orange-300'
+                    : 'text-zinc-600 hover:text-orange-600 hover:bg-orange-50 border-zinc-200'
+                }`}
+                title="Xem Menu Phân Hệ Đầy Đủ"
               >
                 <Menu className="w-4 h-4" />
               </button>
@@ -369,12 +303,12 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </header>
 
-      {/* Mobile Bottom Quick Navigation Bar (Matching exactly: Tổng quan | Hàng hoá | Bán hàng | Hoá đơn | Nhiều hơn) */}
+      {/* Mobile Bottom Quick Navigation Bar (5 nút chuẩn: Tổng quan | Hàng hoá | Bán hàng | Hoá đơn | Nhiều hơn ☰) */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 border-t border-orange-100 px-2 py-1.5 z-30 flex items-center justify-around shadow-lg backdrop-blur-md">
         <button
           onClick={() => setActiveTab('dashboard')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-colors ${
-            activeTab === 'dashboard' ? 'text-orange-600' : 'text-zinc-400 hover:text-zinc-600'
+            activeTab === 'dashboard' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
           <Layers className="w-4 h-4 mb-0.5" />
@@ -384,7 +318,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={() => setActiveTab('inventory')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold relative transition-colors ${
-            activeTab === 'inventory' ? 'text-orange-600' : 'text-zinc-400 hover:text-zinc-600'
+            activeTab === 'inventory' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
           <Package className="w-4 h-4 mb-0.5" />
@@ -400,7 +334,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onOpenPOSModal();
           }}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-colors ${
-            activeTab === 'pos' ? 'text-orange-600' : 'text-zinc-400 hover:text-zinc-600'
+            activeTab === 'pos' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
           <ShoppingCart className="w-4 h-4 mb-0.5" />
@@ -417,166 +351,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span>Hoá đơn</span>
         </button>
 
+        {/* Nút 3 Gạch Chân Trang Mở Trang Nhiều Hơn / Menu Hệ Thống */}
         <button
           onClick={() => setActiveTab('more')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-colors ${
             activeTab === 'more' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
-          <Menu className="w-4 h-4 mb-0.5" />
-          <span>Menu</span>
+          <Menu className={`w-4 h-4 mb-0.5 ${activeTab === 'more' ? 'text-orange-600' : 'text-zinc-400'}`} />
+          <span className={activeTab === 'more' ? 'text-orange-600' : 'text-zinc-500'}>Nhiều hơn</span>
         </button>
       </div>
-
-      {/* Full "Menu" Drawer Modal */}
-      {isMoreMenuOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/60 backdrop-blur-xs animate-fadeIn">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-orange-100 space-y-4 max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-              <div className="flex items-center space-x-3">
-                <PhoneHouseLogo size="sm" showText={false} />
-                <div>
-                  <h3 className="font-bold text-zinc-900 text-base">
-                    PHONE HOUSE • Menu Hệ Thống
-                  </h3>
-                  <p className="text-xs text-zinc-500">
-                    Phím tắt tiện ích & quản trị nhanh
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsMoreMenuOpen(false)}
-                className="p-2 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Quick Tools & Admin Shortcuts */}
-            <div className="p-3.5 bg-orange-50/50 rounded-2xl border border-orange-200/60 space-y-2 text-xs">
-              <span className="font-bold text-orange-950 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-orange-600" />
-                Công Cụ Trợ Lực Nhanh
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenAICopilot();
-                  }}
-                  className="p-2.5 bg-white hover:bg-orange-100/50 border border-orange-200/80 rounded-xl font-semibold text-zinc-800 text-left flex items-center justify-between text-xs cursor-pointer shadow-2xs"
-                >
-                  <span className="flex items-center gap-1.5">✨ AI Copilot</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-orange-400" />
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenPOSModal();
-                  }}
-                  className="p-2.5 bg-white hover:bg-orange-100/50 border border-orange-200/80 rounded-xl font-semibold text-zinc-800 text-left flex items-center justify-between text-xs cursor-pointer shadow-2xs"
-                >
-                  <span className="flex items-center gap-1.5">🛒 Bán POS</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-orange-400" />
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsMoreMenuOpen(false);
-                    onOpenNewDeviceModal();
-                  }}
-                  className="p-2.5 bg-white hover:bg-orange-100/50 border border-orange-200/80 rounded-xl font-semibold text-zinc-800 text-left flex items-center justify-between text-xs cursor-pointer shadow-2xs"
-                >
-                  <span className="flex items-center gap-1.5">➕ Nhập máy</span>
-                  <ChevronRight className="w-3.5 h-3.5 text-orange-400" />
-                </button>
-              </div>
-            </div>
-
-            {/* All System Modules & Sub-pages Grid */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs font-bold text-zinc-500 uppercase tracking-wider">
-                <span>Tất Cả Phân Hệ & Trang Chức Năng</span>
-                <span className="text-[#FF4B16]">{allMenuItems.length} phân hệ</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[380px] overflow-y-auto pr-1">
-                {allMenuItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setActiveTab(item.id);
-                        setIsMoreMenuOpen(false);
-                      }}
-                      className={`p-2.5 rounded-2xl border text-left flex items-start space-x-3 transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-orange-50/90 border-orange-300 ring-2 ring-orange-500/20'
-                          : 'bg-zinc-50/80 hover:bg-orange-50/50 border-zinc-200/80 hover:border-orange-200'
-                      }`}
-                    >
-                      <div className={`p-2 rounded-xl border flex-shrink-0 mt-0.5 ${item.color}`}>
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-xs text-zinc-900 truncate">
-                            {item.label}
-                          </span>
-                          {item.badge && (
-                            <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded-full bg-orange-100 text-[#FF4B16] ml-1">
-                              {item.badge}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-zinc-500 line-clamp-1 mt-0.5">
-                          {item.desc}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Login / Switch Account Card inside Drawer */}
-            <div className="bg-gradient-to-r from-zinc-900 to-zinc-800 text-white rounded-2xl p-4 flex items-center justify-between shadow-md">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400">
-                  <Crown className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-zinc-300">Tài khoản hiện tại:</div>
-                  <div className="text-sm font-bold text-amber-300">
-                    {currentUser ? `${currentUser.displayName} (${currentUser.role})` : 'Chưa đăng nhập'}
-                  </div>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setIsMoreMenuOpen(false);
-                  onOpenLoginModal();
-                }}
-                className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all shadow-xs cursor-pointer"
-              >
-                Đổi Tài Khoản
-              </button>
-            </div>
-
-            {/* Footer Status in Drawer */}
-            <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-2 border-t border-zinc-100">
-              <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Firebase Cloud Firestore Online</span>
-              </span>
-              <span className="font-mono">PHONE HOUSE v2.0</span>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

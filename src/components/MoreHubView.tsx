@@ -12,7 +12,7 @@ import {
   RotateCcw, 
   Wallet, 
   Sparkles, 
-  Package, 
+  Package, Database, 
   CheckSquare, 
   Download, 
   Upload, 
@@ -67,7 +67,8 @@ import {
   CircleDollarSign,
   Scale,
   Store,
-  Warehouse
+  Warehouse,
+  PackageCheck
 } from 'lucide-react';
 
 interface MoreHubViewProps {
@@ -110,6 +111,13 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
 
   // Preorders mock state
   const [preorders] = useState([
+    {
+      id: 'master-catalog',
+      label: 'Danh Mục Hàng Hóa Gốc',
+      subtitle: 'SKU Máy, Linh Kiện, Phụ Kiện',
+      icon: Database,
+      color: 'text-indigo-600',
+    },
     {
       id: 'PRE-8841',
       customer: 'Trần Văn Hoàng',
@@ -228,6 +236,14 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       badge: 'Trực quan'
     },
     {
+      id: 'purchase-orders',
+      label: 'Nhập Hàng (Phiếu Nhập NCC)',
+      subtitle: 'Quản lý phiếu nhập máy & phụ kiện theo NCC',
+      icon: PackageCheck,
+      color: 'text-orange-600',
+      badge: 'Nhập hàng NCC'
+    },
+    {
       id: 'inventory',
       label: 'Kho iPhone IMEI 15 Số',
       subtitle: 'Pin %, Lần sạc, LL/A, VN/A',
@@ -244,10 +260,17 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       badge: '3 Chi nhánh'
     },
     {
+      id: 'master-catalog',
+      label: 'Danh Mục Hàng Hóa Gốc',
+      subtitle: 'Tạo SKU Máy, Linh Kiện...',
+      icon: Database,
+      color: 'text-indigo-600',
+    },
+    {
       id: 'products',
       label: 'Kho Linh Kiện & Phụ Kiện',
       subtitle: 'Màn hình, Pin zin, Ốp sạc',
-      icon: Package,
+      icon: Package, Database,
       color: 'text-amber-600',
       badge: 'Linh phụ kiện'
     },
@@ -322,6 +345,14 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       icon: Scale,
       color: 'text-blue-600',
       badge: 'Giải ngân'
+    },
+    {
+      id: 'employee-dashboard',
+      label: 'Dashboard Nhân Viên (KPI)',
+      subtitle: 'Hóa đơn bán, Doanh thu vs Mục tiêu, Xử lý BH',
+      icon: TrendingUp,
+      color: 'text-orange-500',
+      badge: 'KPI Cá Nhân'
     },
     {
       id: 'hr-attendance',
@@ -416,527 +447,266 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           </div>
         </div>
 
-        {/* ================= 1. BÁN HÀNG & THU NGÂN (SALES & POS) ================= */}
+        {/* ================= 1. BÁN HÀNG & DỊCH VỤ ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
             <ShoppingCart className="w-5 h-5 text-orange-500 shrink-0" />
-            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Bán Hàng & Thu Ngân</h2>
+            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Bán Hàng & Dịch Vụ</h2>
           </div>
-
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <button
-              onClick={() => {
-                onSelectTab('pos');
-                onOpenPOSModal();
-              }}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <ShoppingCart className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => { onSelectTab('pos'); onOpenPOSModal(); }} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <ShoppingCart className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Bán hàng POS</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Tạo đơn quét mã</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Bán Hàng POS</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Lên đơn, quét mã</span>
               </div>
             </button>
-
-            <button
-              onClick={() => onSelectTab('invoices')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <FileText className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('invoices')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <FileText className="w-5 h-5 text-amber-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Hóa đơn & Bill</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Chi tiết & In K80</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Hóa Đơn & Bill</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Chi tiết & In K80</span>
               </div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('preorders')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <CalendarClock className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('tradein')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <RefreshCw className="w-5 h-5 text-emerald-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Đặt hàng trước</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Pre-order nhận cọc</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-emerald-600 truncate">Thu Cũ Đổi Mới</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Định giá máy cũ</span>
               </div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('returns')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <RotateCcw className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('warranty')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <Wrench className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Đổi trả hàng</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Đổi trả khách</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-blue-600 truncate">Bảo Hành & Sửa Chữa</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Nhận máy, báo giá</span>
               </div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('services')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group col-span-2 sm:col-span-1"
-            >
-              <Sparkles className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Mua dịch vụ</span>
-                <span className="text-[10px] text-zinc-400 truncate block">AppleCare+ & Bảo hành VIP</span>
-              </div>
+            {/* Mock Features */}
+            <button onClick={() => setActiveSubModal('preorders')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-50 border border-transparent transition-all text-left cursor-pointer group">
+              <CalendarClock className="w-4 h-4 text-zinc-400 group-hover:text-orange-500 shrink-0" />
+              <div className="min-w-0"><span className="text-[11px] sm:text-xs font-medium text-zinc-600 truncate block">Đặt hàng (Pre-order)</span></div>
+            </button>
+            <button onClick={() => setActiveSubModal('returns')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-50 border border-transparent transition-all text-left cursor-pointer group">
+              <RotateCcw className="w-4 h-4 text-zinc-400 group-hover:text-orange-500 shrink-0" />
+              <div className="min-w-0"><span className="text-[11px] sm:text-xs font-medium text-zinc-600 truncate block">Đổi trả hàng</span></div>
             </button>
           </div>
         </div>
 
-        {/* ================= 2. KHO HÀNG & KỸ THUẬT (INVENTORY & TECH) ================= */}
+        {/* ================= 2. KHO HÀNG & VẬN HÀNH ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
-            <Smartphone className="w-5 h-5 text-amber-500 shrink-0" />
-            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Kho Hàng & Kỹ Thuật</h2>
+            <Package className="w-5 h-5 text-amber-500 shrink-0" />
+            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Kho Hàng & Vận Hành</h2>
           </div>
-
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <button
-              onClick={() => onSelectTab('inventory')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Package className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('inventory')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <Smartphone className="w-5 h-5 text-amber-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Kho iPhone</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Quản lý IMEI & Pin %</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Kho IMEI Thiết Bị</span>
+                <span className="text-[10px] text-zinc-500 truncate block">iPhone, iPad, Mac</span>
               </div>
             </button>
-
-            <button
-              onClick={() => onSelectTab('products')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Box className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('products')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <Box className="w-5 h-5 text-orange-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Linh Phụ Kiện</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Quản lý SKU linh phụ kiện</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Kho Linh Phụ Kiện</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Ốp, Sạc, Màn hình</span>
               </div>
             </button>
-
-            <button
-              onClick={() => {
-                onSelectTab('inventory');
-                onOpenNewDeviceModal();
-              }}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Download className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('purchase-orders')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <PackageCheck className="w-5 h-5 text-emerald-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Nhập máy mới</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Thêm IMEI vào kho</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Nhập Hàng NCC</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Tạo Phiếu nhập kho</span>
               </div>
             </button>
-
-            <button
-              onClick={() => onSelectTab('warranty')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <ShieldCheck className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('transfers')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <ArrowLeftRight className="w-5 h-5 text-blue-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Phiếu bảo hành</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Tra cứu theo IMEI</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Chuyển Kho Nội Bộ</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Điều vận liên chi nhánh</span>
               </div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('repairs')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Wrench className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Sửa chữa máy</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Tiếp nhận & Ép kính</span>
-              </div>
+            {/* Mock Features */}
+            <button onClick={() => setActiveSubModal('audits')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-50 border border-transparent transition-all text-left cursor-pointer group">
+              <CheckSquare className="w-4 h-4 text-zinc-400 group-hover:text-orange-500 shrink-0" />
+              <div className="min-w-0"><span className="text-[11px] sm:text-xs font-medium text-zinc-600 truncate block">Kiểm kê định kỳ</span></div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('audits')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <CheckSquare className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Kiểm kê kho</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Cân bằng tồn thực tế</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('stock_transfers')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <ArrowLeftRight className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Chuyển kho</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Luân chuyển chi nhánh</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('supplier_returns')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Upload className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Trả hàng nhập</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Hoàn trả nhà cung cấp</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('write_offs')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Trash2 className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Xuất hủy máy</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Máy hỏng & LK lỗi</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('internal_use')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group col-span-2"
-            >
-              <Share2 className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Xuất nội bộ & Demo</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Máy trưng bày trải nghiệm tại showroom</span>
-              </div>
+            <button onClick={() => setActiveSubModal('shipments')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-50 border border-transparent transition-all text-left cursor-pointer group">
+              <Truck className="w-4 h-4 text-zinc-400 group-hover:text-orange-500 shrink-0" />
+              <div className="min-w-0"><span className="text-[11px] sm:text-xs font-medium text-zinc-600 truncate block">Vận đơn bưu cục</span></div>
             </button>
           </div>
         </div>
 
-        {/* ================= TRỢ LÝ AI COPILOT CARD (MOVED BEFORE CRM) ================= */}
-        <div 
-          onClick={onOpenAICopilot}
-          className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 text-white shadow-sm shadow-orange-500/10 flex items-center justify-between cursor-pointer hover:shadow-md transition-all border border-amber-300/30"
-        >
-          <div className="flex items-center space-x-3 min-w-0">
-            <Bot className="w-6 h-6 text-white shrink-0 animate-bounce" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <h3 className="text-xs sm:text-sm font-semibold truncate">Trợ Lý AI Phone House Copilot</h3>
-                <span className="bg-white text-orange-700 text-[9px] font-semibold px-1.5 py-0.2 rounded-md shadow-2xs shrink-0">
-                  Miễn Phí
-                </span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-orange-100 truncate mt-0.5">
-                Phân tích kho IMEI, gợi ý giá thu cũ đổi mới, tối ưu hóa lợi nhuận
-              </p>
-            </div>
-          </div>
-          <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 text-amber-200 shrink-0 ml-2" />
-        </div>
-
-        {/* ================= 3. KHÁCH HÀNG & CRM (CRM & MARKETING) ================= */}
+        {/* ================= 3. KHÁCH HÀNG & ĐỐI TÁC ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
             <Users className="w-5 h-5 text-orange-500 shrink-0" />
-            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Khách Hàng & CRM</h2>
+            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Khách Hàng & Đối Tác</h2>
           </div>
-
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <button
-              onClick={() => onSelectTab('crm')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Users className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('crm')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <MessageSquare className="w-5 h-5 text-blue-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Khách hàng CRM</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Phễu Leads & Tương tác</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Khách Hàng CRM</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Quản lý Phễu & Zalo</span>
               </div>
             </button>
-
-            <button
-              onClick={() => onSelectTab('tradein')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <RefreshCw className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('partners')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <Building2 className="w-5 h-5 text-amber-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Thu cũ đổi mới</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Thẩm định AI & Trợ giá</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Đối Tác & NCC</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Sổ nợ nhà cung cấp</span>
               </div>
             </button>
-
-            <button
-              onClick={() => onSelectTab('crm')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <MessageSquare className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Hội thoại CSKH</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Tích hợp FB & Zalo</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('vip_members')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Award className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Khách VIP & Điểm</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Tích lũy K-Point</span>
-              </div>
+            {/* Mock */}
+            <button onClick={() => setActiveSubModal('vip_members')} className="col-span-2 flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-50 border border-transparent transition-all text-left cursor-pointer group">
+              <Award className="w-4 h-4 text-zinc-400 group-hover:text-orange-500 shrink-0" />
+              <div className="min-w-0"><span className="text-[11px] sm:text-xs font-medium text-zinc-600 truncate block">Tích điểm Khách VIP (K-Point)</span></div>
             </button>
           </div>
         </div>
 
-        {/* ================= 4. KẾ TOÁN & DÒNG TIỀN (FINANCE & CASHFLOW) ================= */}
+        {/* ================= 4. KẾ TOÁN & TÀI CHÍNH ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
-            <Wallet className="w-5 h-5 text-amber-500 shrink-0" />
-            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Kế Toán & Dòng Tiền</h2>
+            <Wallet className="w-5 h-5 text-emerald-500 shrink-0" />
+            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Kế Toán & Tài Chính</h2>
           </div>
-
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <button
-              onClick={() => onSelectTab('cashbook')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Wallet className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('dashboard')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <TrendingUp className="w-5 h-5 text-emerald-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Sổ quỹ thu chi</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Tiền mặt & Ngân hàng</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Báo Cáo & Lợi Nhuận</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Biểu đồ tổng quan</span>
               </div>
             </button>
-
-            <button
-              onClick={() => onSelectTab('partners')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Building2 className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('cashbook')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <CircleDollarSign className="w-5 h-5 text-orange-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Nhà cung cấp</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Nguồn máy sỉ & Công nợ</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Sổ Quỹ Thu Chi</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Tiền mặt, Ngân hàng</span>
               </div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('shipments')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Truck className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('installments')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <Scale className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Vận đơn bưu cục</span>
-                <span className="text-[10px] text-zinc-400 truncate block">GHN, GHTK, Viettel</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Đối Soát Trả Góp</span>
+                <span className="text-[10px] text-zinc-500 truncate block">HD Saison, HomeCredit</span>
               </div>
             </button>
+            <button onClick={() => setActiveSubModal('tax_accounting')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-50 border border-transparent transition-all text-left cursor-pointer group">
+              <FileSpreadsheet className="w-4 h-4 text-zinc-400 group-hover:text-orange-500 shrink-0" />
+              <div className="min-w-0"><span className="text-[11px] sm:text-xs font-medium text-zinc-600 truncate block">Thuế & VAT</span></div>
+            </button>
+          </div>
+        </div>
 
-            <button
-              onClick={() => setActiveSubModal('carriers')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <UserCheck className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+        {/* ================= 5. NHÂN SỰ & QUẢN TRỊ ================= */}
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
+          <div className="flex items-center space-x-2 mb-3">
+            <UserCheck className="w-5 h-5 text-blue-500 shrink-0" />
+            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Nhân Sự & Quản Trị</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+            <button onClick={() => onSelectTab('hr-attendance')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <Clock className="w-5 h-5 text-[#FF4B16] group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Đối soát COD</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Tiền thu hộ bưu cục</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Hub Nhân Sự & Lương</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Bảng công, Xếp ca, Lương KTV</span>
               </div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('end_of_day')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Calendar className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('employee-dashboard')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <Award className="w-5 h-5 text-amber-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Chốt ca cuối ngày</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Kiểm két & Bàn giao</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">KPI Cá Nhân (Nhân viên)</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Theo dõi target cá nhân</span>
               </div>
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('tax_accounting')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <FileSpreadsheet className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('users')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <ShieldCheck className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Thuế & Hóa đơn VAT</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Kê khai thuế khoán</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Phân Quyền Hệ Thống</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Quản lý User & Vai trò</span>
               </div>
             </button>
           </div>
         </div>
 
-        {/* ================= 5. NHÂN SỰ & TIỀN LƯƠNG (STAFF & PAYROLL) ================= */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center space-x-2">
-              <Users className="w-5 h-5 text-orange-500 shrink-0" />
-              <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Nhân Sự & Tiền Lương</h2>
+        {/* ================= TRỢ LÝ AI COPILOT CARD ================= */}
+        <div className="relative overflow-hidden bg-zinc-900 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-lg border border-zinc-800 group">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Sparkle className="w-24 h-24 text-white" />
+          </div>
+          <div className="relative z-10 flex items-center justify-between">
+            <div>
+              <div className="flex items-center space-x-2 text-emerald-400 mb-1">
+                <Sparkles className="w-4 h-4" />
+                <span className="text-[10px] font-bold uppercase tracking-widest">Trí Tuệ Nhân Tạo</span>
+              </div>
+              <h3 className="text-base sm:text-lg font-black text-white">Trợ lý AI Copilot</h3>
+              <p className="text-[11px] sm:text-xs text-zinc-400 mt-1 max-w-[200px] sm:max-w-[250px]">
+                Phân tích dữ liệu, tự động tạo nội dung CRM và gợi ý chiến lược.
+              </p>
             </div>
-            <span className="text-[11px] text-orange-600 font-medium">3 nhân sự hoạt động</span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3">
             <button
-              onClick={() => onSelectTab('users')}
-              className="flex items-center space-x-2.5 p-2 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
+              onClick={onOpenAICopilot}
+              className="px-4 py-2 bg-white text-zinc-900 font-bold text-xs rounded-xl shadow-lg hover:scale-105 transition-transform cursor-pointer flex items-center space-x-1.5"
             >
-              <Users className="w-4 h-4 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <span className="text-xs font-medium text-zinc-800 group-hover:text-orange-600 truncate">Nhân viên</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('schedule')}
-              className="flex items-center space-x-2.5 p-2 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Clock className="w-4 h-4 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <span className="text-xs font-medium text-zinc-800 group-hover:text-orange-600 truncate">Lịch làm việc</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('attendance')}
-              className="flex items-center space-x-2.5 p-2 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <CheckSquare className="w-4 h-4 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <span className="text-xs font-medium text-zinc-800 group-hover:text-orange-600 truncate">Chấm công</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('payroll')}
-              className="flex items-center space-x-2.5 p-2 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <DollarSign className="w-4 h-4 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <span className="text-xs font-medium text-zinc-800 group-hover:text-orange-600 truncate">Bảng lương</span>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('commissions')}
-              className="flex items-center space-x-2.5 p-2 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Percent className="w-4 h-4 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <span className="text-xs font-medium text-zinc-800 group-hover:text-orange-600 truncate">Hoa hồng</span>
-            </button>
-
-            <button
-              onClick={() => onSelectTab('users')}
-              className="flex items-center space-x-2.5 p-2 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Settings className="w-4 h-4 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <span className="text-xs font-medium text-zinc-800 group-hover:text-orange-600 truncate">Phân quyền</span>
+              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              <span>Mở AI</span>
             </button>
           </div>
         </div>
 
-        {/* ================= 6. BÁO CÁO, TÀI CHÍNH & AI ================= */}
+        {/* ================= 6. CÀI ĐẶT HỆ THỐNG ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
-            <TrendingUp className="w-5 h-5 text-orange-500 shrink-0" />
-            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Báo Cáo & Dịch Vụ Mở Rộng</h2>
+            <Settings className="w-5 h-5 text-zinc-600 shrink-0" />
+            <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Cài Đặt Hệ Thống</h2>
           </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            <button
-              onClick={() => onSelectTab('dashboard')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <TrendingUp className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Biểu đồ doanh thu</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Phân tích lợi nhuận</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('vietqr_speaker')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <QrCode className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Loa VietQR Ting Ting</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Báo tiền về quầy</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('business_loan')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <CreditCard className="w-5 h-5 text-orange-500 group-hover:text-orange-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Vay vốn nhập hàng</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Hạn mức ngân hàng</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setActiveSubModal('hardware')}
-              className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <Printer className="w-5 h-5 text-amber-500 group-hover:text-amber-600 group-hover:scale-110 transition-all shrink-0" />
-              <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 block group-hover:text-orange-600 truncate">Thiết bị phần cứng</span>
-                <span className="text-[10px] text-zinc-400 truncate block">Máy in K80 & Barcode</span>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {/* ================= 7. HỆ THỐNG & CÀI ĐẶT ================= */}
-        <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="space-y-1">
-            <button
-              onClick={() => onSelectTab('store-settings')}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
+            <button onClick={() => onSelectTab('store-settings')} className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
               <div className="flex items-center space-x-3 min-w-0">
                 <Store className="w-5 h-5 text-orange-600 group-hover:text-orange-700 shrink-0 transition-colors" />
                 <div className="min-w-0">
-                  <span className="text-xs sm:text-sm font-bold text-zinc-900 group-hover:text-orange-600 truncate block">Cài Đặt Cửa Hàng & Kho</span>
-                  <span className="text-[10px] sm:text-xs text-zinc-500 truncate block">Thiết lập chi nhánh, kho hàng, mẫu in bill K80 & thương hiệu</span>
+                  <span className="text-xs sm:text-sm font-bold text-zinc-900 group-hover:text-orange-600 truncate block">Cài Đặt Cửa Hàng & In Bill</span>
+                  <span className="text-[10px] sm:text-xs text-zinc-500 truncate block">Mẫu in K80, thông tin, logo</span>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-zinc-400 shrink-0" />
             </button>
-
-            <button
-              onClick={() => onSelectTab('erpnext-plan')}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
+            <button onClick={() => onSelectTab('erpnext-plan')} className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
               <div className="flex items-center space-x-3 min-w-0">
-                <BookOpen className="w-5 h-5 text-zinc-500 group-hover:text-orange-600 shrink-0 transition-colors" />
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 group-hover:text-orange-600 truncate">Kiến trúc Chuỗi Bán Lẻ ERPNext Chuẩn Quốc Tế</span>
+                <BookOpen className="w-5 h-5 text-amber-600 group-hover:text-orange-700 shrink-0 transition-colors" />
+                <div className="min-w-0">
+                  <span className="text-xs sm:text-sm font-bold text-zinc-900 group-hover:text-orange-600 truncate block">Kiến Trúc ERPNext Chuỗi Bán Lẻ</span>
+                  <span className="text-[10px] sm:text-xs text-zinc-500 truncate block">Sẵn sàng Scale lên Enterprise</span>
+                </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-zinc-300 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-zinc-400 shrink-0" />
             </button>
-
-            <button
-              onClick={() => window.open('tel:19006522')}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
+            {/* Quick settings mock */}
+            <button onClick={() => setActiveSubModal('vietqr_speaker')} className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-zinc-50 border border-transparent transition-all text-left cursor-pointer group">
               <div className="flex items-center space-x-3 min-w-0">
-                <PhoneCall className="w-5 h-5 text-zinc-500 group-hover:text-orange-600 shrink-0 transition-colors" />
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 group-hover:text-orange-600 truncate">Tổng đài hỗ trợ kỹ thuật: <strong>1900 6522</strong></span>
+                <QrCode className="w-4 h-4 text-zinc-400 shrink-0 transition-colors" />
+                <span className="text-[11px] sm:text-xs font-medium text-zinc-600 truncate">Cấu hình loa VietQR Ting Ting</span>
               </div>
-              <ChevronRight className="w-4 h-4 text-zinc-300 shrink-0" />
+              <ChevronRight className="w-3 h-3 text-zinc-300 shrink-0" />
             </button>
-
-            <button
-              onClick={() => setActiveSubModal('language')}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group"
-            >
-              <div className="flex items-center space-x-3 min-w-0">
-                <Languages className="w-5 h-5 text-zinc-500 group-hover:text-orange-600 shrink-0 transition-colors" />
-                <span className="text-xs sm:text-sm font-medium text-zinc-800 group-hover:text-orange-600 truncate">Ngôn ngữ: Tiếng Việt (VN)</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-zinc-300 shrink-0" />
-            </button>
-
-            <button
-              onClick={onLogout}
-              className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-red-50 text-red-600 transition-all text-left cursor-pointer group"
-            >
+            <button onClick={onLogout} className="w-full mt-2 flex items-center justify-between p-2.5 rounded-xl hover:bg-red-50 text-red-600 transition-all text-left cursor-pointer group border border-red-100">
               <div className="flex items-center space-x-3 min-w-0">
                 <LogOut className="w-5 h-5 text-red-500 shrink-0 transition-colors" />
-                <span className="text-xs sm:text-sm font-semibold truncate">Đăng xuất ({currentUser?.fullName || 'Tài khoản'})</span>
+                <span className="text-xs sm:text-sm font-bold truncate">Đăng xuất ({currentUser?.fullName || 'Tài khoản'})</span>
               </div>
               <ChevronRight className="w-4 h-4 text-red-400 shrink-0" />
             </button>
           </div>
         </div>
-
+        
         {/* Footer info */}
         <div className="text-center py-2 text-[10px] text-zinc-400">
           Phone House POS Suite v3.2.0 • Hệ thống bán lẻ iPhone chuyên nghiệp

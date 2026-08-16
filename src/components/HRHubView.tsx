@@ -10,7 +10,7 @@ import {
   INITIAL_MONTHLY_PAYROLL_SLIPS,
   INITIAL_POLICIES
 } from '../data/attendanceData';
-import { AttendanceStaffMobileView } from './AttendanceStaffMobileView';
+
 import { AttendanceAdminView } from './AttendanceAdminView';
 import { 
   Smartphone, 
@@ -36,17 +36,22 @@ import {
   Compass,
   Zap
 } from 'lucide-react';
-import { LeaveRequest } from '../types';
+import { LeaveRequest, SalesInvoice, WarrantyTicket } from '../types';
 
-export const HRHubView: React.FC = () => {
+export interface HRHubViewProps {
+  attendanceRecords?: import('../types').AttendanceRecord[];
+}
+
+export const HRHubView: React.FC<HRHubViewProps> = ({ attendanceRecords = [], invoices = [], warrantyTickets = [] }) => {
   // Mode: 'STAFF_MOBILE' | 'ADMIN_DESKTOP'
-  const [activeViewMode, setActiveViewMode] = useState<'STAFF_MOBILE' | 'ADMIN_DESKTOP'>('STAFF_MOBILE');
-  const [adminSubTab, setAdminSubTab] = useState<'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'APPROVAL' | 'POLICIES'>('OVERVIEW');
+  const activeViewMode = 'ADMIN_DESKTOP';
+  const [adminSubTab, setAdminSubTab] = useState<'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'TECH_COMMISSION' | 'APPROVAL' | 'POLICIES'>('OVERVIEW');
 
   // State
   const [staffList, setStaffList] = useState(INITIAL_STAFF_MEMBERS);
   const [currentStaffId, setCurrentStaffId] = useState<string>('STAFF_001');
   const [todayAttendance, setTodayAttendance] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
+  const currentAttendanceList = attendanceRecords.length > 0 ? attendanceRecords : todayAttendance;
   const [weeklySchedules, setWeeklySchedules] = useState(INITIAL_WEEKLY_SCHEDULES);
   const [leaveRequests, setLeaveRequests] = useState(INITIAL_LEAVE_REQUESTS);
   const [commissions, setCommissions] = useState(INITIAL_COMMISSIONS);
@@ -207,11 +212,20 @@ export const HRHubView: React.FC = () => {
     {
       id: 'PAYROLL',
       label: 'Bảng Lương & Hoa Hồng',
-      desc: 'Hoa hồng IMEI, điểm kỹ thuật & in phiếu K80',
+      desc: 'Tính lương, thưởng & in phiếu lương nhân viên',
       icon: DollarSign,
       color: 'text-amber-600 bg-amber-50 border-amber-200',
       mode: 'ADMIN_DESKTOP' as const,
       adminTab: 'PAYROLL' as const
+    },
+    {
+      id: 'TECH_COMMISSION',
+      label: 'Hoa hồng Kỹ thuật',
+      desc: 'Quản lý thu nhập kỹ thuật viên (KCS, Sửa chữa)',
+      icon: Monitor,
+      color: 'text-indigo-600 bg-indigo-50 border-indigo-200',
+      mode: 'ADMIN_DESKTOP' as const,
+      adminTab: 'TECH_COMMISSION' as const
     },
     {
       id: 'APPROVAL',
@@ -231,80 +245,23 @@ export const HRHubView: React.FC = () => {
       mode: 'ADMIN_DESKTOP' as const,
       adminTab: 'POLICIES' as const
     },
-    {
-      id: 'MOBILE_CHECKIN',
-      label: 'App Mobile Nhân Viên',
-      desc: 'Check-in điện thoại, xem KPI & nộp đơn nghỉ',
-      icon: Smartphone,
-      color: 'text-[#FF4B16] bg-orange-100/70 border-orange-300',
-      mode: 'STAFF_MOBILE' as const,
-      adminTab: 'OVERVIEW' as const
-    }
+    
   ];
 
   return (
     <div className="space-y-4">
-      {/* MODE TOGGLE BAR: PHONE APP (NHÂN VIÊN) vs WEB DASHBOARD (QUẢN LÝ) */}
-      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-zinc-200/80 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF4B16] to-amber-500 text-white flex items-center justify-center font-black text-sm shadow-xs">
-            <Clock className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="font-extrabold text-sm text-zinc-900 flex items-center space-x-1.5">
-              <span>Hệ Thống Chấm Công, Ca Làm & Lương PhoneHouse</span>
-              <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2 py-0.5 rounded-full">v2.4 HRM</span>
-            </div>
-            <div className="text-xs text-zinc-500">
-              Biểu tượng các phân hệ nghiệp vụ & chế độ xem App Mobile (Nhân viên) / Web Desktop (Quản lý)
-            </div>
-          </div>
+      {/* HEADER */}
+      <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF4B16] to-amber-500 text-white flex items-center justify-center font-black text-sm shadow-xs">
+          <Building2 className="w-5 h-5" />
         </div>
-
-        <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
-          {/* Switch Active Staff when in Staff mode */}
-          {activeViewMode === 'STAFF_MOBILE' && (
-            <div className="flex items-center space-x-1 bg-zinc-50 border border-zinc-200 px-2.5 py-1.5 rounded-xl text-xs font-bold">
-              <Users className="w-3.5 h-3.5 text-zinc-400" />
-              <select
-                value={currentStaffId}
-                onChange={(e) => setCurrentStaffId(e.target.value)}
-                className="bg-transparent border-none text-xs font-bold text-zinc-800 focus:outline-none cursor-pointer"
-              >
-                {staffList.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.role})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Toggle View Mode Button */}
-          <div className="bg-zinc-100 p-1 rounded-xl flex items-center space-x-1 text-xs font-bold">
-            <button
-              onClick={() => setActiveViewMode('STAFF_MOBILE')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                activeViewMode === 'STAFF_MOBILE'
-                  ? 'bg-[#FF4B16] text-white shadow-2xs font-extrabold'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>App Nhân Viên (Mobile)</span>
-            </button>
-
-            <button
-              onClick={() => setActiveViewMode('ADMIN_DESKTOP')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                activeViewMode === 'ADMIN_DESKTOP'
-                  ? 'bg-[#252525] text-white shadow-2xs font-extrabold'
-                  : 'text-zinc-600 hover:text-zinc-900'
-              }`}
-            >
-              <Monitor className="w-3.5 h-3.5" />
-              <span>Quản Lý (Web Desktop)</span>
-            </button>
+        <div>
+          <div className="font-extrabold text-sm text-zinc-900 flex items-center space-x-1.5">
+            <span>Quản Trị Nhân Sự & Lương PhoneHouse</span>
+            <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2 py-0.5 rounded-full">Admin View</span>
+          </div>
+          <div className="text-xs text-zinc-500">
+            Quản lý chấm công, tính lương, xếp ca và chính sách hoa hồng.
           </div>
         </div>
       </div>
@@ -326,12 +283,12 @@ export const HRHubView: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
           {hrModuleIcons.map((mod) => {
             const Icon = mod.icon;
-            const isSelected = activeViewMode === mod.mode && (mod.mode === 'STAFF_MOBILE' || adminSubTab === mod.adminTab);
+            const isSelected = adminSubTab === mod.adminTab;
             return (
               <button
                 key={mod.id}
                 onClick={() => {
-                  setActiveViewMode(mod.mode);
+                  
                   setAdminSubTab(mod.adminTab);
                 }}
                 className={`p-3 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer group ${
@@ -363,26 +320,9 @@ export const HRHubView: React.FC = () => {
       </div>
 
       {/* RENDER ACTIVE VIEW */}
-      {activeViewMode === 'STAFF_MOBILE' ? (
-        <div className="flex justify-center py-2">
-          <AttendanceStaffMobileView
-            currentUser={currentStaff}
-            attendanceRecord={currentAttendance}
-            weeklySchedule={currentSchedule}
-            leaveRequests={leaveRequests}
-            commissions={commissions}
-            payrollSlip={currentPayrollSlip}
-            payrollLedgers={payrollLedgers}
-            onCheckIn={handleCheckIn}
-            onCheckOut={handleCheckOut}
-            onChangeActivity={handleChangeActivity}
-            onCreateLeaveRequest={handleCreateLeaveRequest}
-          />
-        </div>
-      ) : (
-        <AttendanceAdminView
+      <AttendanceAdminView
           staffList={staffList}
-          todayAttendance={todayAttendance}
+          todayAttendance={currentAttendanceList}
           weeklySchedules={weeklySchedules}
           leaveRequests={leaveRequests}
           payrollSlips={payrollSlips}
@@ -394,8 +334,9 @@ export const HRHubView: React.FC = () => {
           onAdvancePayrollApproval={handleAdvancePayrollApproval}
           onUpdateShift={handleUpdateShift}
           onUpdatePolicy={handleUpdatePolicy}
+          invoices={invoices}
+          warrantyTickets={warrantyTickets}
         />
-      )}
     </div>
   );
 };
