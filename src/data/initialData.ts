@@ -769,7 +769,13 @@ export const INITIAL_USERS = [
     email: 'nhattank16.1@gmail.com',
     displayName: 'Nhật Tân (Quản Trị Viên)',
     role: 'ADMIN' as const,
-    branchId: 'BR-00',
+    branchId: 'CN01',
+    assignedBranchIds: ['BR-00', 'CN01', 'CN02'],
+    workplaceAddresses: [
+      'Chi Nhánh Tổng (Trung Tâm) - Khu Công Nghệ Cao, Hà Nội',
+      'Showroom Hải Châu - 150 Nguyễn Văn Linh, Q. Hải Châu, Đà Nẵng',
+      'Showroom Xstore Trần Duy Hưng - 88 Trần Duy Hưng, Cầu Giấy, Hà Nội'
+    ],
     phone: '0909889603',
     active: true,
     createdAt: '2025-01-01',
@@ -781,7 +787,12 @@ export const INITIAL_USERS = [
     email: 'manager.istore@gmail.com',
     displayName: 'Trần Hoàng Long (Cửa Hàng Trưởng)',
     role: 'MANAGER' as const,
-    branchId: 'BR-01',
+    branchId: 'CN01',
+    assignedBranchIds: ['CN01', 'CN02'],
+    workplaceAddresses: [
+      'Showroom Hải Châu - 150 Nguyễn Văn Linh, Q. Hải Châu, Đà Nẵng',
+      'Showroom Xstore Trần Duy Hưng - 88 Trần Duy Hưng, Cầu Giấy, Hà Nội'
+    ],
     phone: '0912345678',
     active: true,
     createdAt: '2025-01-10',
@@ -793,7 +804,11 @@ export const INITIAL_USERS = [
     email: 'sale.lehuong@gmail.com',
     displayName: 'Lê Thu Hương (Chuyên Viên Bán Hàng)',
     role: 'SALES' as const,
-    branchId: 'BR-01',
+    branchId: 'CN01',
+    assignedBranchIds: ['CN01'],
+    workplaceAddresses: [
+      'Showroom Hải Châu - 150 Nguyễn Văn Linh, Q. Hải Châu, Đà Nẵng'
+    ],
     phone: '0988776655',
     active: true,
     createdAt: '2025-01-15',
@@ -806,6 +821,11 @@ export const INITIAL_USERS = [
     displayName: 'Trần Minh Phúc (Kỹ Thuật Trưởng Apple)',
     role: 'TECHNICIAN' as const,
     branchId: 'BR-00',
+    assignedBranchIds: ['BR-00', 'CN01'],
+    workplaceAddresses: [
+      'Chi Nhánh Tổng (Trung Tâm) - Khu Công Nghệ Cao, Hà Nội',
+      'Showroom Hải Châu - 150 Nguyễn Văn Linh, Q. Hải Châu, Đà Nẵng'
+    ],
     phone: '0977112233',
     active: true,
     createdAt: '2025-01-20',
@@ -817,7 +837,11 @@ export const INITIAL_USERS = [
     email: 'ketoan.istore@gmail.com',
     displayName: 'Nguyễn Thị Mai (Kế Toán - Thu Ngân)',
     role: 'ACCOUNTANT' as const,
-    branchId: 'BR-02',
+    branchId: 'CN02',
+    assignedBranchIds: ['CN02'],
+    workplaceAddresses: [
+      'Showroom Xstore Trần Duy Hưng - 88 Trần Duy Hưng, Cầu Giấy, Hà Nội'
+    ],
     phone: '0933445566',
     active: true,
     createdAt: '2025-02-01',
@@ -1718,27 +1742,13 @@ export const INITIAL_TRANSFERS: StockTransferSlip[] = [
 
 export const INITIAL_BRANCHES: StoreBranch[] = [
   {
-    id: 'BR-00',
-    code: 'CN-TONG',
-    name: 'Chi Nhánh Tổng (Trung Tâm)',
-    address: 'Khu Công Nghệ Cao, Hà Nội',
-    phone: '0988.999.888',
-    manager: 'Nhật Tân',
-    openingHours: '08:00 - 18:00',
-    warehouseId: 'KHO_TONG',
-    systemType: 'TONG',
-    isActive: true,
-    isHeadquarter: true,
-    notes: 'Trung tâm phân phối & Kỹ thuật chính'
-  },
-  {
     id: 'BR-01',
     code: 'CN-01',
-    name: 'Phone House - Showroom Cầu Giấy (Flagship)',
-    address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, TP. Hà Nội',
+    name: 'Chi Nhánh Chính',
+    address: 'Trụ sở chính cửa hàng',
     phone: '0988.888.999',
-    email: 'caugiay@phonehouse.vn',
-    manager: 'Tuấn Cửa Hàng Trưởng',
+    email: 'contact@phonehouse.vn',
+    manager: 'Cửa Hàng Trưởng',
     openingHours: '08:30 - 21:30 (Cả CN & Ngày Lễ)',
     warehouseId: 'KHO_PHONEHOUSE',
     systemType: 'PHONEHOUSE',
@@ -1750,28 +1760,12 @@ export const INITIAL_BRANCHES: StoreBranch[] = [
       accountNumber: '190388889999',
       accountHolder: 'PHONE HOUSE VIET NAM'
     },
-    notes: 'Showroom bán lẻ chính và trung tâm tiếp nhận bảo hành máy Zin Apple'
-  },
-  {
-    id: 'BR-02',
-    code: 'CN-02',
-    name: 'Xstore - Chi Nhánh Trần Duy Hưng (Premium)',
-    address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, TP. Hà Nội',
-    phone: '0966.333.444',
-    email: 'tranduyhung@phonehouse.vn',
-    manager: 'Hoàng Quản Lý Chi Nhánh',
-    openingHours: '09:00 - 21:30 (Hàng ngày)',
-    warehouseId: 'KHO_XSTORE',
-    systemType: 'XSTORE',
-    isActive: true,
-    isHeadquarter: false,
-    taxCode: '0109888999-001',
-    bankAccount: {
-      bankName: 'MB Bank',
-      accountNumber: '888899996666',
-      accountHolder: 'PHONE HOUSE XSTORE'
-    },
-    notes: 'Điểm bán lẻ và đối soát hồ sơ trả góp duyệt nhanh 15 phút'
+    allowedWifiSSID: 'WIFI_CUA_HANG',
+    storePublicIp: '',
+    gpsLatitude: 0,
+    gpsLongitude: 0,
+    allowedGpsRadiusMeters: 500,
+    notes: 'Showroom bán lẻ chính'
   }
 ];
 

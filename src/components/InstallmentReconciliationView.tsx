@@ -139,7 +139,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
             <div key={inv.id} className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-3">
                 <div>
-                  <span className={`text-[10px] uppercase font-black tracking-wider px-2 py-1 rounded-md ${inv.installmentDetails?.financeCompany === 'HD Saison' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                  <span className={`text-[10px] uppercase font-black tracking-wider px-2 py-1 rounded-md ${inv.installmentDetails?.financeCompany === 'HD Saison' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-orange-600'}`}>
                     {inv.installmentCompany || inv.installmentDetails?.financeCompany || 'MPOS'}
                   </span>
                   <p className="font-bold text-[#171717] mt-2">{inv.customerName}</p>

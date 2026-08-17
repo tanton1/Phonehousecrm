@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { TradeInAppraisal, DeviceItem } from '../types';
+import { calculate12StepTradeIn } from '../utils/tradeInEngine';
 import { 
   RefreshCw, 
   Sparkles, 
@@ -75,61 +76,35 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
   const handleRunAIValuation = () => {
     setIsValuating(true);
     setTimeout(() => {
-      // Benchmark base prices
-      const baseMap: Record<string, number> = {
-        'iPhone 15 Pro Max': 20000000,
-        'iPhone 15 Pro': 17000000,
-        'iPhone 15': 13000000,
-        'iPhone 14 Pro Max': 16500000,
-        'iPhone 14 Pro': 14000000,
-        'iPhone 14': 11000000,
-        'iPhone 13 Pro Max': 13500000,
-        'iPhone 13 Pro': 11500000,
-        'iPhone 13': 9500000,
-        'iPhone 12 Pro Max': 10500000,
-        'iPhone 12': 7500000,
-        'iPhone 11 Pro Max': 8000000,
-        'iPhone 11': 5500000,
-      };
+      const result = calculate12StepTradeIn({
+        oldModel,
+        storage,
+        color,
+        batteryPercent,
+        bodyCondition,
+        screenCondition,
+        faceIdWorking,
+        cameraWorking,
+        truetoneWorking,
+        speakersWorking,
+        icloudUnlocked,
+        wifiWorking: true,
+        chargingPortWorking: true,
+        mainZin: true,
+        subsidyBonus: 1000000,
+      });
 
-      let base = baseMap[oldModel] || 10000000;
-      if (storage === '256GB') base += 1000000;
-      if (storage === '512GB') base += 1800000;
-      if (storage === '1TB') base += 2500000;
+      const suggested = result.finalValuation;
+      const deductionsList = result.deductionDetails.map(d => `${d.name}: -${d.amount.toLocaleString('vi-VN')}đ (${d.note})`);
 
-      const deductions: string[] = [];
-      if (batteryPercent < 85) {
-        base -= 500000;
-        deductions.push(`Pin ${batteryPercent}% (<85%): trừ 500k hỗ trợ thay pin`);
-      }
-      if (bodyCondition === 'Trầy Nhẹ Lông Mèo') {
-        base -= 300000;
-        deductions.push('Vỏ trầy nhẹ lông mèo: trừ 300k');
-      } else if (bodyCondition === 'Cấn Móp Góc') {
-        base -= 800000;
-        deductions.push('Vỏ cấn móp góc: trừ 800k');
-      }
-      if (screenCondition === 'Màn Trầy Xước') {
-        base -= 500000;
-        deductions.push('Màn hình trầy: trừ 500k');
-      } else if (screenCondition === 'Màn Đã Ép Kính') {
-        base -= 1000000;
-        deductions.push('Màn đã ép kính: trừ 1.000k');
-      }
-      if (!faceIdWorking) {
-        base -= 2000000;
-        deductions.push('Mất FaceID: trừ 2.000k');
-      }
-
-      const suggested = Math.max(1000000, base);
       setEvaluationResult({
         suggestedValuation: suggested,
-        minPrice: suggested - 400000,
-        maxPrice: suggested + 400000,
-        inspectionGrade: deductions.length === 0 ? 'Loại 1 (Keng 99%)' : 'Loại 2 (98% Thẩm Mỹ)',
-        deductions: deductions.length > 0 ? deductions : ['Máy đẹp hoàn hảo, giữ nguyên giá thu kịch trần'],
-        salesPitchAdvice: `Trợ giá thêm 1.000.000đ khi lên đời ${targetNewModel}. Khách bù chênh lệch ${(targetNewModelPrice - suggested).toLocaleString('vi-VN')}đ, hỗ trợ trả góp 0% qua thẻ tín dụng.`,
-        confidenceScore: 96
+        minPrice: suggested - 300000,
+        maxPrice: suggested + 300000,
+        inspectionGrade: result.gradeLabel,
+        deductions: deductionsList.length > 0 ? deductionsList : ['Máy đẹp hoàn hảo, giữ nguyên giá thu kịch trần (+Trợ giá Shop 1tr)'],
+        salesPitchAdvice: `Trợ giá thêm 1.000.000đ khi lên đời ${targetNewModel}. Khách chỉ cần bù chênh lệch ${(targetNewModelPrice - suggested).toLocaleString('vi-VN')}đ, hỗ trợ trả góp 0% qua CCCD.`,
+        confidenceScore: 98
       });
       setIsValuating(false);
     }, 400);
@@ -329,9 +304,9 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
                 >
                   <option value="Màn Zin Đẹp">Màn Zin Keng Đẹp (Không trầy)</option>
-                  <option value="Màn Trầy Xước">Màn Zin Trầy Xước Nhẹ (-500k)</option>
-                  <option value="Màn Đã Ép Kính">Màn Đã Ép Kính (-1.000k)</option>
-                  <option value="Màn Lô / Mực / Sọc">Màn Lô / Bị Sọc Mực (-3.000k)</option>
+                  <option value="Màn Trầy Xước">Màn Zin Trầy Xước (Trừ theo đời máy)</option>
+                  <option value="Màn Đã Ép Kính">Màn Đã Ép Kính (Trừ theo đời máy)</option>
+                  <option value="Màn Lô / Mực / Sọc">Màn Lô / Sọc Mực (Trừ thay màn theo đời máy)</option>
                 </select>
               </div>
 
@@ -344,8 +319,8 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                 >
                   <option value="Keng Không Vết Xước">Keng Không Vết Xước (99.9%)</option>
                   <option value="Trầy Nhẹ Lông Mèo">Trầy Nhẹ Lông Mèo (99%)</option>
-                  <option value="Cấn Móp Góc">Cấn Móp Góc / Tróc Sơn (-800k)</option>
-                  <option value="Cong Vỏ">Cong Vỏ / Vỡ Lưng (-1.500k)</option>
+                  <option value="Cấn Móp Góc">Cấn Móp Góc / Tróc Sơn (Trừ theo đời máy)</option>
+                  <option value="Cong Vỏ">Cong Vỏ / Vỡ Lưng (Trừ theo đời máy)</option>
                 </select>
               </div>
             </div>

@@ -1,81 +1,184 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Wrench, Package, Search, Bell, CheckCircle2, 
-  Activity, Zap, Clock, Smartphone
+  Activity, Zap, Clock, Smartphone, ShieldCheck, RefreshCw,
+  ArrowUpRight, FileText, Check, Filter, Layers, DollarSign, ScanFace
 } from 'lucide-react';
 import { TechKanbanBoard } from './TechKanbanBoard';
 import { StaffHRView } from './StaffHRView';
-import { UserAccount, WarrantyTicket, DeviceItem } from '../types';
+import { UserAccount, WarrantyTicket, DeviceItem, CommissionTransaction, StoreBranch } from '../types';
+import { calculateStaffDualWallet, calculateWarrantyTicketCommissions } from '../utils/commissionEngine';
+import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 
 interface TechWorkspaceViewProps {
   tasks: WarrantyTicket[];
   devices: DeviceItem[];
+  branches?: StoreBranch[];
   currentUser?: UserAccount | null;
   onCheckIn?: (time: string) => void;
   onCheckOut?: (time: string) => void;
+  onOpenCheckIn?: () => void;
   attendanceRecord?: import('../types').AttendanceRecord;
+  commissions?: CommissionTransaction[];
+  onSyncCommissions?: () => void;
 }
 
-export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ tasks, devices, currentUser , onCheckIn, onCheckOut, attendanceRecord }) => {
-
-  // KPI Calculations
-  const techTasks = tasks.filter(t => t.technician === currentUser?.displayName || t.assigneeId === currentUser?.id);
-  const kcsTasks = techTasks.filter(t => t.taskType === 'INBOUND_QC');
-  const repairTasks = techTasks.filter(t => t.taskType !== 'INBOUND_QC');
-  
-  const kcsCommission = kcsTasks.reduce((acc, t) => acc + (t.commissionAmount || 25000), 0);
-  const repairCommission = repairTasks.reduce((acc, t) => acc + (t.commissionAmount || 150000), 0);
-  const totalCommission = kcsCommission + repairCommission;
-
+export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ 
+  tasks, 
+  devices, 
+  branches = [],
+  currentUser, 
+  onCheckIn, 
+  onCheckOut, 
+  onOpenCheckIn,
+  attendanceRecord,
+  commissions = [],
+  onSyncCommissions
+}) => {
   const [activeTab, setActiveTab] = useState<'KANBAN' | 'INVENTORY' | 'KPI' | 'HR'>('KANBAN');
+  const [walletFilter, setWalletFilter] = useState<'ALL' | 'KCS' | 'REPAIR' | 'WARRANTY' | 'TRADEIN'>('ALL');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Active tech staff identification
+  const currentStaffId = currentUser?.id || 'STAFF_004';
+  const staffMember = INITIAL_STAFF_MEMBERS.find(s => s.id === currentStaffId || s.name === currentUser?.displayName) 
+    || INITIAL_STAFF_MEMBERS.find(s => s.role === 'TECHNICIAN') 
+    || INITIAL_STAFF_MEMBERS[0];
+
+  // Automated Tech Wallet Calculation using Phase 3 Engine
+  const dualWallet = useMemo(() => {
+    // Generate real-time commissions from tickets if not provided or empty
+    const directTicketCommissions = tasks.flatMap(t => calculateWarrantyTicketCommissions(t, INITIAL_STAFF_MEMBERS));
+    const mergedCommissions = commissions.length > 0 ? commissions : directTicketCommissions;
+    return calculateStaffDualWallet(staffMember.id, mergedCommissions, INITIAL_STAFF_MEMBERS);
+  }, [staffMember, commissions, tasks]);
+
+  const techWallet = dualWallet.techWallet;
+
+  // Filtered Tech Transactions
+  const filteredTechTransactions = useMemo(() => {
+    return techWallet.transactions.filter(tx => {
+      if (walletFilter === 'ALL') return true;
+      if (walletFilter === 'KCS') return tx.type === 'TECH_KCS';
+      if (walletFilter === 'REPAIR') return tx.type === 'TECH_REPAIR';
+      if (walletFilter === 'WARRANTY') return tx.type === 'TECH_WARRANTY';
+      if (walletFilter === 'TRADEIN') return tx.type === 'TRADEIN_BONUS';
+      return true;
+    });
+  }, [techWallet.transactions, walletFilter]);
+
+  // Today specific metrics
+  const todayTasks = tasks.filter(t => {
+    const isMine = t.technician === currentUser?.displayName || t.assigneeId === staffMember.id;
+    return isMine;
+  });
+  const todayCompletedCount = todayTasks.filter(t => t.status === 'ready' || t.status === 'delivered').length;
+
+  const handleManualSync = () => {
+    setIsSyncing(true);
+    if (onSyncCommissions) {
+      onSyncCommissions();
+    }
+    setTimeout(() => {
+      setIsSyncing(false);
+    }, 600);
+  };
+
+  const formatVND = (num: number) => {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
+  };
 
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col font-sans">
       {/* TECH TOPBAR */}
-      <div className="bg-indigo-900 text-white p-3 sm:px-6 flex items-center justify-between shadow-md">
+      <div className="bg-indigo-950 text-white p-3 sm:px-6 flex items-center justify-between shadow-md border-b border-indigo-900">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-800 rounded-xl flex items-center justify-center border border-indigo-700/50">
+          <div className="w-10 h-10 bg-indigo-800/80 rounded-2xl flex items-center justify-center border border-indigo-700/50 shadow-inner">
             <Wrench className="w-5 h-5 text-indigo-300" />
           </div>
           <div>
-            <h1 className="text-sm font-black uppercase tracking-wider text-indigo-100">Tech Station</h1>
-            <div className="text-[10px] text-indigo-300 flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-black uppercase tracking-wider text-white">Trạm Kỹ Thuật & KCS</h1>
+              <span className="bg-indigo-700/60 text-indigo-200 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">
+                Phase 3 Active
+              </span>
+            </div>
+            <div className="text-[10px] text-indigo-300 flex items-center gap-1.5 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Đang trong ca làm việc
+              <span>KTV: {staffMember.name} • {staffMember.roleTitle || 'Kỹ thuật viên Trưởng'}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="hidden sm:flex items-center gap-4 mr-4 text-xs font-medium text-indigo-200">
-            <div className="flex items-center gap-1.5"><Activity className="w-4 h-4 text-emerald-400"/> Hôm nay: 4 máy xong</div>
-            <div className="flex items-center gap-1.5"><Zap className="w-4 h-4 text-amber-400"/> Tạm tính: 450.000 đ</div>
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-3 bg-indigo-900/60 border border-indigo-800/80 px-3.5 py-1.5 rounded-2xl text-xs">
+            <div className="flex items-center gap-1.5 text-indigo-200">
+              <Activity className="w-4 h-4 text-emerald-400"/> 
+              <span>Hoàn thành: <strong className="text-white">{todayCompletedCount} máy</strong></span>
+            </div>
+            <span className="text-indigo-600">|</span>
+            <div className="flex items-center gap-1.5 text-indigo-200">
+              <Zap className="w-4 h-4 text-amber-400"/> 
+              <span>Ví Kỹ Thuật: <strong className="text-amber-300 font-mono">{formatVND(techWallet.totalCommission)}</strong></span>
+            </div>
           </div>
-          <button className="relative w-8 h-8 rounded-full bg-indigo-800 hover:bg-indigo-700 flex items-center justify-center transition-colors">
-            <Bell className="w-4 h-4 text-indigo-200" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-indigo-900"></span>
+
+          <button
+            onClick={() => {
+              if (onOpenCheckIn) {
+                onOpenCheckIn();
+              } else {
+                setActiveTab('HR');
+              }
+            }}
+            className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-md shadow-orange-500/30 transition-all cursor-pointer active:scale-95 shrink-0"
+            title="Điểm danh Face ID 4 bước"
+          >
+            <ScanFace className="w-4 h-4 animate-pulse" />
+            <span className="hidden sm:inline">⚡ Điểm Danh Face ID</span>
+            <span className="sm:hidden">Điểm Danh</span>
           </button>
-          <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center font-bold text-xs shadow-inner">
-            TA
+
+          <button 
+            onClick={handleManualSync}
+            disabled={isSyncing}
+            className="p-2 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 rounded-xl transition-all border border-indigo-700/40 cursor-pointer disabled:opacity-50"
+            title="Đồng bộ lại Ví Kỹ Thuật từ toàn bộ Phiếu sửa chữa"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
+          </button>
+
+          <button className="relative w-9 h-9 rounded-xl bg-indigo-900/80 hover:bg-indigo-800 flex items-center justify-center transition-colors border border-indigo-700/40">
+            <Bell className="w-4 h-4 text-indigo-200" />
+            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-indigo-950"></span>
+          </button>
+          
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center font-black text-xs text-white shadow-md">
+            {staffMember.name.slice(0, 2).toUpperCase()}
           </div>
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden pb-16">
         {/* MAIN CONTENT AREA */}
-        <div className="flex-1 overflow-auto bg-zinc-50/50 p-4">
+        <div className="flex-1 overflow-auto bg-zinc-50/50 p-3 sm:p-5">
           {activeTab === 'KANBAN' && (
             <div className="h-full flex flex-col">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-black text-zinc-900">Kanban Board</h2>
-                <div className="flex gap-2">
-                  <div className="px-3 py-1.5 bg-white border border-zinc-200 rounded-lg text-xs font-semibold text-zinc-600 flex items-center gap-2 shadow-2xs">
-                    <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                    SLA: 2 máy sắp trễ
+              <div className="mb-3 sm:mb-4 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-black text-zinc-900">Bảng Điều Phối Sửa Chữa & KCS</h2>
+                  <span className="text-xs font-bold text-zinc-500 bg-white px-2.5 py-1 rounded-xl border border-zinc-200 shadow-2xs">
+                    {tasks.length} phiếu
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-700 flex items-center gap-2 shadow-2xs">
+                    <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    <span>SLA Tiêu Chuẩn: &lt; 2h / ca</span>
                   </div>
                 </div>
               </div>
-              <div className="flex-1 min-h-0 bg-white rounded-2xl shadow-2xs border border-zinc-200/80 overflow-hidden">
+              <div className="flex-1 min-h-0 bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden">
                 <TechKanbanBoard 
                   tasks={tasks}
                   onTaskClick={(t) => console.log('View task', t)}
@@ -85,59 +188,177 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ tasks, dev
           )}
 
           {activeTab === 'KPI' && (
-            <div className="max-w-4xl mx-auto space-y-4 animate-fadeIn">
-              <h2 className="text-lg font-black text-zinc-900 mb-4">Ví Hoa Hồng Khóa Sổ Hôm Nay</h2>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg">
-                  <div className="text-indigo-200 text-xs font-bold uppercase mb-1">Thực lãnh tạm tính</div>
-                  <div className="text-3xl font-black">{totalCommission.toLocaleString()} đ</div>
-                  <div className="mt-4 text-xs font-medium bg-white/20 inline-block px-2.5 py-1 rounded-full">
-                    Ghi nhận từ {techTasks.length} task
+            <div className="max-w-5xl mx-auto space-y-5 animate-fadeIn">
+              {/* WALLET HEADER BANNER */}
+              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-5 sm:p-6 text-white shadow-xl relative overflow-hidden">
+                <div className="absolute right-0 top-0 w-80 h-full bg-indigo-600/10 rounded-l-full pointer-events-none" />
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="bg-amber-400 text-indigo-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
+                        Ví Kỹ Thuật Độc Lập
+                      </span>
+                      <span className="text-xs text-indigo-200 font-medium">Tự động kết nối Phiếu Tiếp Nhận & KCS</span>
+                    </div>
+                    <div className="text-2xl sm:text-4xl font-black tracking-tight font-mono text-amber-300">
+                      {formatVND(techWallet.totalCommission)}
+                    </div>
+                    <p className="text-xs text-indigo-200 mt-1">
+                      Tích lũy từ {techWallet.completedTicketCount} công việc đạt chuẩn QC • {techWallet.pendingCount} ca đang kiểm tra
+                    </p>
                   </div>
-                </div>
-                
-                <div className="bg-white rounded-2xl p-5 border border-zinc-200 shadow-2xs">
-                  <div className="flex items-center gap-2 text-blue-600 mb-2">
-                    <Smartphone className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase">Kiểm định KCS</span>
-                  </div>
-                  <div className="text-2xl font-black text-zinc-900">{kcsTasks.length} máy</div>
-                  <div className="text-sm font-semibold text-zinc-500 mt-1">~ {kcsCommission.toLocaleString()} đ</div>
-                </div>
 
-                <div className="bg-white rounded-2xl p-5 border border-zinc-200 shadow-2xs">
-                  <div className="flex items-center gap-2 text-amber-600 mb-2">
-                    <Wrench className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase">Sửa chữa / Thay thế</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleManualSync}
+                      disabled={isSyncing}
+                      className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl border border-white/20 flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                      <span>{isSyncing ? 'Đang đồng bộ...' : 'Quét lại phiếu KTV'}</span>
+                    </button>
                   </div>
-                  <div className="text-2xl font-black text-zinc-900">{repairTasks.length} máy</div>
-                  <div className="text-sm font-semibold text-zinc-500 mt-1">~ {repairCommission.toLocaleString()} đ</div>
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xs p-4">
-                <h3 className="font-bold text-sm text-zinc-900 mb-3">Lịch sử task hoàn thành</h3>
-                <div className="space-y-2">
-                  {techTasks.length === 0 && (
-                    <div className="p-4 text-center text-zinc-500 text-sm">Chưa có dữ liệu task hoàn thành</div>
-                  )}
-                  {techTasks.map(t => (
-                    <div key={t.id} className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl text-sm">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${t.taskType === 'INBOUND_QC' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'}`}>
-                          {t.taskType === 'INBOUND_QC' ? <Smartphone className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <div className="font-bold text-zinc-900">{t.taskType === 'INBOUND_QC' ? 'KCS' : 'Sửa chữa'} {t.model}</div>
-                          <div className="text-[10px] text-zinc-500">{t.ticketNumber}</div>
-                        </div>
-                      </div>
-                      <div className={`font-black ${t.taskType === 'INBOUND_QC' ? 'text-blue-600' : 'text-amber-600'}`}>
-                        +{(t.commissionAmount || (t.taskType === 'INBOUND_QC' ? 25000 : 150000)).toLocaleString()} đ
-                      </div>
+              {/* 4 CORE BREAKDOWN CARDS */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                {/* KCS Card */}
+                <div className="bg-white rounded-2xl p-4 border border-zinc-200/90 shadow-2xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-orange-600 mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider">KCS Kiểm Định</span>
+                      <Smartphone className="w-4 h-4" />
                     </div>
-                  ))}
+                    <div className="text-xl sm:text-2xl font-black text-zinc-900 font-mono">{techWallet.kcsCount} máy</div>
+                    <div className="text-xs font-bold text-orange-600 font-mono mt-0.5">+{formatVND(techWallet.kcsAmount)}</div>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 mt-2 pt-2 border-t border-zinc-100">Định mức: 35.000 đ/máy</div>
+                </div>
+
+                {/* Repair Card */}
+                <div className="bg-white rounded-2xl p-4 border border-zinc-200/90 shadow-2xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-amber-600 mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider">Sửa Chữa Dịch Vụ</span>
+                      <Wrench className="w-4 h-4" />
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black text-zinc-900 font-mono">{techWallet.repairCount} ca</div>
+                    <div className="text-xs font-bold text-amber-600 font-mono mt-0.5">+{formatVND(techWallet.repairAmount)}</div>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 mt-2 pt-2 border-t border-zinc-100">Thay màn, pin, ép kính, main</div>
+                </div>
+
+                {/* Warranty Free Card */}
+                <div className="bg-white rounded-2xl p-4 border border-zinc-200/90 shadow-2xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-emerald-600 mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider">Bảo Hành Tiêu Chuẩn</span>
+                      <ShieldCheck className="w-4 h-4" />
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black text-zinc-900 font-mono">{techWallet.warrantyCount} máy</div>
+                    <div className="text-xs font-bold text-emerald-600 font-mono mt-0.5">+{formatVND(techWallet.warrantyAmount)}</div>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 mt-2 pt-2 border-t border-zinc-100">Công KTV: 50.000 đ/máy</div>
+                </div>
+
+                {/* Trade-in Card */}
+                <div className="bg-white rounded-2xl p-4 border border-zinc-200/90 shadow-2xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-purple-600 mb-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-wider">Test Thu Cũ</span>
+                      <Zap className="w-4 h-4" />
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black text-zinc-900 font-mono">{techWallet.tradeInCount} máy</div>
+                    <div className="text-xs font-bold text-purple-600 font-mono mt-0.5">+{formatVND(techWallet.tradeInAmount)}</div>
+                  </div>
+                  <div className="text-[10px] text-zinc-400 mt-2 pt-2 border-t border-zinc-100">Định mức: 50.000 đ/máy</div>
+                </div>
+              </div>
+
+              {/* TRANSACTION LEDGER TABLE (LỊCH SỬ BIẾN ĐỘNG VÍ KỸ THUẬT) */}
+              <div className="bg-white rounded-3xl border border-zinc-200 shadow-2xs overflow-hidden">
+                <div className="p-4 sm:p-5 border-b border-zinc-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-50/50">
+                  <div>
+                    <h3 className="font-black text-sm text-zinc-900 uppercase tracking-wide">
+                      Sổ Kê Chi Tiết Hoa Hồng Kỹ Thuật (Phase 3 Ledger)
+                    </h3>
+                    <p className="text-xs text-zinc-500 mt-0.5">Trích xuất tự động theo thời gian thực từ Phiếu sửa chữa & KCS</p>
+                  </div>
+
+                  {/* Filter Pills */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                    {[
+                      { id: 'ALL', label: 'Tất cả' },
+                      { id: 'KCS', label: 'KCS Nhập' },
+                      { id: 'REPAIR', label: 'Sửa chữa' },
+                      { id: 'WARRANTY', label: 'Bảo hành' },
+                      { id: 'TRADEIN', label: 'Thu cũ' }
+                    ].map(f => (
+                      <button
+                        key={f.id}
+                        onClick={() => setWalletFilter(f.id as any)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                          walletFilter === f.id
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="divide-y divide-zinc-100 max-h-[480px] overflow-y-auto">
+                  {filteredTechTransactions.length === 0 ? (
+                    <div className="p-8 text-center text-zinc-400 space-y-2">
+                      <Wrench className="w-10 h-10 mx-auto text-zinc-300 stroke-1" />
+                      <p className="text-xs font-medium">Chưa có giao dịch hoa hồng nào trong mục này</p>
+                    </div>
+                  ) : (
+                    filteredTechTransactions.map(tx => (
+                      <div key={tx.id} className="p-3.5 sm:p-4 hover:bg-indigo-50/30 transition-colors flex items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                            tx.type === 'TECH_KCS' ? 'bg-blue-100 text-orange-600' :
+                            tx.type === 'TECH_REPAIR' ? 'bg-amber-100 text-amber-600' :
+                            tx.type === 'TECH_WARRANTY' ? 'bg-emerald-100 text-emerald-600' :
+                            'bg-purple-100 text-purple-600'
+                          }`}>
+                            {tx.type === 'TECH_KCS' ? <Smartphone className="w-4 h-4" /> :
+                             tx.type === 'TECH_REPAIR' ? <Wrench className="w-4 h-4" /> :
+                             tx.type === 'TECH_WARRANTY' ? <ShieldCheck className="w-4 h-4" /> :
+                             <Zap className="w-4 h-4" />}
+                          </div>
+
+                          <div>
+                            <div className="font-extrabold text-zinc-900 text-xs sm:text-sm">{tx.productName}</div>
+                            <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-500 mt-0.5">
+                              <span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
+                                {tx.orderCode}
+                              </span>
+                              {tx.imei && <span className="font-mono text-zinc-400">IMEI: {tx.imei}</span>}
+                              <span>•</span>
+                              <span>{tx.occurredAt}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <div className="font-black text-sm sm:text-base text-emerald-600 font-mono">
+                            +{formatVND(tx.commissionAmount)}
+                          </div>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
+                            tx.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-800' :
+                            tx.status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 'bg-zinc-100 text-zinc-600'
+                          }`}>
+                            {tx.status === 'CONFIRMED' ? '✓ Đã vào ví' : '⏳ Chờ QC xong'}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -151,14 +372,16 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ tasks, dev
           )}
           
           {activeTab === 'HR' && (
-            <div className="h-full bg-white rounded-2xl shadow-2xs border border-zinc-200/80 overflow-hidden">
+            <div className="h-full bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden p-3 sm:p-5">
               <StaffHRView 
                 currentUser={currentUser} 
                 roleType='TECH' 
+                branches={branches}
                 onCheckIn={onCheckIn}
                 onCheckOut={onCheckOut}
                 checkedInState={!!attendanceRecord?.checkInTime && !attendanceRecord?.checkOutTime}
                 initialCheckInTime={attendanceRecord?.checkInTime || null}
+                onOpenCheckInModal={onOpenCheckIn}
               />
             </div>
           )}
@@ -169,33 +392,34 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ tasks, dev
       <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-zinc-200 flex items-center justify-around z-40 px-2 pb-safe">
         <button 
           onClick={() => setActiveTab('KANBAN')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all ${activeTab === 'KANBAN' ? 'text-indigo-600' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KANBAN' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
         >
           <CheckCircle2 className={`w-5 h-5 ${activeTab === 'KANBAN' ? 'scale-110' : ''}`} />
-          <span className="text-[10px] font-bold">Kanban</span>
+          <span className="text-[10px]">Kanban</span>
         </button>
         <button 
           onClick={() => setActiveTab('INVENTORY')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all ${activeTab === 'INVENTORY' ? 'text-indigo-600' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'INVENTORY' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
         >
           <Package className={`w-5 h-5 ${activeTab === 'INVENTORY' ? 'scale-110' : ''}`} />
-          <span className="text-[10px] font-bold">Kho Phụ Kiện</span>
+          <span className="text-[10px]">Kho Linh Kiện</span>
         </button>
         <button 
           onClick={() => setActiveTab('KPI')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all ${activeTab === 'KPI' ? 'text-indigo-600' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KPI' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
         >
           <Zap className={`w-5 h-5 ${activeTab === 'KPI' ? 'scale-110' : ''}`} />
-          <span className="text-[10px] font-bold">Ví Hoa Hồng</span>
+          <span className="text-[10px]">Ví Kỹ Thuật</span>
         </button>
         <button 
           onClick={() => setActiveTab('HR')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all ${activeTab === 'HR' ? 'text-indigo-600' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'HR' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
         >
           <Activity className={`w-5 h-5 ${activeTab === 'HR' ? 'scale-110' : ''}`} />
-          <span className="text-[10px] font-bold">Nhân Sự</span>
+          <span className="text-[10px]">Chấm Công</span>
         </button>
       </div>
     </div>
   );
 };
+

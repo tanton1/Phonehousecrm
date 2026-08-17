@@ -84,8 +84,57 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       accountNumber: '',
       accountHolder: ''
     },
+    allowedWifiSSID: 'PH_HAICHAU_5G',
+    gpsLatitude: 16.0612,
+    gpsLongitude: 108.2170,
+    allowedGpsRadiusMeters: 50,
     notes: ''
   });
+
+  // GPS & IP Auto-detection helper
+  const [isGettingIp, setIsGettingIp] = useState(false);
+
+  const handleGetDeviceIP = async () => {
+    setIsGettingIp(true);
+    try {
+      const res = await fetch('/api/client-ip');
+      const data = await res.json();
+      if (data.success && data.ip) {
+        setBranchForm(prev => ({
+          ...prev,
+          storePublicIp: data.ip
+        }));
+        alert(`Đã tự động lấy IP Router Wi-Fi cửa hàng thành công:\n\n📍 Địa chỉ IP: ${data.ip}\n(${data.ip.includes(':') ? 'Định dạng IPv6 - Mạng thế hệ mới do nhà mạng cấp' : 'Định dạng IPv4'})\n\nBấm "Lưu" để cập nhật địa chỉ IP này cho cửa hàng.`);
+      } else {
+        alert('Không thể xác định địa chỉ IP tự động. Vui lòng kiểm tra lại kết nối mạng.');
+      }
+    } catch (err) {
+      alert('Lỗi kết nối khi lấy IP: ' + err);
+    } finally {
+      setIsGettingIp(false);
+    }
+  };
+
+  const handleGetDeviceGPS = () => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setBranchForm(prev => ({
+            ...prev,
+            gpsLatitude: Number(position.coords.latitude.toFixed(6)),
+            gpsLongitude: Number(position.coords.longitude.toFixed(6))
+          }));
+          alert(`Đã tự động lấy vị trí GPS hiện tại thành công:\nVĩ độ (Latitude): ${position.coords.latitude.toFixed(6)}\nKinh độ (Longitude): ${position.coords.longitude.toFixed(6)}`);
+        },
+        (error) => {
+          alert('Không thể lấy vị trí GPS tự động: ' + error.message + '. Vui lòng nhập tọa độ thủ công.');
+        },
+        { enableHighAccuracy: true }
+      );
+    } else {
+      alert('Trình duyệt không hỗ trợ Geolocation API.');
+    }
+  };
 
   // Warehouse modal state
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
@@ -130,6 +179,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         accountNumber: '',
         accountHolder: ''
       },
+      allowedWifiSSID: 'PH_HAICHAU_5G',
+      storePublicIp: '113.161.45.88',
+      gpsLatitude: 16.0612,
+      gpsLongitude: 108.2170,
+      allowedGpsRadiusMeters: 50,
       notes: ''
     });
     setIsBranchModalOpen(true);
@@ -170,6 +224,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         isHeadquarter: branchForm.isHeadquarter ?? false,
         taxCode: branchForm.taxCode || '',
         bankAccount: branchForm.bankAccount || { bankName: '', accountNumber: '', accountHolder: '' },
+        allowedWifiSSID: branchForm.allowedWifiSSID || 'PH_HAICHAU_5G',
+        storePublicIp: branchForm.storePublicIp || '113.161.45.88',
+        gpsLatitude: branchForm.gpsLatitude ?? 16.0612,
+        gpsLongitude: branchForm.gpsLongitude ?? 108.2170,
+        allowedGpsRadiusMeters: branchForm.allowedGpsRadiusMeters ?? 50,
         notes: branchForm.notes || ''
       };
       onAddBranch(newBranch);
@@ -411,19 +470,17 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
-                        {branches.length > 1 && (
-                          <button
-                            onClick={() => {
-                              if (confirm(`Bạn có chắc muốn xóa cửa hàng "${branch.name}"?`)) {
-                                onDeleteBranch(branch.id);
-                              }
-                            }}
-                            className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                            title="Xóa chi nhánh"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => {
+                            if (confirm(`Bạn có chắc muốn xóa cửa hàng "${branch.name}"?`)) {
+                              onDeleteBranch(branch.id);
+                            }
+                          }}
+                          className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title="Xóa chi nhánh"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 
@@ -449,7 +506,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                           <span>Quản lý: <strong>{branch.manager}</strong></span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <Warehouse className="w-3.5 h-3.5 text-blue-500" />
+                          <Warehouse className="w-3.5 h-3.5 text-orange-500" />
                           <span>Kho liên kết: <strong>{matchedWh ? matchedWh.shortName : branch.warehouseId}</strong></span>
                         </div>
                       </div>
@@ -459,12 +516,31 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     {branch.bankAccount?.accountNumber && (
                       <div className="flex items-center justify-between text-xs bg-blue-50/70 border border-blue-100 rounded-xl px-3 py-2 text-blue-900">
                         <div className="flex items-center space-x-2">
-                          <CreditCard className="w-4 h-4 text-blue-600" />
+                          <CreditCard className="w-4 h-4 text-orange-600" />
                           <span>TK Ngân Hàng: <strong>{branch.bankAccount.bankName} - {branch.bankAccount.accountNumber}</strong></span>
                         </div>
-                        <span className="text-[10px] text-blue-600 font-bold">{branch.bankAccount.accountHolder}</span>
+                        <span className="text-[10px] text-orange-600 font-bold">{branch.bankAccount.accountHolder}</span>
                       </div>
                     )}
+
+                    {/* GPS & Wi-Fi Chấm Công Info Badge */}
+                    <div className="space-y-1.5 bg-orange-50/70 border border-orange-200/80 rounded-xl p-3 text-orange-950 mt-2 text-xs">
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <div className="flex items-center space-x-2">
+                          <MapPin className="w-4 h-4 text-[#FF4B16]" />
+                          <span>GPS: <strong className="font-mono">{branch.gpsLatitude || 16.0612}, {branch.gpsLongitude || 108.2170}</strong> ({branch.allowedGpsRadiusMeters || 50}m)</span>
+                        </div>
+                        <span className="text-[10px] bg-white border border-orange-200 text-[#FF4B16] font-extrabold px-2 py-0.5 rounded-md">
+                          SSID: {branch.allowedWifiSSID || 'PH_HAICHAU_5G'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-orange-200/60">
+                        <span className="text-zinc-700 font-medium">📶 IP Router Cửa Hàng:</span>
+                        <span className="font-mono font-bold bg-white text-blue-900 px-2 py-0.5 rounded-md border border-blue-200 truncate max-w-[220px]" title={branch.storePublicIp || '113.161.45.88'}>
+                          {branch.storePublicIp || '113.161.45.88'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   {branch.notes && (
@@ -579,7 +655,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                               ? 'bg-purple-50 text-purple-600'
                               : isPhoneHouse
                                 ? 'bg-orange-50 text-orange-600'
-                                : 'bg-blue-50 text-blue-600'
+                                : 'bg-blue-50 text-orange-600'
                         }`}>
                           <Warehouse className="w-6 h-6" />
                         </div>
@@ -1079,6 +1155,98 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   })}
                   className="w-full px-3 py-1.5 bg-white border border-blue-200 rounded-xl text-xs"
                 />
+              </div>
+
+              {/* GPS & Wi-Fi Check-in Configuration */}
+              <div className="p-3.5 bg-orange-50/80 rounded-2xl border border-orange-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-black text-orange-950 flex items-center gap-1.5 uppercase tracking-wider">
+                    <MapPin className="w-4 h-4 text-[#FF4B16]" />
+                    <span>Tọa Độ GPS & Wi-Fi Chấm Công Hợp Lệ</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGetDeviceGPS}
+                    className="text-[10px] font-bold text-[#FF4B16] bg-white px-2 py-1 rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3 h-3 text-amber-500" /> Lấy GPS hiện tại
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-zinc-700 mb-0.5">Vĩ độ GPS (Latitude)</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      placeholder="16.061200"
+                      value={branchForm.gpsLatitude ?? ''}
+                      onChange={(e) => setBranchForm({ ...branchForm, gpsLatitude: parseFloat(e.target.value) || undefined })}
+                      className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-mono font-bold text-zinc-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-zinc-700 mb-0.5">Kinh độ GPS (Longitude)</label>
+                    <input
+                      type="number"
+                      step="0.000001"
+                      placeholder="108.217000"
+                      value={branchForm.gpsLongitude ?? ''}
+                      onChange={(e) => setBranchForm({ ...branchForm, gpsLongitude: parseFloat(e.target.value) || undefined })}
+                      className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-mono font-bold text-zinc-900"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-zinc-700 mb-0.5">SSID Wi-Fi Cửa Hàng</label>
+                    <input
+                      type="text"
+                      placeholder="PH_HAICHAU_5G"
+                      value={branchForm.allowedWifiSSID ?? ''}
+                      onChange={(e) => setBranchForm({ ...branchForm, allowedWifiSSID: e.target.value })}
+                      className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-bold text-zinc-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-zinc-700 mb-0.5">Bán kính GPS (mét)</label>
+                    <input
+                      type="number"
+                      placeholder="50"
+                      value={branchForm.allowedGpsRadiusMeters ?? 50}
+                      onChange={(e) => setBranchForm({ ...branchForm, allowedGpsRadiusMeters: parseInt(e.target.value) || 50 })}
+                      className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-bold text-zinc-900"
+                    />
+                  </div>
+                </div>
+
+                {/* IP Router Public Verification */}
+                <div className="pt-2 border-t border-orange-200/80 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-bold text-zinc-800">
+                      IP Router Public Cửa Hàng (IPv4 / IPv6)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGetDeviceIP}
+                      disabled={isGettingIp}
+                      className="text-[10px] font-bold text-blue-700 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      {isGettingIp ? <RefreshCw className="w-3 h-3 animate-spin" /> : <span>🔍 Lấy IP hiện tại</span>}
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="113.161.45.88 hoặc 2405:4802:95f1:68b0:..."
+                    value={branchForm.storePublicIp ?? ''}
+                    onChange={(e) => setBranchForm({ ...branchForm, storePublicIp: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-mono font-bold text-zinc-900"
+                  />
+                  <span className="text-[10px] text-zinc-500 block">
+                    Bấm "Lấy IP hiện tại" khi thiết bị của bạn đang kết nối Wi-Fi cửa hàng để hệ thống tự quét IP Router.
+                  </span>
+                </div>
               </div>
 
               <div className="flex items-center space-x-4 pt-2">

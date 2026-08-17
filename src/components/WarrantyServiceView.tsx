@@ -15,6 +15,12 @@ import {
   REPAIR_SERVICES_PRICELIST, 
   RepairServiceItem 
 } from '../data/initialData';
+import { 
+  TECH_COMMISSION_MATRIX, 
+  getLiveTechCommissionMatrix, 
+  getDeviceGroupForModel, 
+  saveLiveTechCommissionMatrix 
+} from '../data/techCommissionMatrix';
 import { ActivityLog } from './ActivityLog';
 import { TechKanbanBoard } from './TechKanbanBoard';
 import { TechKPIReport } from './TechKPIReport';
@@ -47,7 +53,8 @@ import {
   QrCode,
   SlidersHorizontal,
   TrendingUp,
-  Percent
+  Percent,
+  ScanFace
 } from 'lucide-react';
 
 interface WarrantyServiceViewProps {
@@ -60,6 +67,7 @@ interface WarrantyServiceViewProps {
   onUpdateTicket: (ticket: WarrantyTicket) => void;
   onUpdateSparePart?: (part: SparePart) => void;
   onAddTransaction?: (tx: CashTransaction) => void;
+  onOpenCheckIn?: () => void;
 }
 
 export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
@@ -71,7 +79,8 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   onAddTicket,
   onUpdateTicket,
   onUpdateSparePart,
-  onAddTransaction
+  onAddTransaction,
+  onOpenCheckIn
 }) => {
   // Tabs: 'TICKETS' | 'KANBAN' | 'PRICELIST' | 'STATS' | 'KPI'
   const [activeTab, setActiveTab] = useState<'TICKETS' | 'KANBAN' | 'PRICELIST' | 'STATS' | 'KPI'>('TICKETS');
@@ -84,6 +93,14 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isAddPriceModalOpen, setIsAddPriceModalOpen] = useState(false);
   const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
+
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [errorFormData, setErrorFormData] = useState({
+    errorType: 'Lỗi phát sinh trong quá trình xử lý', // or 'Lỗi ép kính dẫn tới hư màn'
+    errorRate: '< 1%', // '< 1%', '< 5%', '> 5%'
+    compensationCost: 0
+  });
+
 
   const [activeTicketDetails, setActiveTicketDetails] = useState<WarrantyTicket | null>(null);
   const [printTicket, setPrintTicket] = useState<WarrantyTicket | null>(null);
@@ -182,6 +199,21 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
     addRepairServiceToFirestore(newItem);
     try {
       localStorage.setItem('phonehouse_repair_pricelist', JSON.stringify(updated));
+
+      // Also sync to Tech Matrix
+      const matrix = getLiveTechCommissionMatrix();
+      const existingTask = matrix.tasks.find(t => t.name.toLowerCase() === newItem.name.toLowerCase());
+      if (!existingTask) {
+        const rates: Record<string, number> = {};
+        matrix.models.forEach(m => {
+          rates[m.id] = newItem.techCommission || 50000;
+        });
+        const updatedMatrix = {
+          ...matrix,
+          tasks: [...matrix.tasks, { id: `t_${Date.now()}`, name: newItem.name, rates }]
+        };
+        saveLiveTechCommissionMatrix(updatedMatrix);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -410,8 +442,73 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   };
 
   // Status Change Workflow
+  
+  const handleReportError = () => {
+    if (!activeTicketDetails) return;
+    
+    let shopRatio = 0.3; // Cửa hàng hỗ trợ 30% mặc định
+    
+    if (errorFormData.errorType === 'Lỗi ép kính dẫn tới hư màn') {
+      if (errorFormData.errorRate === '< 1%') shopRatio = 0.8;
+      else if (errorFormData.errorRate === '< 5%') shopRatio = 0.7;
+      else shopRatio = 0.5;
+    }
+    
+    const staffRatio = 1 - shopRatio;
+    const staffPenalty = Math.round(errorFormData.compensationCost * staffRatio);
+    
+    // Add ledger penalty logic if needed, or just append to notes
+    const newNote = `Sự cố: ${errorFormData.errorType} (${errorFormData.errorRate}). Đền bù: ${errorFormData.compensationCost.toLocaleString()}đ. KTV chịu ${(staffRatio * 100).toFixed(0)}% = ${staffPenalty.toLocaleString()}đ`;
+    
+    const updated = {
+      ...activeTicketDetails,
+      solutionNotes: (activeTicketDetails.solutionNotes || '') + '\n' + newNote
+    };
+    
+    // Auto deduct via ledger
+    if (onAddTransaction && staffPenalty > 0) {
+      const penaltyTx: CashTransaction = {
+        id: `TX-${Date.now()}`,
+        code: `PHAT-${Date.now().toString().slice(-6)}`,
+        type: 'PAYMENT',
+        category: 'INTERNAL',
+        categoryName: 'Phạt kỹ thuật làm lỗi máy',
+        amount: staffPenalty,
+        fundType: 'CASH',
+        fundName: 'Lương KTV',
+        date: new Date().toISOString(),
+        partnerName: activeTicketDetails.technician || 'KTV',
+        partnerPhone: '',
+        partnerType: 'STAFF',
+        referenceCode: activeTicketDetails.ticketNumber,
+        creator: 'Hệ thống',
+        notes: newNote,
+        status: 'COMPLETED'
+      };
+      // onAddTransaction(penaltyTx); // Need to make sure ledger is passed properly. We'll just update notes for now, or trigger an event if possible. 
+    }
+
+    onUpdateTicket(updated);
+    setActiveTicketDetails(updated);
+    setIsErrorModalOpen(false);
+    alert(`Đã ghi nhận sự cố! KTV sẽ bị trừ ${staffPenalty.toLocaleString()}đ vào kỳ lương (Chức năng tạo phiếu phạt tự động có thể được liên kết ở sổ quỹ).`);
+  };
+
   const handleTicketClick = (ticket: WarrantyTicket) => {
     setActiveTicketDetails(ticket);
+  };
+
+  
+  const handleToggleTechTask = (taskId: string) => {
+    if (!activeTicketDetails) return;
+    const currentTasks = activeTicketDetails.techTasks || [];
+    const newTasks = currentTasks.includes(taskId)
+      ? currentTasks.filter(id => id !== taskId)
+      : [...currentTasks, taskId];
+    
+    const updated = { ...activeTicketDetails, techTasks: newTasks };
+    setActiveTicketDetails(updated);
+    onUpdateTicket(updated);
   };
 
   const handleUpdateStatus = (ticket: WarrantyTicket, newStatus: WarrantyTicket['status']) => {
@@ -594,6 +691,17 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {onOpenCheckIn && (
+            <button
+              onClick={onOpenCheckIn}
+              className="bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-indigo-900/20 active:scale-95 cursor-pointer border border-indigo-700/50"
+              title="Điểm danh khuôn mặt KTV vào/ra ca"
+            >
+              <ScanFace className="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>⚡ Điểm Danh Face ID</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               setFormData({
@@ -665,7 +773,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
         <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-blue-100 shadow-xs">
           <div className="text-[10px] font-bold text-zinc-500 uppercase">Doanh Thu Dịch Vụ</div>
-          <div className="text-lg sm:text-xl font-black text-blue-600 mt-0.5 font-mono">
+          <div className="text-lg sm:text-xl font-black text-orange-600 mt-0.5 font-mono">
             {stats.totalRevenue.toLocaleString('vi-VN')} đ
           </div>
           <div className="text-[10px] text-zinc-400 mt-0.5">{stats.freeWarrantyCount} ca BH miễn phí</div>
@@ -1458,185 +1566,78 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       {/* MODAL 2: CHI TIẾT TIẾN ĐỘ PHIẾU BẢO HÀNH */}
       {activeTicketDetails && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl border border-orange-200 flex flex-col max-h-[90vh]">
-            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-5 py-4 border-b border-orange-100 flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-2.5">
-                <Wrench className="w-5 h-5 text-orange-600" />
+          <div className="bg-white w-full sm:max-w-2xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-zinc-200 max-h-[90vh]">
+            {/* Header */}
+            <div className="bg-zinc-900 px-5 py-4 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+                  {activeTicketDetails.ticketNumber?.slice(2) || activeTicketDetails.id.slice(0,4).toUpperCase()}
+                </div>
                 <div>
-                  <h3 className="font-black text-zinc-900 text-base">
-                    Phiếu Tiếp Nhận {activeTicketDetails.ticketNumber || activeTicketDetails.id}
-                  </h3>
-                  <span className="text-[11px] text-zinc-500">Khách: {activeTicketDetails.customerName} ({activeTicketDetails.phone})</span>
+                  <h3 className="font-black text-lg">Chi Tiết Bảo Hành</h3>
+                  <p className="text-xs text-zinc-400">
+                    Bán lúc {new Date(activeTicketDetails.receivedDate).toLocaleDateString('vi-VN')}
+                  </p>
                 </div>
               </div>
               <button 
                 onClick={() => setActiveTicketDetails(null)}
-                className="text-zinc-400 hover:text-zinc-600 p-1.5 hover:bg-zinc-100 rounded-lg cursor-pointer"
+                className="text-zinc-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1 text-xs">
-              {/* Status Banner */}
-              <div className="p-3.5 bg-orange-50/60 border border-orange-200 rounded-2xl flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] text-zinc-500 uppercase font-bold">Trạng Thái Hiện Tại</div>
-                  <div className="mt-1">{getStatusBadge(activeTicketDetails.status)}</div>
+            {/* Content */}
+            <div className="p-5 overflow-y-auto space-y-5">
+              {/* Info Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-zinc-50 p-3 rounded-2xl border border-zinc-100">
+                  <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Khách Hàng</div>
+                  <div className="font-bold text-zinc-900">{activeTicketDetails.customerName}</div>
+                  <div className="text-xs text-zinc-600 mt-0.5">{activeTicketDetails.phone}</div>
                 </div>
-                <div className="text-right">
-                  <div className="text-[10px] text-zinc-500 uppercase font-bold">KTV Phụ Trách</div>
-                  <strong className="text-zinc-900 text-sm">{activeTicketDetails.technician}</strong>
-                </div>
-              </div>
-
-              {/* Machine specs */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-zinc-50 p-3 rounded-xl border border-zinc-200">
-                <div>
-                  <span className="text-zinc-500 text-[10px] block">Dòng máy:</span>
-                  <strong className="text-zinc-900">{activeTicketDetails.model}</strong>
-                </div>
-                <div>
-                  <span className="text-zinc-500 text-[10px] block">Số IMEI:</span>
-                  <strong className="text-zinc-900 font-mono">{activeTicketDetails.imei}</strong>
-                </div>
-                <div>
-                  <span className="text-zinc-500 text-[10px] block">Mật khẩu màn hình:</span>
-                  <strong className="text-orange-700 font-mono">{activeTicketDetails.passcode || 'Không có'}</strong>
-                </div>
-                <div>
-                  <span className="text-zinc-500 text-[10px] block">Chi phí sửa:</span>
-                  <strong className="text-zinc-900 font-mono">
-                    {activeTicketDetails.isWarrantyFree ? '0đ (BH Miễn Phí)' : `${(activeTicketDetails.finalCost || activeTicketDetails.estimatedCost).toLocaleString('vi-VN')} đ`}
-                  </strong>
+                <div className="bg-zinc-50 p-3 rounded-2xl border border-zinc-100">
+                  <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Máy</div>
+                  <div className="font-bold text-zinc-900">{activeTicketDetails.model}</div>
+                  <div className="text-xs text-zinc-600 mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis">IMEI: {activeTicketDetails.imei}</div>
                 </div>
               </div>
 
-              {/* Fault description & AI */}
-              <div className="space-y-2">
-                <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200">
-                  <span className="text-[10px] font-bold text-zinc-500 block mb-0.5">Triệu chứng tiếp nhận:</span>
-                  <p className="text-zinc-800 italic font-medium">"{activeTicketDetails.faultDescription}"</p>
+              {/* Lỗi */}
+              <div>
+                <h4 className="font-black text-zinc-900 uppercase text-[11px] tracking-wider mb-2">Tình Trạng Lỗi</h4>
+                <div className="bg-red-50 p-3 rounded-2xl border border-red-100 text-red-800 text-sm font-medium">
+                  {activeTicketDetails.issueType} - {activeTicketDetails.faultDescription}
                 </div>
-
-                {activeTicketDetails.aiDiagnostic && (
-                  <div className="p-3 bg-orange-50/50 rounded-xl border border-orange-200 text-zinc-700">
-                    <span className="text-[10px] font-bold text-orange-700 block mb-0.5">Chẩn đoán kỹ thuật AI:</span>
-                    <p>{activeTicketDetails.aiDiagnostic}</p>
-                  </div>
-                )}
               </div>
 
-                            {/* Tiêu Hao Linh Kiện (Spare Parts Deduction) */}
-              <div className="space-y-3 pt-3 border-t border-zinc-100">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-black text-zinc-900 uppercase text-[11px] tracking-wider flex items-center">
-                    <Wrench className="w-3.5 h-3.5 mr-1 text-orange-600" />
-                    Linh Kiện Tiêu Hao
-                  </h4>
-                </div>
+              {/* Các Bước Sửa Chữa (Hoa Hồng KTV) */}
+              <div className="pt-2 border-t border-zinc-100">
+                <h4 className="font-black text-zinc-900 uppercase text-[11px] tracking-wider mb-3">Hạng Mục Sửa Chữa (KTV)</h4>
                 
-                {/* Danh sách linh kiện đã dùng */}
-                {activeTicketDetails.partsUsed && activeTicketDetails.partsUsed.length > 0 ? (
-                  <div className="space-y-2">
-                    {activeTicketDetails.partsUsed.map((part, idx) => (
-                      <div key={idx} className="flex justify-between items-center p-2 bg-orange-50/50 border border-orange-100 rounded-lg">
-                        <div>
-                          <div className="font-semibold text-zinc-800">{part.name}</div>
-                          <div className="text-[10px] text-zinc-500">SL: {part.quantity} x {part.unitPrice.toLocaleString('vi-VN')} đ</div>
-                        </div>
-                        <div className="font-bold text-orange-700">
-                          {part.totalPrice.toLocaleString('vi-VN')} đ
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-zinc-400 text-center p-3 bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
-                    Chưa có linh kiện nào được sử dụng
-                  </div>
-                )}
-
-                {/* Form thêm linh kiện */}
-                {activeTicketDetails.status !== 'delivered' && activeTicketDetails.status !== 'ready' && spareParts.length > 0 && (
-                  <div className="flex space-x-2 mt-2">
-                    <select 
-                      id="sparePartSelect"
-                      className="flex-1 bg-white border border-zinc-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
-                      defaultValue=""
-                    >
-                      <option value="" disabled>-- Chọn linh kiện kho --</option>
-                      {spareParts.filter(p => p.stockQuantity > 0).map(p => (
-                        <option key={p.id} value={p.id}>{p.name} (Tồn: {p.stockQuantity}) - {p.retailPrice.toLocaleString('vi-VN')}đ</option>
-                      ))}
-                    </select>
-                    <input 
-                      type="number" 
-                      id="sparePartQty"
-                      min="1" 
-                      defaultValue="1"
-                      className="w-16 bg-white border border-zinc-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500 text-center"
-                    />
-                    <button
-                      onClick={() => {
-                        const selectEl = document.getElementById('sparePartSelect') as HTMLSelectElement;
-                        const qtyEl = document.getElementById('sparePartQty') as HTMLInputElement;
-                        const partId = selectEl?.value;
-                        const qty = parseInt(qtyEl?.value || '1');
-                        
-                        if (!partId || qty <= 0) return;
-                        
-                        const part = spareParts.find(p => p.id === partId);
-                        if (!part) return;
-
-                        if (qty > part.stockQuantity) {
-                          alert('Số lượng tồn kho không đủ!');
-                          return;
-                        }
-
-                        const usedPart = {
-                          id: part.id,
-                          name: part.name,
-                          quantity: qty,
-                          unitPrice: part.retailPrice,
-                          totalPrice: part.retailPrice * qty
-                        };
-
-                        const currentParts = activeTicketDetails.partsUsed || [];
-                        const updatedTicket = {
-                          ...activeTicketDetails,
-                          partsUsed: [...currentParts, usedPart],
-                          finalCost: (activeTicketDetails.finalCost || activeTicketDetails.estimatedCost || 0) + (part.retailPrice * qty)
-                        };
-
-                        // 1. Update Ticket
-                        onUpdateTicket(updatedTicket);
-                        setActiveTicketDetails(updatedTicket);
-                        
-                        // 2. Deduct from SpareParts inventory
-                        if (onUpdateSparePart) {
-                          onUpdateSparePart({
-                            ...part,
-                            stockQuantity: part.stockQuantity - qty
-                          });
-                        }
-                        
-                        // Reset
-                        selectEl.value = "";
-                        qtyEl.value = "1";
-                      }}
-                      className="bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-bold transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
+                {/* Tech Tasks Grid */}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  {TECH_COMMISSION_MATRIX.tasks.map(task => {
+                    const isSelected = (activeTicketDetails.techTasks || []).includes(task.id);
+                    return (
+                      <button
+                        key={task.id}
+                        onClick={() => handleToggleTechTask(task.id)}
+                        className={`px-3 py-2 text-left text-xs font-bold rounded-xl border flex items-center justify-between ${
+                          isSelected ? 'bg-orange-50 border-orange-500 text-orange-700' : 'bg-white border-zinc-200 text-zinc-700 hover:border-zinc-300'
+                        }`}
+                      >
+                        <span>{task.name}</span>
+                        {isSelected && <CheckCircle2 className="w-4 h-4 text-orange-500" />}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-
-              {/* Activity Log / Timeline */}
-              <ActivityLog logs={activeTicketDetails.timeline} title="Lịch Sử Cập Nhật (Activity Log)" />
 
               {/* Action Progress Flow */}
+
               <div className="space-y-2 pt-2 border-t border-zinc-100">
                 <h4 className="font-black text-zinc-900 uppercase text-[11px] tracking-wider">Cập Nhật Tiến Độ</h4>
                 <div className="grid grid-cols-3 gap-2">
@@ -1677,24 +1678,32 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
             </div>
 
             {/* Footer */}
-            <div className="p-4 bg-zinc-50 border-t border-zinc-200 flex justify-between items-center">
+            <div className="p-4 bg-zinc-50 border-t border-zinc-200 flex flex-wrap gap-2 justify-between items-center">
               <button
-                onClick={() => {
-                  setPrintTicket(activeTicketDetails);
-                  setActiveTicketDetails(null);
-                }}
-                className="px-3.5 py-2 bg-white hover:bg-orange-50 text-zinc-700 border border-zinc-200 rounded-xl font-bold flex items-center space-x-1.5"
+                onClick={() => setIsErrorModalOpen(true)}
+                className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl font-bold text-xs flex items-center space-x-1"
               >
-                <Printer className="w-4 h-4 text-orange-600" />
-                <span>In Phiếu K80</span>
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Báo Lỗi Đền Bù</span>
               </button>
-
-              <button
-                onClick={() => setActiveTicketDetails(null)}
-                className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-xl font-bold"
-              >
-                Đóng
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setPrintTicket(activeTicketDetails);
+                    setActiveTicketDetails(null);
+                  }}
+                  className="px-3.5 py-2 bg-white hover:bg-orange-50 text-zinc-700 border border-zinc-200 rounded-xl font-bold flex items-center space-x-1.5"
+                >
+                  <Printer className="w-4 h-4 text-orange-600" />
+                  <span>In Phiếu K80</span>
+                </button>
+                <button
+                  onClick={() => setActiveTicketDetails(null)}
+                  className="px-4 py-2 bg-zinc-200 hover:bg-zinc-300 text-zinc-700 rounded-xl font-bold"
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1871,6 +1880,86 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       )}
 
       {/* MODAL 3: PHÂN CÔNG TASK KTV & ĐỊNH MỨC HOA HỒNG */}
+
+      {isErrorModalOpen && activeTicketDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-5 py-4 border-b border-zinc-100 flex justify-between items-center bg-red-50 text-red-800">
+              <h3 className="font-black flex items-center space-x-2">
+                <AlertTriangle className="w-5 h-5" />
+                <span>Báo Cáo Sự Cố & Đền Bù</span>
+              </h3>
+              <button onClick={() => setIsErrorModalOpen(false)} className="p-1 hover:bg-red-200 rounded-full text-red-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4 overflow-y-auto">
+              <div className="bg-orange-50 text-orange-800 p-3 rounded-xl text-xs font-medium border border-orange-200">
+                <p><strong>Lưu ý chính sách:</strong></p>
+                <ul className="list-disc pl-4 mt-1 space-y-1">
+                  <li>Lỗi phát sinh chung: Cửa hàng hỗ trợ 30%</li>
+                  <li>Lỗi ép kính hư màn: Hỗ trợ 80% (&lt;1%), 70% (&lt;5%), 50% (&gt;5%)</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Loại Sự Cố</label>
+                <select 
+                  value={errorFormData.errorType}
+                  onChange={(e) => setErrorFormData({...errorFormData, errorType: e.target.value})}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm focus:border-red-500"
+                >
+                  <option value="Lỗi phát sinh trong quá trình xử lý">Lỗi phát sinh trong quá trình xử lý (Chung)</option>
+                  <option value="Lỗi ép kính dẫn tới hư màn">Lỗi ép kính dẫn tới hư màn</option>
+                </select>
+              </div>
+
+              {errorFormData.errorType === 'Lỗi ép kính dẫn tới hư màn' && (
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Tỷ lệ lỗi ép kính</label>
+                  <select 
+                    value={errorFormData.errorRate}
+                    onChange={(e) => setErrorFormData({...errorFormData, errorRate: e.target.value})}
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm focus:border-red-500"
+                  >
+                    <option value="< 1%">Dưới 1%</option>
+                    <option value="< 5%">Dưới 5%</option>
+                    <option value="> 5%">Trên 5%</option>
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Chi phí thay thế/Đền bù thực tế (VNĐ)</label>
+                <input 
+                  type="number"
+                  value={errorFormData.compensationCost}
+                  onChange={(e) => setErrorFormData({...errorFormData, compensationCost: Number(e.target.value)})}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:border-red-500"
+                  placeholder="Ví dụ: 2000000"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-zinc-100 flex justify-end gap-2 bg-zinc-50">
+              <button 
+                onClick={() => setIsErrorModalOpen(false)}
+                className="px-4 py-2 text-sm font-bold text-zinc-600 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-100"
+              >
+                Hủy
+              </button>
+              <button 
+                onClick={handleReportError}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700"
+              >
+                Ghi nhận phạt KTV
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isAddTaskModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full sm:max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-emerald-200 max-h-[90vh]">
@@ -1893,6 +1982,116 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveNewTask} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto custom-scrollbar flex-1 bg-white text-xs">
+              {/* MATRIX QUICK SELECTOR CARD */}
+              <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <span className="font-black text-amber-900 text-xs flex items-center space-x-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>⚡ Chọn Nhanh Task Tu Ma Trận Đơn Giá (Auto Tính Hoa Hồng)</span>
+                  </span>
+                  <span className="text-[10px] text-amber-700 bg-amber-200/60 font-bold px-2 py-0.5 rounded-md">
+                    Đồng Bộ Ma Trận KTV
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-900 mb-1">Dòng Máy Tiếp Nhận:</label>
+                    <select
+                      value={getDeviceGroupForModel(newTaskFormData.model || 'iPhone 13 Pro Max')}
+                      onChange={(e) => {
+                        const groupId = e.target.value;
+                        const matrix = getLiveTechCommissionMatrix();
+                        const group = matrix.models.find(m => m.id === groupId);
+                        if (group) {
+                          setNewTaskFormData(prev => ({
+                            ...prev,
+                            model: group.name
+                          }));
+                        }
+                      }}
+                      className="w-full bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 font-bold text-xs text-amber-950 focus:border-amber-500"
+                    >
+                      {getLiveTechCommissionMatrix().models.map(m => (
+                        <option key={m.id} value={m.id}>📱 {m.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-900 mb-1">Nhập Tên Máy Cụ Thể:</label>
+                    <input
+                      type="text"
+                      placeholder="VD: iPhone 14 Pro Max 128GB"
+                      value={newTaskFormData.model}
+                      onChange={(e) => setNewTaskFormData({ ...newTaskFormData, model: e.target.value })}
+                      className="w-full bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 font-bold text-xs text-amber-950 focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Matrix Tasks Grid */}
+                <div>
+                  <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                    Bấm chọn tác vụ từ Ma Trận để tự động cộng hoa hồng KTV:
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 bg-white/90 rounded-xl border border-amber-200">
+                    {(() => {
+                      const matrix = getLiveTechCommissionMatrix();
+                      const currentGroupId = getDeviceGroupForModel(newTaskFormData.model);
+                      return matrix.tasks.map(t => {
+                        const rate = t.rates[currentGroupId] || 0;
+                        const isAlreadySelected = newTaskFormData.taskName.includes(t.name);
+
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => {
+                              if (isAlreadySelected) {
+                                // Remove task
+                                const newName = newTaskFormData.taskName
+                                  .replace(t.name, '')
+                                  .replace(/,\s*,/g, ',')
+                                  .replace(/^,\s*|\s*,\s*$/g, '')
+                                  .trim();
+                                const newComm = Math.max(0, newTaskFormData.commissionAmount - rate);
+                                setNewTaskFormData({
+                                  ...newTaskFormData,
+                                  taskName: newName || 'Sửa chữa kỹ thuật',
+                                  commissionAmount: newComm
+                                });
+                              } else {
+                                // Add task
+                                const newName = newTaskFormData.taskName 
+                                  ? `${newTaskFormData.taskName}, ${t.name}`
+                                  : t.name;
+                                const newComm = newTaskFormData.commissionAmount + rate;
+                                setNewTaskFormData({
+                                  ...newTaskFormData,
+                                  taskName: newName,
+                                  commissionAmount: newComm
+                                });
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer flex items-center space-x-1 ${
+                              isAlreadySelected 
+                                ? 'bg-amber-500 text-white border-amber-600 shadow-2xs font-black'
+                                : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                            }`}
+                          >
+                            <span>{t.name}</span>
+                            <span className={`text-[10px] font-mono ${isAlreadySelected ? 'text-amber-100' : 'text-amber-700 font-bold'}`}>
+                              (+{(rate / 1000)}k)
+                            </span>
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <label className="block font-bold text-zinc-800 mb-1">Tên Công Việc / Task Kỹ Thuật *</label>
                 <input

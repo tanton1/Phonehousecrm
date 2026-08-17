@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { 
   ShoppingCart, Search, Smartphone, Users, ChevronRight, 
-  RefreshCw, TrendingUp, Bell, Target, ArrowRight, Zap
+  RefreshCw, TrendingUp, Bell, Target, ArrowRight, Zap, ScanFace
 } from 'lucide-react';
 import { POSSalesView } from './POSSalesView';
 import { CRMLeadsView } from './CRMLeadsView';
 import { EmployeeDashboardView } from './EmployeeDashboardView';
 import { StaffHRView } from './StaffHRView';
-import { UserAccount, WarrantyTicket } from '../types';
+import { TradeInView } from './TradeInView';
+import { UserAccount, WarrantyTicket, TradeInAppraisal } from '../types';
 import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, FundAccount, CashTransaction } from '../types';
 
 interface SalesWorkspaceViewProps {
@@ -24,6 +25,7 @@ interface SalesWorkspaceViewProps {
   funds: FundAccount[];
   onAddTransaction: (tx: CashTransaction) => void;
   onOpenNewDeviceModal?: () => void;
+  onOpenCheckIn?: () => void;
   
   // CRM Props
   onAddLead: (lead: Lead) => void;
@@ -33,20 +35,30 @@ interface SalesWorkspaceViewProps {
   // Employee Dashboard & HR Props
   currentUser?: UserAccount | null;
   users: UserAccount[];
+  onUpdateUser?: (user: UserAccount) => void;
   warrantyTickets: WarrantyTicket[];
   onCheckIn?: (time: string) => void;
   onCheckOut?: (time: string) => void;
   attendanceRecord?: import('../types').AttendanceRecord;
+  attendanceRecords?: import('../types').AttendanceRecord[];
+
+  // Trade In Props
+  tradeIns?: TradeInAppraisal[];
+  onAddTradeIn?: (tradeIn: TradeInAppraisal) => void;
+  onUpdateTradeIn?: (tradeIn: TradeInAppraisal) => void;
+  onAddDevice?: (device: DeviceItem) => void;
 }
 
 export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({ 
   devices, invoices, leads = [], branches, warehouses, storeSettings, 
   onCreateInvoice, onUpdateDeviceStatus, preSelectedDevice, onNavigateToInvoices,
-  funds, onAddTransaction, onOpenNewDeviceModal,
+  funds, onAddTransaction, onOpenNewDeviceModal, onOpenCheckIn,
   onAddLead, onUpdateLead, onConvertLeadToSale,
-  currentUser, users, warrantyTickets
-, onCheckIn, onCheckOut, attendanceRecord }) => {
-  const [activeMode, setActiveMode] = useState<'POS' | 'SEARCH' | 'TRADEIN' | 'CRM' | 'KPI' | 'HR'>('POS');
+  currentUser, users, onUpdateUser, warrantyTickets,
+  onCheckIn, onCheckOut, attendanceRecord, attendanceRecords = [],
+  tradeIns = [], onAddTradeIn = () => {}, onUpdateTradeIn = () => {}, onAddDevice = () => {}
+}) => {
+  const [activeMode, setActiveMode] = useState<'POS' | 'SEARCH' | 'TRADEIN' | 'CRM' | 'KPI' | 'HR'>('KPI');
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredDevices = devices.filter(d => 
@@ -66,7 +78,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
             <h1 className="text-sm font-black uppercase tracking-wider">Sales Desk</h1>
             <div className="text-[10px] text-orange-200 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Chi nhánh Cầu Giấy
+              {branches && branches.length > 0 ? branches[0].name : (currentUser?.branchName || storeSettings?.storeName || 'Chi nhánh chính')}
             </div>
           </div>
         </div>
@@ -88,7 +100,23 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (onOpenCheckIn) {
+                onOpenCheckIn();
+              } else {
+                setActiveMode('HR');
+              }
+            }}
+            className="bg-white/20 hover:bg-white/30 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm backdrop-blur-md transition-all cursor-pointer active:scale-95 border border-white/20 shrink-0"
+            title="Điểm danh khuôn mặt Face ID vào ca"
+          >
+            <ScanFace className="w-4 h-4 text-amber-200 animate-pulse" />
+            <span className="hidden sm:inline">⚡ Điểm Danh Face ID</span>
+            <span className="sm:hidden">Điểm Danh</span>
+          </button>
+
           <div className="hidden lg:flex items-center gap-2 bg-black/15 px-3 py-1.5 rounded-full text-xs font-bold">
             <Target className="w-4 h-4 text-emerald-400" />
             KPI: 85% <span className="text-white/60 font-normal">/ 300tr</span>
@@ -108,7 +136,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
         <div className="absolute top-16 left-1/2 -translate-x-1/2 w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-zinc-200 z-50 p-2 animate-scaleIn origin-top">
           <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 mb-2">
             <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Kết quả tìm kiếm</span>
-            <button onClick={() => { setSearchQuery(''); setActiveMode('POS'); }} className="text-xs text-blue-600 font-medium">Đóng</button>
+            <button onClick={() => { setSearchQuery(''); setActiveMode('POS'); }} className="text-xs text-orange-600 font-medium">Đóng</button>
           </div>
           {filteredDevices.length > 0 ? (
             <div className="space-y-1">
@@ -125,7 +153,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-black text-[#FF4B16]">{(d.expectedSellPrice || 0).toLocaleString()} đ</div>
-                    <button className="text-[10px] font-bold text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">Thêm POS &rarr;</button>
+                    <button className="text-[10px] font-bold text-orange-600 opacity-0 group-hover:opacity-100 transition-opacity">Thêm POS &rarr;</button>
                   </div>
                 </div>
               ))}
@@ -144,6 +172,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
             <div className="flex-1 overflow-hidden relative">
               <POSSalesView 
                 devices={devices}
+                attendanceRecords={attendanceRecords}
                 invoices={invoices}
                 leads={leads}
                 branches={branches}
@@ -160,50 +189,14 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
           )}
           
           {activeMode === 'TRADEIN' && (
-            <div className="flex-1 bg-zinc-50 p-6 overflow-auto">
-              <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-xl border border-zinc-200 overflow-hidden">
-                <div className="p-8 text-center border-b border-zinc-100 bg-gradient-to-br from-orange-50 to-white">
-                  <div className="w-16 h-16 bg-orange-100 text-[#FF4B16] rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Zap className="w-8 h-8" />
-                  </div>
-                  <h2 className="text-2xl font-black text-zinc-900 mb-2">Định Giá Thu Cũ Thông Minh</h2>
-                  <p className="text-sm text-zinc-500">Chỉ cần chọn dòng máy, hệ thống sẽ đưa ra giá thu mua chuẩn ngay lập tức.</p>
-                </div>
-                <div className="p-8">
-                  {/* Mock Trade In Simple Flow */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-2">Dòng Máy Cũ Của Khách</label>
-                        <select className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:border-[#FF4B16] focus:ring-1 focus:ring-[#FF4B16]">
-                          <option>iPhone 14 Pro Max</option>
-                          <option>iPhone 13 Pro Max</option>
-                          <option>iPhone 12 Pro</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-700 uppercase tracking-wider mb-2">Tình Trạng (KCS)</label>
-                        <select className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3 text-sm font-semibold focus:outline-none focus:border-[#FF4B16] focus:ring-1 focus:ring-[#FF4B16]">
-                          <option>Loại 1 (Đẹp 99%, Pin &gt; 90%)</option>
-                          <option>Loại 2 (Cấn xước nhẹ, Pin 8x)</option>
-                          <option>Loại 3 (Kính phẩy, cần thay pin)</option>
-                        </select>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-zinc-900 text-white rounded-2xl p-6 flex flex-col justify-center relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-4 opacity-10"><RefreshCw className="w-32 h-32" /></div>
-                      <div className="relative z-10">
-                        <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-1">Giá thu mua dự kiến</div>
-                        <div className="text-4xl font-black text-emerald-400 mb-4">16.500.000 đ</div>
-                        <button className="w-full py-3 bg-[#FF4B16] hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg transition-transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2">
-                          Chốt Thu Mua & Lên Đời <ArrowRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+            <div className="flex-1 bg-zinc-50 overflow-auto p-4 sm:p-6">
+              <TradeInView
+                tradeIns={tradeIns}
+                devices={devices}
+                onAddTradeIn={onAddTradeIn}
+                onUpdateTradeIn={onUpdateTradeIn}
+                onImportToInventory={onAddDevice}
+              />
             </div>
           )}
           
@@ -212,6 +205,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
               <CRMLeadsView
                 leads={leads}
                 devices={devices}
+                attendanceRecords={attendanceRecords}
                 onAddLead={onAddLead}
                 onUpdateLead={onUpdateLead}
                 onConvertLeadToSale={onConvertLeadToSale}
@@ -226,7 +220,9 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
                 warrantyTickets={warrantyTickets}
                 currentUser={currentUser}
                 users={users}
+                onUpdateUser={onUpdateUser}
                 devices={devices}
+                attendanceRecords={attendanceRecords}
                 onNavigate={() => {}}
                 onOpenPOS={() => setActiveMode('POS')}
               />
@@ -234,14 +230,16 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
           )}
           
           {activeMode === 'HR' && (
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 overflow-auto p-3 sm:p-5">
               <StaffHRView 
                 currentUser={currentUser} 
                 roleType='SALES' 
+                branches={branches}
                 onCheckIn={onCheckIn}
                 onCheckOut={onCheckOut}
                 checkedInState={!!attendanceRecord?.checkInTime && !attendanceRecord?.checkOutTime}
                 initialCheckInTime={attendanceRecord?.checkInTime || null}
+                onOpenCheckInModal={onOpenCheckIn}
               />
             </div>
           )}

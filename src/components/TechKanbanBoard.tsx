@@ -53,7 +53,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         return (
           <button 
             onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'inspecting'); }}
-            className="w-full mt-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded hover:bg-blue-100 flex items-center justify-center transition-colors"
+            className="w-full mt-3 py-1.5 bg-blue-50 text-orange-600 text-xs font-semibold rounded hover:bg-blue-100 flex items-center justify-center transition-colors"
           >
             <Wrench className="w-3.5 h-3.5 mr-1" />
             Nhận Xử Lý
@@ -82,7 +82,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         return (
           <button 
             onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'repairing'); }}
-            className="w-full mt-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded hover:bg-blue-100 flex items-center justify-center transition-colors"
+            className="w-full mt-3 py-1.5 bg-blue-50 text-orange-600 text-xs font-semibold rounded hover:bg-blue-100 flex items-center justify-center transition-colors"
           >
             <ArrowRight className="w-3.5 h-3.5 mr-1" />
             Tiếp Tục
@@ -122,7 +122,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
             <div className="p-3 border-b border-zinc-200 bg-white/50 flex items-center justify-between rounded-t-xl">
               <h3 className="text-sm font-semibold text-zinc-700 flex items-center">
                 {col.id === 'TODO' && <KanbanSquare className="w-4 h-4 mr-2 text-zinc-500" />}
-                {col.id === 'IN_PROGRESS' && <Wrench className="w-4 h-4 mr-2 text-blue-500" />}
+                {col.id === 'IN_PROGRESS' && <Wrench className="w-4 h-4 mr-2 text-orange-500" />}
                 {col.id === 'PENDING_PARTS' && <Package className="w-4 h-4 mr-2 text-amber-500" />}
                 {col.id === 'DONE' && <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-500" />}
                 {col.title}
@@ -141,7 +141,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                   className="bg-white p-3 rounded-lg border border-zinc-200 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                    <span className="text-xs font-bold text-orange-600 bg-blue-50 px-2 py-0.5 rounded">
                       {task.ticketNumber}
                     </span>
                     <span className="text-[10px] font-medium text-zinc-400">

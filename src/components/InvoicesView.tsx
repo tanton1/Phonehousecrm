@@ -906,11 +906,30 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </div>
 
                 <div className="space-y-1 text-[11px] pt-1">
-                  <div className="flex justify-between font-semibold">
-                    <span>Tổng tiền thanh toán:</span>
+                  <div className="flex justify-between font-medium text-zinc-600">
+                    <span>Tổng tiền niêm yết:</span>
+                    <span>{(selectedInvoice.totalAmount || selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ</span>
+                  </div>
+
+                  {(selectedInvoice.discountAmount || 0) > 0 && (
+                    <div className="flex justify-between text-red-600">
+                      <span>- Giảm giá Voucher:</span>
+                      <span>-{(selectedInvoice.discountAmount || 0).toLocaleString('vi-VN')}đ</span>
+                    </div>
+                  )}
+
+                  {(selectedInvoice.tradeInDiscount || selectedInvoice.tradeInDeduction || 0) > 0 && (
+                    <div className="flex justify-between text-orange-600 font-bold">
+                      <span>- Trừ Thu Cũ ({selectedInvoice.tradeInModel || 'Thu cũ đổi mới'}):</span>
+                      <span>-{(selectedInvoice.tradeInDiscount || selectedInvoice.tradeInDeduction || 0).toLocaleString('vi-VN')}đ</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between font-bold text-sm text-zinc-900 pt-1 border-t border-zinc-200">
+                    <span>Khách Cần Thanh Toán:</span>
                     <span>{selectedInvoice.finalAmount.toLocaleString('vi-VN')}đ</span>
                   </div>
-                  <div className="flex justify-between text-[10px]">
+                  <div className="flex justify-between text-[10px] text-zinc-500 pt-0.5">
                     <span>Phương thức:</span>
                     <span>{selectedInvoice.paymentMethod}</span>
                   </div>

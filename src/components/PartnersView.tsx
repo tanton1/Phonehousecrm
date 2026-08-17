@@ -809,7 +809,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
               </div>
               <div className="bg-blue-50/70 border border-blue-100 p-3 rounded-2xl">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Hạn Mức Tín Dụng</div>
-                <div className="text-lg font-black text-blue-600 mt-1">
+                <div className="text-lg font-black text-orange-600 mt-1">
                   {(selectedPartner.creditLimit || 0).toLocaleString('vi-VN')} đ
                 </div>
               </div>

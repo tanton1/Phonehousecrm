@@ -42,6 +42,12 @@ export interface StoreBranch {
     accountHolder: string;
   };
   notes?: string;
+  // GPS & Wi-Fi Check-in anti-spoofing config
+  allowedWifiSSID?: string;
+  storePublicIp?: string; // IP Tĩnh Router Wi-Fi cửa hàng (e.g. 113.161.45.88 hoặc nhiều IP phân cách dấu phẩy)
+  gpsLatitude?: number;
+  gpsLongitude?: number;
+  allowedGpsRadiusMeters?: number;
 }
 
 export interface StoreSettings {
@@ -270,23 +276,45 @@ export interface PurchaseOrder {
 
 export type CatalogCategory = 'DEVICE' | 'PART' | 'ACCESSORY';
 
+export interface CatalogSubCategory {
+  id: string;
+  name: string;
+  parentCategory: CatalogCategory;
+  code: string;
+  description?: string;
+  iconName?: string;
+  itemCount?: number;
+}
+
 export interface MasterCatalogItem {
   id: string;
   sku: string;
   name: string;
   category: CatalogCategory;
+  parentCategoryId?: CatalogCategory;
+  subCategory?: string; // e.g. "iPhone 16 Series", "Màn Hình OLED/Zin", "Củ Sạc & Cáp Nhanh"
+  subCategoryId?: string;
+  brand?: string; // Apple, Pisen, KingKong, Torras, Baseus, Anker...
+  unit?: string; // Chiếc, Bộ, Cụm, Hộp...
+  barcode?: string;
   // Specifications
   model?: string;
   storage?: string;
   color?: string;
   condition?: string;
   region?: string;
+  imageUrl?: string;
   compatibleModels?: string[]; // For parts/accessories
   // Default Pricing
   defaultImportPrice: number;
   defaultRetailPrice: number;
+  wholesalePrice?: number;
   minStockLevel?: number;
+  maxStockLevel?: number;
+  warrantyPeriodMonths?: number;
+  vatRate?: number;
   notes?: string;
+  status?: 'active' | 'inactive';
 }
 
 export interface ProductItem {
@@ -398,6 +426,10 @@ export interface TradeInAppraisal {
   inspectedBy: string;
   aiSuggestedPrice?: number;
   aiReasoning?: string;
+  baseValue?: number;
+  subsidyBonus?: number;
+  totalDeduction?: number;
+  deductionDetails?: { step: number; name: string; amount: number; note: string }[];
 }
 
 export interface WarrantyTicketPart {
@@ -448,7 +480,8 @@ export interface WarrantyTicket {
   ticketNumber: string;
   taskType?: 'INBOUND_QC' | 'WARRANTY' | 'RETAIL_REPAIR'; // Phân loại Phiếu
   assigneeId?: string; // ID của Kỹ Thuật Viên
-  commissionAmount?: number; // Hoa hồng cho KTV
+  commissionAmount?: number;
+  techTasks?: string[]; // Hoa hồng cho KTV
   techChecklist?: TechChecklistStep[]; // Checklist kiểm tra máy
   customerName: string;
   phone: string;
@@ -490,7 +523,7 @@ export interface SalesInvoiceItem {
   unitPrice: number;
   totalPrice: number;
   imei?: string;
-  type?: 'phone' | 'accessory' | 'service';
+  type?: 'phone' | 'device' | 'accessory' | 'service' | 'tradein' | 'repair';
   color?: string;
   storage?: string;
 }
@@ -583,13 +616,23 @@ export interface UserAccount {
   email: string;
   displayName: string;
   role: UserRole;
-  branchId?: string; // TONG, CN01, CN02...
+  branchId?: string; // Primary branch ID (e.g. TONG, CN01)
+  assignedBranchIds?: string[]; // Cho phép chọn 1 hoặc nhiều chi nhánh/địa chỉ làm việc
+  workplaceAddresses?: string[]; // Danh sách các địa chỉ làm việc cụ thể được phân công
   phone?: string;
   active: boolean;
   createdAt: string;
   avatarUrl?: string;
+  facePhotoUrl?: string; // Ảnh mẫu gương mặt đăng ký chuẩn
+  assignedFaceEmbedding?: boolean; // Đã đăng ký dữ liệu sinh trắc học Face ID
+  faceEnrollmentDate?: string; // Ngày đăng ký gương mặt
+  faceFeatureVector?: number[]; // Vector đặc trưng khuôn mặt (Dữ liệu nhúng Face ID AI)
   lastLogin?: string;
   notes?: string;
+  kpiTargetRevenue?: number;
+  kpiTargetOrders?: number;
+  kpiTargetWarranty?: number;
+  baseSalary?: number;
 }
 
 export interface RolePermissionInfo {
@@ -608,7 +651,7 @@ export interface RolePermissionInfo {
   canExportData: boolean;
 }
 
-export type PartnerType = 'CUSTOMER' | 'SUPPLIER' | 'BOTH';
+export type PartnerType = 'CUSTOMER' | 'SUPPLIER' | 'BOTH' | 'STAFF';
 export type CustomerTier = 'STANDARD' | 'SILVER' | 'GOLD' | 'DIAMOND' | 'WHOLESALE';
 export type SupplierCategory = 'OFFICIAL_DISTRIBUTOR' | 'LIKE_NEW_WHOLESALER' | 'COMPONENTS' | 'FINANCE_PARTNER';
 
@@ -636,6 +679,7 @@ export type CashPaymentCategory =
   | 'UTILITIES'            // Chi điện, nước, internet, văn phòng phẩm
   | 'WARRANTY_PARTS'       // Chi mua linh kiện bảo hành / sửa chữa
   | 'CUSTOMER_REFUND'      // Chi hoàn tiền đổi trả cho khách
+  | 'INTERNAL'             // Chi phí nội bộ / Phạt KTV
   | 'OTHER_EXPENSE';       // Chi phí khác
 
 export interface CashTransaction {
@@ -742,6 +786,8 @@ export interface StaffMember {
   email: string;
   branchId: string;
   branchName: string;
+  assignedBranchIds?: string[];
+  workplaceAddresses?: string[];
   baseSalary: number;
   monthlyTargetRevenue: number;
   monthlyTargetOrders: number;
@@ -749,6 +795,9 @@ export interface StaffMember {
   joinDate: string;
   allowedWifiSSID?: string;
   assignedFaceEmbedding?: boolean;
+  facePhotoUrl?: string;
+  faceEnrollmentDate?: string;
+  faceFeatureVector?: number[];
 }
 
 export type ShiftType = 'MORNING' | 'AFTERNOON' | 'EVENING' | 'FULL_DAY' | 'OFF';
@@ -862,6 +911,8 @@ export interface LeaveRequest {
   createdAt: string;
 }
 
+export type WalletCategory = 'TECH_WALLET' | 'SALES_WALLET';
+
 export type CommissionType = 
   | 'DEVICE_SALE'          // Hoa hồng bán máy iPhone / iPad / MacBook
   | 'ACCESSORY_SALE'       // Hoa hồng ốp, sạc, dán cường lực
@@ -869,13 +920,17 @@ export type CommissionType =
   | 'ONLINE_LEAD_SPLIT'    // 30% Sale Online
   | 'STORE_CLOSER_SPLIT'   // 70% Nhân viên chốt đơn tại cửa hàng
   | 'TECH_REPAIR'          // Hoa hồng / Điểm kỹ thuật viên sửa chữa
-  | 'TRADEIN_BONUS';       // Thưởng thu cũ đổi mới
+  | 'TECH_KCS'             // Hoa hồng kiểm định KCS nhập kho
+  | 'TECH_WARRANTY'        // Hoa hồng xử lý bảo hành miễn phí
+  | 'TRADEIN_BONUS'        // Thưởng thu cũ đổi mới
+  | 'OTHER_BONUS';         // Thưởng khác
 
 export interface CommissionTransaction {
   id: string;
   employeeId: string;
   employeeName: string;
   role: StaffRole;
+  walletCategory?: WalletCategory; // TECH_WALLET hoặc SALES_WALLET
   orderId: string;
   orderCode: string;
   orderItemId?: string;
@@ -893,6 +948,49 @@ export interface CommissionTransaction {
   occurredAt: string;
   approvedAt?: string;
   notes?: string;
+  sourceType?: 'INVOICE' | 'WARRANTY_TICKET' | 'TRADEIN' | 'MANUAL';
+  sourceId?: string;
+}
+
+export interface StaffDualWalletSummary {
+  staffId: string;
+  staffName: string;
+  role: StaffRole;
+  // 1. Ví Kỹ Thuật (Tech Wallet)
+  techWallet: {
+    totalCommission: number;
+    kcsCount: number;
+    kcsAmount: number;
+    repairCount: number;
+    repairAmount: number;
+    warrantyCount: number;
+    warrantyAmount: number;
+    tradeInCount: number;
+    tradeInAmount: number;
+    completedTicketCount: number;
+    pendingCount: number;
+    transactions: CommissionTransaction[];
+  };
+  // 2. Ví Kinh Doanh & Bán Hàng (Sales Wallet)
+  salesWallet: {
+    totalCommission: number;
+    totalRevenue: number;
+    completedOrderCount: number;
+    deviceOrderCount: number;
+    deviceCommission: number;
+    deviceAmount: number;
+    accessoryOrderCount: number;
+    accessoryCommission: number;
+    accessoryAmount: number;
+    carePackageCount: number;
+    carePackageCommission: number;
+    carePackageAmount: number;
+    onlineSplitCommission: number;
+    transactions: CommissionTransaction[];
+  };
+  // Tổng hợp thực lãnh
+  totalGrossCommission: number;
+  totalTransactionsCount: number;
 }
 
 export interface TechnicianPerformanceRecord {

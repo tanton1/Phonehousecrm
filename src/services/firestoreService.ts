@@ -761,11 +761,7 @@ export function subscribeToBranches(onData: (branches: StoreBranch[]) => void) {
   const colRef = collection(db, BRANCHES_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as StoreBranch);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_BRANCHES);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, BRANCHES_COL));
 }
 

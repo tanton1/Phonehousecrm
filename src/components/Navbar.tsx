@@ -42,7 +42,8 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Bot,
-  PackageCheck
+  PackageCheck,
+  ScanFace
 } from 'lucide-react';
 import { auth, signInWithGoogle, logOut } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -119,12 +120,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const navItems = [
     { id: 'dashboard', label: 'Tổng Quan', icon: Layers },
-    { id: 'purchase-orders', label: 'Nhập Hàng (NCC)', icon: PackageCheck },
+    { id: 'pos', label: 'Bán Hàng POS', icon: ShoppingCart },
+    { id: 'checkin-portal', label: '⚡ Điểm Danh Face ID', icon: ScanFace, badge: 'HOT' },
+    { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
     { id: 'inventory', label: 'Kho IMEI', icon: Smartphone, badge: stockCount },
+    { id: 'purchase-orders', label: 'Nhập Hàng (NCC)', icon: PackageCheck },
     { id: 'transfers', label: 'Chuyển Kho', icon: ArrowLeftRight, badge: transferCount },
     { id: 'master-catalog', label: 'Danh Mục Hàng Hóa', icon: Database },
-    { id: 'products', label: 'Linh Phụ Kiện (Kho Kỹ Thuật)', icon: Package },
-    { id: 'pos', label: 'Bán Hàng POS', icon: ShoppingCart },
+    { id: 'products', label: 'Linh Phụ Kiện', icon: Package },
     { id: 'invoices', label: 'Hóa Đơn', icon: FileText },
     { id: 'cashbook', label: 'Sổ Quỹ Thu Chi', icon: Wallet },
     { id: 'partners', label: 'Đối Tác & NCC', icon: Building2 },
@@ -132,9 +135,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: RefreshCw },
     { id: 'warranty', label: 'Bảo Hành & Sửa', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
     { id: 'employee-dashboard', label: 'Dashboard Nhân Viên', icon: TrendingUp },
-    { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
-    { id: 'more', label: 'Nhiều Hơn (More)', icon: Menu },
     { id: 'users', label: 'Phân Quyền User', icon: ShieldCheck, badge: userCount },
+    { id: 'more', label: 'Nhiều Hơn (More)', icon: Menu },
     { id: 'erpnext-plan', label: 'Kiến Trúc ERPNext', icon: BookOpen },
   ];
 
@@ -206,6 +208,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
                 <span className="hidden sm:inline">AI Copilot</span>
                 <span className="sm:hidden">AI</span>
+              </button>
+
+              {/* Fast Check-in Quick Button */}
+              <button
+                onClick={() => setActiveTab('checkin-portal')}
+                className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs ${
+                  activeTab === 'checkin-portal'
+                    ? 'bg-[#FF4B16] text-white ring-2 ring-orange-500/30 shadow-md shadow-orange-500/25'
+                    : 'bg-orange-50 hover:bg-orange-100 text-[#FF4B16] border border-orange-200'
+                }`}
+                title="Mở Cổng Điểm Danh Nhanh (Face ID Sinh Trắc Học)"
+              >
+                <ScanFace className="w-4 h-4" />
+                <span className="hidden sm:inline">Điểm Danh</span>
               </button>
 
               {/* Quick POS Checkout (Desktop) */}
@@ -303,12 +319,14 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </header>
 
-      {/* Mobile Bottom Quick Navigation Bar (5 nút chuẩn: Tổng quan | Hàng hoá | Bán hàng | Hoá đơn | Nhiều hơn ☰) */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 border-t border-orange-100 px-2 py-1.5 z-30 flex items-center justify-around shadow-lg backdrop-blur-md">
+      {/* Mobile Bottom Quick Navigation Bar (5 nút chuẩn: Tổng quan | Hàng hoá | Hoá đơn | CRM | Xem thêm) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 border-t border-orange-200/80 px-2 py-1.5 z-40 flex items-center justify-around shadow-xl backdrop-blur-md">
         <button
           onClick={() => setActiveTab('dashboard')}
-          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-colors ${
-            activeTab === 'dashboard' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
+          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-all ${
+            activeTab === 'dashboard' 
+              ? 'text-[#F94A1F] font-extrabold scale-105' 
+              : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
           <Layers className="w-4 h-4 mb-0.5" />
@@ -317,49 +335,63 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => setActiveTab('inventory')}
-          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold relative transition-colors ${
-            activeTab === 'inventory' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
+          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold relative transition-all ${
+            activeTab === 'inventory' 
+              ? 'text-[#F94A1F] font-extrabold scale-105' 
+              : 'text-zinc-500 hover:text-zinc-800'
           }`}
+          title="Kho Máy IMEI"
         >
-          <Package className="w-4 h-4 mb-0.5" />
-          <span>Hàng hoá</span>
-          {stockCount > 0 && (
-            <span className="absolute top-0 right-0 w-2 h-2 bg-gradient-to-r from-orange-500 to-amber-500 rounded-full"></span>
-          )}
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTab('pos');
-            onOpenPOSModal();
-          }}
-          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-colors ${
-            activeTab === 'pos' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
-          }`}
-        >
-          <ShoppingCart className="w-4 h-4 mb-0.5" />
-          <span>Bán hàng</span>
+          <div className="relative">
+            <Smartphone className="w-4 h-4 mb-0.5" />
+            {stockCount > 0 && (
+              <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-[#F94A1F] rounded-full ring-2 ring-white"></span>
+            )}
+          </div>
+          <span>Kho IMEI</span>
         </button>
 
         <button
           onClick={() => setActiveTab('invoices')}
-          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-colors ${
-            activeTab === 'invoices' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
+          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-all ${
+            activeTab === 'invoices' 
+              ? 'text-[#F94A1F] font-extrabold scale-105' 
+              : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
           <FileText className="w-4 h-4 mb-0.5" />
           <span>Hoá đơn</span>
         </button>
 
-        {/* Nút 3 Gạch Chân Trang Mở Trang Nhiều Hơn / Menu Hệ Thống */}
+        <button
+          onClick={() => setActiveTab('crm')}
+          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold relative transition-all ${
+            activeTab === 'crm' || activeTab === 'customers'
+              ? 'text-[#F94A1F] font-extrabold scale-105' 
+              : 'text-zinc-500 hover:text-zinc-800'
+          }`}
+          title="Khách Hàng & CRM"
+        >
+          <div className="relative">
+            <Users className="w-4 h-4 mb-0.5" />
+            {leadCount > 0 && (
+              <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-[#F94A1F] rounded-full ring-2 ring-white"></span>
+            )}
+          </div>
+          <span>CRM</span>
+        </button>
+
+        {/* Nút Xem Thêm / Menu Hệ Thống */}
         <button
           onClick={() => setActiveTab('more')}
-          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-colors ${
-            activeTab === 'more' ? 'text-orange-600 font-extrabold' : 'text-zinc-400 hover:text-zinc-600'
+          className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-all ${
+            activeTab === 'more' 
+              ? 'text-[#F94A1F] font-extrabold scale-105' 
+              : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
-          <Menu className={`w-4 h-4 mb-0.5 ${activeTab === 'more' ? 'text-orange-600' : 'text-zinc-400'}`} />
-          <span className={activeTab === 'more' ? 'text-orange-600' : 'text-zinc-500'}>Nhiều hơn</span>
+          <Menu className="w-4 h-4 mb-0.5" />
+          <span>Xem thêm</span>
         </button>
       </div>
     </>

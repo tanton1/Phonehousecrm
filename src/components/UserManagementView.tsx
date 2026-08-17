@@ -23,14 +23,20 @@ import {
   Smartphone,
   BadgePercent,
   Layers,
-  ArrowRight
-, X } from 'lucide-react';
-import { UserAccount, UserRole, RolePermissionInfo } from '../types';
-import { ROLE_PERMISSIONS_CONFIG } from '../data/initialData';
+  ArrowRight,
+  Building2,
+  MapPin,
+  ScanFace,
+  X 
+} from 'lucide-react';
+import { UserAccount, UserRole, RolePermissionInfo, StoreBranch } from '../types';
+import { ROLE_PERMISSIONS_CONFIG, INITIAL_BRANCHES } from '../data/initialData';
 import { loginWithEmail, registerWithEmail } from '../lib/firebase';
+import { FaceRegistrationModal } from './FaceRegistrationModal';
 
 interface UserManagementViewProps {
   users: UserAccount[];
+  branches?: StoreBranch[];
   currentUserEmail?: string;
   onAddUser: (user: UserAccount) => void;
   onUpdateUser: (user: UserAccount) => void;
@@ -39,26 +45,44 @@ interface UserManagementViewProps {
 
 export const UserManagementView: React.FC<UserManagementViewProps> = ({
   users,
+  branches = [],
   currentUserEmail,
   onAddUser,
   onUpdateUser,
   onDeleteUser
 }) => {
+  const availableBranches = branches;
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('ALL');
   const [activeTab, setActiveTab] = useState<'users' | 'matrix' | 'auth-test'>('users');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
+  const [faceModalUser, setFaceModalUser] = useState<UserAccount | null>(null);
+
+  const handleSaveFaceProfile = (faceData: { facePhotoUrl: string; faceFeatureVector: number[]; faceEnrollmentDate: string }) => {
+    if (!faceModalUser) return;
+    const updated: UserAccount = {
+      ...faceModalUser,
+      facePhotoUrl: faceData.facePhotoUrl,
+      faceFeatureVector: faceData.faceFeatureVector,
+      faceEnrollmentDate: faceData.faceEnrollmentDate,
+      assignedFaceEmbedding: true
+    };
+    onUpdateUser(updated);
+  };
 
   // Quick Copy Feedback State
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Form State for Adding / Editing
+  const defaultBranchId = availableBranches[0]?.id || 'CN01';
   const [formData, setFormData] = useState({
     displayName: '',
     email: '',
     phone: '',
     role: 'SALES' as UserRole,
+    branchId: defaultBranchId,
+    assignedBranchIds: [defaultBranchId] as string[],
     password: '',
     notes: '',
     active: true
@@ -78,13 +102,35 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const handleToggleBranch = (branchId: string) => {
+    setFormData(prev => {
+      const exists = prev.assignedBranchIds.includes(branchId);
+      let newAssigned: string[];
+      if (exists) {
+        newAssigned = prev.assignedBranchIds.filter(id => id !== branchId);
+        // Ensure at least 1 branch is selected
+        if (newAssigned.length === 0) newAssigned = [branchId];
+      } else {
+        newAssigned = [...prev.assignedBranchIds, branchId];
+      }
+      return {
+        ...prev,
+        assignedBranchIds: newAssigned,
+        branchId: newAssigned[0] || prev.branchId
+      };
+    });
+  };
+
   const handleOpenAdd = () => {
     setEditingUser(null);
+    const initialBranch = availableBranches[0]?.id || 'CN01';
     setFormData({
       displayName: '',
       email: '',
       phone: '',
       role: 'SALES',
+      branchId: initialBranch,
+      assignedBranchIds: [initialBranch],
       password: '',
       notes: '',
       active: true
@@ -95,11 +141,17 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
   const handleOpenEdit = (user: UserAccount) => {
     setEditingUser(user);
+    const userBranchIds = user.assignedBranchIds && user.assignedBranchIds.length > 0
+      ? user.assignedBranchIds
+      : user.branchId ? [user.branchId] : [availableBranches[0]?.id || 'CN01'];
+
     setFormData({
       displayName: user.displayName,
       email: user.email,
       phone: user.phone || '',
       role: user.role,
+      branchId: user.branchId || userBranchIds[0] || 'CN01',
+      assignedBranchIds: userBranchIds,
       password: '',
       notes: user.notes || '',
       active: user.active
@@ -115,8 +167,18 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       return;
     }
 
+    if (formData.assignedBranchIds.length === 0) {
+      setSubmitMessage({ type: 'error', text: 'Vui lòng chọn ít nhất 1 địa chỉ / chi nhánh làm việc.' });
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitMessage(null);
+
+    // Map assigned branch IDs to full address texts
+    const selectedAddresses = availableBranches
+      .filter(b => formData.assignedBranchIds.includes(b.id))
+      .map(b => `${b.name} - ${b.address}`);
 
     try {
       if (editingUser) {
@@ -127,11 +189,14 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           email: formData.email,
           phone: formData.phone,
           role: formData.role,
+          branchId: formData.assignedBranchIds[0] || formData.branchId,
+          assignedBranchIds: formData.assignedBranchIds,
+          workplaceAddresses: selectedAddresses,
           notes: formData.notes,
           active: formData.active
         };
         onUpdateUser(updated);
-        setSubmitMessage({ type: 'success', text: 'Cập nhật tài khoản thành công!' });
+        setSubmitMessage({ type: 'success', text: 'Cập nhật tài khoản và địa chỉ làm việc thành công!' });
         setTimeout(() => setIsAddModalOpen(false), 800);
       } else {
         // Create new user in Firestore & optionally in Firebase Auth
@@ -142,6 +207,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           displayName: formData.displayName,
           phone: formData.phone,
           role: formData.role,
+          branchId: formData.assignedBranchIds[0] || formData.branchId,
+          assignedBranchIds: formData.assignedBranchIds,
+          workplaceAddresses: selectedAddresses,
           active: formData.active,
           createdAt: new Date().toISOString().split('T')[0],
           notes: formData.notes || `Mật khẩu khởi tạo: ${formData.password || '123456'}`
@@ -156,7 +224,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         }
 
         onAddUser(newUser);
-        setSubmitMessage({ type: 'success', text: 'Đã tạo tài khoản và phân quyền thành công!' });
+        setSubmitMessage({ type: 'success', text: 'Đã tạo tài khoản và gán địa chỉ làm việc thành công!' });
         setTimeout(() => setIsAddModalOpen(false), 800);
       }
     } catch (err: any) {
@@ -407,13 +475,57 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       </div>
                     )}
                   </div>
+
+                  {/* ASSIGNED WORKPLACE ADDRESSES BADGES */}
+                  {(() => {
+                    const assignedIds = user.assignedBranchIds && user.assignedBranchIds.length > 0
+                      ? user.assignedBranchIds
+                      : user.branchId ? [user.branchId] : [];
+                    const matchedBranches = availableBranches.filter(b => assignedIds.includes(b.id));
+
+                    return (
+                      <div className="mb-3">
+                        <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                          <Building2 className="w-3 h-3 text-[#FF4B16]" />
+                          <span>Địa chỉ làm việc ({matchedBranches.length || 1}):</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {matchedBranches.length > 0 ? (
+                            matchedBranches.map(b => (
+                              <span key={b.id} className="text-[10px] font-bold bg-orange-50 text-[#FF4B16] border border-orange-200/80 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                <MapPin className="w-2.5 h-2.5 shrink-0" />
+                                <span>{b.name}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-[10px] font-bold bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                              <MapPin className="w-2.5 h-2.5 shrink-0" />
+                              <span>Showroom Hải Châu</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
-                  <span className="text-[11px] text-zinc-400">
-                    Tạo: {user.createdAt}
-                  </span>
                   <div className="flex items-center space-x-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setFaceModalUser(user)}
+                      className={`text-[10px] font-extrabold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
+                        user.assignedFaceEmbedding
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                          : 'bg-orange-50 text-[#FF4B16] border-orange-300 hover:bg-orange-100'
+                      }`}
+                      title="Đăng ký hoặc cập nhật dữ liệu gương mặt sinh trắc học"
+                    >
+                      <ScanFace className="w-3 h-3" />
+                      <span>{user.assignedFaceEmbedding ? 'Face ID: Đã đăng ký' : 'Đăng Ký Face ID'}</span>
+                    </button>
+                  </div>
+                  <div className="flex items-center space-x-1">
                     <button
                       onClick={() => handleOpenEdit(user)}
                       className="p-1.5 text-zinc-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
@@ -699,6 +811,66 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 </select>
               </div>
 
+              {/* MULTI-BRANCH WORKPLACE SELECTION */}
+              <div className="p-3.5 bg-orange-50/80 border border-orange-200/80 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-xs text-orange-950 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-[#FF4B16]" />
+                    <span>Gắn Địa Chỉ / Chi Nhánh Làm Việc Cụ Thể</span>
+                  </label>
+                  <span className="text-[10px] bg-white text-[#FF4B16] font-extrabold px-2 py-0.5 rounded-full border border-orange-200 shadow-2xs">
+                    Đã chọn {formData.assignedBranchIds.length} địa điểm
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-500 leading-snug">
+                  Chọn 1 hoặc nhiều địa điểm cửa hàng mà nhân viên này được phép đến trực ca và thực hiện check-in chấm công GPS/Wi-Fi:
+                </p>
+
+                <div className="space-y-1.5 pt-1">
+                  {availableBranches.map((branch) => {
+                    const isChecked = formData.assignedBranchIds.includes(branch.id);
+                    return (
+                      <div
+                        key={branch.id}
+                        onClick={() => handleToggleBranch(branch.id)}
+                        className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                          isChecked
+                            ? 'bg-white border-[#FF4B16] ring-1 ring-[#FF4B16]/20 shadow-xs'
+                            : 'bg-zinc-50/70 border-zinc-200/80 hover:bg-white hover:border-orange-200'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}} // Handled by container onClick
+                          className="w-4 h-4 text-[#FF4B16] rounded border-zinc-300 focus:ring-orange-400 mt-0.5 cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-extrabold text-xs text-zinc-900 leading-tight">
+                              {branch.name}
+                            </span>
+                            <span className="text-[10px] font-mono font-bold text-zinc-400 bg-zinc-100 px-1.5 py-0.2 rounded">
+                              {branch.id}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-zinc-500 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3 text-[#FF4B16] shrink-0" />
+                            <span className="truncate">{branch.address}</span>
+                          </div>
+                          {branch.gpsLatitude && branch.gpsLongitude && (
+                            <div className="text-[10px] text-zinc-400 font-mono mt-1 flex items-center gap-2">
+                              <span>📍 GPS: {branch.gpsLatitude}, {branch.gpsLongitude}</span>
+                              <span className="text-orange-600 font-bold">📶 Wi-Fi: {branch.allowedWifiSSID || 'PH_HAICHAU_5G'}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {!editingUser && (
                 <div>
                   <label className="block font-bold text-zinc-700 mb-1">Mật Khẩu Khởi Tạo</label>
@@ -774,6 +946,18 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* FACE REGISTRATION MODAL */}
+      {faceModalUser && (
+        <FaceRegistrationModal
+          isOpen={!!faceModalUser}
+          onClose={() => setFaceModalUser(null)}
+          staffName={faceModalUser.displayName}
+          staffEmail={faceModalUser.email}
+          currentFacePhotoUrl={faceModalUser.facePhotoUrl || faceModalUser.avatarUrl}
+          onSaveFaceProfile={handleSaveFaceProfile}
+        />
       )}
     </div>
   );

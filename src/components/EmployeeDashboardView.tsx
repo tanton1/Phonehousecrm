@@ -4,9 +4,11 @@ import {
   WarrantyTicket, 
   UserAccount, 
   DeviceItem, 
-  StaffMember 
+  StaffMember,
+  CommissionTransaction
 } from '../types';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
+import { calculateStaffDualWallet, syncCommissionsFromAllSources } from '../utils/commissionEngine';
 import {
   TrendingUp,
   Target,
@@ -46,7 +48,8 @@ import {
   Package,
   Sliders,
   Store,
-  Phone
+  Phone,
+  ScanFace
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -69,10 +72,13 @@ interface EmployeeDashboardViewProps {
   warrantyTickets: WarrantyTicket[];
   currentUser?: UserAccount | null;
   users?: UserAccount[];
+  onUpdateUser?: (user: UserAccount) => void;
   devices?: DeviceItem[];
+  attendanceRecords?: import('../types').AttendanceRecord[];
   onNavigate?: (tab: string) => void;
   onOpenPOS?: () => void;
   onOpenNewWarranty?: () => void;
+  onOpenCheckIn?: () => void;
 }
 
 export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
@@ -80,35 +86,43 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   warrantyTickets = [],
   currentUser,
   users = [],
+  onUpdateUser,
   devices = [],
+  attendanceRecords = [],
   onNavigate,
   onOpenPOS,
-  onOpenNewWarranty
+  onOpenNewWarranty,
+  onOpenCheckIn
 }) => {
   // 1. Staff List & Selected Staff
-  const [staffList, setStaffList] = useState<StaffMember[]>(() => {
-    const saved = localStorage.getItem('phonehouse_staff_members');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    return INITIAL_STAFF_MEMBERS;
-  });
+  const staffList = useMemo<StaffMember[]>(() => {
+    if (!users || users.length === 0) return INITIAL_STAFF_MEMBERS;
+    return users.map((u, i) => ({
+      id: u.id,
+      code: 'NV-' + String(i + 1).padStart(3, '0'),
+      name: u.displayName || 'Nhân viên ' + (i + 1),
+      avatar: u.avatarUrl || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(u.displayName || 'Staff'),
+      role: u.role === 'ADMIN' ? 'STORE_MANAGER' : (u.role === 'TECHNICIAN' ? 'TECHNICIAN' : 'SALES'),
+      roleTitle: u.role || 'Nhân viên',
+      phone: u.phone || '0900000000',
+      email: u.email || '',
+      branchId: u.branchId || 'CN01',
+      branchName: 'Chi nhánh chính',
+      baseSalary: u.baseSalary || 6000000,
+      monthlyTargetRevenue: u.kpiTargetRevenue || 150000000,
+      monthlyTargetOrders: u.kpiTargetOrders || 70,
+      monthlyTargetWarranty: u.kpiTargetWarranty || 25,
+      status: u.active ? 'ACTIVE' : 'INACTIVE',
+      joinDate: u.createdAt || '2023-01-01'
+    }));
+  }, [users]);
 
   // Selected Staff ID: initialize to current user if found, or first staff member
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
     if (currentUser) {
-      const matched = INITIAL_STAFF_MEMBERS.find(
-        s => s.email.toLowerCase() === currentUser.email.toLowerCase() ||
-             s.name.toLowerCase().includes(currentUser.displayName.toLowerCase()) ||
-             currentUser.displayName.toLowerCase().includes(s.name.toLowerCase())
-      );
-      if (matched) return matched.id;
+      return currentUser.id;
     }
-    return 'STAFF_001';
+    return users[0]?.id || 'STAFF_001';
   });
 
   // Month / Period Filter
@@ -119,6 +133,38 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
+
+  // Manual Ledger (Thưởng / Phạt)
+  const [manualLedger, setManualLedger] = useState<{id: string, staffId: string, month: string, amount: number, note: string}[]>(() => {
+    const saved = localStorage.getItem('phonehouse_manual_ledger');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return [];
+  });
+
+  const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
+  const [ledgerForm, setLedgerForm] = useState({ amount: 0, note: '' });
+
+  const handleAddLedger = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (ledgerForm.amount === 0 || !currentStaff) return;
+    
+    const newEntry = {
+      id: 'LEDGER_' + Date.now(),
+      staffId: currentStaff.id,
+      month: selectedMonth,
+      amount: ledgerForm.amount,
+      note: ledgerForm.note
+    };
+    
+    const updated = [newEntry, ...manualLedger];
+    setManualLedger(updated);
+    localStorage.setItem('phonehouse_manual_ledger', JSON.stringify(updated));
+    setLedgerForm({ amount: 0, note: '' });
+    setIsLedgerModalOpen(false);
+  };
+
   // Modals
   const [isEditKpiModalOpen, setIsEditKpiModalOpen] = useState(false);
   const [selectedInvoicePreview, setSelectedInvoicePreview] = useState<SalesInvoice | null>(null);
@@ -126,40 +172,42 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
   // Current Staff Object
   const currentStaff = useMemo(() => {
-    return staffList.find(s => s.id === selectedStaffId) || staffList[0];
+    return staffList.find(s => s.id === selectedStaffId) || staffList[0] || INITIAL_STAFF_MEMBERS[0];
   }, [staffList, selectedStaffId]);
 
-  // Save staff list with custom targets to local storage
-  const handleUpdateStaffKPI = (newTargetRevenue: number, newTargetOrders: number, newTargetWarranty: number) => {
-    const updated = staffList.map(s => {
-      if (s.id === currentStaff.id) {
-        return {
-          ...s,
-          monthlyTargetRevenue: newTargetRevenue,
-          monthlyTargetOrders: newTargetOrders,
-          monthlyTargetWarranty: newTargetWarranty
-        };
-      }
-      return s;
-    });
-    setStaffList(updated);
-    localStorage.setItem('phonehouse_staff_members', JSON.stringify(updated));
+  // Save staff list with custom targets to local storage (or Firestore)
+  const handleUpdateStaffKPI = (newTargetRevenue: number, newTargetOrders: number, newTargetWarranty: number, newBaseSalary: number) => {
+    if (!currentStaff) return;
+    const rawUser = users.find(u => u.id === currentStaff.id);
+    if (rawUser && onUpdateUser) {
+      onUpdateUser({
+        ...rawUser,
+        kpiTargetRevenue: newTargetRevenue,
+        kpiTargetOrders: newTargetOrders,
+        kpiTargetWarranty: newTargetWarranty,
+        baseSalary: newBaseSalary
+      });
+    }
     setIsEditKpiModalOpen(false);
   };
 
   // Form State for KPI Targets Edit Modal
   const [editForm, setEditForm] = useState({
-    targetRevenue: currentStaff.monthlyTargetRevenue || 150000000,
-    targetOrders: currentStaff.monthlyTargetOrders || 70,
-    targetWarranty: (currentStaff as any).monthlyTargetWarranty || 25
+    targetRevenue: currentStaff?.monthlyTargetRevenue || 150000000,
+    targetOrders: currentStaff?.monthlyTargetOrders || 70,
+    targetWarranty: (currentStaff as any)?.monthlyTargetWarranty || 25,
+    baseSalary: currentStaff?.baseSalary || 6000000
   });
 
   useEffect(() => {
-    setEditForm({
-      targetRevenue: currentStaff.monthlyTargetRevenue || 150000000,
-      targetOrders: currentStaff.monthlyTargetOrders || 70,
-      targetWarranty: (currentStaff as any).monthlyTargetWarranty || 25
-    });
+    if (currentStaff) {
+      setEditForm({
+        targetRevenue: currentStaff.monthlyTargetRevenue || 150000000,
+        targetOrders: currentStaff.monthlyTargetOrders || 70,
+        targetWarranty: (currentStaff as any).monthlyTargetWarranty || 25,
+        baseSalary: currentStaff.baseSalary || 6000000
+      });
+    }
   }, [currentStaff]);
 
   // Filter Invoices for this Employee in the selected Month
@@ -270,18 +318,43 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
   // 3. Commission & Bonus Estimation
   const estimatedCommission = useMemo(() => {
-    // 2% on device revenue + 5% on accessories + 50k per repair point
-    const deviceRevenue = completedInvoices.reduce((sum, inv) => {
-      const itemsCost = (inv.detailedItems || []).filter(i => i.type === 'phone').reduce((s, it) => s + (it.totalPrice || 0), 0);
-      return sum + (itemsCost || (inv.finalAmount || 0) * 0.85);
-    }, 0);
-
-    const accessoryRevenue = completedInvoices.reduce((sum, inv) => {
-      const accCost = (inv.detailedItems || []).filter(i => i.type === 'accessory').reduce((s, it) => s + (it.totalPrice || 0), 0);
-      return sum + accCost;
-    }, 0);
-
-    let commission = Math.round(deviceRevenue * 0.015 + accessoryRevenue * 0.05);
+    let commission = 0;
+    
+    completedInvoices.forEach(inv => {
+      const items = inv.detailedItems || [];
+      if (items.length > 0) {
+        items.forEach(item => {
+          const name = (item.name || '').toLowerCase();
+          
+          if (item.type === 'phone' || item.type === 'device') {
+            if (name.includes('xả') || name.includes('giảm') || name.includes('clearance')) {
+              commission += 30000;
+            } else if (name.includes('mới') || name.includes('new') || name.includes('seal') || name.includes('fullbox')) {
+              commission += 50000;
+            } else {
+              commission += 100000; // Máy bốc, 99%
+            }
+          } else if (item.type === 'accessory') {
+            if (name.includes('tai nghe') || name.includes('airpods') || name.includes('sạc dự phòng') || name.includes('loa') || name.includes('watch') || name.includes('bộ sạc')) {
+              commission += 50000;
+            } else if (name.includes('cường lực') || name.includes('ppf') || name.includes('magsafe') || name.includes('cluc') || name.includes('clcnt') || name.includes('dán')) {
+              commission += 20000;
+            } else {
+              commission += 10000; // Cáp, củ, ốp thường
+            }
+          } else if (item.type === 'tradein' || (item.unitPrice && item.unitPrice < 0)) {
+            commission += 50000;
+          } else if (item.type === 'repair' || item.type === 'service') {
+            if ((item.totalPrice || item.unitPrice || 0) >= 300000) {
+              commission += 30000;
+            }
+          }
+        });
+      } else {
+         // Fallback if no detailed items but there's a final amount (legacy POS)
+         if (inv.finalAmount > 1000000) commission += 100000;
+      }
+    });
 
     // Tech points
     const techBonus = actualWarrantyProcessed * 120000;
@@ -293,13 +366,40 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
     else if (revenueAchievementPercent >= 100) kpiBonus = 3000000;
     else if (revenueAchievementPercent >= 80) kpiBonus = 1000000;
 
+    // Base Salary Calculation based on Attendance
+    const monthAttendance = (attendanceRecords || []).filter(a => 
+      a.staffId === currentStaff.id && 
+      a.date.startsWith(selectedMonth)
+    );
+    
+    const totalWorkMinutes = monthAttendance.reduce((sum, a) => sum + (a.netWorkMinutes || 0), 0);
+    const EXPECTED_MINUTES_PER_MONTH = 26 * 8 * 60; // 26 days, 8 hours
+    
+    let effectiveBaseSalary = currentStaff.baseSalary || 6000000;
+    // Only calculate ratio if there is some attendance record, else keep default or 0
+    if (monthAttendance.length > 0 || selectedMonth === 'ALL') {
+         // Cap at 100% base salary for regular working hours
+         const ratio = Math.min(totalWorkMinutes / EXPECTED_MINUTES_PER_MONTH, 1);
+         effectiveBaseSalary = Math.round(effectiveBaseSalary * ratio);
+    } else {
+         effectiveBaseSalary = 0; // no attendance yet this month
+    }
+
+    // Manual Ledgers
+    const staffLedger = manualLedger.filter(l => l.staffId === currentStaff.id && l.month === selectedMonth);
+    const ledgerTotal = staffLedger.reduce((sum, l) => sum + l.amount, 0);
+
     return {
-      base: commission,
+      salesCommission: commission,
       kpiBonus,
-      total: commission + kpiBonus,
-      techBonus
+      techBonus,
+      effectiveBaseSalary,
+      ledgerTotal,
+      staffLedger,
+      totalWorkHours: Math.round(totalWorkMinutes / 60),
+      total: commission + kpiBonus + effectiveBaseSalary + ledgerTotal
     };
-  }, [completedInvoices, actualWarrantyProcessed, revenueAchievementPercent]);
+  }, [completedInvoices, actualWarrantyProcessed, revenueAchievementPercent, currentStaff, attendanceRecords, selectedMonth, manualLedger]);
 
   // 4. Daily Chart Data (Days 1 to 31)
   const dailyChartData = useMemo(() => {
@@ -485,6 +585,20 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             </select>
           </div>
 
+          {/* Button: Check-In Face ID */}
+          {onOpenCheckIn && (
+            <div className="self-end">
+              <button
+                onClick={onOpenCheckIn}
+                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-3.5 py-2 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-md shadow-orange-500/20 active:scale-95"
+                title="Điểm danh chấm công Face ID vào/ra ca"
+              >
+                <ScanFace className="w-3.5 h-3.5 animate-pulse" />
+                <span>⚡ Điểm Danh Face ID</span>
+              </button>
+            </div>
+          )}
+
           {/* Button: Edit Target */}
           <div className="self-end">
             <button
@@ -662,12 +776,21 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
           <div className="text-2xl sm:text-3xl font-black font-mono mt-1">
             {formatVND(estimatedCommission.total)}
           </div>
-          <p className="text-xs text-orange-100 mt-1 max-w-xl">
-            Bao gồm {formatVND(estimatedCommission.base)} hoa hồng bán hàng/linh kiện + {formatVND(estimatedCommission.kpiBonus)} thưởng vượt mốc tiến độ doanh thu tháng {selectedMonth}.
+          <p className="text-xs text-orange-100 mt-1 max-w-xl leading-relaxed">
+            Bao gồm {formatVND(estimatedCommission.effectiveBaseSalary)} lương CB ({estimatedCommission.totalWorkHours}h) + {formatVND(estimatedCommission.salesCommission)} hoa hồng + {formatVND(estimatedCommission.kpiBonus)} thưởng KPI + {formatVND(estimatedCommission.ledgerTotal)} thưởng/phạt khác.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
+          {currentUser?.role === 'ADMIN' && (
+            <button
+              onClick={() => setIsLedgerModalOpen(true)}
+              className="flex-1 lg:flex-none px-4 py-2.5 bg-orange-700/50 hover:bg-orange-600 border border-orange-400 text-white text-xs font-black rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Thưởng/Phạt</span>
+            </button>
+          )}
           {onOpenPOS && (
             <button
               onClick={onOpenPOS}
@@ -1122,76 +1245,174 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
           </div>
         )}
 
-        {/* Tab 4: COMMISSIONS & REWARDS (Bảng Kê Hoa Hồng) */}
-        {activeTab === 'COMMISSIONS' && (
-          <div className="p-5 sm:p-6 space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-extrabold text-sm text-zinc-900">Chi Tiết Cấu Thành Thu Nhập Tháng {selectedMonth}</h4>
-                <p className="text-xs text-zinc-500">Minh bạch hoa hồng từng hóa đơn bán máy, linh kiện & điểm thưởng kỹ thuật</p>
+        {/* Tab 4: COMMISSIONS & REWARDS (Ví Kép Kỹ Thuật & Doanh Thu) */}
+        {activeTab === 'COMMISSIONS' && (() => {
+          const allSyncedComms = syncCommissionsFromAllSources(invoices, warrantyTickets, staffList);
+          const dual = calculateStaffDualWallet(currentStaff.id, allSyncedComms, staffList);
+          const tech = dual.techWallet;
+          const sales = dual.salesWallet;
+          const totalWallet = dual.totalGrossCommission;
+
+          return (
+            <div className="p-5 sm:p-6 space-y-6 animate-fadeIn">
+              {/* WALLET BANNER */}
+              <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-indigo-950 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="bg-[#F94A1F] text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
+                      Ví Thu Nhập Tự Động
+                    </span>
+                    <span className="text-xs text-zinc-400">Đối soát trực tiếp từ POS & CRM</span>
+                  </div>
+                  <div className="text-2xl sm:text-4xl font-black font-mono text-[#F94A1F]">
+                    {formatVND(totalWallet)}
+                  </div>
+                  <p className="text-xs text-zinc-300 mt-1">
+                    Tích lũy từ {sales.completedOrderCount} đơn bán lẻ và {tech.completedTicketCount} ca kỹ thuật
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="bg-white/10 border border-white/15 px-4 py-2.5 rounded-2xl text-right">
+                    <div className="text-[10px] uppercase font-bold text-zinc-400">Lương Cứng Cơ Bản</div>
+                    <div className="text-sm sm:text-base font-black font-mono text-white">
+                      {formatVND(currentStaff.role === 'ADMIN' ? 12000000 : currentStaff.role === 'STORE_MANAGER' ? 10000000 : 6000000)}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="text-right">
-                <span className="text-xs text-zinc-500 font-bold">Tổng Thu Nhập Tạm Tính:</span>
-                <div className="text-xl font-black text-[#F94A1F] font-mono">{formatVND(estimatedCommission.total)}</div>
+
+              {/* 2 DUAL WALLETS BREAKDOWN CARDS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* 1. TECH WALLET */}
+                <div className="bg-white rounded-3xl p-5 border border-blue-200/80 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                        <Wrench className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-sm text-zinc-900">Ví Hoa Hồng Kỹ Thuật (Tech)</h4>
+                        <div className="text-[11px] text-zinc-500">Từ phiếu tiếp nhận, KCS & sửa chữa</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-base font-black text-orange-600 font-mono">+{formatVND(tech.totalCommission)}</div>
+                      <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full">
+                        {tech.completedTicketCount} ca xong
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-xs pt-3 border-t border-zinc-100">
+                    <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
+                      <div className="text-[10px] text-zinc-400 uppercase font-bold">KCS Máy Nhập</div>
+                      <div className="font-black text-zinc-900 mt-0.5">{tech.kcsCount} máy</div>
+                      <div className="text-[10px] text-orange-600 font-mono font-bold">+{formatVND(tech.kcsAmount)}</div>
+                    </div>
+                    <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
+                      <div className="text-[10px] text-zinc-400 uppercase font-bold">Sửa Dịch Vụ</div>
+                      <div className="font-black text-zinc-900 mt-0.5">{tech.repairCount} ca</div>
+                      <div className="text-[10px] text-amber-600 font-mono font-bold">+{formatVND(tech.repairAmount)}</div>
+                    </div>
+                    <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
+                      <div className="text-[10px] text-zinc-400 uppercase font-bold">Bảo Hành FREE</div>
+                      <div className="font-black text-zinc-900 mt-0.5">{tech.warrantyCount} máy</div>
+                      <div className="text-[10px] text-emerald-600 font-mono font-bold">+{formatVND(tech.warrantyAmount)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. SALES WALLET */}
+                <div className="bg-white rounded-3xl p-5 border border-emerald-200/80 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                        <Smartphone className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-sm text-zinc-900">Ví Doanh Thu & Bán Hàng (Sales)</h4>
+                        <div className="text-[11px] text-zinc-500">Từ hóa đơn bán máy POS & phụ kiện</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-base font-black text-emerald-600 font-mono">+{formatVND(sales.totalCommission)}</div>
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">
+                        {sales.completedOrderCount} đơn chốt
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-xs pt-3 border-t border-zinc-100">
+                    <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
+                      <div className="text-[10px] text-zinc-400 uppercase font-bold">Bán Máy iPhone</div>
+                      <div className="font-black text-zinc-900 mt-0.5">{sales.deviceOrderCount || 0} máy</div>
+                      <div className="text-[10px] text-emerald-600 font-mono font-bold">+{formatVND(sales.deviceAmount ?? sales.deviceCommission ?? 0)}</div>
+                    </div>
+                    <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
+                      <div className="text-[10px] text-zinc-400 uppercase font-bold">Phụ Kiện SLM</div>
+                      <div className="font-black text-zinc-900 mt-0.5">{sales.accessoryOrderCount || 0} món</div>
+                      <div className="text-[10px] text-orange-600 font-mono font-bold">+{formatVND(sales.accessoryAmount ?? sales.accessoryCommission ?? 0)}</div>
+                    </div>
+                    <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
+                      <div className="text-[10px] text-zinc-400 uppercase font-bold">Gói VIP Care</div>
+                      <div className="font-black text-zinc-900 mt-0.5">{sales.carePackageCount || 0} gói</div>
+                      <div className="text-[10px] text-purple-600 font-mono font-bold">+{formatVND(sales.carePackageAmount ?? sales.carePackageCommission ?? 0)}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {/* ITEMIZED REVENUE LEDGER */}
+              <div className="bg-white rounded-3xl border border-zinc-200 overflow-hidden shadow-2xs">
+                <div className="p-4 sm:p-5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
+                  <h4 className="font-black text-sm text-zinc-900 uppercase tracking-wide">
+                    Sổ Kê Toàn Bộ Giao Dịch Vào Ví Nhân Sự
+                  </h4>
+                  <span className="text-xs font-bold text-zinc-500">
+                    {tech.transactions.concat(sales.transactions).length} giao dịch
+                  </span>
+                </div>
+
+                <div className="divide-y divide-zinc-100 max-h-80 overflow-y-auto">
+                  {tech.transactions.concat(sales.transactions).length === 0 ? (
+                    <div className="p-8 text-center text-zinc-400 text-xs">Chưa có giao dịch phát sinh hoa hồng</div>
+                  ) : (
+                    tech.transactions.concat(sales.transactions).map((tx, idx) => (
+                      <div key={tx.id || idx} className="p-3.5 hover:bg-zinc-50 flex items-center justify-between text-xs transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                            tx.walletCategory === 'TECH_WALLET' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {tx.walletCategory === 'TECH_WALLET' ? <Wrench className="w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
+                          </div>
+                          <div>
+                            <div className="font-bold text-zinc-900">{tx.productName}</div>
+                            <div className="text-[11px] text-zinc-500 flex items-center gap-1.5 mt-0.5">
+                              <span className="font-mono font-bold text-indigo-600">{tx.orderCode}</span>
+                              <span>•</span>
+                              <span>{tx.occurredAt}</span>
+                              <span>•</span>
+                              <span className="text-[10px] text-zinc-400 uppercase">{tx.type}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="font-black font-mono text-emerald-600 text-sm">+{formatVND(tx.commissionAmount)}</div>
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {tx.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
             </div>
-
-            <div className="space-y-3">
-              <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-xl bg-orange-100 text-[#F94A1F] flex items-center justify-center font-bold">
-                    <Smartphone className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-xs text-zinc-900">Hoa Hồng Bán Máy iPhone & iPad</div>
-                    <div className="text-[11px] text-zinc-500">{completedInvoices.length} đơn bán lẻ đã hoàn tất</div>
-                  </div>
-                </div>
-                <div className="text-sm font-black text-zinc-900 font-mono">{formatVND(estimatedCommission.base * 0.75)}</div>
-              </div>
-
-              <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                    <Package className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-xs text-zinc-900">Hoa Hồng Phụ Kiện SLM, Sạc, Cường Lực</div>
-                    <div className="text-[11px] text-zinc-500">Tỷ lệ chiết khấu 5% giá trị phụ kiện</div>
-                  </div>
-                </div>
-                <div className="text-sm font-black text-zinc-900 font-mono">{formatVND(estimatedCommission.base * 0.25)}</div>
-              </div>
-
-              <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
-                    <Wrench className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-xs text-zinc-900">Thưởng Kỹ Thuật Xử Lý Máy & Thay Pin/Màn</div>
-                    <div className="text-[11px] text-zinc-500">{actualWarrantyProcessed} ca xử lý hoàn tất</div>
-                  </div>
-                </div>
-                <div className="text-sm font-black text-zinc-900 font-mono">{formatVND(estimatedCommission.techBonus)}</div>
-              </div>
-
-              <div className="p-4 bg-amber-50/70 rounded-2xl border border-amber-300 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-xl bg-amber-200 text-amber-900 flex items-center justify-center font-bold">
-                    <Award className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-xs text-amber-900">Thưởng Mốc Doanh Số KPI Tháng</div>
-                    <div className="text-[11px] text-amber-700">Đạt {revenueAchievementPercent}% mục tiêu doanh số</div>
-                  </div>
-                </div>
-                <div className="text-sm font-black text-amber-900 font-mono">{formatVND(estimatedCommission.kpiBonus)}</div>
-              </div>
-            </div>
-
-          </div>
-        )}
+          );
+        })()}
 
       </div>
 
@@ -1220,6 +1441,22 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <div className="font-bold text-sm text-zinc-900 mt-0.5">{currentStaff.name} ({currentStaff.code})</div>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Lương Cơ Bản (VNĐ)
+                </label>
+                <input
+                  type="number"
+                  step="1000000"
+                  value={editForm.baseSalary}
+                  onChange={(e) => setEditForm({ ...editForm, baseSalary: Number(e.target.value) })}
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2.5 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <span className="text-[11px] text-zinc-400 mt-1 block">
+                  Đọc: {formatVND(editForm.baseSalary)}
+                </span>
+              </div>
+              
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">
                   Mục Tiêu Doanh Thu Tháng (VNĐ)
@@ -1274,7 +1511,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleUpdateStaffKPI(editForm.targetRevenue, editForm.targetOrders, editForm.targetWarranty)}
+                  onClick={() => handleUpdateStaffKPI(editForm.targetRevenue, editForm.targetOrders, editForm.targetWarranty, editForm.baseSalary)}
                   className="px-5 py-2 bg-[#F94A1F] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
                 >
                   Lưu Chỉ Tiêu KPI
@@ -1421,6 +1658,79 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
         </div>
       )}
 
+
+      {/* 7. MODAL: MANUAL LEDGER */}
+      {isLedgerModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200">
+            <div className="p-5 sm:p-6">
+              <div className="flex justify-between items-start mb-5">
+                <div>
+                  <h3 className="font-black text-base text-zinc-900">Thêm Thưởng / Phạt</h3>
+                  <p className="text-xs text-zinc-500 mt-1">Cập nhật vào thu nhập tháng {selectedMonth} cho {currentStaff.name}</p>
+                </div>
+                <button 
+                  onClick={() => setIsLedgerModalOpen(false)}
+                  className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-full transition-colors cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleAddLedger} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">
+                    Số Tiền (VNĐ) - Nhập số âm để phạt
+                  </label>
+                  <input
+                    type="number"
+                    step="100000"
+                    required
+                    value={ledgerForm.amount}
+                    onChange={(e) => setLedgerForm({ ...ledgerForm, amount: Number(e.target.value) })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2.5 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    placeholder="VD: 500000 hoặc -200000"
+                  />
+                  <span className="text-[11px] text-zinc-400 mt-1 block">
+                    Đọc: {formatVND(ledgerForm.amount)}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">
+                    Lý Do
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={ledgerForm.note}
+                    onChange={(e) => setLedgerForm({ ...ledgerForm, note: e.target.value })}
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    placeholder="VD: Thưởng doanh số, Đi trễ..."
+                  />
+                </div>
+
+                <div className="pt-4 border-t border-zinc-100 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsLedgerModalOpen(false)}
+                    className="px-4 py-2.5 text-sm font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl cursor-pointer"
+                  >
+                    Hủy bỏ
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-[#FF4B16] hover:bg-[#E03A0F] active:bg-[#C2310C] text-white text-sm font-bold rounded-xl cursor-pointer shadow-md flex items-center gap-2 transition-all"
+                  >
+                    <Check className="w-4 h-4" />
+                    Xác Nhận
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

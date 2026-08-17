@@ -498,7 +498,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       <div className="flex items-center space-x-2 mb-2">
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                           fund.type === 'CASH' ? 'bg-orange-50 text-[#FF5A1F]' : 
-                          fund.type === 'BANK' ? 'bg-blue-50 text-blue-600' : 'bg-zinc-100 text-zinc-600'
+                          fund.type === 'BANK' ? 'bg-blue-50 text-orange-600' : 'bg-zinc-100 text-zinc-600'
                         }`}>
                           {fund.type === 'CASH' ? <Wallet className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
                         </div>
@@ -665,7 +665,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 <p className="text-xl font-black text-blue-700">
                   {formatCurrency(funds.filter(f => f.type !== 'CASH').reduce((acc, f) => acc + (f.currentBalance || 0), 0))}
                 </p>
-                <p className="text-[10px] text-blue-600/80 mt-1">Thu tiền chuyển khoản & POS quẹt thẻ</p>
+                <p className="text-[10px] text-orange-600/80 mt-1">Thu tiền chuyển khoản & POS quẹt thẻ</p>
               </div>
             </div>
             
@@ -678,7 +678,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       <div className="flex items-center space-x-3">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold ${
                           fund.type === 'CASH' ? 'bg-orange-50 text-[#FF5A1F]' : 
-                          fund.type === 'BANK' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                          fund.type === 'BANK' ? 'bg-blue-50 text-orange-600' : 'bg-emerald-50 text-emerald-600'
                         }`}>
                           {fund.type === 'CASH' ? <Wallet className="w-6 h-6" /> : <Building2 className="w-6 h-6" />}
                         </div>
@@ -746,7 +746,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             <div className="bg-white border border-[#EAECF0] rounded-3xl p-5 shadow-sm space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
                 <div className="flex items-center space-x-2">
-                  <ArrowRightLeft className="w-5 h-5 text-blue-600" />
+                  <ArrowRightLeft className="w-5 h-5 text-orange-600" />
                   <h4 className="font-black text-zinc-900 text-base">Lịch Sử Chuyển Quỹ Nội Bộ (Transfer Log)</h4>
                 </div>
                 <span className="text-xs text-zinc-500 font-medium">
@@ -850,7 +850,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 <span>Phiếu chi</span>
               </button>
               <button onClick={handleOpenTransferModal} className="p-4 bg-zinc-50 rounded-2xl flex items-center justify-center space-x-2 text-zinc-700 font-bold hover:bg-zinc-100 transition-colors cursor-pointer">
-                <ArrowRightLeft className="w-5 h-5 text-blue-500" />
+                <ArrowRightLeft className="w-5 h-5 text-orange-500" />
                 <span>Chuyển quỹ</span>
               </button>
               <button onClick={handleOpenReconcileModal} className="p-4 bg-zinc-50 rounded-2xl flex items-center justify-center space-x-2 text-zinc-700 font-bold hover:bg-zinc-100 transition-colors cursor-pointer">
@@ -1174,7 +1174,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-100 text-xs space-y-1.5">
                     <div className="font-bold text-blue-900 flex items-center justify-between">
                       <span>Dự toán số dư sau khi chuyển:</span>
-                      <span className="text-[10px] text-blue-600 uppercase font-mono">Tức thời</span>
+                      <span className="text-[10px] text-orange-600 uppercase font-mono">Tức thời</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 pt-1 border-t border-blue-200/50">
                       <div>

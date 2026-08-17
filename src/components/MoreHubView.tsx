@@ -68,7 +68,8 @@ import {
   Scale,
   Store,
   Warehouse,
-  PackageCheck
+  PackageCheck,
+  ScanFace
 } from 'lucide-react';
 
 interface MoreHubViewProps {
@@ -111,13 +112,6 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
 
   // Preorders mock state
   const [preorders] = useState([
-    {
-      id: 'master-catalog',
-      label: 'Danh Mục Hàng Hóa Gốc',
-      subtitle: 'SKU Máy, Linh Kiện, Phụ Kiện',
-      icon: Database,
-      color: 'text-indigo-600',
-    },
     {
       id: 'PRE-8841',
       customer: 'Trần Văn Hoàng',
@@ -261,16 +255,17 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
     },
     {
       id: 'master-catalog',
-      label: 'Danh Mục Hàng Hóa Gốc',
-      subtitle: 'Tạo SKU Máy, Linh Kiện...',
+      label: 'Danh Mục Hàng Hóa Gốc (Master SKU)',
+      subtitle: 'Mã SKU, Bảng giá gốc Máy & Linh Kiện',
       icon: Database,
-      color: 'text-indigo-600',
+      color: 'text-orange-600',
+      badge: 'Master Catalog'
     },
     {
       id: 'products',
       label: 'Kho Linh Kiện & Phụ Kiện',
       subtitle: 'Màn hình, Pin zin, Ốp sạc',
-      icon: Package, Database,
+      icon: Package,
       color: 'text-amber-600',
       badge: 'Linh phụ kiện'
     },
@@ -343,7 +338,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       label: 'Đối Soát Trả Góp',
       subtitle: 'HD Saison, Home Credit, Mpos',
       icon: Scale,
-      color: 'text-blue-600',
+      color: 'text-orange-600',
       badge: 'Giải ngân'
     },
     {
@@ -353,6 +348,14 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       icon: TrendingUp,
       color: 'text-orange-500',
       badge: 'KPI Cá Nhân'
+    },
+    {
+      id: 'checkin-portal',
+      label: 'Điểm Danh Nhanh (Fast Check-in)',
+      subtitle: 'Quy trình 4 bước: GPS, Wi-Fi, Face ID & Xác nhận',
+      icon: ScanFace,
+      color: 'text-[#FF4B16]',
+      badge: 'Chấm công 4 bước'
     },
     {
       id: 'hr-attendance',
@@ -476,9 +479,9 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
             </button>
             <button onClick={() => onSelectTab('warranty')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <Wrench className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-all shrink-0" />
+              <Wrench className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-blue-600 truncate">Bảo Hành & Sửa Chữa</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Bảo Hành & Sửa Chữa</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Nhận máy, báo giá</span>
               </div>
             </button>
@@ -501,6 +504,30 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Kho Hàng & Vận Hành</h2>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {/* MASTER CATALOG ITEM (Highlighted) */}
+            <button 
+              onClick={() => onSelectTab('master-catalog')} 
+              className="col-span-2 flex items-center space-x-3 p-3 rounded-2xl bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 hover:from-orange-500/20 hover:to-amber-500/20 border border-orange-200 hover:border-orange-400 transition-all text-left cursor-pointer group shadow-2xs"
+            >
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-white shadow-xs group-hover:scale-105 transition-transform shrink-0">
+                <Database className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-xs sm:text-sm font-black text-zinc-900 block group-hover:text-orange-600 truncate">
+                    Danh Mục Hàng Hóa Gốc (Master Catalog)
+                  </span>
+                  <span className="px-1.5 py-0.2 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[9px] font-extrabold rounded-md uppercase tracking-wider shrink-0">
+                    Mã Gốc SKU
+                  </span>
+                </div>
+                <span className="text-[10px] text-zinc-500 truncate block">
+                  Quản lý SKU chuẩn: Thiết bị iPhone/iPad, Linh kiện & Phụ kiện
+                </span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-orange-400 group-hover:translate-x-1 transition-transform shrink-0" />
+            </button>
+
             <button onClick={() => onSelectTab('inventory')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
               <Smartphone className="w-5 h-5 text-amber-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
@@ -523,7 +550,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
             </button>
             <button onClick={() => onSelectTab('transfers')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <ArrowLeftRight className="w-5 h-5 text-blue-500 group-hover:scale-110 transition-all shrink-0" />
+              <ArrowLeftRight className="w-5 h-5 text-orange-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Chuyển Kho Nội Bộ</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Điều vận liên chi nhánh</span>
@@ -549,7 +576,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           </div>
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button onClick={() => onSelectTab('crm')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <MessageSquare className="w-5 h-5 text-blue-500 group-hover:scale-110 transition-all shrink-0" />
+              <MessageSquare className="w-5 h-5 text-orange-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Khách Hàng CRM</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Quản lý Phễu & Zalo</span>
@@ -592,7 +619,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
             </button>
             <button onClick={() => onSelectTab('installments')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <Scale className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-all shrink-0" />
+              <Scale className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Đối Soát Trả Góp</span>
                 <span className="text-[10px] text-zinc-500 truncate block">HD Saison, HomeCredit</span>
@@ -608,7 +635,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
         {/* ================= 5. NHÂN SỰ & QUẢN TRỊ ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
-            <UserCheck className="w-5 h-5 text-blue-500 shrink-0" />
+            <UserCheck className="w-5 h-5 text-orange-500 shrink-0" />
             <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Nhân Sự & Quản Trị</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
@@ -627,7 +654,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
             </button>
             <button onClick={() => onSelectTab('users')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <ShieldCheck className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-all shrink-0" />
+              <ShieldCheck className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Phân Quyền Hệ Thống</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Quản lý User & Vai trò</span>
@@ -981,7 +1008,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <div key={sh.code} className="p-3 rounded-xl border border-orange-100 bg-orange-50/30 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-orange-700">{sh.code} • {sh.carrier}</span>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-blue-100 text-blue-800">
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-orange-100 text-orange-800">
                           {sh.status}
                         </span>
                       </div>

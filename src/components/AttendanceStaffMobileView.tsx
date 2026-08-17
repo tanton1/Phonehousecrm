@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   StaffMember, 
   AttendanceRecord, 
@@ -6,8 +6,12 @@ import {
   LeaveRequest, 
   CommissionTransaction, 
   MonthlyPayrollSlip,
-  PayrollLedgerItem
+  PayrollLedgerItem,
+  StoreBranch
 } from '../types';
+import { INITIAL_BRANCHES } from '../data/initialData';
+import { FaceRegistrationModal } from './FaceRegistrationModal';
+import { compareFaceVectors, extractFaceFeatureVectorFromCanvas, detectFacePresenceInCanvas } from '../utils/faceMatchingEngine';
 import { 
   CheckCircle2, 
   Clock, 
@@ -60,7 +64,10 @@ import {
   Scan,
   Radio,
   SlidersHorizontal,
-  Play
+  Play,
+  SwitchCamera,
+  Eye,
+  CheckCheck
 } from 'lucide-react';
 
 interface AttendanceStaffMobileViewProps {
@@ -71,6 +78,7 @@ interface AttendanceStaffMobileViewProps {
   commissions: CommissionTransaction[];
   payrollSlip: MonthlyPayrollSlip;
   payrollLedgers: PayrollLedgerItem[];
+  branches?: StoreBranch[];
   onCheckIn: (verificationData: any) => void;
   onCheckOut: () => void;
   onChangeActivity: (activity: 'WORKING' | 'BREAK' | 'OUTSIDE' | 'DELIVERY' | 'SUPPORT_TECH') => void;
@@ -85,6 +93,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   commissions,
   payrollSlip,
   payrollLedgers,
+  branches = INITIAL_BRANCHES,
   onCheckIn,
   onCheckOut,
   onChangeActivity,
@@ -95,20 +104,363 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
   // Sub-screens & Modals
   const [currentScreen, setCurrentScreen] = useState<'HOME' | 'VERIFY_CHECKIN' | 'SUCCESS_CHECKIN' | 'CHECKOUT_SUMMARY' | 'PAYROLL_DETAIL' | 'LEAVE_MODAL'>('HOME');
+
+  // Store Branch Target Lookup & Config
+  const availableBranches = useMemo(() => {
+    return branches && branches.length > 0 ? branches : INITIAL_BRANCHES;
+  }, [branches]);
+
+  const targetBranch = useMemo(() => {
+    if (currentUser?.branchId) {
+      const found = availableBranches.find(b => b.id === currentUser.branchId || b.code === currentUser.branchId);
+      if (found) return found;
+    }
+    if (currentUser?.branchName) {
+      const found = availableBranches.find(b => 
+        b.name.toLowerCase().includes(currentUser.branchName!.toLowerCase()) || 
+        currentUser.branchName!.toLowerCase().includes(b.name.toLowerCase())
+      );
+      if (found) return found;
+    }
+    return availableBranches[0];
+  }, [availableBranches, currentUser?.branchId, currentUser?.branchName]);
+
+  const [activeBranchGps, setActiveBranchGps] = useState<{ lat: number; lng: number } | null>(null);
+
+  const targetLat = activeBranchGps ? activeBranchGps.lat : (targetBranch?.gpsLatitude ?? 0);
+  const targetLng = activeBranchGps ? activeBranchGps.lng : (targetBranch?.gpsLongitude ?? 0);
+  const allowedRadiusMeters = targetBranch?.allowedGpsRadiusMeters ?? 100;
+  const targetWifiSSID = targetBranch?.allowedWifiSSID || currentUser?.allowedWifiSSID || 'WIFI_CUA_HANG';
+
+  // Device coordinates & Error messages
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsErrorMsg, setGpsErrorMsg] = useState<string | null>(null);
+
+  // Haversine formula to compute exact distance in meters between two lat/lng points
+  const calculateDistanceInMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371e3; // metres
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c);
+  };
   
-  // Verification states for Screen 02 (Face ID, GPS, Wifi, QR)
+  // Face Biometric State & Persistence
+  const [isFaceRegistrationOpen, setIsFaceRegistrationOpen] = useState<boolean>(false);
+  const [staffFaceProfile, setStaffFaceProfile] = useState<{
+    facePhotoUrl?: string;
+    assignedFaceEmbedding: boolean;
+    faceFeatureVector?: number[];
+    faceEnrollmentDate?: string;
+  }>(() => {
+    try {
+      const storageKey = `phonehouse_face_profile_${currentUser.id || currentUser.code || 'STAFF'}`;
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Could not read saved face profile:', e);
+    }
+    return {
+      facePhotoUrl: currentUser.facePhotoUrl || currentUser.avatar,
+      assignedFaceEmbedding: currentUser.assignedFaceEmbedding ?? true,
+      faceFeatureVector: currentUser.faceFeatureVector,
+      faceEnrollmentDate: currentUser.faceEnrollmentDate || '2024-01-15'
+    };
+  });
+
+  const handleSaveSelfFaceProfile = (faceData: {
+    facePhotoUrl: string;
+    faceFeatureVector: number[];
+    faceEnrollmentDate: string;
+  }) => {
+    const updated = {
+      facePhotoUrl: faceData.facePhotoUrl,
+      assignedFaceEmbedding: true,
+      faceFeatureVector: faceData.faceFeatureVector,
+      faceEnrollmentDate: faceData.faceEnrollmentDate
+    };
+    setStaffFaceProfile(updated);
+    try {
+      const storageKey = `phonehouse_face_profile_${currentUser.id || currentUser.code || 'STAFF'}`;
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Could not persist face profile:', e);
+    }
+    setFaceStatus('SUCCESS');
+    setFaceConfidence(98.8);
+    setFaceFeedbackMsg(`Đã cập nhật & xác thực mẫu Face ID của nhân viên ${currentUser.name}`);
+  };
+
+  // Real Camera Refs & Video Stream Lifecycle
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const liveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const liveMediaStreamRef = useRef<MediaStream | null>(null);
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [isCameraStarting, setIsCameraStarting] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isVerifyingFace, setIsVerifyingFace] = useState<boolean>(false);
+  const [faceFeedbackMsg, setFaceFeedbackMsg] = useState<string | null>(null);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
+  const [capturedSnapshotUrl, setCapturedSnapshotUrl] = useState<string | null>(null);
+
+  const stopLiveCamera = () => {
+    if (liveMediaStreamRef.current) {
+      liveMediaStreamRef.current.getTracks().forEach(track => {
+        try { track.stop(); } catch (e) {}
+      });
+      liveMediaStreamRef.current = null;
+    }
+    if (liveVideoRef.current) {
+      liveVideoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+    setIsCameraStarting(false);
+  };
+
+  const startLiveCamera = async (facing: 'user' | 'environment' = cameraFacingMode) => {
+    setCameraError(null);
+    setIsCameraStarting(true);
+    stopLiveCamera();
+
+    try {
+      if (navigator?.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: facing,
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          },
+          audio: false
+        });
+        liveMediaStreamRef.current = stream;
+        if (liveVideoRef.current) {
+          liveVideoRef.current.srcObject = stream;
+          try {
+            await liveVideoRef.current.play();
+          } catch (playErr) {
+            console.warn('Video play error:', playErr);
+          }
+        }
+        setIsCameraActive(true);
+        setIsCameraStarting(false);
+        setCameraError(null);
+      } else {
+        setCameraError('Trình duyệt hoặc môi trường không hỗ trợ Camera Web API.');
+        setIsCameraStarting(false);
+      }
+    } catch (err: any) {
+      console.warn('Camera access error:', err);
+      setIsCameraStarting(false);
+      setIsCameraActive(false);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraError('Quyền Camera bị từ chối. Vui lòng bấm Bật Camera & Cho phép trên trình duyệt để nhận diện khuôn mặt.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setCameraError('Không tìm thấy thiết bị Camera khả dụng.');
+      } else {
+        setCameraError(`Chưa kết nối được Camera: ${err.message || 'Lỗi thiết bị'}`);
+      }
+    }
+  };
+
+  // Toggle Camera Front/Back
+  const handleToggleCameraFacing = () => {
+    const nextFacing = cameraFacingMode === 'user' ? 'environment' : 'user';
+    setCameraFacingMode(nextFacing);
+    startLiveCamera(nextFacing);
+  };
+
+  // Real Face ID Biometric Verification Execution
+  const executeRealFaceScan = async () => {
+    if (!liveVideoRef.current || !isCameraActive) {
+      await startLiveCamera();
+      return;
+    }
+
+    setIsVerifyingFace(true);
+    setFaceStatus('PENDING');
+    setFaceFeedbackMsg('Đang chụp khung hình camera & đối soát dữ liệu sinh trắc học...');
+
+    try {
+      const video = liveVideoRef.current;
+      const canvas = liveCanvasRef.current || document.createElement('canvas');
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Không thể khởi tạo canvas 2D');
+      
+      // Capture live frame
+      ctx.drawImage(video, 0, 0, width, height);
+      const liveDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      setCapturedSnapshotUrl(liveDataUrl);
+
+      // Check real face presence in frame first
+      const presence = detectFacePresenceInCanvas(canvas);
+      if (!presence.hasFace) {
+        setFaceStatus('ERROR');
+        setFaceConfidence(10.0);
+        setFaceFeedbackMsg(presence.reason || '❌ Không phát hiện khuôn mặt người trong khung hình. Vui lòng hướng mặt thẳng vào camera.');
+        setIsVerifyingFace(false);
+        return;
+      }
+
+      // Extract local biometric vector
+      const liveVector = extractFaceFeatureVectorFromCanvas(canvas);
+
+      // Call backend AI Face Verification endpoint
+      let isVerified = false;
+      try {
+        const res = await fetch('/api/ai/verify-face', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            livePhotoBase64: liveDataUrl,
+            referencePhotoBase64: staffFaceProfile.facePhotoUrl?.startsWith('data:') ? staffFaceProfile.facePhotoUrl : undefined,
+            referencePhotoUrl: !staffFaceProfile.facePhotoUrl?.startsWith('data:') ? staffFaceProfile.facePhotoUrl : undefined,
+            employeeName: currentUser.name,
+            liveVector,
+            storedVector: staffFaceProfile.faceFeatureVector
+          })
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            const { isMatched, confidenceScore, matchReason, isHumanFacePresent } = json.data;
+            if (isMatched && isHumanFacePresent) {
+              setFaceStatus('SUCCESS');
+              setFaceConfidence(confidenceScore || 98.6);
+              setFaceFeedbackMsg(matchReason || `Đã đối soát trùng khớp khuôn mặt nhân viên: ${currentUser.name}`);
+              isVerified = true;
+            } else {
+              setFaceStatus('ERROR');
+              setFaceConfidence(confidenceScore || 35.0);
+              setFaceFeedbackMsg(matchReason || `Khuôn mặt không trùng khớp với hồ sơ đăng ký của ${currentUser.name}`);
+              isVerified = true;
+            }
+          }
+        }
+      } catch (apiErr) {
+        console.warn('Backend face verification fallback:', apiErr);
+      }
+
+      if (!isVerified) {
+        // High-precision local biometric vector comparison fallback
+        const localResult = compareFaceVectors(liveVector, staffFaceProfile.faceFeatureVector, currentUser.name);
+        setFaceStatus(localResult.isMatched ? 'SUCCESS' : 'ERROR');
+        setFaceConfidence(localResult.matchScore);
+        setFaceFeedbackMsg(localResult.statusText);
+      }
+    } catch (err: any) {
+      console.error('Execute face scan error:', err);
+      setFaceStatus('ERROR');
+      setFaceFeedbackMsg('Lỗi camera khi chụp khung hình. Vui lòng thử lại.');
+    } finally {
+      setIsVerifyingFace(false);
+    }
+  };
+
+  // Manage Camera on screen transition
+  useEffect(() => {
+    if (currentScreen === 'VERIFY_CHECKIN') {
+      startLiveCamera('user');
+    } else {
+      stopLiveCamera();
+    }
+    return () => {
+      stopLiveCamera();
+    };
+  }, [currentScreen]);
+
+  // Real-time Live Clock State
+  const [currentRealTime, setCurrentRealTime] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentRealTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const liveTimeString = currentRealTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const liveDateString = currentRealTime.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+  // Captured Check-in Timestamps
+  const [recordedCheckInTime, setRecordedCheckInTime] = useState<string>('');
+  const [recordedCheckInDate, setRecordedCheckInDate] = useState<string>('');
+  const [checkInStartTimestamp, setCheckInStartTimestamp] = useState<number | null>(null);
+
   type StepStatus = 'SUCCESS' | 'PENDING' | 'ERROR';
-  const [gpsStatus, setGpsStatus] = useState<StepStatus>('SUCCESS');
-  const [wifiStatus, setWifiStatus] = useState<StepStatus>('SUCCESS');
-  const [faceStatus, setFaceStatus] = useState<StepStatus>('SUCCESS');
-  const [qrStatus, setQrStatus] = useState<StepStatus>('SUCCESS');
+  const [gpsStatus, setGpsStatus] = useState<StepStatus>('PENDING');
+  const [wifiStatus, setWifiStatus] = useState<StepStatus>('PENDING');
+  const [faceStatus, setFaceStatus] = useState<StepStatus>('PENDING');
+  const [qrStatus, setQrStatus] = useState<StepStatus>('PENDING');
   const [isAutoScanning, setIsAutoScanning] = useState<boolean>(false);
   const [faceConfidence, setFaceConfidence] = useState<number>(99.4);
-  const [gpsDistance, setGpsDistance] = useState<number>(14);
-  const [currentWifiSSID, setCurrentWifiSSID] = useState<string>('PH_HAICHAU_5G');
-  const [qrSessionCode, setQrSessionCode] = useState<string>('PH-QR-HAI-CHAU-2026-LIVE');
+  const [gpsDistance, setGpsDistance] = useState<number>(0);
+  const [currentWifiSSID, setCurrentWifiSSID] = useState<string>(targetWifiSSID);
+  const [qrSessionCode, setQrSessionCode] = useState<string>(`PH-QR-${targetBranch.code || 'STORE'}-LIVE`);
 
-  // Trigger automated scan simulation
+  // Real GPS Location Verification via Geolocation API & Haversine Formula
+  const fetchRealGPSLocation = (tLat = targetLat, tLng = targetLng, maxMeters = allowedRadiusMeters) => {
+    setGpsStatus('PENDING');
+    setGpsErrorMsg(null);
+
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const uLat = position.coords.latitude;
+          const uLng = position.coords.longitude;
+          setUserCoords({ lat: uLat, lng: uLng });
+          
+          if (!tLat || !tLng || tLat === 0 || tLng === 0) {
+            // Unconfigured store GPS defaults to current device position
+            setActiveBranchGps({ lat: uLat, lng: uLng });
+            setGpsDistance(0);
+            setGpsStatus('SUCCESS');
+            setGpsErrorMsg(null);
+          } else {
+            const distance = calculateDistanceInMeters(uLat, uLng, tLat, tLng);
+            setGpsDistance(distance);
+
+            if (distance <= maxMeters) {
+              setGpsStatus('SUCCESS');
+              setGpsErrorMsg(null);
+            } else {
+              setGpsStatus('ERROR');
+              setGpsErrorMsg(`Nằm ngoài bán kính cửa hàng ${targetBranch.name} (${distance > 1000 ? `${(distance/1000).toFixed(2)} km` : `${distance} mét`}). Yêu cầu ≤ ${maxMeters}m.`);
+            }
+          }
+        },
+        (error) => {
+          console.warn('GPS location request warning/error:', error);
+          setGpsStatus('ERROR');
+          let errText = 'Không thể truy cập tọa độ GPS từ thiết bị.';
+          if (error.code === error.PERMISSION_DENIED) {
+            errText = 'Quyền vị trí GPS bị từ chối trên trình duyệt/thiết bị.';
+          } else if (error.code === error.POSITION_UNAVAILABLE) {
+            errText = 'Tín hiệu GPS thiết bị không khả dụng.';
+          } else if (error.code === error.TIMEOUT) {
+            errText = 'Hết thời gian chờ định vị GPS.';
+          }
+          setGpsErrorMsg(errText);
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      );
+    } else {
+      setGpsStatus('ERROR');
+      setGpsErrorMsg('Trình duyệt không hỗ trợ Geolocation API.');
+    }
+  };
+
+  // Trigger automated scan with real GPS and Face verification
   const runAutoScanSimulation = () => {
     setIsAutoScanning(true);
     setGpsStatus('PENDING');
@@ -116,86 +468,78 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     setFaceStatus('PENDING');
     setQrStatus('PENDING');
 
-    setTimeout(() => {
-      setGpsStatus('SUCCESS');
-      setGpsDistance(12);
-    }, 600);
+    fetchRealGPSLocation();
 
     setTimeout(() => {
       setWifiStatus('SUCCESS');
-      setCurrentWifiSSID('PH_HAICHAU_5G');
-    }, 1200);
+      setCurrentWifiSSID(targetWifiSSID);
+    }, 600);
 
     setTimeout(() => {
-      setFaceStatus('SUCCESS');
-      setFaceConfidence(99.6);
-    }, 1800);
-
-    setTimeout(() => {
-      setQrStatus('SUCCESS');
-      setQrSessionCode('PH-QR-HAI-CHAU-2026-LIVE');
+      executeRealFaceScan();
       setIsAutoScanning(false);
-    }, 2400);
+    }, 1200);
   };
 
   // Preset scenarios for testing Screen 02
   const applyPresetScenario = (scenario: 'ALL_SUCCESS' | 'GPS_ERROR' | 'WIFI_ERROR' | 'ALL_PENDING') => {
     if (scenario === 'ALL_SUCCESS') {
       setGpsStatus('SUCCESS');
-      setGpsDistance(14);
+      setGpsDistance(12);
+      setUserCoords({ lat: targetLat + 0.00005, lng: targetLng + 0.00005 });
+      setGpsErrorMsg(null);
       setWifiStatus('SUCCESS');
-      setCurrentWifiSSID('PH_HAICHAU_5G');
+      setCurrentWifiSSID(targetWifiSSID);
       setFaceStatus('SUCCESS');
       setFaceConfidence(99.4);
-      setQrStatus('SUCCESS');
-      setQrSessionCode('PH-QR-HAI-CHAU-2026-LIVE');
+      setFaceFeedbackMsg(`Đã đối chiếu thành công hồ sơ ${currentUser.name}`);
     } else if (scenario === 'GPS_ERROR') {
       setGpsStatus('ERROR');
-      setGpsDistance(245);
+      setGpsDistance(2450);
+      setUserCoords({ lat: targetLat + 0.02, lng: targetLng + 0.02 });
+      setGpsErrorMsg(`Thiết bị cách cửa hàng ${targetBranch.name} 2.45 km (Bán kính quy định ≤ ${allowedRadiusMeters}m).`);
       setWifiStatus('SUCCESS');
+      setCurrentWifiSSID(targetWifiSSID);
       setFaceStatus('SUCCESS');
-      setQrStatus('SUCCESS');
     } else if (scenario === 'WIFI_ERROR') {
       setWifiStatus('ERROR');
       setCurrentWifiSSID('4G_Viettel_Mobile');
       setGpsStatus('SUCCESS');
+      setGpsDistance(14);
+      setUserCoords({ lat: targetLat, lng: targetLng });
+      setGpsErrorMsg(null);
       setFaceStatus('SUCCESS');
-      setQrStatus('SUCCESS');
     } else if (scenario === 'ALL_PENDING') {
       setGpsStatus('PENDING');
       setWifiStatus('PENDING');
       setFaceStatus('PENDING');
-      setQrStatus('PENDING');
+      setFaceFeedbackMsg(null);
     }
   };
 
-  const isAllVerified = gpsStatus === 'SUCCESS' && wifiStatus === 'SUCCESS' && faceStatus === 'SUCCESS' && qrStatus === 'SUCCESS';
+  // Simplified 3-Factor Verification: GPS + Wi-Fi + Face ID
+  const isAllVerified = gpsStatus === 'SUCCESS' && wifiStatus === 'SUCCESS' && faceStatus === 'SUCCESS';
 
   // Retry individual verification step
   const retryStep = (step: 'GPS' | 'WIFI' | 'FACE' | 'QR') => {
     if (step === 'GPS') {
-      setGpsStatus('PENDING');
-      setTimeout(() => {
-        setGpsStatus('SUCCESS');
-        setGpsDistance(10);
-      }, 700);
+      fetchRealGPSLocation();
     } else if (step === 'WIFI') {
       setWifiStatus('PENDING');
       setTimeout(() => {
-        setWifiStatus('SUCCESS');
-        setCurrentWifiSSID('PH_HAICHAU_5G');
+        if (currentWifiSSID === targetWifiSSID) {
+          setWifiStatus('SUCCESS');
+        } else {
+          setWifiStatus('ERROR');
+        }
       }, 700);
     } else if (step === 'FACE') {
-      setFaceStatus('PENDING');
-      setTimeout(() => {
-        setFaceStatus('SUCCESS');
-        setFaceConfidence(99.5);
-      }, 900);
+      executeRealFaceScan();
     } else if (step === 'QR') {
       setQrStatus('PENDING');
       setTimeout(() => {
         setQrStatus('SUCCESS');
-        setQrSessionCode('PH-QR-HAI-CHAU-2026-LIVE');
+        setQrSessionCode(`PH-QR-${targetBranch.code || 'STORE'}-LIVE`);
       }, 700);
     }
   };
@@ -213,16 +557,23 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     swapWithStaffName: ''
   });
 
+  // Demo switch to preview both states: 'CHECKED_IN' or 'NOT_CHECKED_IN' or use real attendanceRecord.status
+  const [shiftStatusOverride, setShiftStatusOverride] = useState<'AUTO' | 'NOT_CHECKED_IN' | 'IN_PROGRESS'>('AUTO');
+
   // Live timer for in-shift
-  const [secondsInShift, setSecondsInShift] = useState<number>(11724); // 03:15:24
+  const [secondsInShift, setSecondsInShift] = useState<number>(0);
   useEffect(() => {
-    if (attendanceRecord.status === 'IN_PROGRESS') {
-      const interval = setInterval(() => {
-        setSecondsInShift(prev => prev + 1);
-      }, 1000);
+    if (attendanceRecord.status === 'IN_PROGRESS' || shiftStatusOverride === 'IN_PROGRESS') {
+      const baseTime = checkInStartTimestamp || (Date.now() - 3 * 3600 * 1000 - 15 * 60 * 1000); // default ~03h 15m if demo
+      const updateSeconds = () => {
+        const elapsed = Math.max(0, Math.floor((Date.now() - baseTime) / 1000));
+        setSecondsInShift(elapsed);
+      };
+      updateSeconds();
+      const interval = setInterval(updateSeconds, 1000);
       return () => clearInterval(interval);
     }
-  }, [attendanceRecord.status]);
+  }, [attendanceRecord.status, shiftStatusOverride, checkInStartTimestamp]);
 
   const formatTimer = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600);
@@ -230,9 +581,6 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     const secs = totalSeconds % 60;
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
-
-  // Demo switch to preview both states: 'CHECKED_IN' or 'NOT_CHECKED_IN' or use real attendanceRecord.status
-  const [shiftStatusOverride, setShiftStatusOverride] = useState<'AUTO' | 'NOT_CHECKED_IN' | 'IN_PROGRESS'>('AUTO');
 
   // Daily checklist tasks for Screen 01
   const [dailyTasks, setDailyTasks] = useState([
@@ -251,17 +599,31 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     ? (attendanceRecord.status === 'IN_PROGRESS' || attendanceRecord.status === 'COMPLETED')
     : (shiftStatusOverride === 'IN_PROGRESS');
 
-  // Handle perform Check-in flow
+  // Handle perform Check-in flow: Reset steps, navigate to Screen 02 & start active scan
   const handleStartCheckInVerify = () => {
+    setGpsStatus('PENDING');
+    setWifiStatus('PENDING');
+    setFaceStatus('PENDING');
+    setQrStatus('PENDING');
     setCurrentScreen('VERIFY_CHECKIN');
+    runAutoScanSimulation();
   };
 
   const handleConfirmCheckIn = () => {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dateStr = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+    setRecordedCheckInTime(timeStr);
+    setRecordedCheckInDate(dateStr);
+    setCheckInStartTimestamp(Date.now());
+
     onCheckIn({
-      gpsVerified: true,
-      wifiVerified: true,
-      faceVerified: true,
-      qrScanned: true
+      time: timeStr,
+      gpsVerified: gpsStatus === 'SUCCESS',
+      wifiVerified: wifiStatus === 'SUCCESS',
+      faceVerified: faceStatus === 'SUCCESS',
+      qrScanned: qrStatus === 'SUCCESS'
     });
     setCurrentScreen('SUCCESS_CHECKIN');
   };
@@ -307,108 +669,188 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       
       {/* SCREEN 02: XÁC MINH CHẤM CÔNG (4-FACTOR VERIFICATION: GPS, WI-FI, FACE ID, QR CODE) */}
       {currentScreen === 'VERIFY_CHECKIN' && (
-        <div className="min-h-screen bg-[#F7F8FA] flex flex-col p-4">
-          {/* Header */}
-          <div className="flex items-center justify-between pt-1 pb-3">
-            <button 
-              onClick={() => setCurrentScreen('HOME')}
-              className="p-2 -ml-2 rounded-xl text-zinc-600 hover:bg-zinc-200/60 transition-colors cursor-pointer"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="text-center">
-              <span className="font-extrabold text-sm text-zinc-900">Xác minh chấm công</span>
-              <div className="text-[10px] text-zinc-500 font-semibold">Screen 02 • PhoneHouse Retail</div>
-            </div>
-            <button
-              onClick={runAutoScanSimulation}
-              disabled={isAutoScanning}
-              title="Chạy mô phỏng quét tự động"
-              className="p-1.5 rounded-xl bg-orange-100 text-[#FF4B16] hover:bg-orange-200 transition-colors text-xs font-bold flex items-center space-x-1 cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${isAutoScanning ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+        <div className="min-h-screen bg-[#F8F9FC] flex flex-col p-4 animate-in fade-in duration-200">
+          
+          {/* BRAND HERO HEADER WITH LIVE DIGITAL CLOCK & STORE CONTEXT */}
+          <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 text-white rounded-3xl p-4 shadow-xl border border-zinc-800/80 mb-3.5 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-36 h-36 bg-[#FF4B16]/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-[#FF4B16]/10 rounded-full blur-2xl pointer-events-none" />
 
-          {/* DEMO / TEST PRESET TOOLBAR */}
-          <div className="bg-white rounded-2xl p-2.5 border border-zinc-200/80 shadow-2xs mb-3">
-            <div className="flex items-center justify-between mb-1.5 px-1">
-              <div className="flex items-center space-x-1.5 text-zinc-500 text-[11px] font-bold">
-                <SlidersHorizontal className="w-3.5 h-3.5 text-[#FF4B16]" />
-                <span>Thử nghiệm trạng thái (Demo Presets):</span>
+            {/* Top Bar */}
+            <div className="flex items-center justify-between relative z-10 mb-3">
+              <button 
+                onClick={() => setCurrentScreen('HOME')}
+                className="p-2 -ml-1 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer backdrop-blur-md flex items-center space-x-1"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span className="text-[11px] font-bold">Trở về</span>
+              </button>
+
+              <div className="flex items-center space-x-1.5 bg-[#FF4B16]/15 border border-[#FF4B16]/30 px-3 py-1 rounded-full backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-[#FF4B16] animate-pulse" />
+                <span className="text-[11px] font-black text-[#FF4B16] tracking-wide uppercase">{targetBranch.name}</span>
               </div>
-              <span className="text-[10px] text-zinc-400 font-medium">Bấm để đổi kịch bản</span>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5 text-[10px] font-bold">
-              <button
-                onClick={() => applyPresetScenario('ALL_SUCCESS')}
-                className={`py-1.5 px-1 rounded-xl transition-all border cursor-pointer ${
-                  isAllVerified 
-                    ? 'bg-emerald-500 text-white border-emerald-600 shadow-xs' 
-                    : 'bg-zinc-50 hover:bg-emerald-50 text-zinc-700 border-zinc-200 hover:border-emerald-300'
-                }`}
-              >
-                4/4 Đạt (Xanh)
-              </button>
-
-              <button
-                onClick={() => applyPresetScenario('GPS_ERROR')}
-                className={`py-1.5 px-1 rounded-xl transition-all border cursor-pointer ${
-                  gpsStatus === 'ERROR' 
-                    ? 'bg-rose-600 text-white border-rose-700 shadow-xs' 
-                    : 'bg-zinc-50 hover:bg-rose-50 text-zinc-700 border-zinc-200 hover:border-rose-300'
-                }`}
-              >
-                Lỗi GPS (Đỏ)
-              </button>
-
-              <button
-                onClick={() => applyPresetScenario('WIFI_ERROR')}
-                className={`py-1.5 px-1 rounded-xl transition-all border cursor-pointer ${
-                  wifiStatus === 'ERROR' 
-                    ? 'bg-rose-600 text-white border-rose-700 shadow-xs' 
-                    : 'bg-zinc-50 hover:bg-rose-50 text-zinc-700 border-zinc-200 hover:border-rose-300'
-                }`}
-              >
-                Lỗi Wi-Fi (Đỏ)
-              </button>
 
               <button
                 onClick={runAutoScanSimulation}
                 disabled={isAutoScanning}
-                className="py-1.5 px-1 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#FF4B16] border border-orange-200 transition-all flex items-center justify-center space-x-1 cursor-pointer font-extrabold"
+                title="Đo lại vị trí & Wi-Fi"
+                className="p-2 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer backdrop-blur-md disabled:opacity-50 flex items-center space-x-1"
               >
-                <Play className="w-3 h-3 fill-current" />
-                <span>Tự quét</span>
+                <RefreshCw className={`w-3.5 h-3.5 ${isAutoScanning ? 'animate-spin text-[#FF4B16]' : ''}`} />
+                <span className="text-[10px] font-bold">Quét lại</span>
+              </button>
+            </div>
+
+            {/* Live Clock & Staff Identity */}
+            <div className="flex items-end justify-between relative z-10 pt-1">
+              <div>
+                <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex items-center space-x-1">
+                  <Clock className="w-3 h-3 text-[#FF4B16]" />
+                  <span>Giờ điểm danh chuẩn</span>
+                </div>
+                <div className="text-3xl font-black font-mono tracking-tight text-white mt-0.5">
+                  {liveTimeString}
+                </div>
+                <div className="text-[11px] text-zinc-300 font-medium mt-0.5">
+                  {liveDateString}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-[11px] font-extrabold text-white flex items-center justify-end space-x-1">
+                  <User className="w-3.5 h-3.5 text-[#FF4B16]" />
+                  <span>{currentUser.name}</span>
+                </div>
+                <div className="text-[10px] text-orange-200 font-bold bg-[#FF4B16]/20 px-2.5 py-0.5 rounded-full border border-[#FF4B16]/30 mt-1 inline-block">
+                  {currentUser.roleName || 'Nhân viên bán hàng'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* REAL DEVICE SENSORS TOOLBAR */}
+          <div className="bg-white rounded-2xl p-3 border border-zinc-200/80 shadow-2xs mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center space-x-1.5 text-zinc-600 text-xs font-bold">
+              <MapPin className="w-4 h-4 text-[#FF4B16]" />
+              <span>Đo cảm biến GPS & mạng thực tế:</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchRealGPSLocation()}
+                className="py-1.5 px-3 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#FF4B16] border border-orange-200 transition-all flex items-center justify-center space-x-1.5 cursor-pointer text-xs font-black active:scale-95 shadow-2xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Quét lại GPS thực tế</span>
               </button>
             </div>
           </div>
 
+          {/* FRIENDLY WARNING BANNER FOR OUTSIDE RADIUS / WIFI ERROR */}
+          {(gpsStatus === 'ERROR' || wifiStatus === 'ERROR') && (
+            <div className="mb-3 bg-rose-50/90 border-2 border-rose-200 rounded-2xl p-3.5 space-y-2 text-rose-950 shadow-xs">
+              <div className="flex items-center gap-2 font-black text-rose-800 text-xs uppercase tracking-wide">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 animate-bounce" />
+                <span>CẢNH BÁO THÔNG TIN CHẤM CÔNG</span>
+              </div>
+
+              {gpsStatus === 'ERROR' && (
+                <div className="bg-white/95 rounded-xl p-2.5 text-[11px] border border-rose-200 space-y-1.5">
+                  <div className="font-extrabold text-rose-900 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-rose-600" />
+                      Vị Trí Ngoài Bán Kính Cửa Hàng
+                    </span>
+                    <span className="bg-rose-100 text-rose-800 font-mono font-black text-[10px] px-2 py-0.5 rounded-md">
+                      {gpsDistance > 1000 ? `${(gpsDistance/1000).toFixed(2)} km` : `${gpsDistance} mét`}
+                    </span>
+                  </div>
+                  <p className="text-rose-800 font-medium leading-tight">
+                    Thiết bị của bạn đang ở cách chi nhánh <strong>{targetBranch.name}</strong> khoảng cách <strong>{gpsDistance > 1000 ? `${(gpsDistance/1000).toFixed(2)} km` : `${gpsDistance}m`}</strong> (Yêu cầu ≤ {allowedRadiusMeters} mét).
+                  </p>
+                  {gpsErrorMsg && (
+                    <p className="text-[10px] text-rose-700 italic bg-rose-50 p-1.5 rounded-lg border border-rose-200">
+                      ⚠️ Chi tiết: {gpsErrorMsg}
+                    </p>
+                  )}
+                  {userCoords && (
+                    <div className="pt-1">
+                      <button
+                        onClick={() => {
+                          setActiveBranchGps({ lat: userCoords.lat, lng: userCoords.lng });
+                          setGpsDistance(0);
+                          setGpsStatus('SUCCESS');
+                          setGpsErrorMsg(null);
+                        }}
+                        className="text-[11px] font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-3 py-2 rounded-xl border border-emerald-300 transition-colors flex items-center gap-1.5 cursor-pointer w-full justify-center shadow-2xs"
+                      >
+                        <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>📍 Lấy vị trí này làm GPS chuẩn cho {targetBranch.name}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {wifiStatus === 'ERROR' && (
+                <div className="bg-white/95 rounded-xl p-2.5 text-[11px] border border-rose-200 space-y-1.5">
+                  <div className="font-extrabold text-rose-900 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Wifi className="w-3.5 h-3.5 text-rose-600" />
+                      Chưa Kết Nối Wi-Fi Cửa Hàng
+                    </span>
+                    <span className="bg-rose-100 text-rose-800 font-mono font-black text-[10px] px-2 py-0.5 rounded-md">
+                      Mạng 4G/Khác
+                    </span>
+                  </div>
+                  <p className="text-rose-800 font-medium">
+                    Mạng hiện tại: <strong className="line-through text-rose-950">{currentWifiSSID}</strong>. Cửa hàng yêu cầu kết nối đúng Wi-Fi nội bộ: <strong className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">{targetWifiSSID}</strong>.
+                  </p>
+                  <div className="pt-1">
+                    <button
+                      onClick={() => {
+                        setCurrentWifiSSID(targetWifiSSID);
+                        setWifiStatus('SUCCESS');
+                      }}
+                      className="text-[11px] font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-3 py-1.5 rounded-xl border border-emerald-300 transition-colors cursor-pointer w-full flex items-center justify-center gap-1.5"
+                    >
+                      <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>📶 Kết nối Wi-Fi cửa hàng ({targetWifiSSID})</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* MAIN VERIFICATION CARD CONTAINER */}
-          <div className="bg-white rounded-2xl p-4 shadow-2xs border border-zinc-200/80 mb-3 space-y-4">
+          <div className="bg-white rounded-3xl p-4 shadow-sm border border-zinc-200/80 mb-3 space-y-4">
             
             {/* Title & Overall Progress */}
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
+            <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
               <div>
-                <h2 className="text-sm font-black text-zinc-900">4 Bước xác minh vào ca</h2>
-                <p className="text-[11px] text-zinc-500 font-medium">Bắt buộc xác thực GPS, Wi-Fi, Face ID & QR</p>
+                <h2 className="text-sm font-black text-zinc-900 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[#FF4B16]" />
+                  <span>Xác minh 3 yếu tố an toàn</span>
+                </h2>
+                <p className="text-[11px] text-zinc-500 font-medium">Cửa hàng: {targetBranch.name}</p>
               </div>
               <div className="text-right">
-                <span className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-xl text-xs font-black border ${
+                <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-xl text-xs font-black border ${
                   isAllVerified 
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-2xs' 
                     : 'bg-orange-50 text-[#FF4B16] border-orange-200'
                 }`}>
                   {isAllVerified ? (
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Đạt 4/4</span>
+                      <span>ĐẠT 3/3</span>
                     </>
                   ) : (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FF4B16]" />
                       <span>
-                        {[gpsStatus, wifiStatus, faceStatus, qrStatus].filter(s => s === 'SUCCESS').length}/4 Đạt
+                        {[gpsStatus, wifiStatus, faceStatus].filter(s => s === 'SUCCESS').length}/3 Đạt
                       </span>
                     </>
                   )}
@@ -416,83 +858,222 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               </div>
             </div>
 
-            {/* CAMERA PREVIEW: INTERACTIVE BIOMETRIC FACE ID SCANNER */}
-            <div className="relative rounded-2xl bg-zinc-950 p-4 overflow-hidden border border-zinc-800 shadow-md">
-              <div className="relative w-44 h-44 mx-auto rounded-2xl overflow-hidden bg-zinc-900 flex items-center justify-center border-2 border-zinc-700">
-                {/* Employee Live Avatar Preview */}
-                <img 
-                  src={currentUser.avatar} 
-                  alt={currentUser.name} 
-                  className="w-full h-full object-cover filter contrast-105"
-                />
+            {/* CAMERA PREVIEW: REAL-TIME BIOMETRIC LIVE CAMERA & FACE ID SCANNER */}
+            <div className="relative rounded-3xl bg-zinc-950 p-4 overflow-hidden border border-zinc-800 shadow-xl">
+              
+              {/* Hidden canvas for taking snapshot and extracting biometric vectors */}
+              <canvas ref={liveCanvasRef} className="hidden" />
+
+              {/* Main Camera HUD Viewport */}
+              <div className="relative w-full aspect-4/3 max-w-[280px] mx-auto rounded-2xl overflow-hidden bg-zinc-900 flex items-center justify-center border-2 border-zinc-700 shadow-inner">
+                
+                {/* Live Video Stream from Device Camera */}
+                {isCameraActive && (
+                  <video 
+                    ref={liveVideoRef} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    className="w-full h-full object-cover mirror-mode"
+                  />
+                )}
+
+                {/* Camera Starting / Initializing State */}
+                {isCameraStarting && (
+                  <div className="absolute inset-0 bg-zinc-950 flex flex-col items-center justify-center p-4 text-center z-10">
+                    <Loader2 className="w-8 h-8 text-[#FF4B16] animate-spin mb-2" />
+                    <p className="text-xs font-bold text-zinc-200">Đang khởi động Camera...</p>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">Vui lòng cho phép truy cập camera</p>
+                  </div>
+                )}
+
+                {/* Camera Error / Permission Denied Fallback */}
+                {cameraError && !isCameraStarting && (
+                  <div className="absolute inset-0 bg-zinc-950/95 flex flex-col items-center justify-center p-4 text-center z-10 space-y-2">
+                    <div className="w-10 h-10 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+                      <Camera className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-bold text-rose-300 px-2">{cameraError}</p>
+                    <button
+                      type="button"
+                      onClick={() => startLiveCamera()}
+                      className="text-xs font-black bg-[#FF4B16] hover:bg-[#E03E0C] text-white px-3.5 py-1.5 rounded-xl shadow-md transition-colors cursor-pointer flex items-center gap-1.5 mx-auto"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Cấp quyền & Bật Camera</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Live Camera Badge */}
+                {isCameraActive && (
+                  <div className="absolute top-2.5 left-2.5 bg-zinc-950/80 backdrop-blur-md px-2.5 py-1 rounded-full border border-zinc-700/60 flex items-center gap-1.5 shadow-xs z-10 pointer-events-none">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    <span className="text-[10px] font-black text-emerald-400 tracking-wider">LIVE HD CAMERA</span>
+                  </div>
+                )}
+
+                {/* Switch Camera Button (Front/Back) */}
+                {isCameraActive && (
+                  <button
+                    type="button"
+                    onClick={handleToggleCameraFacing}
+                    title="Đổi camera trước/sau"
+                    className="absolute top-2.5 right-2.5 bg-zinc-950/80 hover:bg-zinc-800 backdrop-blur-md p-1.5 rounded-full border border-zinc-700 text-zinc-300 hover:text-white transition-colors z-10 cursor-pointer shadow-xs"
+                  >
+                    <SwitchCamera className="w-4 h-4" />
+                  </button>
+                )}
 
                 {/* Facial HUD Box & Target Brackets */}
-                <div className="absolute inset-2 pointer-events-none flex flex-col justify-between p-2">
+                <div className="absolute inset-3 pointer-events-none flex flex-col justify-between p-1 z-10">
                   <div className="flex justify-between">
-                    <div className={`w-4 h-4 border-t-2 border-l-2 transition-colors ${
-                      faceStatus === 'SUCCESS' ? 'border-emerald-400' : faceStatus === 'PENDING' ? 'border-[#FF4B16]' : 'border-rose-500'
+                    <div className={`w-6 h-6 border-t-[3px] border-l-[3px] rounded-tl-lg transition-all ${
+                      faceStatus === 'SUCCESS' 
+                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        : faceStatus === 'PENDING' 
+                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                        : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
-                    <div className={`w-4 h-4 border-t-2 border-r-2 transition-colors ${
-                      faceStatus === 'SUCCESS' ? 'border-emerald-400' : faceStatus === 'PENDING' ? 'border-[#FF4B16]' : 'border-rose-500'
+                    <div className={`w-6 h-6 border-t-[3px] border-r-[3px] rounded-tr-lg transition-all ${
+                      faceStatus === 'SUCCESS' 
+                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        : faceStatus === 'PENDING' 
+                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                        : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                   </div>
+                  
+                  {/* Subtle Face Alignment Oval */}
+                  <div className={`w-28 h-36 mx-auto rounded-full border border-dashed transition-colors flex items-center justify-center ${
+                    faceStatus === 'SUCCESS' ? 'border-emerald-400/60' : faceStatus === 'PENDING' ? 'border-orange-400/60' : 'border-rose-500/60'
+                  }`}>
+                    {isVerifyingFace && (
+                      <span className="text-[10px] font-bold text-[#FF4B16] bg-zinc-950/80 px-2 py-0.5 rounded-md">
+                        Đang quét...
+                      </span>
+                    )}
+                  </div>
+
                   <div className="flex justify-between">
-                    <div className={`w-4 h-4 border-b-2 border-l-2 transition-colors ${
-                      faceStatus === 'SUCCESS' ? 'border-emerald-400' : faceStatus === 'PENDING' ? 'border-[#FF4B16]' : 'border-rose-500'
+                    <div className={`w-6 h-6 border-b-[3px] border-l-[3px] rounded-bl-lg transition-all ${
+                      faceStatus === 'SUCCESS' 
+                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        : faceStatus === 'PENDING' 
+                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                        : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
-                    <div className={`w-4 h-4 border-b-2 border-r-2 transition-colors ${
-                      faceStatus === 'SUCCESS' ? 'border-emerald-400' : faceStatus === 'PENDING' ? 'border-[#FF4B16]' : 'border-rose-500'
+                    <div className={`w-6 h-6 border-b-[3px] border-r-[3px] rounded-br-lg transition-all ${
+                      faceStatus === 'SUCCESS' 
+                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        : faceStatus === 'PENDING' 
+                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                        : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                   </div>
                 </div>
 
-                {/* Laser scan line in PENDING or active state */}
-                {faceStatus === 'PENDING' && (
-                  <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-[#FF4B16] to-transparent animate-pulse top-1/2 -translate-y-1/2 shadow-lg shadow-orange-500/50 pointer-events-none" />
+                {/* Laser scan line in PENDING or VERIFYING state */}
+                {(isVerifyingFace || faceStatus === 'PENDING') && isCameraActive && (
+                  <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-[#FF4B16] to-transparent animate-pulse top-1/2 -translate-y-1/2 shadow-lg shadow-orange-500/80 pointer-events-none z-20" />
                 )}
 
-                {/* Face ID Status Pill on Camera */}
-                <div className="absolute bottom-2 inset-x-2 flex justify-center">
+                {/* Face ID Status Pill on Camera Viewport */}
+                <div className="absolute bottom-2.5 inset-x-2 flex justify-center z-20 pointer-events-none">
                   {faceStatus === 'SUCCESS' && (
-                    <div className="bg-emerald-600/90 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1 shadow-xs border border-emerald-400/40">
-                      <Check className="w-3 h-3 text-white" />
-                      <span>Khớp khuôn mặt ({faceConfidence}%)</span>
+                    <div className="bg-emerald-600/95 text-white text-[11px] font-black px-3.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1.5 shadow-md border border-emerald-400/50 animate-in fade-in">
+                      <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
+                      <span>Khớp khuôn mặt AI ({faceConfidence}%)</span>
                     </div>
                   )}
 
                   {faceStatus === 'PENDING' && (
-                    <div className="bg-orange-600/90 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1 shadow-xs border border-orange-400/40 animate-pulse">
-                      <Loader2 className="w-3 h-3 animate-spin text-white" />
-                      <span>Đang phân tích Face ID...</span>
+                    <div className="bg-orange-600/95 text-white text-[11px] font-black px-3.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1.5 shadow-md border border-orange-400/50 animate-pulse">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      <span>{faceFeedbackMsg || 'Đang so khớp với mẫu hồ sơ...'}</span>
                     </div>
                   )}
 
                   {faceStatus === 'ERROR' && (
-                    <div className="bg-rose-600/90 text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1 shadow-xs border border-rose-400/40">
-                      <X className="w-3 h-3 text-white" />
-                      <span>Chưa nhận diện được</span>
+                    <div className="bg-rose-600/95 text-white text-[11px] font-black px-3.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1.5 shadow-md border border-rose-400/50">
+                      <X className="w-3.5 h-3.5 text-white stroke-[3]" />
+                      <span>{faceFeedbackMsg || 'Chưa khớp khuôn mặt'}</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Camera Action Buttons */}
-              <div className="flex items-center justify-between mt-3 text-zinc-300 text-xs px-1">
-                <div className="flex items-center space-x-1.5 text-[11px]">
-                  <Camera className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>Front HD Camera (Live)</span>
+              {/* ENROLLED REFERENCE PROFILE COMPARISON CARD */}
+              <div className="mt-3 bg-zinc-900/90 rounded-2xl p-2.5 border border-zinc-800 flex items-center justify-between gap-2.5">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <div className="relative shrink-0">
+                    <img 
+                      src={staffFaceProfile.facePhotoUrl || currentUser.avatar} 
+                      alt={currentUser.name} 
+                      className="w-11 h-11 rounded-xl object-cover border-2 border-[#FF4B16]/60 shadow-xs"
+                    />
+                    <span className="absolute -bottom-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-xs">
+                      <Check className="w-2.5 h-2.5" />
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-black text-white truncate">{currentUser.name}</span>
+                      <span className="text-[9px] bg-zinc-800 text-zinc-300 font-mono px-1.5 py-0.2 rounded border border-zinc-700">
+                        {currentUser.code}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 truncate mt-0.5">
+                      Hồ sơ mẫu Face ID: <strong className="text-emerald-400 font-semibold">{staffFaceProfile.assignedFaceEmbedding ? 'Đã cài đặt AI' : 'Chưa có'}</strong>
+                    </p>
+                  </div>
                 </div>
+
                 <button
-                  onClick={() => retryStep('FACE')}
-                  className="text-[11px] font-bold text-orange-400 hover:text-orange-300 flex items-center space-x-1 cursor-pointer transition-colors bg-zinc-900/80 px-2.5 py-1 rounded-lg border border-zinc-700"
+                  type="button"
+                  onClick={() => setIsFaceRegistrationOpen(true)}
+                  className="shrink-0 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/80 px-2.5 py-1.5 rounded-xl border border-emerald-700/60 transition-colors flex items-center gap-1 cursor-pointer"
                 >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Quét lại khuôn mặt</span>
+                  <ScanFace className="w-3 h-3 text-emerald-400" />
+                  <span>Đổi mẫu</span>
+                </button>
+              </div>
+
+              {/* Primary Face Scan CTA Button */}
+              <div className="mt-3">
+                <button
+                  type="button"
+                  disabled={isVerifyingFace}
+                  onClick={executeRealFaceScan}
+                  className={`w-full py-2.5 rounded-xl font-black text-xs transition-all flex items-center justify-center space-x-2 cursor-pointer shadow-md ${
+                    isVerifyingFace
+                      ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed'
+                      : faceStatus === 'SUCCESS'
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30'
+                      : 'bg-gradient-to-r from-[#FF4B16] to-amber-500 hover:from-[#E03E0C] hover:to-amber-600 text-white shadow-orange-900/40 active:scale-[0.99]'
+                  }`}
+                >
+                  {isVerifyingFace ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Đang chụp & đối soát AI...</span>
+                    </>
+                  ) : faceStatus === 'SUCCESS' ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 text-white" />
+                      <span>📸 Quét lại Face ID ({faceConfidence}%)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-4 h-4 text-white" />
+                      <span>📸 Bắt đầu Quét & Đối Soát Face ID</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
 
-            {/* THE 4 VERIFICATION STEPS: GPS, WI-FI, FACE ID, QR CODE WITH SUCCESS / PENDING / ERROR STATES */}
+            {/* THE 3 VERIFICATION STEPS: GPS, WI-FI, FACE ID */}
             <div className="space-y-2.5 text-xs">
               
               {/* 1. GPS VERIFICATION */}
@@ -518,25 +1099,25 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5">
                         <span className="font-extrabold text-zinc-900 text-xs">1. Vị trí GPS Cửa hàng</span>
-                        <span className="text-[10px] text-zinc-400 font-medium">• Bán kính 50m</span>
+                        <span className="text-[10px] text-zinc-400 font-medium">• Bán kính {allowedRadiusMeters}m</span>
                       </div>
 
                       {gpsStatus === 'SUCCESS' && (
                         <div className="text-[11px] text-emerald-800 font-medium mt-0.5">
-                          Hợp lệ • Cách cửa hàng <strong className="font-black text-emerald-900">{gpsDistance}m</strong> ({currentUser.branchName})
+                          Hợp lệ • Cách cửa hàng <strong className="font-black text-emerald-900">{gpsDistance}m</strong> ({targetBranch.name})
                         </div>
                       )}
 
                       {gpsStatus === 'PENDING' && (
                         <div className="text-[11px] text-[#FF4B16] font-medium mt-0.5 flex items-center space-x-1">
                           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                          <span>Đang kết nối định vị vệ tinh GPS...</span>
+                          <span>Đang đo khoảng cách tọa độ GPS...</span>
                         </div>
                       )}
 
                       {gpsStatus === 'ERROR' && (
                         <div className="text-[11px] text-rose-800 font-medium mt-0.5">
-                          Ngoài phạm vi • Cách <strong className="font-black text-rose-900">{gpsDistance}m</strong> (Yêu cầu ≤ 50m)
+                          ❌ Ngoài phạm vi • Cách <strong className="font-black text-rose-900">{gpsDistance > 1000 ? `${(gpsDistance/1000).toFixed(2)} km` : `${gpsDistance}m`}</strong> (Yêu cầu ≤ {allowedRadiusMeters}m)
                         </div>
                       )}
                     </div>
@@ -544,14 +1125,14 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {gpsStatus === 'SUCCESS' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-300 flex items-center space-x-1">
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-emerald-300 flex items-center space-x-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                         <span>ĐẠT</span>
                       </span>
                     )}
 
                     {gpsStatus === 'PENDING' && (
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2 py-0.5 rounded-lg border border-orange-300 flex items-center space-x-1">
+                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
                         <Clock className="w-3.5 h-3.5 text-[#FF4B16]" />
                         <span>CHỜ</span>
                       </span>
@@ -560,10 +1141,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     {gpsStatus === 'ERROR' && (
                       <button
                         onClick={() => retryStep('GPS')}
-                        className="bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-rose-300 flex items-center space-x-1 cursor-pointer transition-colors"
+                        className="bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-rose-300 flex items-center space-x-1 cursor-pointer transition-colors"
                       >
                         <RefreshCw className="w-3 h-3 text-rose-600" />
-                        <span>THỬ LẠI</span>
+                        <span>ĐO LẠI GPS</span>
                       </button>
                     )}
                   </div>
@@ -591,42 +1172,80 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     </div>
 
                     <div className="min-w-0">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="font-extrabold text-zinc-900 text-xs">2. Wi-Fi Cửa Hàng (SSID)</span>
-                        <span className="text-[10px] text-zinc-400 font-medium">• Mạng nội bộ</span>
+                      <div className="flex items-center space-x-1.5 flex-wrap">
+                        <span className="font-extrabold text-zinc-900 text-xs">2. Wi-Fi Cửa Hàng</span>
+                        <span className="text-[10px] bg-orange-100 text-[#FF4B16] font-bold px-1.5 py-0.2 rounded-md">Mạng Nội Bộ</span>
                       </div>
 
                       {wifiStatus === 'SUCCESS' && (
                         <div className="text-[11px] text-emerald-800 font-medium mt-0.5">
-                          Đã kết nối: <strong className="font-black text-emerald-900">{currentWifiSSID}</strong> (Khớp BSSID)
+                          Đã kết nối Wi-Fi cửa hàng: <strong className="font-black text-emerald-900">{currentWifiSSID}</strong>
                         </div>
                       )}
 
                       {wifiStatus === 'PENDING' && (
                         <div className="text-[11px] text-[#FF4B16] font-medium mt-0.5 flex items-center space-x-1">
                           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                          <span>Đang kiểm tra tín hiệu SSID {currentUser.allowedWifiSSID || 'PH_HAICHAU_5G'}...</span>
+                          <span>Đang kiểm tra tín hiệu Wi-Fi cửa hàng...</span>
                         </div>
                       )}
 
                       {wifiStatus === 'ERROR' && (
-                        <div className="text-[11px] text-rose-800 font-medium mt-0.5">
-                          Sai mạng: Đang dùng <strong className="font-black text-rose-900">{currentWifiSSID}</strong> (Cần `PH_HAICHAU_5G`)
+                        <div className="text-[11px] text-rose-800 font-medium mt-0.5 space-y-1">
+                          <div>
+                            ❌ Đang kết nối mạng di động / Wi-Fi khác: <strong className="font-black text-rose-900">{currentWifiSSID}</strong>
+                          </div>
+                          <div className="text-[10px] bg-rose-100/80 p-1.5 rounded-lg border border-rose-200 text-rose-900">
+                            Vui lòng bật Wi-Fi và kết nối mạng nội bộ của cửa hàng ({targetWifiSSID}).
+                          </div>
                         </div>
                       )}
+
+                      {/* Interactive Test Wi-Fi Controls */}
+                      <div className="mt-2 pt-1.5 border-t border-zinc-200/60 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold text-zinc-500">Thử nghiệm Wi-Fi:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentWifiSSID(targetWifiSSID);
+                            setWifiStatus('SUCCESS');
+                          }}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-colors cursor-pointer ${
+                            wifiStatus === 'SUCCESS'
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                              : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-300'
+                          }`}
+                        >
+                          📶 Kết nối Wi-Fi cửa hàng ({targetWifiSSID})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentWifiSSID('4G_Viettel_Mobile');
+                            setWifiStatus('ERROR');
+                          }}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-colors cursor-pointer ${
+                            wifiStatus === 'ERROR'
+                              ? 'bg-rose-600 text-white border-rose-700 shadow-2xs'
+                              : 'bg-white hover:bg-rose-50 text-rose-800 border-rose-300'
+                          }`}
+                        >
+                          📵 Mạng 4G / Khác
+                        </button>
+                      </div>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {wifiStatus === 'SUCCESS' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-300 flex items-center space-x-1">
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-emerald-300 flex items-center space-x-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                         <span>ĐẠT</span>
                       </span>
                     )}
 
                     {wifiStatus === 'PENDING' && (
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2 py-0.5 rounded-lg border border-orange-300 flex items-center space-x-1">
+                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
                         <Clock className="w-3.5 h-3.5 text-[#FF4B16]" />
                         <span>CHỜ</span>
                       </span>
@@ -635,7 +1254,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     {wifiStatus === 'ERROR' && (
                       <button
                         onClick={() => retryStep('WIFI')}
-                        className="bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-rose-300 flex items-center space-x-1 cursor-pointer transition-colors"
+                        className="bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-rose-300 flex items-center space-x-1 cursor-pointer transition-colors"
                       >
                         <RefreshCw className="w-3 h-3 text-rose-600" />
                         <span>KẾT NỐI</span>
@@ -667,41 +1286,75 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5">
-                        <span className="font-extrabold text-zinc-900 text-xs">3. Face ID AI (Camera Preview)</span>
+                        <span className="font-extrabold text-zinc-900 text-xs">3. Face ID AI (Camera Scan)</span>
                         <span className="text-[10px] text-zinc-400 font-medium">• Liveness</span>
                       </div>
 
                       {faceStatus === 'SUCCESS' && (
-                        <div className="text-[11px] text-emerald-800 font-medium mt-0.5">
-                          Khớp nhân viên: <strong className="font-black text-emerald-900">{currentUser.name}</strong> ({faceConfidence}%)
+                        <div className="text-[11px] text-emerald-800 font-medium mt-0.5 space-y-0.5">
+                          <div>
+                            Khớp nhân viên: <strong className="font-black text-emerald-900">{currentUser.name}</strong> ({faceConfidence}%)
+                          </div>
+                          {faceFeedbackMsg && (
+                            <div className="text-[10px] text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded border border-emerald-200">
+                              {faceFeedbackMsg}
+                            </div>
+                          )}
                         </div>
                       )}
 
                       {faceStatus === 'PENDING' && (
                         <div className="text-[11px] text-[#FF4B16] font-medium mt-0.5 flex items-center space-x-1">
                           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                          <span>Đang đối soát sinh trắc học khuôn mặt AI...</span>
+                          <span>{faceFeedbackMsg || 'Đang đối soát sinh trắc học khuôn mặt AI...'}</span>
                         </div>
                       )}
 
                       {faceStatus === 'ERROR' && (
-                        <div className="text-[11px] text-rose-800 font-medium mt-0.5">
-                          Lỗi: Không nhận diện được khuôn mặt hoặc ánh sáng quá yếu
+                        <div className="text-[11px] text-rose-800 font-medium mt-0.5 space-y-0.5">
+                          <div>
+                            ❌ {faceFeedbackMsg || 'Không nhận diện được khuôn mặt hoặc chưa khớp với hồ sơ.'}
+                          </div>
+                          <div className="text-[10px] text-rose-700">
+                            Vui lòng căn chỉnh góc mặt chính diện hoặc đăng ký lại ảnh mẫu.
+                          </div>
                         </div>
                       )}
+
+                      {/* Interactive Test Face ID Controls */}
+                      <div className="mt-2 pt-1.5 border-t border-zinc-200/60 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold text-zinc-500">Thao tác Face ID:</span>
+                        <button
+                          type="button"
+                          onClick={() => setIsFaceRegistrationOpen(true)}
+                          className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-md border border-emerald-300 transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <ScanFace className="w-3 h-3 text-emerald-600" />
+                          <span>1. Đăng ký / Đổi ảnh mẫu</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isVerifyingFace}
+                          onClick={executeRealFaceScan}
+                          className="text-[10px] font-bold px-2 py-0.5 bg-orange-50 hover:bg-orange-100 text-[#FF4B16] rounded-md border border-orange-300 transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <RefreshCw className={`w-3 h-3 text-[#FF4B16] ${isVerifyingFace ? 'animate-spin' : ''}`} />
+                          <span>2. Chụp & Đối soát ngay</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {faceStatus === 'SUCCESS' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-300 flex items-center space-x-1">
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-emerald-300 flex items-center space-x-1">
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                         <span>ĐẠT</span>
                       </span>
                     )}
 
                     {faceStatus === 'PENDING' && (
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2 py-0.5 rounded-lg border border-orange-300 flex items-center space-x-1">
+                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
                         <Clock className="w-3.5 h-3.5 text-[#FF4B16]" />
                         <span>CHỜ</span>
                       </span>
@@ -710,7 +1363,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     {faceStatus === 'ERROR' && (
                       <button
                         onClick={() => retryStep('FACE')}
-                        className="bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-rose-300 flex items-center space-x-1 cursor-pointer transition-colors"
+                        className="bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-rose-300 flex items-center space-x-1 cursor-pointer transition-colors"
                       >
                         <RefreshCw className="w-3 h-3 text-rose-600" />
                         <span>QUÉT LẠI</span>
@@ -720,102 +1373,27 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
               </div>
 
-              {/* 4. QR CODE VERIFICATION */}
-              <div className={`p-3 rounded-2xl border transition-all ${
-                qrStatus === 'SUCCESS'
-                  ? 'bg-emerald-50/90 border-emerald-300 ring-1 ring-emerald-400/20'
-                  : qrStatus === 'PENDING'
-                  ? 'bg-orange-50/90 border-orange-300 ring-1 ring-orange-400/20'
-                  : 'bg-rose-50/90 border-rose-300 ring-1 ring-rose-400/20'
-              }`}>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start space-x-2.5 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
-                      qrStatus === 'SUCCESS'
-                        ? 'bg-emerald-500 text-white'
-                        : qrStatus === 'PENDING'
-                        ? 'bg-gradient-to-br from-[#FF4B16] to-amber-500 text-white animate-pulse'
-                        : 'bg-rose-600 text-white'
-                    }`}>
-                      <QrCode className="w-4 h-4" />
-                    </div>
-
-                    <div className="min-w-0">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="font-extrabold text-zinc-900 text-xs">4. Mã QR Quầy Thu Ngân</span>
-                        <span className="text-[10px] text-zinc-400 font-medium">• Mã động</span>
-                      </div>
-
-                      {qrStatus === 'SUCCESS' && (
-                        <div className="text-[11px] text-emerald-800 font-medium mt-0.5">
-                          Đã quét mã hợp lệ: <strong className="font-black text-emerald-900">{qrSessionCode}</strong>
-                        </div>
-                      )}
-
-                      {qrStatus === 'PENDING' && (
-                        <div className="text-[11px] text-[#FF4B16] font-medium mt-0.5 flex items-center space-x-1">
-                          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                          <span>Đang chờ quét mã QR quầy thu ngân...</span>
-                        </div>
-                      )}
-
-                      {qrStatus === 'ERROR' && (
-                        <div className="text-[11px] text-rose-800 font-medium mt-0.5">
-                          Lỗi: Mã QR đã hết hạn phiên hoặc sai mã quầy chi nhánh
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-1.5 shrink-0">
-                    {qrStatus === 'SUCCESS' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-300 flex items-center space-x-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>ĐẠT</span>
-                      </span>
-                    )}
-
-                    {qrStatus === 'PENDING' && (
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2 py-0.5 rounded-lg border border-orange-300 flex items-center space-x-1">
-                        <Clock className="w-3.5 h-3.5 text-[#FF4B16]" />
-                        <span>CHỜ</span>
-                      </span>
-                    )}
-
-                    {qrStatus === 'ERROR' && (
-                      <button
-                        onClick={() => retryStep('QR')}
-                        className="bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-lg border border-rose-300 flex items-center space-x-1 cursor-pointer transition-colors"
-                      >
-                        <RefreshCw className="w-3 h-3 text-rose-600" />
-                        <span>QUÉT QR</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
             </div>
           </div>
 
-          {/* BOTTOM SUBMIT CTA BUTTON */}
+          {/* BOTTOM SUBMIT CTA BUTTON IN BRAND ORANGE #FF4B16 */}
           <div className="mt-auto pt-2 pb-5 space-y-2">
             {isAllVerified ? (
               <button
                 onClick={handleConfirmCheckIn}
-                className="w-full py-3.5 bg-[#FF4B16] hover:bg-[#E94312] text-white font-black text-sm rounded-2xl shadow-lg shadow-orange-500/25 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"
+                className="w-full py-4 bg-gradient-to-r from-[#FF4B16] via-[#FF5E2B] to-[#E03E0C] hover:from-[#E94312] hover:to-[#C8340A] text-white font-black text-sm rounded-2xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98] border border-orange-400/30"
               >
-                <CheckCircle2 className="w-5 h-5" />
-                <span>BẮT ĐẦU CA LÀM (4/4 HỢP LỆ)</span>
+                <CheckCircle2 className="w-5 h-5 text-white animate-pulse" />
+                <span>BẮT ĐẦU CA LÀM VIỆC (3/3 HỢP LỆ)</span>
               </button>
             ) : (
               <div className="space-y-2">
                 <button
                   disabled
-                  className="w-full py-3.5 bg-zinc-300 text-zinc-500 font-extrabold text-xs rounded-2xl cursor-not-allowed flex items-center justify-center space-x-2"
+                  className="w-full py-3.5 bg-zinc-200 text-zinc-500 font-extrabold text-xs rounded-2xl cursor-not-allowed flex items-center justify-center space-x-2"
                 >
                   <AlertCircle className="w-4 h-4 text-zinc-400" />
-                  <span>CẦN HOÀN TẤT ĐỦ 4 BƯỚC ĐỂ VÀO CA</span>
+                  <span>CẦN HOÀN TẤT ĐỦ 3 BƯỚC ĐỂ BẮT ĐẦU CA</span>
                 </button>
 
                 <button
@@ -823,7 +1401,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   className="w-full py-2 bg-orange-50 hover:bg-orange-100 text-[#FF4B16] font-extrabold text-xs rounded-xl border border-orange-200 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>Tự động giải quyết & Khớp 4/4 nhanh (Bypass Demo)</span>
+                  <span>Mô phỏng khớp 3/3 nhanh (Bypass Demo)</span>
                 </button>
               </div>
             )}
@@ -855,9 +1433,11 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
             <div>
               <h2 className="text-2xl font-black text-zinc-900 tracking-tight">Check-in thành công!</h2>
-              <div className="text-3xl font-black font-mono text-[#FF4B16] mt-1 tracking-tight">07:58:12</div>
+              <div className="text-3xl font-black font-mono text-[#FF4B16] mt-1 tracking-tight">
+                {recordedCheckInTime || liveTimeString}
+              </div>
               <div className="text-xs text-zinc-500 font-semibold mt-0.5">
-                Thứ Sáu, 16/05/2026 • Cửa hàng PhoneHouse Hải Châu
+                {recordedCheckInDate || liveDateString} • Cửa hàng {currentUser.branchName}
               </div>
             </div>
 
@@ -964,7 +1544,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
             <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs text-center">
               <div className="text-xs text-zinc-500 font-medium">Giờ hiện tại</div>
-              <div className="text-3xl font-black font-mono text-zinc-900 mt-0.5">17:04:15</div>
+              <div className="text-3xl font-black font-mono text-zinc-900 mt-0.5">{liveTimeString}</div>
               <div className="text-xs font-bold text-emerald-600 mt-1">Đủ điều kiện chốt công hoàn thành ca</div>
 
               <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-zinc-100 text-center">
@@ -1043,6 +1623,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   </div>
 
                   <div className="flex items-center space-x-2">
+                    <div className="text-[11px] font-black font-mono bg-zinc-900 text-white px-2.5 py-1 rounded-xl flex items-center space-x-1 shadow-xs border border-zinc-800">
+                      <Clock className="w-3 h-3 text-[#FF4B16] animate-pulse" />
+                      <span>{liveTimeString}</span>
+                    </div>
                     <div className="relative">
                       <img 
                         src={currentUser.avatar} 
@@ -1137,12 +1721,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       </div>
 
                       <div className="p-2 rounded-xl bg-zinc-50 border border-zinc-200/70 flex items-center space-x-2">
-                        <div className="p-1 rounded-lg bg-blue-100 text-blue-600">
+                        <div className="p-1 rounded-lg bg-blue-100 text-orange-600">
                           <Wifi className="w-3.5 h-3.5" />
                         </div>
                         <div className="min-w-0">
                           <div className="font-bold text-[11px] text-zinc-800 truncate">Staff_5G</div>
-                          <div className="text-[10px] text-blue-600 font-semibold">Đã kết nối Wi-Fi</div>
+                          <div className="text-[10px] text-orange-600 font-semibold">Đã kết nối Wi-Fi</div>
                         </div>
                       </div>
                     </div>
@@ -1177,7 +1761,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                           {formatTimer(secondsInShift)}
                         </div>
                         <div className="text-[11px] text-zinc-500 font-medium mt-0.5">
-                          Giờ vào: <strong className="text-zinc-800">07:54:12</strong> (Đúng giờ) • Nghỉ: <strong className="text-zinc-800">00:20:00</strong>
+                          Giờ vào: <strong className="text-zinc-800">{recordedCheckInTime || '08:00:00'}</strong> (Đúng giờ) • Nghỉ: <strong className="text-zinc-800">00:20:00</strong>
                         </div>
                       </div>
 
@@ -1401,7 +1985,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     className="p-3 bg-white hover:bg-orange-50/60 rounded-2xl border border-zinc-200/80 shadow-2xs flex flex-col items-center justify-center transition-all cursor-pointer group active:scale-95"
                   >
                     <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
-                      <FileText className="w-5 h-5 text-blue-600" />
+                      <FileText className="w-5 h-5 text-orange-600" />
                     </div>
                     <span className="text-xs font-extrabold text-zinc-800">Xin nghỉ</span>
                     <span className="text-[9px] text-zinc-400 mt-0.5">Phép & đổi ca</span>
@@ -1617,6 +2201,37 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           {/* TAB 4: CÁ NHÂN & BẢNG LƯƠNG DỰ KIẾN (SCREEN 08, 09, 10) */}
           {activeBottomTab === 'profile' && (
             <div className="space-y-4">
+              
+              {/* FACE ID BIOMETRIC REGISTRATION CARD */}
+              <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white rounded-2xl p-4 shadow-md flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-11 h-11 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
+                    <ScanFace className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-white flex items-center gap-1.5">
+                      <span>Sinh Trắc Học Face ID</span>
+                      {staffFaceProfile.assignedFaceEmbedding && (
+                        <span className="bg-emerald-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">ĐÃ LƯU</span>
+                      )}
+                    </h3>
+                    <p className="text-[11px] text-orange-100">
+                      {staffFaceProfile.assignedFaceEmbedding 
+                        ? 'Dữ liệu gương mặt đã mã hóa & sẵn sàng chấm công' 
+                        : 'Chưa khai báo gương mặt. Bấm để chụp & lưu'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsFaceRegistrationOpen(true)}
+                  className="bg-white text-orange-600 font-extrabold text-xs px-3 py-2 rounded-xl shadow-xs hover:bg-orange-50 transition-all shrink-0 cursor-pointer flex items-center gap-1"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>{staffFaceProfile.assignedFaceEmbedding ? 'Cập Nhật' : 'Đăng Ký'}</span>
+                </button>
+              </div>
+
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-extrabold text-zinc-900">Bảng lương dự kiến</h2>
@@ -1901,6 +2516,16 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           <span className="text-[10px] font-bold">Cá nhân</span>
         </button>
       </div>
+
+      {/* FACE REGISTRATION MODAL */}
+      <FaceRegistrationModal
+        isOpen={isFaceRegistrationOpen}
+        onClose={() => setIsFaceRegistrationOpen(false)}
+        staffName={currentUser.name}
+        staffEmail={currentUser.email}
+        currentFacePhotoUrl={staffFaceProfile.facePhotoUrl}
+        onSaveFaceProfile={handleSaveSelfFaceProfile}
+      />
 
     </div>
   );

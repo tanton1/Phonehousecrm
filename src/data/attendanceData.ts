@@ -21,8 +21,13 @@ export const INITIAL_STAFF_MEMBERS: StaffMember[] = [
     roleTitle: 'Nhân viên bán hàng Showroom',
     phone: '0988.123.456',
     email: 'vana.sales@phonehouse.vn',
-    branchId: 'BRANCH_1',
-    branchName: 'PhoneHouse Cầu Giấy (Apple Premium)',
+    branchId: 'CN01',
+    branchName: 'Showroom Hải Châu',
+    assignedBranchIds: ['CN01', 'CN02'],
+    workplaceAddresses: [
+      'Showroom Hải Châu - 150 Nguyễn Văn Linh, Q. Hải Châu, Đà Nẵng',
+      'Showroom Trần Duy Hưng - 88 Trần Duy Hưng, Cầu Giấy, Hà Nội'
+    ],
     baseSalary: 8000000,
     monthlyTargetRevenue: 150000000,
     monthlyTargetOrders: 70,
@@ -40,8 +45,13 @@ export const INITIAL_STAFF_MEMBERS: StaffMember[] = [
     roleTitle: 'Sale Online & Trực Page',
     phone: '0977.234.567',
     email: 'thib.online@phonehouse.vn',
-    branchId: 'BRANCH_1',
-    branchName: 'PhoneHouse Cầu Giấy (Apple Premium)',
+    branchId: 'CN01',
+    branchName: 'Showroom Hải Châu',
+    assignedBranchIds: ['CN01', 'TONG'],
+    workplaceAddresses: [
+      'Showroom Hải Châu - 150 Nguyễn Văn Linh, Q. Hải Châu, Đà Nẵng',
+      'Kho Tổng & Trung Tâm Kỹ Thuật - 120 Hoàng Hoa Thám, Hà Nội'
+    ],
     baseSalary: 7500000,
     monthlyTargetRevenue: 180000000,
     monthlyTargetOrders: 90,

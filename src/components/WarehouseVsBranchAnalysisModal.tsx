@@ -125,7 +125,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                     Sơ Đồ Kiến Trúc Luồng Hàng & Dòng Tiền Chuỗi PhoneHouse
                   </span>
                   <div className="flex items-center space-x-3 text-[11px]">
-                    <span className="flex items-center space-x-1 font-bold text-blue-600">
+                    <span className="flex items-center space-x-1 font-bold text-orange-600">
                       <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />
                       <span>Luồng Hàng Hoá (IMEI)</span>
                     </span>
@@ -186,7 +186,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                   <div className="bg-blue-50/60 rounded-xl p-3 border border-blue-200 text-xs space-y-1">
                     <div className="font-bold text-blue-900 flex items-center gap-1.5">
-                      <Truck className="w-3.5 h-3.5 text-blue-600" />
+                      <Truck className="w-3.5 h-3.5 text-orange-600" />
                       <span>Luồng Hàng Hoá (Vật Lý)</span>
                     </div>
                     <p className="text-zinc-600 text-[11px]">
@@ -264,7 +264,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
             <div className="space-y-4">
               <div className="bg-white rounded-2xl p-5 border border-zinc-200 shadow-xs space-y-4">
                 <h3 className="text-sm sm:text-base font-extrabold text-zinc-900 flex items-center gap-2">
-                  <Truck className="w-4 h-4 text-blue-600" />
+                  <Truck className="w-4 h-4 text-orange-600" />
                   Quy Trình 4 Cấp Độ Luân Chuyển Hàng Hóa (Stock Transfer Protocols)
                 </h3>
 

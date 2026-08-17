@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST } from '../types';
+import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST, TradeInAppraisal } from '../types';
+import { TradeInAssessmentModal } from './TradeInAssessmentModal';
 import { 
   ShoppingCart, 
   Search, 
@@ -40,7 +41,8 @@ import {
   Sparkle,
   Building2,
   Warehouse,
-  Store
+  Store,
+  ScanFace
 } from 'lucide-react';
 
 interface POSSalesViewProps {
@@ -56,6 +58,9 @@ interface POSSalesViewProps {
   onNavigateToInvoices?: () => void;
   funds: import('../types').FundAccount[];
   onAddTransaction: (tx: import('../types').CashTransaction) => void;
+  onAddTradeIn?: (tradeIn: TradeInAppraisal) => void;
+  onAddDevice?: (device: DeviceItem) => void;
+  onOpenCheckIn?: () => void;
 }
 
 // Phone model image mapping helper
@@ -93,7 +98,10 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   preSelectedDevice,
   onNavigateToInvoices,
   funds,
-  onAddTransaction
+  onAddTransaction,
+  onAddTradeIn,
+  onAddDevice,
+  onOpenCheckIn
 }) => {
   // Available stock items
   const inStockDevices = devices.filter(d => d.status === 'in_stock');
@@ -170,6 +178,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showAccessoriesModal, setShowAccessoriesModal] = useState(false);
   const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [showTradeInAssessmentModal, setShowTradeInAssessmentModal] = useState(false);
+  const [lastAppraisal, setLastAppraisal] = useState<TradeInAppraisal | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showDetailsDropdown, setShowDetailsDropdown] = useState(false);
   const [showRecentInvoicesDrawer, setShowRecentInvoicesDrawer] = useState(false);
@@ -362,6 +372,34 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       onUpdateDeviceStatus(d.imei, 'sold', customerName, customerPhone);
     });
 
+    // AUTO-INGEST TRADE-IN DEVICE TO INVENTORY
+    if (tradeInDiscount > 0 && onAddDevice) {
+      const generatedImei = '35' + Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
+      const tradeInDevice: DeviceItem = {
+        id: `DEV-TRD-${Date.now().toString().slice(-5)}`,
+        imei: generatedImei,
+        serialNo: 'SN-TRD-' + Date.now().toString().slice(-4),
+        model: tradeInModel || 'iPhone Thu Cũ',
+        storage: '128GB',
+        color: 'Thu Cũ Khách',
+        region: 'LL/A (Thu Cũ)',
+        batteryHealth: 85,
+        condition: '98% Cấn Nhẹ',
+        buyPrice: tradeInDiscount,
+        sellPrice: Math.round((tradeInDiscount * 1.25) / 100000) * 100000,
+        status: 'in_stock',
+        warehouse: currentWarehouse.id,
+        branch: currentBranch.name,
+        supplier: `Thu Cũ Đổi Mới Khách (${customerName} - ${customerPhone})`,
+        receivedDate: new Date().toISOString().split('T')[0],
+        warrantyPeriodMonths: 3,
+        icloudStatus: 'Clean / Đã Thoát',
+        screenStatus: 'Zin Màn Keng',
+        notes: `Tự động nhập kho từ đơn hàng POS ${newInvoice.id}. Khách: ${customerName} (${customerPhone}). Giá thu: ${tradeInDiscount.toLocaleString('vi-VN')}đ`
+      };
+      onAddDevice(tradeInDevice);
+    }
+
     onCreateInvoice(newInvoice);
     setCreatedInvoiceForPrint(newInvoice);
     setShowPaymentModal(false);
@@ -376,6 +414,16 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-600">POS Thu Ngân</h2>
         </div>
         <div className="flex items-center space-x-2">
+          {onOpenCheckIn && (
+            <button
+              onClick={onOpenCheckIn}
+              className="text-xs font-black text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 cursor-pointer active:scale-95"
+              title="Điểm danh khuôn mặt Face ID vào ca"
+            >
+              <ScanFace className="w-3.5 h-3.5 animate-pulse" />
+              <span>⚡ Điểm Danh</span>
+            </button>
+          )}
           {onNavigateToInvoices && (
             <button
               onClick={() => setShowRecentInvoicesDrawer(true)}
@@ -416,7 +464,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                   </option>
                 ))
               ) : (
-                <option value="BRANCH_1">Phone House Cầu Giấy (136 Cầu Giấy)</option>
+                <option value="">Chưa có cửa hàng</option>
               )}
             </select>
           </div>
@@ -1217,13 +1265,23 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
             {/* Trade In Deduction */}
             <div className="space-y-2 pt-2 border-t border-zinc-100">
-              <label className="text-xs font-bold text-zinc-700">Thu Cũ Đổi Mới (Trừ tiền máy cũ):</label>
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-bold text-zinc-700">Thu Cũ Đổi Mới (Trừ tiền máy cũ):</label>
+                <button
+                  type="button"
+                  onClick={() => setShowTradeInAssessmentModal(true)}
+                  className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-lg text-[10px] font-black shadow-2xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>⚡ Thẩm Định 12 Bước</span>
+                </button>
+              </div>
               <input
                 type="text"
                 placeholder="Tên máy thu cũ (Ví dụ: iPhone 14 Pro 128GB VN/A)"
                 value={tradeInModel}
                 onChange={(e) => setTradeInModel(e.target.value)}
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 mb-1.5"
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 mb-1.5 font-medium"
               />
               <input
                 type="number"
@@ -1645,6 +1703,24 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 12-STEP TRADE-IN ASSESSMENT MODAL */}
+      <TradeInAssessmentModal
+        isOpen={showTradeInAssessmentModal}
+        onClose={() => setShowTradeInAssessmentModal(false)}
+        defaultCustomerName={customerName || 'Khách Thu Cũ'}
+        defaultCustomerPhone={customerPhone || '0900000000'}
+        defaultTargetNewModel={selectedDevices[0] ? `${selectedDevices[0].model} ${selectedDevices[0].storage}` : 'iPhone 16 Pro Max 256GB'}
+        defaultTargetNewModelPrice={selectedDevices[0] ? selectedDevices[0].sellPrice : 34500000}
+        onApplyValuation={({ tradeInModel: modelName, tradeInAmount, appraisal }) => {
+          setTradeInModel(modelName);
+          setTradeInDiscount(tradeInAmount);
+          setLastAppraisal(appraisal);
+          if (onAddTradeIn) {
+            onAddTradeIn(appraisal);
+          }
+        }}
+      />
     </div>
   );
 };

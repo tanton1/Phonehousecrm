@@ -947,8 +947,8 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
             {/* Route 2: Kho Tổng -> Xstore */}
             <div className="bg-white p-4 sm:p-5 rounded-3xl border border-blue-100 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-blue-600 uppercase">Tuyến Phân Phối 2</span>
-                <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                <span className="text-xs font-black text-orange-600 uppercase">Tuyến Phân Phối 2</span>
+                <span className="p-1.5 bg-blue-50 text-orange-600 rounded-lg">
                   <ArrowRight className="w-4 h-4" />
                 </span>
               </div>

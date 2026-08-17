@@ -1,3 +1,4 @@
+import { DeviceImageThumbnail } from "./DeviceImageThumbnail";
 import React, { useState, useMemo } from 'react';
 import { 
   Search, 
@@ -118,7 +119,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           <div className="p-2 sm:p-3 bg-zinc-50/50 lg:bg-transparent rounded-2xl lg:rounded-none border lg:border-none border-zinc-100/80">
             <div className="flex items-center space-x-2 text-zinc-500 mb-1.5 sm:mb-2">
               <div className="p-1.5 bg-blue-100/50 rounded-lg">
-                <Layers className="w-4 h-4 text-blue-600" />
+                <Layers className="w-4 h-4 text-orange-600" />
               </div>
               <span className="text-xs font-semibold">Tổng số SKU</span>
             </div>
@@ -230,8 +231,15 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                       <span className="font-mono text-xs font-extrabold text-zinc-800 bg-zinc-100 px-2 py-1 rounded-md">{product.sku}</span>
                     </td>
                     <td className="px-5 py-4">
-                      <div className="font-bold text-sm text-zinc-900 group-hover:text-[#F94A1F] transition-colors line-clamp-1">{product.name}</div>
-                      {product.brand && <div className="text-xs text-zinc-500 font-medium mt-0.5">{product.brand}</div>}
+                      <div className="flex items-center gap-3">
+                        <div className="scale-75 origin-left shrink-0">
+                          <DeviceImageThumbnail fallbackName={product.name} />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-zinc-900 group-hover:text-[#F94A1F] transition-colors line-clamp-1">{product.name}</div>
+                          {product.brand && <div className="text-xs text-zinc-500 font-medium mt-0.5">{product.brand}</div>}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-5 py-4">
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold ${
@@ -292,13 +300,18 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               className="bg-white rounded-3xl p-3.5 sm:p-4 border border-zinc-100/90 shadow-2xs hover:border-orange-200/80 transition-all space-y-3 relative"
             >
               <div className="flex items-start justify-between gap-1.5">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-extrabold text-zinc-900 text-sm tracking-tight line-clamp-2">
-                    {product.name}
-                  </h3>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="font-mono text-[10px] font-extrabold text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded-md border border-zinc-200">{product.sku}</span>
-                    {product.brand && <span className="text-[11px] text-zinc-500 font-medium">{product.brand}</span>}
+                <div className="flex-1 min-w-0 flex items-start gap-3">
+                  <div className="scale-75 origin-top-left shrink-0">
+                    <DeviceImageThumbnail fallbackName={product.name} />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-zinc-900 text-sm tracking-tight line-clamp-2">
+                      {product.name}
+                    </h3>
+                    <div className="flex items-center flex-wrap gap-2 mt-1">
+                      <span className="font-mono text-[10px] font-extrabold text-zinc-600 bg-zinc-100 px-1.5 py-0.5 rounded-md border border-zinc-200">{product.sku}</span>
+                      {product.brand && <span className="text-[11px] text-zinc-500 font-medium">{product.brand}</span>}
+                    </div>
                   </div>
                 </div>
 

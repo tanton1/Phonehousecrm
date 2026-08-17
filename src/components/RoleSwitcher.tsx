@@ -14,7 +14,7 @@ export const RoleSwitcher: React.FC<RoleSwitcherProps> = ({ currentMode, onModeC
   const roles = [
     { id: 'ADMIN', label: 'Admin / CHT', icon: ShieldCheck, color: 'text-purple-600', bg: 'bg-purple-100' },
     { id: 'SALES', label: 'NV Bán Hàng', icon: ShoppingCart, color: 'text-orange-600', bg: 'bg-orange-100' },
-    { id: 'TECH', label: 'Kỹ Thuật Viên', icon: Wrench, color: 'text-blue-600', bg: 'bg-blue-100' }
+    { id: 'TECH', label: 'Kỹ Thuật Viên', icon: Wrench, color: 'text-orange-600', bg: 'bg-blue-100' }
   ];
 
   const activeRole = roles.find(r => r.id === currentMode) || roles[0];
