@@ -319,24 +319,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       // Extract local biometric vector
       const liveVector = extractFaceFeatureVectorFromCanvas(canvas);
 
-      // If staff has no registered baseline vector, auto-enroll profile upon first valid real face capture
+      // Verify registered baseline vector from approved enrollment profile
       const hasExistingVector = staffFaceProfile?.faceFeatureVector && staffFaceProfile.faceFeatureVector.length > 0;
       if (!hasExistingVector) {
-        const newProfile = {
-          facePhotoUrl: liveDataUrl,
-          assignedFaceEmbedding: true,
-          faceEnrollmentDate: new Date().toISOString().split('T')[0],
-          faceFeatureVector: liveVector
-        };
-        setStaffFaceProfile(newProfile);
-        try {
-          const storageKey = `phonehouse_face_profile_${currentUser.id || currentUser.code || 'STAFF'}`;
-          localStorage.setItem(storageKey, JSON.stringify(newProfile));
-        } catch (e) {}
-
-        setFaceStatus('SUCCESS');
-        setFaceConfidence(98.8);
-        setFaceFeedbackMsg(`✅ Đã nhận diện & ghi nhận mẫu Face ID chính chủ cho ${currentUser.name}`);
+        setFaceStatus('ERROR');
+        setFaceConfidence(0);
+        setFaceFeedbackMsg(`Tài khoản ${currentUser.name} chưa được Quản lý duyệt mẫu Face ID. Vui lòng liên hệ Quản lý/Admin.`);
         setIsVerifyingFace(false);
         return;
       }
@@ -445,11 +433,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           setUserCoords({ lat: uLat, lng: uLng });
           
           if (!tLat || !tLng || tLat === 0 || tLng === 0) {
-            // Unconfigured store GPS defaults to current device position
-            setActiveBranchGps({ lat: uLat, lng: uLng });
-            setGpsDistance(0);
-            setGpsStatus('SUCCESS');
-            setGpsErrorMsg(null);
+            setGpsStatus('ERROR');
+            setGpsErrorMsg(`Chi nhánh ${targetBranch.name} chưa được cấu hình tọa độ GPS chuẩn. Vui lòng liên hệ Quản lý/Admin.`);
           } else {
             const distance = calculateDistanceInMeters(uLat, uLng, tLat, tLng);
             setGpsDistance(distance);
@@ -494,51 +479,17 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
     fetchRealGPSLocation();
 
-    setTimeout(() => {
+    if (navigator.onLine) {
       setWifiStatus('SUCCESS');
       setCurrentWifiSSID(targetWifiSSID);
-    }, 600);
+    } else {
+      setWifiStatus('ERROR');
+    }
 
     setTimeout(() => {
       executeRealFaceScan();
       setIsAutoScanning(false);
-    }, 1200);
-  };
-
-  // Preset scenarios for testing Screen 02
-  const applyPresetScenario = (scenario: 'ALL_SUCCESS' | 'GPS_ERROR' | 'WIFI_ERROR' | 'ALL_PENDING') => {
-    if (scenario === 'ALL_SUCCESS') {
-      setGpsStatus('SUCCESS');
-      setGpsDistance(12);
-      setUserCoords({ lat: targetLat + 0.00005, lng: targetLng + 0.00005 });
-      setGpsErrorMsg(null);
-      setWifiStatus('SUCCESS');
-      setCurrentWifiSSID(targetWifiSSID);
-      setFaceStatus('SUCCESS');
-      setFaceConfidence(99.4);
-      setFaceFeedbackMsg(`Đã đối chiếu thành công hồ sơ ${currentUser.name}`);
-    } else if (scenario === 'GPS_ERROR') {
-      setGpsStatus('ERROR');
-      setGpsDistance(2450);
-      setUserCoords({ lat: targetLat + 0.02, lng: targetLng + 0.02 });
-      setGpsErrorMsg(`Thiết bị cách cửa hàng ${targetBranch.name} 2.45 km (Bán kính quy định ≤ ${allowedRadiusMeters}m).`);
-      setWifiStatus('SUCCESS');
-      setCurrentWifiSSID(targetWifiSSID);
-      setFaceStatus('SUCCESS');
-    } else if (scenario === 'WIFI_ERROR') {
-      setWifiStatus('ERROR');
-      setCurrentWifiSSID('4G_Viettel_Mobile');
-      setGpsStatus('SUCCESS');
-      setGpsDistance(14);
-      setUserCoords({ lat: targetLat, lng: targetLng });
-      setGpsErrorMsg(null);
-      setFaceStatus('SUCCESS');
-    } else if (scenario === 'ALL_PENDING') {
-      setGpsStatus('PENDING');
-      setWifiStatus('PENDING');
-      setFaceStatus('PENDING');
-      setFaceFeedbackMsg(null);
-    }
+    }, 1000);
   };
 
   // Simplified 3-Factor Verification: GPS + Wi-Fi + Face ID
@@ -800,22 +751,6 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       ⚠️ Chi tiết: {gpsErrorMsg}
                     </p>
                   )}
-                  {userCoords && (
-                    <div className="pt-1">
-                      <button
-                        onClick={() => {
-                          setActiveBranchGps({ lat: userCoords.lat, lng: userCoords.lng });
-                          setGpsDistance(0);
-                          setGpsStatus('SUCCESS');
-                          setGpsErrorMsg(null);
-                        }}
-                        className="text-[11px] font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 px-3 py-2 rounded-xl border border-orange-300 transition-colors flex items-center gap-1.5 cursor-pointer w-full justify-center shadow-2xs"
-                      >
-                        <MapPin className="w-3.5 h-3.5 text-orange-600" />
-                        <span>📍 Lấy vị trí này làm GPS chuẩn cho {targetBranch.name}</span>
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -833,18 +768,6 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <p className="text-rose-800 font-medium">
                     Mạng hiện tại: <strong className="line-through text-rose-950">{currentWifiSSID}</strong>. Cửa hàng yêu cầu kết nối đúng Wi-Fi nội bộ: <strong className="text-orange-800 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">{targetWifiSSID}</strong>.
                   </p>
-                  <div className="pt-1">
-                    <button
-                      onClick={() => {
-                        setCurrentWifiSSID(targetWifiSSID);
-                        setWifiStatus('SUCCESS');
-                      }}
-                      className="text-[11px] font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 px-3 py-1.5 rounded-xl border border-orange-300 transition-colors cursor-pointer w-full flex items-center justify-center gap-1.5"
-                    >
-                      <Wifi className="w-3.5 h-3.5 text-orange-600" />
-                      <span>📶 Kết nối Wi-Fi cửa hàng ({targetWifiSSID})</span>
-                    </button>
-                  </div>
                 </div>
               )}
             </div>
@@ -1421,14 +1344,6 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 >
                   <AlertCircle className="w-4 h-4 text-zinc-400" />
                   <span>CẦN HOÀN TẤT ĐỦ 3 BƯỚC ĐỂ BẮT ĐẦU CA</span>
-                </button>
-
-                <button
-                  onClick={() => applyPresetScenario('ALL_SUCCESS')}
-                  className="w-full py-2 bg-orange-50 hover:bg-orange-100 text-[#FF4B16] font-extrabold text-xs rounded-xl border border-orange-200 transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Mô phỏng khớp 3/3 nhanh (Bypass Demo)</span>
                 </button>
               </div>
             )}

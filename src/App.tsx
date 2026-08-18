@@ -823,8 +823,10 @@ export default function App() {
       });
     }
 
-    // 3. Refund transaction
-    const fundToDeduct = funds.find(f => f.branchId === invoice.branchId || f.id === 'FUND_CASH_01') || funds[0] || null;
+    // 3. Exact Refund Fund Routing (Refund to original payment fund)
+    const fundToDeduct = (invoice.paymentFundId ? funds.find(f => f.id === invoice.paymentFundId) : null) || 
+                         funds.find(f => (invoice.branchId ? f.branchId === invoice.branchId : true) && f.type === (invoice.paymentMethod === 'Tiền mặt' ? 'CASH' : 'BANK')) ||
+                         funds.find(f => f.type === (invoice.paymentMethod === 'Tiền mặt' ? 'CASH' : 'BANK')) || null;
     const refundAmount = invoice.paidAmount || invoice.finalAmount || 0;
     
     let refundTx: CashTransaction | null = null;
@@ -838,7 +840,7 @@ export default function App() {
         amount: refundAmount,
         fundType: fundToDeduct?.type || 'CASH',
         fundName: fundToDeduct?.name || 'Quỹ tiền mặt',
-        fundId: fundToDeduct?.id || 'FUND_CASH_01',
+        fundId: fundToDeduct?.id || '',
         date: new Date().toISOString().split('T')[0],
         partnerName: invoice.customerName,
         partnerPhone: invoice.customerPhone || invoice.phone,
@@ -1128,7 +1130,8 @@ export default function App() {
 
     // 2. Nếu có thanh toán tiền ngay cho NCC -> Sinh Phiếu Chi ở Sổ Quỹ
     if (order.paidAmount > 0) {
-      const targetFund = funds.find(f => f.id === order.fundId) || funds.find(f => f.type === order.paymentMethod) || funds[0];
+      const targetFund = (order.fundId ? funds.find(f => f.id === order.fundId) : null) || 
+                         funds.find(f => f.type === order.paymentMethod) || null;
       if (targetFund) {
         const cashTx: CashTransaction = {
           id: `CTX-${Date.now()}`,
@@ -1286,8 +1289,16 @@ export default function App() {
   };
 
   const handlePaySupplierDebt = (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => {
-    const targetFund = funds.find(f => f.id === fundId || f.name === fundId) || funds[0];
-    const supplier = partners.find(p => p.id === supplierId || (p.name && p.type === 'SUPPLIER'));
+    const targetFund = funds.find(f => f.id === fundId);
+    if (!targetFund) {
+      alert(`Lỗi kế toán: Không tìm thấy Quỹ thanh toán có mã ${fundId}. Giao dịch bị hủy.`);
+      return;
+    }
+    const supplier = partners.find(p => p.id === supplierId && (p.type === 'SUPPLIER' || p.type === 'BOTH'));
+    if (!supplier) {
+      alert(`Lỗi kế toán: Không tìm thấy Nhà Cung Cấp hợp lệ có mã ${supplierId}. Giao dịch bị hủy.`);
+      return;
+    }
 
     // 1. Thêm CashTransaction ở Sổ Quỹ (handleAddCashTransaction sẽ tự trừ quỹ)
     if (targetFund) {

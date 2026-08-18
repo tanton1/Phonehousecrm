@@ -1109,14 +1109,42 @@ export async function processCheckoutTransaction(params: {
           type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
           totalSpent: increment(params.invoice.finalAmount)
         });
+      } else if (params.invoice.customerPhone) {
+        const newPartnerId = `PARTNER-${Date.now()}`;
+        const newCustRef = doc(db, PARTNERS_COL, newPartnerId);
+        batch.set(newCustRef, {
+          id: newPartnerId,
+          type: 'CUSTOMER',
+          name: params.invoice.customerName || 'Khách Hàng',
+          phone: params.invoice.customerPhone,
+          outstandingDebt: 0,
+          totalSpent: params.invoice.finalAmount,
+          debtTransactions: [],
+          branchId: params.invoice.branchId || '',
+          createdAt: new Date().toISOString()
+        });
       }
     } else {
-      // Normal full payment, update customer partner totalSpent & any direct debt if applicable
+      // Normal full payment, update customer partner totalSpent
       if (params.customerPartner) {
         const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
         batch.update(custRef, {
           type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
           totalSpent: increment(params.invoice.finalAmount)
+        });
+      } else if (params.invoice.customerPhone) {
+        const newPartnerId = `PARTNER-${Date.now()}`;
+        const newCustRef = doc(db, PARTNERS_COL, newPartnerId);
+        batch.set(newCustRef, {
+          id: newPartnerId,
+          type: 'CUSTOMER',
+          name: params.invoice.customerName || 'Khách Hàng',
+          phone: params.invoice.customerPhone,
+          outstandingDebt: 0,
+          totalSpent: params.invoice.finalAmount,
+          debtTransactions: [],
+          branchId: params.invoice.branchId || '',
+          createdAt: new Date().toISOString()
         });
       }
     }

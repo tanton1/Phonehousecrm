@@ -599,6 +599,8 @@ export interface SalesInvoice {
   installmentDisbursementStatus?: 'PENDING' | 'DISBURSED';
   installmentExpectedAmount?: number;
   installmentContractCode?: string;
+  paymentFundId?: string;
+  paymentTransactionId?: string;
   history?: ActionLogEntry[];
 }
 

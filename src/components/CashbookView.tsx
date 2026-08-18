@@ -269,6 +269,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       category: diff > 0 ? 'OTHER_INCOME' : 'OTHER_EXPENSE',
       categoryName: 'Điều chỉnh đối soát',
       amount: Math.abs(diff),
+      fundId: fund.id,
       fundType: fund.type,
       fundName: fund.name,
       date: dateStr,
@@ -293,6 +294,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
     const randomCode = `${formData.type === 'RECEIPT' ? 'PT' : 'PC'}-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`;
 
+    const selectedFund = funds.find(f => f.name === formData.fundName) || funds.find(f => f.type === formData.fundType) || null;
+
     const newTx: CashTransaction = {
       id: `TX-${Date.now()}`,
       code: randomCode,
@@ -300,6 +303,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       category: formData.category,
       categoryName: formData.categoryName,
       amount: amountNum,
+      fundId: selectedFund?.id || '',
       fundType: formData.fundType,
       fundName: formData.fundName,
       date: dateStr,

@@ -152,7 +152,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     const debtAmount = remainingDebtAmount;
 
     if (onAddPurchaseOrder) {
-      const fund = funds.find(f => f.id === selectedFundId) || funds.find(f => f.type === data.paymentMethod) || funds[0];
+      const fund = (selectedFundId ? funds.find(f => f.id === selectedFundId) : null) || 
+                   funds.find(f => f.type === data.paymentMethod) || null;
       
       const orderItems = data.items.map((item, idx) => {
         const catalogItem = catalogItems.find(c => c.id === item.catalogItemId);

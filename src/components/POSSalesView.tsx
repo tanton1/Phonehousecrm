@@ -348,27 +348,36 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       if (paymentMethod === 'Quẹt thẻ POS') fundTypeToUse = 'POS_CARD';
     }
 
+    // Resolve exact matching fund without arbitrary funds[0] fallback
+    const fund = (selectedFundId ? funds.find(f => f.id === selectedFundId) : null) || 
+                 funds.find(f => f.type === fundTypeToUse && (!currentBranch.id || f.branchId === currentBranch.id || f.branchId === 'ALL')) ||
+                 funds.find(f => f.type === fundTypeToUse) || null;
+
     let cashTx: import('../types').CashTransaction | null = null;
     if (receiptAmount > 0) {
-      const fund = funds.find(f => f.id === selectedFundId) || funds.find(f => f.type === fundTypeToUse) || funds[0];
-      if (fund) {
-        cashTx = {
-          id: `TX-${Date.now()}`,
-          code: `PT-${Math.floor(1000 + Math.random() * 9000)}`,
-          type: 'RECEIPT',
-          category: 'SALES_REVENUE',
-          categoryName: 'Thu tiền bán hàng',
-          amount: receiptAmount,
-          fundType: fund.type,
-          fundName: fund.name,
-          date: new Date().toLocaleString('sv-SE').replace(' ', 'T'), // YYYY-MM-DDTHH:mm
-          partnerName: customerName,
-          partnerPhone: customerPhone,
-          creator: 'Nhật Tân (Admin)',
-          notes: `Thu tiền khách mua hàng (Đơn ${customerPhone})`,
-          status: 'COMPLETED'
-        };
+      if (!fund) {
+        alert('Lỗi kế toán: Không tìm thấy Quỹ Tiền Mặt hoặc Tài Khoản Ngân Hàng phù hợp để thu tiền.');
+        setIsProcessingCheckout(false);
+        return;
       }
+      cashTx = {
+        id: `TX-${Date.now()}`,
+        code: `PT-${Math.floor(1000 + Math.random() * 9000)}`,
+        type: 'RECEIPT',
+        category: 'SALES_REVENUE',
+        categoryName: 'Thu tiền bán hàng',
+        amount: receiptAmount,
+        fundId: fund.id,
+        fundType: fund.type,
+        fundName: fund.name,
+        date: new Date().toLocaleString('sv-SE').replace(' ', 'T'), // YYYY-MM-DDTHH:mm
+        partnerName: customerName,
+        partnerPhone: customerPhone,
+        creator: currentUser?.displayName || 'Thu Ngân PhoneHouse',
+        branchId: currentBranch.id,
+        notes: `Thu tiền khách mua hàng (Đơn ${customerPhone})`,
+        status: 'COMPLETED'
+      };
     }
 
     const newInvoice: SalesInvoice = {
@@ -377,6 +386,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       customerName,
       customerPhone,
       phone: customerPhone,
+      paymentFundId: fund?.id || '',
+      paymentTransactionId: cashTx?.id || '',
       devices: selectedDevices.map(d => ({
         imei: d.imei,
         model: d.model,
@@ -485,18 +496,10 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       onAddDevice(tradeInDevice);
     }
 
-    // 4. Record Cash Receipt in Cashbook & update matching Fund
-    if (cashTx && onAddTransaction) {
-      onAddTransaction(cashTx);
-    }
-
-    // 5. Create Invoice & update partner
-    onCreateInvoice(newInvoice);
-
-    // 6. Execute atomic batch write to Firestore in background
+    // 4. Single Atomic Writer: Execute atomic transaction to Firestore
     const customerPartner = partners.find(p => p.phone === customerPhone) || null;
     const financeCompanyPartner = paymentMethod === 'Trả góp' ? (partners.find(p => p.name.toLowerCase().includes(installmentCompany.toLowerCase()) || p.supplierCategory === 'FINANCE_PARTNER') || null) : null;
-    const fundToUpdate = funds.find(f => (cashTx?.fundId && f.id === cashTx.fundId) || f.name === cashTx?.fundName || f.type === cashTx?.fundType) || null;
+    const fundToUpdate = fund;
 
     processCheckoutTransaction({
       invoice: newInvoice,
@@ -508,11 +511,15 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       financeCompanyPartner,
       fundToUpdate
     })
-      .catch(err => console.warn('Firestore atomic checkout error (offline mode active):', err))
+      .then(() => {
+        setCreatedInvoiceForPrint(newInvoice);
+        setShowPaymentModal(false);
+      })
+      .catch(err => {
+        console.error('Firestore atomic checkout error:', err);
+        alert('Lỗi lưu đơn hàng vào hệ thống: ' + (err?.message || 'Vui lòng kiểm tra kết nối mạng.'));
+      })
       .finally(() => setIsProcessingCheckout(false));
-
-    setCreatedInvoiceForPrint(newInvoice);
-    setShowPaymentModal(false);
   };
 
   return (
