@@ -69,6 +69,7 @@ import { EmployeeDashboardView } from './components/EmployeeDashboardView';
 import { TechWorkspaceView } from './components/TechWorkspaceView';
 import { SalesWorkspaceView } from './components/SalesWorkspaceView';
 import { AICopilotModal } from './components/AICopilotModal';
+import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
 import { testFirestoreConnection, auth } from './lib/firebase';
@@ -92,6 +93,8 @@ import {
   addInvoiceToFirestore,
   updateInvoiceInFirestore,
   deleteInvoiceFromFirestore,
+  cancelInvoiceInFirestore,
+  transferFundsInFirestore,
   subscribeToUsers,
   addUserToFirestore,
   updateUserInFirestore,
@@ -128,7 +131,23 @@ import {
   subscribeToStoreSettings,
   saveStoreSettingsToFirestore,
   subscribeToSpareParts,
-  updateSparePartInFirestore
+  updateSparePartInFirestore,
+  subscribeToPurchaseOrders,
+  addPurchaseOrderToFirestore,
+  updatePurchaseOrderInFirestore,
+  deletePurchaseOrderFromFirestore,
+  subscribeToCatalog,
+  addCatalogItemToFirestore,
+  updateCatalogItemInFirestore,
+  deleteCatalogItemFromFirestore,
+  subscribeToAttendance,
+  addAttendanceRecordToFirestore,
+  updateAttendanceRecordInFirestore,
+  deleteAttendanceRecordFromFirestore,
+  subscribeToShiftHandovers,
+  addShiftHandoverToFirestore,
+  subscribeToSOPTemplates,
+  subscribeToDailyChecklists
 } from './services/firestoreService';
 
 export default function App() {
@@ -301,6 +320,7 @@ export default function App() {
   // Modals & Triggers
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
+  const [isExecutiveAIOpen, setIsExecutiveAIOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
   const [posPreSelectedDevice, setPosPreSelectedDevice] = useState<DeviceItem | null>(null);
@@ -438,6 +458,9 @@ export default function App() {
     let unsubBranches = () => {};
     let unsubWarehouses = () => {};
     let unsubStoreSettings = () => {};
+    let unsubPurchaseOrders = () => {};
+    let unsubCatalog = () => {};
+    let unsubAttendance = () => {};
 
     // 2. Setup real-time Firestore subscriptions (bypassing auth check since local login might be used)
     seedInitialDataIfEmpty();
@@ -526,8 +549,38 @@ export default function App() {
       }
     });
 
+    unsubPurchaseOrders = subscribeToPurchaseOrders((remoteOrders) => {
+      if (remoteOrders && remoteOrders.length > 0) {
+        setPurchaseOrders(remoteOrders);
+      }
+    });
+
+    unsubCatalog = subscribeToCatalog((remoteCatalog) => {
+      if (remoteCatalog && remoteCatalog.length > 0) {
+        setCatalogItems(remoteCatalog);
+      }
+    });
+
+    unsubAttendance = subscribeToAttendance((remoteAttendance) => {
+      if (remoteAttendance && remoteAttendance.length > 0) {
+        setAttendanceRecords(remoteAttendance);
+      }
+    });
+
+    const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) {
+        setUsers(currentUsers => {
+          const matched = currentUsers.find(u => u.email?.toLowerCase() === fbUser.email?.toLowerCase() || u.id === fbUser.uid);
+          if (matched) {
+            setCurrentUser(matched);
+          }
+          return currentUsers;
+        });
+      }
+    });
+
     return () => {
-      
+      unsubAuth();
       unsubDevices();
       unsubLeads();
       unsubTradeIns();
@@ -542,6 +595,9 @@ export default function App() {
       unsubBranches();
       unsubWarehouses();
       unsubStoreSettings();
+      unsubPurchaseOrders();
+      unsubCatalog();
+      unsubAttendance();
     };
   }, []);
 
@@ -606,6 +662,10 @@ export default function App() {
     safeSetLocalStorage('phonehouse_catalog', catalogItems);
   }, [catalogItems, safeSetLocalStorage]);
 
+  useEffect(() => {
+    safeSetLocalStorage('phonehouse_attendance', attendanceRecords);
+  }, [attendanceRecords, safeSetLocalStorage]);
+
   // Keyboard shortcut ⌘K or Ctrl+K for search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -662,10 +722,13 @@ export default function App() {
       (d.model.toLowerCase().includes(lead.interestedModel.toLowerCase()) || 
        lead.interestedModel.toLowerCase().includes(d.model.toLowerCase()))
     );
-    if (matched) {
-      setPosPreSelectedDevice(matched);
-    } else {
-      setPosPreSelectedDevice(devices.find(d => d.status === 'in_stock') || null);
+    setPosPreSelectedDevice(matched || null);
+    
+    // Update Lead status to negotiating if it was new or contacted
+    if (lead.status === 'new' || lead.status === 'contacted') {
+      const updatedLead: Lead = { ...lead, status: 'negotiating' };
+      setLeads(prev => prev.map(l => l.id === lead.id ? updatedLead : l));
+      updateLeadInFirestore(updatedLead);
     }
     setActiveTab('pos');
   };
@@ -744,6 +807,99 @@ export default function App() {
     updateInvoiceInFirestore(invoice);
   };
 
+  const handleCancelInvoice = async (invoice: SalesInvoice, reason: string) => {
+    // 1. Devices to restore
+    const invoiceImeis = (invoice.imeiList || invoice.devices?.map(d => d.imei) || invoice.items?.map(i => i.imei) || []).filter(Boolean);
+    const devicesToRestore = devices.filter(d => invoiceImeis.includes(d.imei));
+
+    // 2. Accessories to restore
+    const accessoriesToRestore: { product: ProductItem; quantity: number }[] = [];
+    if (invoice.accessories && invoice.accessories.length > 0) {
+      invoice.accessories.forEach(acc => {
+        const prod = products.find(p => p.name === acc.name);
+        if (prod) {
+          accessoriesToRestore.push({ product: prod, quantity: acc.quantity || 1 });
+        }
+      });
+    }
+
+    // 3. Refund transaction
+    const fundToDeduct = funds.find(f => f.branchId === invoice.branchId || f.id === 'FUND_CASH_01') || funds[0] || null;
+    const refundAmount = invoice.paidAmount || invoice.finalAmount || 0;
+    
+    let refundTx: CashTransaction | null = null;
+    if (refundAmount > 0) {
+      refundTx = {
+        id: `TX-REFUND-${Date.now()}`,
+        code: `PC-REFUND-${Date.now().toString().slice(-6)}`,
+        type: 'PAYMENT',
+        category: 'CUSTOMER_REFUND',
+        categoryName: 'Chi hoàn tiền đổi trả cho khách',
+        amount: refundAmount,
+        fundType: fundToDeduct?.type || 'CASH',
+        fundName: fundToDeduct?.name || 'Quỹ tiền mặt',
+        fundId: fundToDeduct?.id || 'FUND_CASH_01',
+        date: new Date().toISOString().split('T')[0],
+        partnerName: invoice.customerName,
+        partnerPhone: invoice.customerPhone || invoice.phone,
+        notes: `Hoàn tiền hủy hóa đơn ${invoice.invoiceCode || invoice.id}: ${reason}`,
+        branchId: invoice.branchId || 'CN01',
+        creator: currentUser?.displayName || 'Admin',
+        status: 'COMPLETED',
+        referenceCode: invoice.invoiceCode || invoice.id
+      };
+    }
+
+    const customerPartner = partners.find(p => p.phone === invoice.customerPhone) || null;
+
+    try {
+      await cancelInvoiceInFirestore({
+        invoiceId: invoice.id,
+        cancelledBy: currentUser?.displayName || 'Admin',
+        reason,
+        devicesToRestore,
+        accessoriesToRestore,
+        refundTx,
+        fundToDeduct,
+        customerPartner
+      });
+
+      // Update local state
+      setInvoices(prev => prev.map(inv => inv.id === invoice.id ? {
+        ...inv,
+        status: 'CANCELLED',
+        cancellationReason: reason,
+        cancelledBy: currentUser?.displayName || 'Admin',
+        cancelledAt: new Date().toISOString()
+      } : inv));
+
+      if (devicesToRestore.length > 0) {
+        setDevices(prev => prev.map(d => {
+          if (devicesToRestore.some(r => r.id === d.id)) {
+            return { ...d, status: 'in_stock', customerName: undefined, customerPhone: undefined };
+          }
+          return d;
+        }));
+      }
+
+      if (refundTx) {
+        setCashTransactions(prev => [refundTx!, ...prev]);
+        if (fundToDeduct) {
+          setFunds(prev => prev.map(f => f.id === fundToDeduct.id ? {
+            ...f,
+            currentBalance: f.currentBalance - refundAmount,
+            totalExpense: (f.totalExpense || 0) + refundAmount
+          } : f));
+        }
+      }
+
+      alert(`✅ Đã hủy hóa đơn ${invoice.invoiceCode} và tự động hoàn trả kho/sổ quỹ thành công!`);
+    } catch (err: any) {
+      console.error('Lỗi khi hủy hóa đơn:', err);
+      alert(`Không thể hủy hóa đơn: ${err?.message || 'Lỗi không xác định'}`);
+    }
+  };
+
   const handleDeleteInvoice = (invoiceId: string) => {
     setInvoices(invoices.filter(inv => inv.id !== invoiceId));
     deleteInvoiceFromFirestore(invoiceId);
@@ -801,11 +957,48 @@ export default function App() {
   const handleAddTransfer = (slip: StockTransferSlip) => {
     setTransfers(prev => [slip, ...prev]);
     addTransferToFirestore(slip);
+
+    // If transfer is in transit, lock devices by setting status to in_transit
+    if (slip.status === 'IN_TRANSIT' && slip.items && slip.items.length > 0) {
+      const deviceImeis = slip.items.map(i => i.imei).filter(Boolean);
+      if (deviceImeis.length > 0) {
+        setDevices(prev => prev.map(d => {
+          if (deviceImeis.includes(d.imei)) {
+            const updated = { ...d, status: 'in_transit' as any };
+            updateDeviceInFirestore(updated);
+            return updated;
+          }
+          return d;
+        }));
+      }
+    }
   };
 
   const handleUpdateTransfer = (updatedSlip: StockTransferSlip) => {
     setTransfers(prev => prev.map(t => (t.id === updatedSlip.id ? updatedSlip : t)));
     updateTransferInFirestore(updatedSlip);
+
+    // When completed, update warehouse and restore to in_stock
+    if (updatedSlip.status === 'COMPLETED' && updatedSlip.items && updatedSlip.items.length > 0) {
+      const deviceImeis = updatedSlip.items.map(i => i.imei).filter(Boolean);
+      if (deviceImeis.length > 0) {
+        setDevices(prev => prev.map(d => {
+          if (deviceImeis.includes(d.imei)) {
+            const targetBranch = branches.find(b => b.warehouseId === updatedSlip.toWarehouse);
+            const updated: DeviceItem = { 
+              ...d, 
+              warehouseId: updatedSlip.toWarehouse, 
+              status: 'in_stock',
+              branchId: targetBranch?.id || d.branchId,
+              branchName: targetBranch?.name || d.branchName
+            };
+            updateDeviceInFirestore(updated);
+            return updated;
+          }
+          return d;
+        }));
+      }
+    }
   };
 
   const handleTransferFunds = async (
@@ -884,6 +1077,7 @@ export default function App() {
   // ==========================================
   const handleAddPurchaseOrder = (order: PurchaseOrder, autoCreateDevices: boolean) => {
     setPurchaseOrders(prev => [order, ...prev]);
+    addPurchaseOrderToFirestore(order);
 
     // 1. Ghi nhận Lịch sử Giao dịch & Công nợ của Nhà Cung Cấp (NCC)
     const supplier = partners.find(p => p.id === order.supplierId || (p.name && order.supplierName && p.name.trim().toLowerCase() === order.supplierName.trim().toLowerCase()));
@@ -1007,10 +1201,33 @@ export default function App() {
 
   const handleUpdatePurchaseOrder = (updatedOrder: PurchaseOrder) => {
     setPurchaseOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+    updatePurchaseOrderInFirestore(updatedOrder);
   };
 
   const handleDeletePurchaseOrder = (orderId: string) => {
     setPurchaseOrders(prev => prev.filter(o => o.id !== orderId));
+    deletePurchaseOrderFromFirestore(orderId);
+  };
+
+  // Master Catalog Handlers
+  const handleAddCatalogItem = (newItem: MasterCatalogItem) => {
+    setCatalogItems(prev => [newItem, ...prev]);
+    addCatalogItemToFirestore(newItem);
+  };
+
+  const handleUpdateCatalogItem = (updatedItem: MasterCatalogItem) => {
+    setCatalogItems(prev => prev.map(c => c.id === updatedItem.id ? updatedItem : c));
+    updateCatalogItemInFirestore(updatedItem);
+  };
+
+  const handleDeleteCatalogItem = (itemId: string) => {
+    setCatalogItems(prev => prev.filter(c => c.id !== itemId));
+    deleteCatalogItemFromFirestore(itemId);
+  };
+
+  const handleUpdateProduct = (updatedProduct: ProductItem) => {
+    setProducts(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
+    updateProductInFirestore(updatedProduct);
   };
 
   
@@ -1153,7 +1370,9 @@ export default function App() {
 
   return (
     <>
-      <RoleSwitcher currentMode={workspaceMode} onModeChange={setWorkspaceMode} />
+      {Boolean((import.meta as any).env?.DEV) && (
+        <RoleSwitcher currentMode={workspaceMode} onModeChange={setWorkspaceMode} />
+      )}
 
       {workspaceMode === 'SALES' && (
         <SalesWorkspaceView
@@ -1330,24 +1549,21 @@ export default function App() {
         
         {activeTab === 'master-catalog' && (
           <MasterCatalogView
-  items={catalogItems}
-  onAddItem={(item) => setCatalogItems([...catalogItems, item])}
-            onUpdateItem={(item) => setCatalogItems(catalogItems.map(i => i.id === item.id ? item : i))}
-            onDeleteItem={(id) => setCatalogItems(catalogItems.filter(i => i.id !== id))}
+            items={catalogItems}
+            onAddItem={handleAddCatalogItem}
+            onUpdateItem={handleUpdateCatalogItem}
+            onDeleteItem={handleDeleteCatalogItem}
           />
         )}
 
         {activeTab === 'products' && (
           <ProductsView
-  products={products}
-  onAddProduct={(p) => {
+            products={products}
+            onAddProduct={(p) => {
               setProducts([...products, p]);
               addProductToFirestore(p);
             }}
-            onUpdateProduct={(p) => {
-              setProducts(products.map(prod => prod.id === p.id ? p : prod));
-              updateProductInFirestore(p);
-            }}
+            onUpdateProduct={handleUpdateProduct}
             onDeleteProduct={(id) => {
               setProducts(products.filter(p => p.id !== id));
               deleteProductFromFirestore(id);
@@ -1357,29 +1573,28 @@ export default function App() {
 
         {activeTab === 'crm' && (
           <CRMLeadsView
-  currentUser={currentUser}
-  branches={branches}
-  leads={filteredLeads}
-  devices={filteredDevices}
-  onAddLead={handleAddLead}
-  onUpdateLead={handleUpdateLead}
-  onConvertLeadToSale={handleConvertLeadToSale}
-  onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
-/>
+            currentUser={currentUser}
+            branches={branches}
+            leads={filteredLeads}
+            devices={filteredDevices}
+            onAddLead={handleAddLead}
+            onUpdateLead={handleUpdateLead}
+            onConvertLeadToSale={handleConvertLeadToSale}
+            onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
+          />
         )}
 
         {activeTab === 'omnichannel-chat' && (
           <OmnichannelChatView
-  currentUser={currentUser}
-  devices={filteredDevices}
-  branches={branches}
-  leads={filteredLeads}
-  invoices={filteredInvoices}
-  onConvertChatToPOS={(device, customer) => {
+            currentUser={currentUser}
+            devices={filteredDevices}
+            branches={branches}
+            leads={filteredLeads}
+            invoices={filteredInvoices}
+            onConvertChatToPOS={(device, customer) => {
               setPosPreSelectedDevice(device);
               setActiveTab('pos');
-            }
-}
+            }}
             onConvertChatToLead={(newLead) => {
               handleAddLead(newLead);
               setActiveTab('crm');
@@ -1392,54 +1607,55 @@ export default function App() {
 
         {activeTab === 'tradein' && (
           <TradeInView
-  currentUser={currentUser}
-  branches={branches}
-  tradeIns={filteredTradeIns}
-  devices={filteredDevices}
-  onAddTradeIn={handleAddTradeIn}
-  onUpdateTradeIn={handleUpdateTradeIn}
-  onImportToInventory={handleAddDevice}
-/>
+            currentUser={currentUser}
+            branches={branches}
+            tradeIns={filteredTradeIns}
+            devices={filteredDevices}
+            onAddTradeIn={handleAddTradeIn}
+            onUpdateTradeIn={handleUpdateTradeIn}
+            onImportToInventory={handleAddDevice}
+          />
         )}
 
         {activeTab === 'warranty' && (
           <WarrantyServiceView
-  currentUser={currentUser}
-  branches={branches}
-  warrantyTickets={filteredWarrantyTickets}
-  devices={filteredDevices}
-  funds={funds}
-  users={users}
-  spareParts={spareParts}
-  onUpdateSparePart={(updatedPart) => updateSparePartInFirestore(updatedPart)}
+            currentUser={currentUser}
+            branches={branches}
+            warrantyTickets={filteredWarrantyTickets}
+            devices={filteredDevices}
+            funds={funds}
+            users={users}
+            spareParts={spareParts}
+            onUpdateSparePart={(updatedPart) => updateSparePartInFirestore(updatedPart)}
             onAddTicket={handleAddWarrantyTicket}
             onUpdateTicket={handleUpdateWarrantyTicket}
             onAddTransaction={handleAddCashTransaction}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
-/>
+          />
         )}
 
         {activeTab === 'pos' && (
           <POSSalesView
-  currentUser={currentUser}
-  devices={filteredDevices}
-  branches={branches}
-  invoices={filteredInvoices}
-  leads={filteredLeads}
-  warehouses={warehouses}
-  storeSettings={storeSettings}
-  products={products}
-  partners={partners}
-  onCreateInvoice={handleCreateInvoice}
-  onUpdateDeviceStatus={handleUpdateDeviceStatus}
-  preSelectedDevice={posPreSelectedDevice}
-  onNavigateToInvoices={() => setActiveTab('invoices')}
+            currentUser={currentUser}
+            devices={filteredDevices}
+            branches={branches}
+            invoices={filteredInvoices}
+            leads={filteredLeads}
+            warehouses={warehouses}
+            storeSettings={storeSettings}
+            products={products}
+            partners={partners}
+            onCreateInvoice={handleCreateInvoice}
+            onUpdateDeviceStatus={handleUpdateDeviceStatus}
+            preSelectedDevice={posPreSelectedDevice}
+            onNavigateToInvoices={() => setActiveTab('invoices')}
             funds={funds}
             onAddTransaction={handleAddCashTransaction}
             onAddTradeIn={handleAddTradeIn}
             onAddDevice={handleAddDevice}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
-/>
+            onUpdateProduct={handleUpdateProduct}
+          />
         )}
 
         {activeTab === 'invoices' && (
@@ -1454,6 +1670,7 @@ export default function App() {
             }
 }
             onUpdateInvoice={handleUpdateInvoice}
+            onCancelInvoice={handleCancelInvoice}
             onDeleteInvoice={handleDeleteInvoice}
           />
         )}
@@ -1495,30 +1712,35 @@ export default function App() {
 
         {activeTab === 'partners' && (
           <PartnersView
-  partners={filteredPartners}
-  currentUser={currentUser}
-  devices={filteredDevices}
-  onAddPartner={handleAddPartner}
-  onUpdatePartner={handleUpdatePartner}
-  onDeletePartner={handleDeletePartner}
-  funds={funds}
-  onAddTransaction={handleAddCashTransaction}
-/>
+            partners={filteredPartners}
+            devices={filteredDevices}
+            onAddPartner={handleAddPartner}
+            onUpdatePartner={handleUpdatePartner}
+            onDeletePartner={handleDeletePartner}
+            funds={funds}
+            onAddTransaction={handleAddCashTransaction}
+            onAutoPayDebt={handleAutoPayDebt}
+          />
         )}
 
         {activeTab === 'store-settings' && (
           <StoreSettingsView
-  branches={branches}
-  warehouses={warehouses}
-  settings={storeSettings}
-  onAddBranch={handleAddBranch}
-  onUpdateBranch={handleUpdateBranch}
-  onDeleteBranch={handleDeleteBranch}
-  onAddWarehouse={handleAddWarehouse}
-  onUpdateWarehouse={handleUpdateWarehouse}
-  onDeleteWarehouse={handleDeleteWarehouse}
-  onSaveSettings={handleSaveStoreSettings}
-  onBack={() => setActiveTab('more')}
+            branches={branches}
+            warehouses={warehouses}
+            settings={storeSettings}
+            funds={funds}
+            invoices={invoices}
+            devices={devices}
+            warrantyTickets={warrantyTickets}
+            attendanceRecords={attendanceRecords}
+            staffMembers={users as any}
+            onAddBranch={handleAddBranch}
+            onUpdateBranch={handleUpdateBranch}
+            onDeleteBranch={handleDeleteBranch}
+            onAddWarehouse={handleAddWarehouse}
+            onUpdateWarehouse={handleUpdateWarehouse}
+            onDeleteWarehouse={handleDeleteWarehouse}
+            onSaveSettings={handleSaveStoreSettings}
           />
         )}
 
@@ -1575,7 +1797,8 @@ export default function App() {
             branches={branches}
             attendanceRecords={attendanceRecords}
             onCheckInSuccess={(record) => {
-              setAttendanceRecords([record, ...attendanceRecords]);
+              setAttendanceRecords(prev => [record, ...prev.filter(r => r.id !== record.id)]);
+              addAttendanceRecordToFirestore(record);
             }}
             onNavigateToHR={() => setActiveTab('hr-attendance')}
           />
@@ -1679,6 +1902,18 @@ export default function App() {
       <AICopilotModal
         isOpen={isAICopilotOpen}
         onClose={() => setIsAICopilotOpen(false)}
+      />
+
+      {/* Executive AI Voice Assistant Modal (Idea 1) */}
+      <ExecutiveAIAssistantModal
+        isOpen={isExecutiveAIOpen}
+        onClose={() => setIsExecutiveAIOpen(false)}
+        invoices={invoices}
+        devices={devices}
+        funds={funds}
+        warrantyTickets={warrantyTickets}
+        attendanceRecords={attendanceRecords}
+        staffMembers={users as any}
       />
 
       {/* Phone House Dedicated Login Modal */}

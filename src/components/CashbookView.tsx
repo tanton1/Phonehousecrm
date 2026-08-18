@@ -6,9 +6,10 @@ import {
 } from 'lucide-react';
 import { 
   CashTransaction, FundAccount, CashTransactionType, PaymentFundType, 
-  CashReceiptCategory, CashPaymentCategory, Partner 
+  CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch 
 } from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
+import { transferFundsInFirestore } from '../services/firestoreService';
 
 // format helpers
 const formatCurrency = (amount: number) => {
@@ -16,9 +17,8 @@ const formatCurrency = (amount: number) => {
 };
 const formatCompact = (amount: number) => {
   return new Intl.NumberFormat('vi-VN', { notation: "compact", maximumFractionDigits: 2 }).format(amount).replace('T', 'tr');
-}
+};
 
-import { UserAccount, StoreBranch } from "../types";
 interface CashbookViewProps {
   currentUser?: UserAccount | null;
   branches?: StoreBranch[];
@@ -222,60 +222,19 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     }
 
     if (onTransferFunds) {
-      await onTransferFunds(fromFund.id, toFund.id, amountNum, transferData.notes, 'Nhật Tân (Admin)');
+      await onTransferFunds(fromFund.id, toFund.id, amountNum, transferData.notes || 'Chuyển quỹ nội bộ', currentUser?.displayName || 'Admin');
     } else {
-      // Fallback local update
-      const now = new Date();
-      const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
-      const transferRefCode = `TRF-${Date.now().toString().slice(-6)}`;
-      
-      const txOut: CashTransaction = {
-        id: `TX-${Date.now()}-OUT`,
-        code: `PC-${transferRefCode}-OUT`,
-        type: 'PAYMENT',
-        category: 'OTHER_EXPENSE',
-        categoryName: 'Chuyển quỹ nội bộ (Chi)',
+      await transferFundsInFirestore({
+        fromFundId: fromFund.id,
+        toFundId: toFund.id,
+        fromFundName: fromFund.name,
+        toFundName: toFund.name,
         amount: amountNum,
-        fundType: fromFund.type,
-        fundName: fromFund.name,
-        date: dateStr,
-        creator: 'Nhật Tân (Admin)',
-        referenceCode: transferRefCode,
-        notes: transferData.notes || `Chuyển sang ${toFund.name}`,
-        status: 'COMPLETED',
-      branchId: formData.branchId || currentUser?.branchId || branches[0]?.id || ''
-      };
-      onAddTransaction(txOut);
-
-      const txIn: CashTransaction = {
-        id: `TX-${Date.now() + 1}-IN`,
-        code: `PT-${transferRefCode}-IN`,
-        type: 'RECEIPT',
-        category: 'OTHER_INCOME',
-        categoryName: 'Chuyển quỹ nội bộ (Thu)',
-        amount: amountNum,
-        fundType: toFund.type,
-        fundName: toFund.name,
-        date: dateStr,
-        creator: 'Nhật Tân (Admin)',
-        referenceCode: transferRefCode,
-        notes: transferData.notes || `Nhận từ ${fromFund.name}`,
-        status: 'COMPLETED'
-      };
-      onAddTransaction(txIn);
-
-      if (onUpdateFunds) {
-        const updatedFunds = funds.map(f => {
-          if (f.id === fromFund.id) {
-            return { ...f, currentBalance: f.currentBalance - amountNum, totalExpense: f.totalExpense + amountNum };
-          }
-          if (f.id === toFund.id) {
-            return { ...f, currentBalance: f.currentBalance + amountNum, totalIncome: f.totalIncome + amountNum };
-          }
-          return f;
-        });
-        onUpdateFunds(updatedFunds);
-      }
+        note: transferData.notes || 'Chuyển quỹ nội bộ',
+        transferredBy: currentUser?.displayName || 'Admin',
+        branchId: currentUser?.branchId || 'ALL',
+        branchName: 'Toàn hệ thống'
+      });
     }
 
     setIsTransferModalOpen(false);

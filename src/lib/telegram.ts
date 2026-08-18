@@ -1,40 +1,28 @@
-export const TELEGRAM_BOT_TOKEN = (import.meta as any).env?.VITE_TELEGRAM_BOT_TOKEN || '';
-export const TELEGRAM_CHAT_ID = (import.meta as any).env?.VITE_TELEGRAM_CHAT_ID || '';
-
 /**
- * Gửi tin nhắn thông báo đến Telegram Admin
+ * Gửi tin nhắn thông báo an toàn đến Telegram Admin qua Server Endpoint
  * @param message Nội dung tin nhắn
  */
 export async function sendTelegramAlert(message: string) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.warn("Telegram Bot chưa được cấu hình. Vui lòng thêm VITE_TELEGRAM_BOT_TOKEN và VITE_TELEGRAM_CHAT_ID vào file .env");
-    return { success: false, error: 'Chưa cấu hình Telegram Bot' };
-  }
-
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-  
   try {
-    const response = await fetch(url, {
+    const response = await fetch('/api/telegram/send-alert', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text: message,
-        parse_mode: 'HTML',
+        text: message
       }),
     });
 
     const data = await response.json();
-    if (!data.ok) {
-      console.error("Lỗi gửi Telegram:", data.description);
-      return { success: false, error: data.description };
+    if (!data.success) {
+      console.warn("Telegram Alert Notice:", data.message || data.error);
+      return { success: false, error: data.error };
     }
     
-    return { success: true, data };
+    return { success: true, data: data.result };
   } catch (error) {
-    console.error("Lỗi kết nối Telegram API:", error);
+    console.error("Lỗi gửi Telegram qua Server API:", error);
     return { success: false, error };
   }
 }

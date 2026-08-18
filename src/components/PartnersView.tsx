@@ -350,6 +350,9 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
     };
 
     onUpdatePartner(updated);
+    if (onAutoPayDebt) {
+      onAutoPayDebt(debtActionPartner.id, settleAmount, settleDirection === 'RECEIPT' ? 'RECEIPT' : 'PAYMENT');
+    }
     if (selectedPartner?.id === updated.id) {
       setSelectedPartner(updated);
     }

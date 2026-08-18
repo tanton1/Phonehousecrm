@@ -27,16 +27,35 @@ import {
   Database,
   Bell,
   Send,
-  Wallet
+  Wallet,
+  Bot,
+  Mic
 } from 'lucide-react';
-import { StoreBranch, WarehouseInfo, StoreSettings, WarehouseId, FundAccount } from '../types';
+import { 
+  StoreBranch, 
+  WarehouseInfo, 
+  StoreSettings, 
+  WarehouseId, 
+  FundAccount,
+  SalesInvoice,
+  DeviceItem,
+  WarrantyTicket,
+  AttendanceRecord,
+  StaffMember
+} from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
+import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
 
 interface StoreSettingsViewProps {
   branches: StoreBranch[];
   warehouses: WarehouseInfo[];
   settings: StoreSettings;
   funds?: FundAccount[];
+  invoices?: SalesInvoice[];
+  devices?: DeviceItem[];
+  warrantyTickets?: WarrantyTicket[];
+  attendanceRecords?: AttendanceRecord[];
+  staffMembers?: StaffMember[];
   onAddBranch: (branch: StoreBranch) => void;
   onUpdateBranch: (branch: StoreBranch) => void;
   onDeleteBranch: (branchId: string) => void;
@@ -53,6 +72,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   warehouses,
   settings,
   funds = [],
+  invoices = [],
+  devices = [],
+  warrantyTickets = [],
+  attendanceRecords = [],
+  staffMembers = [],
   onAddBranch,
   onUpdateBranch,
   onDeleteBranch,
@@ -66,6 +90,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty'>('branches');
   const [warehouseSystemFilter, setWarehouseSystemFilter] = useState<'ALL' | 'TONG' | 'PHONEHOUSE' | 'XSTORE'>('ALL');
   
+  // Executive AI Modal state
+  const [isExecutiveModalOpen, setIsExecutiveModalOpen] = useState(false);
+
   // Company info form state
   const [companyForm, setCompanyForm] = useState<StoreSettings>(settings);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -1084,26 +1111,76 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
           </div>
 
           <div className="space-y-6 max-w-3xl">
+            {/* Executive AI Voice Assistant Card (Idea 1) */}
+            <div className="bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-950 text-white border border-orange-500/30 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/40">
+                    <Bot className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black flex items-center gap-2">
+                      <span>Trợ Lý Giám Đốc AI Voice & Tra Cứu Số Liệu (Telegram Bot)</span>
+                      <span className="text-[10px] bg-orange-500/20 text-orange-400 px-2.5 py-0.5 rounded-full border border-orange-500/30 font-mono">
+                        Multimodal Voice AI
+                      </span>
+                    </h3>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Ban Giám Đốc có thể tra cứu tức thì Doanh số, Tồn kho máy IMEI, Sổ quỹ, Tiến độ Kỹ thuật qua Voice Memo trên Telegram.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 space-y-1">
+                  <div className="text-[11px] font-bold text-orange-400 flex items-center gap-1.5">
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>Lệnh thoại mẫu:</span>
+                  </div>
+                  <p className="text-xs text-zinc-300 italic">"Hôm nay bán được bao nhiêu cây 16 Pro Max rồi?", "Số dư các quỹ tiền mặt hiện tại?"</p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 space-y-1">
+                  <div className="text-[11px] font-bold text-green-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Webhook Endpoint:</span>
+                  </div>
+                  <code className="text-[11px] font-mono text-zinc-300 block truncate">/api/telegram/webhook</code>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExecutiveModalOpen(true)}
+                  className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl text-xs font-bold flex items-center space-x-2 shadow-lg shadow-orange-500/30 cursor-pointer transition-all active:scale-95"
+                >
+                  <Mic className="w-4 h-4" />
+                  <span>🎙️ Mở Trợ Lý Giám Đốc AI Voice (Thử Nghiệm Trực Tiếp)</span>
+                </button>
+              </div>
+            </div>
+
             {/* Status Card */}
             <div className="bg-green-50 border border-green-200 rounded-2xl p-5 flex items-start space-x-4">
               <div className="w-2 h-2 rounded-full bg-green-500 mt-2 animate-pulse"></div>
               <div className="flex-1">
-                <h3 className="text-sm font-bold text-green-800">Trạng thái: Đã kết nối</h3>
+                <h3 className="text-sm font-bold text-green-800">Trạng thái Bot: Đã kết nối</h3>
                 <p className="text-xs text-green-700 mt-1">Hệ thống đang liên kết với Bot. API Token và Chat ID đã được cấu hình trong biến môi trường bảo mật.</p>
                 <button 
                   onClick={(e) => {
                     e.preventDefault();
                     showToast('Đã gửi tin nhắn kiểm tra thành công tới Bot Telegram!');
-                    // Call API here in real life
-                    fetch('https://api.telegram.org/bot' + ((import.meta as any).env?.VITE_TELEGRAM_BOT_TOKEN || '') + '/sendMessage', {
+                    fetch('/api/telegram/send-alert', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ chat_id: (import.meta as any).env?.VITE_TELEGRAM_CHAT_ID || '1451935454', text: '🔔 Tin nhắn kiểm tra từ hệ thống PhoneHouse CRM!' })
+                      body: JSON.stringify({ text: '🔔 Tin nhắn kiểm tra từ hệ thống PhoneHouse CRM!' })
                     }).catch(err => console.error(err));
                   }}
                   className="mt-3 px-4 py-2 bg-white border border-green-300 text-green-700 rounded-lg text-xs font-bold hover:bg-green-50 transition-all cursor-pointer"
                 >
-                  Gửi tin nhắn Test
+                  Gửi tin nhắn Test Alert
                 </button>
               </div>
             </div>
@@ -1783,6 +1860,18 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* EXECUTIVE AI VOICE ASSISTANT MODAL (IDEA 1) */}
+      <ExecutiveAIAssistantModal
+        isOpen={isExecutiveModalOpen}
+        onClose={() => setIsExecutiveModalOpen(false)}
+        invoices={invoices}
+        devices={devices}
+        funds={funds}
+        warrantyTickets={warrantyTickets}
+        attendanceRecords={attendanceRecords}
+        staffMembers={staffMembers}
+      />
     </div>
   );
 };

@@ -21,10 +21,12 @@ interface FaceRegistrationModalProps {
   staffName: string;
   staffEmail: string;
   currentFacePhotoUrl?: string;
+  isAdminApproving?: boolean;
   onSaveFaceProfile: (faceData: {
     facePhotoUrl: string;
     faceFeatureVector: number[];
     faceEnrollmentDate: string;
+    faceEnrollmentStatus?: 'NOT_ENROLLED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
   }) => void;
 }
 
@@ -34,6 +36,7 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
   staffName,
   staffEmail,
   currentFacePhotoUrl,
+  isAdminApproving = false,
   onSaveFaceProfile
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -147,7 +150,8 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
     onSaveFaceProfile({
       facePhotoUrl: capturedPhoto,
       faceFeatureVector: extractedVector || new Array(64).fill(0),
-      faceEnrollmentDate: now
+      faceEnrollmentDate: now,
+      faceEnrollmentStatus: isAdminApproving ? 'APPROVED' : 'PENDING_APPROVAL'
     });
 
     setSaveSuccess(true);

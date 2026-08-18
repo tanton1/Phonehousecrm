@@ -383,18 +383,21 @@ export interface DeviceItem {
   history?: DeviceHistoryLog[]; // Danh sách sự kiện lịch sử (Timeline)
 }
 
+export type LeadStatus = 'new' | 'contacted' | 'negotiating' | 'appointment_scheduled' | 'deposit_paid' | 'deposit' | 'won' | 'lost';
+
 export interface Lead {
   id: string;
   branchId?: string;
   name: string;
   phone: string;
+  phoneNormalized?: string;
   zalo?: string;
   source: 'Facebook Ads' | 'TikTok' | 'Zalo OA' | 'Khách Vãng Lai' | 'Khách Quen Giới Thiệu';
   interestedModel: string;
   budget: number;
   tradeInRequirose: boolean;
   tradeInModel?: string;
-  status: 'new' | 'contacted' | 'negotiating' | 'deposit' | 'won' | 'lost';
+  status: LeadStatus;
   assignedStaff: string;
   followUpDate: string;
   createdAt: string;
@@ -435,10 +438,13 @@ export interface TradeInAppraisal {
 
 export interface WarrantyTicketPart {
   id?: string;
+  sku?: string;
   name: string;
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  costPrice?: number;
+  deductedFromStock?: boolean;
 }
 
 export interface ActionLogEntry {
@@ -627,6 +633,9 @@ export interface UserAccount {
   facePhotoUrl?: string; // Ảnh mẫu gương mặt đăng ký chuẩn
   assignedFaceEmbedding?: boolean; // Đã đăng ký dữ liệu sinh trắc học Face ID
   faceEnrollmentDate?: string; // Ngày đăng ký gương mặt
+  faceEnrollmentStatus?: 'NOT_ENROLLED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'; // Trạng thái phê duyệt khuôn mặt
+  faceApprovedBy?: string; // Người duyệt khuôn mặt
+  faceApprovedAt?: string; // Thời gian duyệt
   faceFeatureVector?: number[]; // Vector đặc trưng khuôn mặt (Dữ liệu nhúng Face ID AI)
   lastLogin?: string;
   notes?: string;

@@ -2,10 +2,14 @@ import {
   collection, 
   doc, 
   setDoc, 
+  getDoc,
+  updateDoc,
   deleteDoc, 
   onSnapshot, 
   getDocs,
-  writeBatch
+  writeBatch,
+  increment,
+  arrayUnion
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
@@ -13,6 +17,7 @@ import {
   Lead, 
   TradeInAppraisal, 
   WarrantyTicket, 
+  WarrantyTicketPart,
   SalesInvoice, 
   UserAccount, 
   Partner, 
@@ -25,7 +30,16 @@ import {
   StoreSettings,
   SparePart,
   ChatConversation,
-  ChatMessage
+  ChatMessage,
+  PurchaseOrder,
+  MasterCatalogItem,
+  PartnerDebtTransaction,
+  AttendanceRecord,
+  ShiftHandoverReport,
+  SOPTemplateItem,
+  DailyShiftChecklistItem,
+  LeaveRequest,
+  StaffMember
 } from '../types';
 import { 
   INITIAL_DEVICES, 
@@ -42,9 +56,13 @@ import {
   INITIAL_FUNDS,
   INITIAL_CASH_TRANSACTIONS,
   INITIAL_SPARE_PARTS,
+  INITIAL_PURCHASE_ORDERS,
   REPAIR_SERVICES_PRICELIST,
   RepairServiceItem
 } from '../data/initialData';
+import { INITIAL_CATALOG_ITEMS } from '../data/catalogData';
+import { INITIAL_TODAY_ATTENDANCE_LIST, INITIAL_STAFF_MEMBERS, INITIAL_LEAVE_REQUESTS } from '../data/attendanceData';
+import { INITIAL_SOP_TEMPLATES, INITIAL_TODAY_SHIFT_CHECKLISTS, INITIAL_HANDOVER_REPORTS } from '../data/sopTemplatesData';
 
 // Collection Names
 const DEVICES_COL = 'devices';
@@ -63,6 +81,15 @@ const SPARE_PARTS_COL = 'spareParts';
 const FUNDS_COL = 'funds';
 const CASH_TRANSACTIONS_COL = 'cashTransactions';
 const REPAIR_SERVICES_COL = 'repairServices';
+const CHAT_CONVERSATIONS_COL = 'chatConversations';
+const PURCHASE_ORDERS_COL = 'purchaseOrders';
+const CATALOG_COL = 'catalogItems';
+const ATTENDANCE_COL = 'attendance';
+const SHIFT_HANDOVER_COL = 'shiftHandover';
+const SOP_TEMPLATES_COL = 'sopTemplates';
+const DAILY_CHECKLISTS_COL = 'dailyShiftChecklists';
+const LEAVE_REQUESTS_COL = 'leaveRequests';
+const STAFF_MEMBERS_COL = 'staffMembers';
 
 // Helper to strip undefined values so Firestore setDoc does not throw
 export function cleanDataForFirestore<T>(data: T): T {
@@ -140,7 +167,8 @@ export async function clearAllFirestoreDemoData(): Promise<void> {
     TRANSFERS_COL,
     PRODUCTS_COL,
     CASH_TRANSACTIONS_COL,
-    SPARE_PARTS_COL
+    SPARE_PARTS_COL,
+    CHAT_CONVERSATIONS_COL
   ];
 
   for (const colName of collectionsToWipe) {
@@ -796,7 +824,7 @@ export async function deleteWarehouseFromFirestore(id: string) {
 
 // ----------------- STORE SETTINGS (CÀI ĐẶT DOANH NGHIỆP) -----------------
 export function subscribeToChatConversations(onData: (convos: ChatConversation[]) => void) {
-  const q = collection(db, 'chat_conversations');
+  const q = collection(db, CHAT_CONVERSATIONS_COL);
   return onSnapshot(
     q,
     (snapshot) => {
@@ -808,20 +836,26 @@ export function subscribeToChatConversations(onData: (convos: ChatConversation[]
       convos.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       onData(convos);
     },
-    (error) => handleFirestoreError(error, OperationType.LIST, 'chat_conversations')
+    (error) => handleFirestoreError(error, OperationType.LIST, CHAT_CONVERSATIONS_COL)
   );
 }
 
-export async function sendMessageToChat(conversationId: string, message: ChatMessage) {
-  const convRef = doc(db, 'chat_conversations', conversationId);
+export async function createChatConversationInFirestore(convo: ChatConversation) {
+  const convRef = doc(db, CHAT_CONVERSATIONS_COL, convo.id);
   try {
-    const docSnap = await getDocs(collection(db, 'chat_conversations'));
-    const convoDoc = docSnap.docs.find(d => d.id === conversationId);
-    if (convoDoc) {
-      const convoData = convoDoc.data() as ChatConversation;
-      const updatedMessages = [...(convoData.messages || []), message];
-      await setDoc(convRef, {
-        messages: updatedMessages,
+    await setDoc(convRef, cleanDataForFirestore(convo), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `${CHAT_CONVERSATIONS_COL}/${convo.id}`);
+  }
+}
+
+export async function sendMessageToChat(conversationId: string, message: ChatMessage) {
+  const convRef = doc(db, CHAT_CONVERSATIONS_COL, conversationId);
+  try {
+    const docSnap = await getDoc(convRef);
+    if (docSnap.exists()) {
+      await updateDoc(convRef, {
+        messages: arrayUnion(message),
         lastMessage: {
           content: message.content,
           sender: message.sender,
@@ -829,10 +863,26 @@ export async function sendMessageToChat(conversationId: string, message: ChatMes
           unread: false
         },
         updatedAt: message.timestamp
-      }, { merge: true });
+      });
+    } else {
+      await setDoc(convRef, cleanDataForFirestore({
+        id: conversationId,
+        customerName: 'Khách hàng',
+        customerPhone: '',
+        channel: 'FACEBOOK',
+        messages: [message],
+        lastMessage: {
+          content: message.content,
+          sender: message.sender,
+          timestamp: message.timestamp,
+          unread: false
+        },
+        status: 'ACTIVE',
+        updatedAt: message.timestamp
+      }));
     }
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, 'chat_conversations');
+    handleFirestoreError(error, OperationType.UPDATE, `${CHAT_CONVERSATIONS_COL}/${conversationId}`);
   }
 }
 
@@ -904,6 +954,24 @@ export async function deleteSparePartFromFirestore(id: string) {
   }
 }
 
+export async function deductSparePartsStockForWarrantyTicket(partsUsed: WarrantyTicketPart[]) {
+  if (!partsUsed || partsUsed.length === 0) return;
+  const batch = writeBatch(db);
+  for (const p of partsUsed) {
+    if (p.id) {
+      const partRef = doc(db, SPARE_PARTS_COL, p.id);
+      batch.update(partRef, {
+        stockQuantity: increment(-p.quantity)
+      });
+    }
+  }
+  try {
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${SPARE_PARTS_COL}/deductStock`);
+  }
+}
+
 // ----------------- REPAIR SERVICES (BẢNG GIÁ DỊCH VỤ SỬA CHỮA) -----------------
 export function subscribeToRepairServices(onData: (items: RepairServiceItem[]) => void) {
   const colRef = collection(db, REPAIR_SERVICES_COL);
@@ -960,13 +1028,14 @@ export async function processCheckoutTransaction(params: {
   tradeInDevice: DeviceItem | null;
   customerPartner: Partner | null;
   financeCompanyPartner: Partner | null;
+  fundToUpdate?: FundAccount | null;
 }) {
   const batch = writeBatch(db);
 
   try {
     // 1. Check & Mark Devices as Sold
     for (const d of params.devicesToSell) {
-      const devRef = doc(db, 'devices', d.id);
+      const devRef = doc(db, DEVICES_COL, d.id);
       batch.update(devRef, {
         status: 'sold',
         soldDate: new Date().toISOString(),
@@ -977,7 +1046,7 @@ export async function processCheckoutTransaction(params: {
 
     // 2. Decrease Accessory Stock
     for (const acc of params.accessoriesToSell) {
-      const prodRef = doc(db, 'products', acc.product.id);
+      const prodRef = doc(db, PRODUCTS_COL, acc.product.id);
       // Decrease stock
       const newStock = Math.max(0, acc.product.stockQuantity - acc.quantity);
       batch.update(prodRef, {
@@ -986,22 +1055,31 @@ export async function processCheckoutTransaction(params: {
     }
 
     // 3. Create SalesInvoice
-    const invRef = doc(db, 'invoices', params.invoice.id);
-    batch.set(invRef, params.invoice);
+    const invRef = doc(db, INVOICES_COL, params.invoice.id);
+    batch.set(invRef, cleanDataForFirestore(params.invoice));
 
     // 4. Create CashTransaction (if any)
     if (params.cashTx) {
-      const txRef = doc(db, 'cash_transactions', params.cashTx.id);
-      batch.set(txRef, params.cashTx);
+      const txRef = doc(db, CASH_TRANSACTIONS_COL, params.cashTx.id);
+      batch.set(txRef, cleanDataForFirestore(params.cashTx));
     }
 
-    // 5. Create Trade-In Device (if any)
+    // 5. Update Fund Balance (if receipt recorded) with atomic increment
+    if (params.fundToUpdate && params.cashTx && params.cashTx.amount > 0) {
+      const fundRef = doc(db, FUNDS_COL, params.fundToUpdate.id);
+      batch.update(fundRef, {
+        currentBalance: increment(params.cashTx.amount),
+        totalIncome: increment(params.cashTx.amount)
+      });
+    }
+
+    // 6. Create Trade-In Device (if any)
     if (params.tradeInDevice) {
-      const trdRef = doc(db, 'devices', params.tradeInDevice.id);
-      batch.set(trdRef, params.tradeInDevice);
+      const trdRef = doc(db, DEVICES_COL, params.tradeInDevice.id);
+      batch.set(trdRef, cleanDataForFirestore(params.tradeInDevice));
     }
 
-    // 6. Partner/Debt Accounting
+    // 7. Partner/Debt Accounting
     const debtIncrease = (params.invoice.installmentDisbursementStatus === 'PENDING' && params.invoice.installmentExpectedAmount) 
       ? params.invoice.installmentExpectedAmount 
       : 0;
@@ -1009,7 +1087,7 @@ export async function processCheckoutTransaction(params: {
     // Handle installment debt specifically for Finance Company
     if (debtIncrease > 0) {
       if (params.financeCompanyPartner) {
-        const fcRef = doc(db, 'partners', params.financeCompanyPartner.id);
+        const fcRef = doc(db, PARTNERS_COL, params.financeCompanyPartner.id);
         const newTx = {
           id: `TX-${Date.now().toString().slice(-6)}`,
           date: new Date().toISOString().split('T')[0],
@@ -1019,26 +1097,26 @@ export async function processCheckoutTransaction(params: {
           referenceId: params.invoice.id
         };
         batch.update(fcRef, {
-          outstandingDebt: (params.financeCompanyPartner.outstandingDebt || 0) + debtIncrease,
+          outstandingDebt: increment(debtIncrease),
           debtTransactions: [newTx, ...(params.financeCompanyPartner.debtTransactions || [])]
         });
       }
       
       // Update customer partner without adding debt (only totalSpent)
       if (params.customerPartner) {
-        const custRef = doc(db, 'partners', params.customerPartner.id);
+        const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
         batch.update(custRef, {
           type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
-          totalSpent: (params.customerPartner.totalSpent || 0) + params.invoice.finalAmount
+          totalSpent: increment(params.invoice.finalAmount)
         });
       }
     } else {
-      // Normal full payment, update customer partner totalSpent & any direct debt if applicable (though usually none for normal checkout unless debt is checked)
+      // Normal full payment, update customer partner totalSpent & any direct debt if applicable
       if (params.customerPartner) {
-        const custRef = doc(db, 'partners', params.customerPartner.id);
+        const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
         batch.update(custRef, {
           type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
-          totalSpent: (params.customerPartner.totalSpent || 0) + params.invoice.finalAmount
+          totalSpent: increment(params.invoice.finalAmount)
         });
       }
     }
@@ -1048,5 +1126,482 @@ export async function processCheckoutTransaction(params: {
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, 'checkout_transaction');
     throw error;
+  }
+}
+
+// ----------------- INVOICE CANCELLATION & REFUND ATOMIC REVERSAL -----------------
+export async function cancelInvoiceInFirestore(params: {
+  invoiceId: string;
+  cancelledBy: string;
+  reason: string;
+  devicesToRestore: DeviceItem[];
+  accessoriesToRestore: { product: ProductItem; quantity: number }[];
+  refundTx: CashTransaction | null;
+  fundToDeduct: FundAccount | null;
+  customerPartner: Partner | null;
+}) {
+  const batch = writeBatch(db);
+  const path = `${INVOICES_COL}/${params.invoiceId}`;
+
+  try {
+    // 1. Mark Invoice as CANCELLED with audit trail
+    const invRef = doc(db, INVOICES_COL, params.invoiceId);
+    batch.update(invRef, {
+      status: 'CANCELLED',
+      cancellationReason: params.reason,
+      cancelledBy: params.cancelledBy,
+      cancelledAt: new Date().toISOString()
+    });
+
+    // 2. Restore Devices status back to 'in_stock'
+    for (const d of params.devicesToRestore) {
+      const devRef = doc(db, DEVICES_COL, d.id);
+      batch.update(devRef, {
+        status: 'in_stock',
+        soldDate: null,
+        customerName: null,
+        customerPhone: null
+      });
+    }
+
+    // 3. Restore Accessory Stock Quantity
+    for (const acc of params.accessoriesToRestore) {
+      const prodRef = doc(db, PRODUCTS_COL, acc.product.id);
+      batch.update(prodRef, {
+        stockQuantity: increment(acc.quantity)
+      });
+    }
+
+    // 4. Create Refund Cash Transaction (PAYMENT)
+    if (params.refundTx) {
+      const txRef = doc(db, CASH_TRANSACTIONS_COL, params.refundTx.id);
+      batch.set(txRef, cleanDataForFirestore(params.refundTx));
+    }
+
+    // 5. Deduct Fund Balance using atomic increment
+    if (params.fundToDeduct && params.refundTx && params.refundTx.amount > 0) {
+      const fundRef = doc(db, FUNDS_COL, params.fundToDeduct.id);
+      batch.update(fundRef, {
+        currentBalance: increment(-params.refundTx.amount),
+        totalExpense: increment(params.refundTx.amount)
+      });
+    }
+
+    // 6. Reverse customer totalSpent if applicable
+    if (params.customerPartner && params.refundTx && params.refundTx.amount > 0) {
+      const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
+      batch.update(custRef, {
+        totalSpent: increment(-params.refundTx.amount)
+      });
+    }
+
+    await batch.commit();
+    return true;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
+  }
+}
+
+// ----------------- ATOMIC FUND TRANSFER & LEDGER ENTRY -----------------
+export async function transferFundsInFirestore(params: {
+  fromFundId: string;
+  toFundId: string;
+  fromFundName: string;
+  toFundName: string;
+  amount: number;
+  note: string;
+  transferredBy: string;
+  branchId?: string;
+  branchName?: string;
+}) {
+  const batch = writeBatch(db);
+  const now = new Date().toISOString();
+  const txOutId = `TX-OUT-${Date.now()}`;
+  const txInId = `TX-IN-${Date.now() + 1}`;
+
+  try {
+    // 1. Deduct from source fund
+    const fromRef = doc(db, FUNDS_COL, params.fromFundId);
+    batch.update(fromRef, {
+      currentBalance: increment(-params.amount),
+      totalExpense: increment(params.amount)
+    });
+
+    // 2. Add to destination fund
+    const toRef = doc(db, FUNDS_COL, params.toFundId);
+    batch.update(toRef, {
+      currentBalance: increment(params.amount),
+      totalIncome: increment(params.amount)
+    });
+
+    // 3. Create debit entry (chi chuyển quỹ)
+    const txOutRef = doc(db, CASH_TRANSACTIONS_COL, txOutId);
+    const txOutData: CashTransaction = {
+      id: txOutId,
+      code: `PC-${Date.now().toString().slice(-6)}`,
+      type: 'PAYMENT',
+      category: 'OTHER_EXPENSE',
+      categoryName: 'Chuyển quỹ nội bộ (Chi)',
+      amount: params.amount,
+      fundType: 'CASH',
+      fundName: params.fromFundName,
+      fundId: params.fromFundId,
+      date: now.split('T')[0],
+      notes: `Chuyển quỹ sang [${params.toFundName}]: ${params.note}`,
+      branchId: params.branchId || 'ALL',
+      creator: params.transferredBy,
+      status: 'COMPLETED'
+    };
+    batch.set(txOutRef, cleanDataForFirestore(txOutData));
+
+    // 4. Create credit entry (thu nhận chuyển quỹ)
+    const txInRef = doc(db, CASH_TRANSACTIONS_COL, txInId);
+    const txInData: CashTransaction = {
+      id: txInId,
+      code: `PT-${Date.now().toString().slice(-6)}`,
+      type: 'RECEIPT',
+      category: 'OTHER_INCOME',
+      categoryName: 'Chuyển quỹ nội bộ (Thu)',
+      amount: params.amount,
+      fundType: 'CASH',
+      fundName: params.toFundName,
+      fundId: params.toFundId,
+      date: now.split('T')[0],
+      notes: `Nhận chuyển quỹ từ [${params.fromFundName}]: ${params.note}`,
+      branchId: params.branchId || 'ALL',
+      creator: params.transferredBy,
+      status: 'COMPLETED'
+    };
+    batch.set(txInRef, cleanDataForFirestore(txInData));
+
+    await batch.commit();
+    return true;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${FUNDS_COL}/transfer`);
+    throw error;
+  }
+}
+
+// ----------------- DEBT SETTLEMENT ATOMIC BATCH -----------------
+export async function executeDebtSettlementInFirestore(params: {
+  partner: Partner;
+  newDebtAmount: number;
+  newDebtTransaction: PartnerDebtTransaction;
+  cashTx: CashTransaction;
+  fund: FundAccount;
+}) {
+  const batch = writeBatch(db);
+  try {
+    // 1. Update Partner
+    const partnerRef = doc(db, PARTNERS_COL, params.partner.id);
+    const updatedPartner: Partner = {
+      ...params.partner,
+      outstandingDebt: params.newDebtAmount,
+      debtTransactions: [params.newDebtTransaction, ...(params.partner.debtTransactions || [])]
+    };
+    batch.set(partnerRef, cleanDataForFirestore(updatedPartner), { merge: true });
+
+    // 2. Add CashTransaction
+    const txRef = doc(db, CASH_TRANSACTIONS_COL, params.cashTx.id);
+    batch.set(txRef, cleanDataForFirestore(params.cashTx));
+
+    // 3. Update Fund
+    const fundRef = doc(db, FUNDS_COL, params.fund.id);
+    const delta = params.cashTx.type === 'RECEIPT' ? params.cashTx.amount : -params.cashTx.amount;
+    const updatedFund: FundAccount = {
+      ...params.fund,
+      currentBalance: params.fund.currentBalance + delta,
+      totalIncome: params.cashTx.type === 'RECEIPT' ? (params.fund.totalIncome || 0) + params.cashTx.amount : params.fund.totalIncome,
+      totalExpense: params.cashTx.type === 'PAYMENT' ? (params.fund.totalExpense || 0) + params.cashTx.amount : params.fund.totalExpense
+    };
+    batch.set(fundRef, cleanDataForFirestore(updatedFund), { merge: true });
+
+    await batch.commit();
+    return { updatedPartner, cashTx: params.cashTx, updatedFund };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'debt_settlement');
+    throw error;
+  }
+}
+
+// ----------------- PURCHASE ORDERS -----------------
+export function subscribeToPurchaseOrders(onData: (orders: PurchaseOrder[]) => void) {
+  const colRef = collection(db, PURCHASE_ORDERS_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as PurchaseOrder);
+    if (data.length > 0) {
+      onData(data);
+    } else {
+      onData(INITIAL_PURCHASE_ORDERS);
+    }
+  }, (error) => handleFirestoreError(error, OperationType.LIST, PURCHASE_ORDERS_COL));
+}
+
+export async function addPurchaseOrderToFirestore(order: PurchaseOrder) {
+  const path = `${PURCHASE_ORDERS_COL}/${order.id}`;
+  try {
+    const docRef = doc(db, PURCHASE_ORDERS_COL, order.id);
+    await setDoc(docRef, cleanDataForFirestore(order));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updatePurchaseOrderInFirestore(order: PurchaseOrder) {
+  const path = `${PURCHASE_ORDERS_COL}/${order.id}`;
+  try {
+    const docRef = doc(db, PURCHASE_ORDERS_COL, order.id);
+    await setDoc(docRef, cleanDataForFirestore(order), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deletePurchaseOrderFromFirestore(id: string) {
+  const path = `${PURCHASE_ORDERS_COL}/${id}`;
+  try {
+    const docRef = doc(db, PURCHASE_ORDERS_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ----------------- MASTER CATALOG -----------------
+export function subscribeToCatalog(onData: (items: MasterCatalogItem[]) => void) {
+  const colRef = collection(db, CATALOG_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as MasterCatalogItem);
+    if (data.length > 0) {
+      onData(data);
+    } else {
+      onData(INITIAL_CATALOG_ITEMS);
+    }
+  }, (error) => handleFirestoreError(error, OperationType.LIST, CATALOG_COL));
+}
+
+export async function addCatalogItemToFirestore(item: MasterCatalogItem) {
+  const path = `${CATALOG_COL}/${item.id}`;
+  try {
+    const docRef = doc(db, CATALOG_COL, item.id);
+    await setDoc(docRef, cleanDataForFirestore(item));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateCatalogItemInFirestore(item: MasterCatalogItem) {
+  const path = `${CATALOG_COL}/${item.id}`;
+  try {
+    const docRef = doc(db, CATALOG_COL, item.id);
+    await setDoc(docRef, cleanDataForFirestore(item), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteCatalogItemFromFirestore(id: string) {
+  const path = `${CATALOG_COL}/${id}`;
+  try {
+    const docRef = doc(db, CATALOG_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ----------------- ATTENDANCE (CHẤM CÔNG 4 YẾU TỐ) -----------------
+export function subscribeToAttendance(onData: (records: AttendanceRecord[]) => void) {
+  const colRef = collection(db, ATTENDANCE_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as AttendanceRecord);
+    if (data.length > 0) {
+      onData(data);
+    } else {
+      onData(INITIAL_TODAY_ATTENDANCE_LIST);
+    }
+  }, (error) => handleFirestoreError(error, OperationType.LIST, ATTENDANCE_COL));
+}
+
+export async function addAttendanceRecordToFirestore(record: AttendanceRecord) {
+  const path = `${ATTENDANCE_COL}/${record.id}`;
+  try {
+    const docRef = doc(db, ATTENDANCE_COL, record.id);
+    await setDoc(docRef, cleanDataForFirestore(record));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateAttendanceRecordInFirestore(record: AttendanceRecord) {
+  const path = `${ATTENDANCE_COL}/${record.id}`;
+  try {
+    const docRef = doc(db, ATTENDANCE_COL, record.id);
+    await setDoc(docRef, cleanDataForFirestore(record), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteAttendanceRecordFromFirestore(id: string) {
+  const path = `${ATTENDANCE_COL}/${id}`;
+  try {
+    const docRef = doc(db, ATTENDANCE_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ----------------- SHIFT HANDOVER (BÀN GIAO CA TRỰC) -----------------
+export function subscribeToShiftHandovers(onData: (reports: ShiftHandoverReport[]) => void) {
+  const colRef = collection(db, SHIFT_HANDOVER_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as ShiftHandoverReport);
+    if (data.length > 0) {
+      onData(data);
+    } else {
+      onData(INITIAL_HANDOVER_REPORTS);
+    }
+  }, (error) => handleFirestoreError(error, OperationType.LIST, SHIFT_HANDOVER_COL));
+}
+
+export async function addShiftHandoverToFirestore(report: ShiftHandoverReport) {
+  const path = `${SHIFT_HANDOVER_COL}/${report.id}`;
+  try {
+    const docRef = doc(db, SHIFT_HANDOVER_COL, report.id);
+    await setDoc(docRef, cleanDataForFirestore(report));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateShiftHandoverInFirestore(report: ShiftHandoverReport) {
+  const path = `${SHIFT_HANDOVER_COL}/${report.id}`;
+  try {
+    const docRef = doc(db, SHIFT_HANDOVER_COL, report.id);
+    await setDoc(docRef, cleanDataForFirestore(report), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+// ----------------- SOP TEMPLATES -----------------
+export function subscribeToSOPTemplates(onData: (templates: SOPTemplateItem[]) => void) {
+  const colRef = collection(db, SOP_TEMPLATES_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as SOPTemplateItem);
+    if (data.length > 0) {
+      onData(data);
+    } else {
+      onData(INITIAL_SOP_TEMPLATES);
+    }
+  }, (error) => handleFirestoreError(error, OperationType.LIST, SOP_TEMPLATES_COL));
+}
+
+export async function addSOPTemplateToFirestore(template: SOPTemplateItem) {
+  const path = `${SOP_TEMPLATES_COL}/${template.id}`;
+  try {
+    const docRef = doc(db, SOP_TEMPLATES_COL, template.id);
+    await setDoc(docRef, cleanDataForFirestore(template));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateSOPTemplateInFirestore(template: SOPTemplateItem) {
+  const path = `${SOP_TEMPLATES_COL}/${template.id}`;
+  try {
+    const docRef = doc(db, SOP_TEMPLATES_COL, template.id);
+    await setDoc(docRef, cleanDataForFirestore(template), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteSOPTemplateFromFirestore(id: string) {
+  const path = `${SOP_TEMPLATES_COL}/${id}`;
+  try {
+    const docRef = doc(db, SOP_TEMPLATES_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ----------------- DAILY SHIFT CHECKLISTS -----------------
+export function subscribeToDailyChecklists(onData: (items: DailyShiftChecklistItem[]) => void) {
+  const colRef = collection(db, DAILY_CHECKLISTS_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as DailyShiftChecklistItem);
+    if (data.length > 0) {
+      onData(data);
+    } else {
+      onData(INITIAL_TODAY_SHIFT_CHECKLISTS);
+    }
+  }, (error) => handleFirestoreError(error, OperationType.LIST, DAILY_CHECKLISTS_COL));
+}
+
+export async function addDailyChecklistItemToFirestore(item: DailyShiftChecklistItem) {
+  const path = `${DAILY_CHECKLISTS_COL}/${item.id}`;
+  try {
+    const docRef = doc(db, DAILY_CHECKLISTS_COL, item.id);
+    await setDoc(docRef, cleanDataForFirestore(item));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateDailyChecklistItemInFirestore(item: DailyShiftChecklistItem) {
+  const path = `${DAILY_CHECKLISTS_COL}/${item.id}`;
+  try {
+    const docRef = doc(db, DAILY_CHECKLISTS_COL, item.id);
+    await setDoc(docRef, cleanDataForFirestore(item), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteDailyChecklistItemFromFirestore(id: string) {
+  const path = `${DAILY_CHECKLISTS_COL}/${id}`;
+  try {
+    const docRef = doc(db, DAILY_CHECKLISTS_COL, id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// ----------------- LEAVE REQUESTS -----------------
+export function subscribeToLeaveRequests(onData: (requests: LeaveRequest[]) => void) {
+  const colRef = collection(db, LEAVE_REQUESTS_COL);
+  return onSnapshot(colRef, (snapshot) => {
+    const data = snapshot.docs.map(doc => doc.data() as LeaveRequest);
+    if (data.length > 0) {
+      onData(data);
+    } else {
+      onData(INITIAL_LEAVE_REQUESTS);
+    }
+  }, (error) => handleFirestoreError(error, OperationType.LIST, LEAVE_REQUESTS_COL));
+}
+
+export async function addLeaveRequestToFirestore(request: LeaveRequest) {
+  const path = `${LEAVE_REQUESTS_COL}/${request.id}`;
+  try {
+    const docRef = doc(db, LEAVE_REQUESTS_COL, request.id);
+    await setDoc(docRef, cleanDataForFirestore(request));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateLeaveRequestInFirestore(request: LeaveRequest) {
+  const path = `${LEAVE_REQUESTS_COL}/${request.id}`;
+  try {
+    const docRef = doc(db, LEAVE_REQUESTS_COL, request.id);
+    await setDoc(docRef, cleanDataForFirestore(request), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }

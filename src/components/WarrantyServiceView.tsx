@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   subscribeToRepairServices, 
-  addRepairServiceToFirestore 
+  addRepairServiceToFirestore,
+  deductSparePartsStockForWarrantyTicket 
 } from '../services/firestoreService';
 import { 
   WarrantyTicket, 
@@ -555,6 +556,25 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
             status: 'COMPLETED'
           };
           onAddTransaction(newTx);
+        }
+      }
+    }
+
+    // Deduct spare parts stock atomically if parts are used
+    if ((newStatus === 'ready' || newStatus === 'delivered') && ticket.partsUsed && ticket.partsUsed.length > 0) {
+      const unDeductedParts = ticket.partsUsed.filter(p => !p.deductedFromStock);
+      if (unDeductedParts.length > 0) {
+        deductSparePartsStockForWarrantyTicket(unDeductedParts);
+        if (onUpdateSparePart) {
+          unDeductedParts.forEach(p => {
+            const currentPart = spareParts.find(sp => sp.id === p.id || sp.sku === p.sku);
+            if (currentPart) {
+              onUpdateSparePart({
+                ...currentPart,
+                stockQuantity: Math.max(0, currentPart.stockQuantity - p.quantity)
+              });
+            }
+          });
         }
       }
     }

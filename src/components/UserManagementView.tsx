@@ -956,6 +956,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           staffName={faceModalUser.displayName}
           staffEmail={faceModalUser.email}
           currentFacePhotoUrl={faceModalUser.facePhotoUrl || faceModalUser.avatarUrl}
+          isAdminApproving={true}
           onSaveFaceProfile={handleSaveFaceProfile}
         />
       )}

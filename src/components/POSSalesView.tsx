@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST, TradeInAppraisal, ProductItem, Partner } from '../types';
+import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST, TradeInAppraisal, ProductItem, Partner, UserAccount } from '../types';
 import { processCheckoutTransaction } from '../services/firestoreService';
 import { TradeInAssessmentModal } from './TradeInAssessmentModal';
 import { 
@@ -47,6 +47,7 @@ import {
 } from 'lucide-react';
 
 interface POSSalesViewProps {
+  currentUser?: UserAccount | null;
   devices: DeviceItem[];
   invoices: SalesInvoice[];
   leads?: Lead[];
@@ -64,6 +65,7 @@ interface POSSalesViewProps {
   onAddTradeIn?: (tradeIn: TradeInAppraisal) => void;
   onAddDevice?: (device: DeviceItem) => void;
   onOpenCheckIn?: () => void;
+  onUpdateProduct?: (product: ProductItem) => void;
 }
 
 // Phone model image mapping helper
@@ -90,6 +92,7 @@ const getPhoneImage = (model: string, color: string = '') => {
 };
 
 export const POSSalesView: React.FC<POSSalesViewProps> = ({
+  currentUser,
   devices,
   invoices,
   leads = [],
@@ -106,7 +109,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   onAddDevice,
   onOpenCheckIn,
   products,
-  partners
+  partners,
+  onUpdateProduct
 }) => {
   // Available stock items
   const inStockDevices = devices.filter(d => d.status === 'in_stock');
@@ -217,6 +221,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
   // Thermal Slip Modal
   const [createdInvoiceForPrint, setCreatedInvoiceForPrint] = useState<SalesInvoice | null>(null);
+  const [isProcessingCheckout, setIsProcessingCheckout] = useState(false);
 
   // If preSelectedDevice changes from outside
   useEffect(() => {
@@ -273,6 +278,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   };
 
   const handleCheckout = () => {
+    if (isProcessingCheckout) return;
     if (selectedDevices.length === 0) {
       alert('Vui lòng chọn ít nhất 1 cây máy để thanh toán!');
       return;
@@ -287,6 +293,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       setShowDiscountModal(true);
       return;
     }
+
+    setIsProcessingCheckout(true);
 
     let receiptAmount = 0;
     let fundTypeToUse: import('../types').PaymentFundType = 'CASH';
@@ -393,7 +401,23 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       }]
     };
 
-    // AUTO-INGEST TRADE-IN DEVICE TO INVENTORY
+    // 1. Mark selected devices as sold in inventory
+    selectedDevices.forEach(d => {
+      onUpdateDeviceStatus(d.imei, 'sold', customerName, customerPhone);
+    });
+
+    // 2. Reduce accessory stock
+    const accessoriesToSell: { product: ProductItem; quantity: number }[] = [];
+    selectedAccessoriesList.forEach(acc => {
+      if (acc.productRef) {
+        const newStock = Math.max(0, acc.productRef.stockQuantity - 1);
+        const updated = { ...acc.productRef, stockQuantity: newStock };
+        accessoriesToSell.push({ product: acc.productRef, quantity: 1 });
+        if (onUpdateProduct) onUpdateProduct(updated);
+      }
+    });
+
+    // 3. AUTO-INGEST TRADE-IN DEVICE TO INVENTORY
     let tradeInDevice: DeviceItem | null = null;
     if (tradeInDiscount > 0 && onAddDevice) {
       tradeInDevice = {
@@ -411,6 +435,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
         status: 'in_stock',
         warehouse: currentWarehouse.id,
         branch: currentBranch.name,
+        branchId: currentBranch.id,
         supplier: `Thu Cũ Đổi Mới Khách (${customerName} - ${customerPhone})`,
         receivedDate: new Date().toISOString().split('T')[0],
         warrantyPeriodMonths: 3,
@@ -421,7 +446,32 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       onAddDevice(tradeInDevice);
     }
 
+    // 4. Record Cash Receipt in Cashbook & update matching Fund
+    if (cashTx && onAddTransaction) {
+      onAddTransaction(cashTx);
+    }
+
+    // 5. Create Invoice & update partner
     onCreateInvoice(newInvoice);
+
+    // 6. Execute atomic batch write to Firestore in background
+    const customerPartner = partners.find(p => p.phone === customerPhone) || null;
+    const financeCompanyPartner = paymentMethod === 'Trả góp' ? (partners.find(p => p.name.toLowerCase().includes(installmentCompany.toLowerCase()) || p.supplierCategory === 'FINANCE_PARTNER') || null) : null;
+    const fundToUpdate = funds.find(f => (cashTx?.fundId && f.id === cashTx.fundId) || f.name === cashTx?.fundName || f.type === cashTx?.fundType) || null;
+
+    processCheckoutTransaction({
+      invoice: newInvoice,
+      devicesToSell: selectedDevices,
+      accessoriesToSell,
+      cashTx,
+      tradeInDevice,
+      customerPartner,
+      financeCompanyPartner,
+      fundToUpdate
+    })
+      .catch(err => console.warn('Firestore atomic checkout error (offline mode active):', err))
+      .finally(() => setIsProcessingCheckout(false));
+
     setCreatedInvoiceForPrint(newInvoice);
     setShowPaymentModal(false);
   };

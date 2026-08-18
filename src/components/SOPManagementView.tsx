@@ -51,6 +51,17 @@ import {
   INITIAL_HANDOVER_REPORTS 
 } from '../data/sopTemplatesData';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
+import {
+  subscribeToSOPTemplates,
+  addSOPTemplateToFirestore,
+  updateSOPTemplateInFirestore,
+  deleteSOPTemplateFromFirestore,
+  subscribeToDailyChecklists,
+  addDailyChecklistItemToFirestore,
+  updateDailyChecklistItemInFirestore,
+  subscribeToShiftHandovers,
+  updateShiftHandoverInFirestore
+} from '../services/firestoreService';
 
 interface SOPManagementViewProps {
   branches?: StoreBranch[];
@@ -77,6 +88,24 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
 
   // State for Handover Reports
   const [handoverReports, setHandoverReports] = useState<ShiftHandoverReport[]>(INITIAL_HANDOVER_REPORTS);
+
+  // Real-time Firestore Subscriptions
+  React.useEffect(() => {
+    const unsubTemplates = subscribeToSOPTemplates((data) => {
+      if (data && data.length > 0) setSopTemplates(data);
+    });
+    const unsubChecklists = subscribeToDailyChecklists((data) => {
+      if (data && data.length > 0) setDailyChecklists(data);
+    });
+    const unsubHandovers = subscribeToShiftHandovers((data) => {
+      if (data && data.length > 0) setHandoverReports(data);
+    });
+    return () => {
+      unsubTemplates();
+      unsubChecklists();
+      unsubHandovers();
+    };
+  }, []);
 
   // Modal State for SOP Template creation / editing
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -189,29 +218,26 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
 
     if (editingTemplate) {
       // Update
-      setSopTemplates(prev => prev.map(t => {
-        if (t.id === editingTemplate.id) {
-          return {
-            ...t,
-            code: formCode.trim() || t.code,
-            title: formTitle.trim(),
-            targetRole: formTargetRole,
-            targetRoleName: roleNameMap[formTargetRole],
-            category: formCategory,
-            categoryName: categoryNameMap[formCategory],
-            timeHint: formTimeHint,
-            priority: formPriority,
-            description: formDescription.trim(),
-            guidelines: parsedGuidelines.length > 0 ? parsedGuidelines : undefined,
-            requiresPhotoProof: formRequiresPhoto,
-            requiresNote: formRequiresNote,
-            penaltyPoints: formPenaltyPoints,
-            bonusPoints: formBonusPoints,
-            updatedAt: new Date().toLocaleDateString('vi-VN')
-          };
-        }
-        return t;
-      }));
+      const updatedTemplate: SOPTemplateItem = {
+        ...editingTemplate,
+        code: formCode.trim() || editingTemplate.code,
+        title: formTitle.trim(),
+        targetRole: formTargetRole,
+        targetRoleName: roleNameMap[formTargetRole],
+        category: formCategory,
+        categoryName: categoryNameMap[formCategory],
+        timeHint: formTimeHint,
+        priority: formPriority,
+        description: formDescription.trim(),
+        guidelines: parsedGuidelines.length > 0 ? parsedGuidelines : undefined,
+        requiresPhotoProof: formRequiresPhoto,
+        requiresNote: formRequiresNote,
+        penaltyPoints: formPenaltyPoints,
+        bonusPoints: formBonusPoints,
+        updatedAt: new Date().toLocaleDateString('vi-VN')
+      };
+      setSopTemplates(prev => prev.map(t => t.id === editingTemplate.id ? updatedTemplate : t));
+      updateSOPTemplateInFirestore(updatedTemplate);
     } else {
       // Create new
       const newTemplate: SOPTemplateItem = {
@@ -236,6 +262,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
         version: '1.0'
       };
       setSopTemplates([newTemplate, ...sopTemplates]);
+      addSOPTemplateToFirestore(newTemplate);
     }
 
     setIsModalOpen(false);
@@ -245,7 +272,9 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   const handleToggleTemplateActive = (id: string) => {
     setSopTemplates(prev => prev.map(t => {
       if (t.id === id) {
-        return { ...t, isActive: !t.isActive };
+        const updated = { ...t, isActive: !t.isActive };
+        updateSOPTemplateInFirestore(updated);
+        return updated;
       }
       return t;
     }));
@@ -255,6 +284,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   const handleDeleteTemplate = (id: string) => {
     if (window.confirm('Bạn có chắc chắn muốn xóa tiêu chuẩn SOP này?')) {
       setSopTemplates(prev => prev.filter(t => t.id !== id));
+      deleteSOPTemplateFromFirestore(id);
     }
   };
 
@@ -284,6 +314,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
     };
 
     setDailyChecklists([newTask, ...dailyChecklists]);
+    addDailyChecklistItemToFirestore(newTask);
     setDispatchTaskTitle('');
     setIsDispatchModalOpen(false);
   };
@@ -292,12 +323,14 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   const handleManagerAuditChecklist = (checkId: string) => {
     setDailyChecklists(prev => prev.map(item => {
       if (item.id === checkId) {
-        return {
+        const updated: DailyShiftChecklistItem = {
           ...item,
           verifiedByManager: true,
           verifiedAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
           verifiedBy: 'Cửa hàng trưởng'
         };
+        updateDailyChecklistItemInFirestore(updated);
+        return updated;
       }
       return item;
     }));
@@ -307,12 +340,14 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   const handleApproveHandover = (reportId: string) => {
     setHandoverReports(prev => prev.map(r => {
       if (r.id === reportId) {
-        return {
+        const updated: ShiftHandoverReport = {
           ...r,
           status: 'APPROVED_BY_MANAGER',
           managerApprovedBy: 'Ban Giám Đốc / CHT',
           managerFeedback: managerFeedbackText || 'Đã kiểm tra đối soát, số quỹ và máy tồn chính xác 100%.'
         };
+        updateShiftHandoverInFirestore(updated);
+        return updated;
       }
       return r;
     }));

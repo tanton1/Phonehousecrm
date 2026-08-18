@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Lead, DeviceItem } from '../types';
+import { Lead, DeviceItem, UserAccount, StoreBranch } from '../types';
+import { normalizePhoneNumber, formatPhoneDisplay } from '../utils/phoneUtils';
 import { 
   Users, 
   Plus, 
@@ -19,10 +20,10 @@ import {
   UserCheck,
   Send,
   Zap,
-  Tag
-, X } from 'lucide-react';
+  Tag,
+  X 
+} from 'lucide-react';
 
-import { UserAccount, StoreBranch } from "../types";
 interface CRMLeadsViewProps {
   currentUser?: UserAccount | null;
   branches?: StoreBranch[];
@@ -45,7 +46,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
   onNavigateToOmnichannelChat
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('ALL');
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [activeAIModalLead, setActiveAIModalLead] = useState<Lead | null>(null);
 
@@ -66,7 +67,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     tradeInRequirose: false,
     tradeInModel: '',
     status: 'new',
-      assignedStaff: 'Tuấn Bán Hàng',
+    assignedStaff: 'Tuấn Bán Hàng',
     followUpDate: new Date().toISOString().split('T')[0],
     notes: '',
     branchId: ''
@@ -76,6 +77,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     const matchesSearch = 
       l.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       l.phone.includes(searchTerm) ||
+      (l.phoneNormalized && l.phoneNormalized.includes(searchTerm)) ||
       l.interestedModel.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (l.notes && l.notes.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -91,10 +93,19 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       return;
     }
 
+    const cleanPhone = normalizePhoneNumber(formData.phone);
+    const existingDuplicate = leads.find(l => normalizePhoneNumber(l.phone) === cleanPhone);
+    if (existingDuplicate) {
+      if (!confirm(`Hệ thống phát hiện SĐT ${formData.phone} đã tồn tại ở Lead: "${existingDuplicate.name}" (${existingDuplicate.interestedModel}). Bạn có muốn tiếp tục tạo thêm Lead này không?`)) {
+        return;
+      }
+    }
+
     const newLead: Lead = {
-      id: `LEAD-${Date.now().toString().slice(-4)}`,
+      id: `LEAD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
       name: formData.name,
       phone: formData.phone,
+      phoneNormalized: cleanPhone,
       zalo: formData.zalo || formData.phone,
       source: (formData.source as any) || 'Facebook Ads',
       interestedModel: formData.interestedModel || 'iPhone 15 Pro Max',
@@ -151,11 +162,14 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       case 'new':
         return <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Mới Nhận</span>;
       case 'contacted':
-        return <span className="bg-orange-50 text-orange-800 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Tư Vấn</span>;
+        return <span className="bg-orange-50 text-orange-800 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Liên Hệ</span>;
       case 'negotiating':
-        return <span className="bg-orange-50 text-orange-800 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đang Thương Lượng</span>;
+        return <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đang Thương Lượng</span>;
+      case 'appointment_scheduled':
+        return <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Hẹn Showroom</span>;
+      case 'deposit_paid':
       case 'deposit':
-        return <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Đặt Cọc</span>;
+        return <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Đặt Cọc</span>;
       case 'won':
         return <span className="bg-orange-600 text-white text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold shadow-xs">Đã Chốt Sale</span>;
       case 'lost':
@@ -222,11 +236,12 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
             >
               <option value="ALL">Tất Cả Trạng Thái</option>
               <option value="new">Mới Nhận (Chưa Gọi)</option>
-              <option value="contacted">Đang Tư Vấn</option>
-              <option value="appraisal_scheduled">Hẹn Thẩm Định / Xem Máy</option>
+              <option value="contacted">Đã Liên Hệ</option>
+              <option value="negotiating">Đang Thương Lượng</option>
+              <option value="appointment_scheduled">Hẹn Đến Showroom</option>
               <option value="deposit_paid">Đã Cọc Giữ Máy</option>
-              <option value="won">Thành Công (Đã Mua)</option>
-              <option value="lost">Đã Mất Lead</option>
+              <option value="won">Thành Công (Đã Chốt Sale)</option>
+              <option value="lost">Đã Mất Lead / Hủy</option>
             </select>
           </div>
         </div>
@@ -253,7 +268,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
                     <div className="flex items-center space-x-2 mt-0.5">
                       <a href={`tel:${lead.phone}`} className="text-xs font-mono text-orange-600 font-bold hover:underline flex items-center space-x-1">
                         <Phone className="w-3 h-3" />
-                        <span>{lead.phone}</span>
+                        <span>{formatPhoneDisplay(lead.phone)}</span>
                       </a>
                       <span className="text-[10px] bg-zinc-100 text-zinc-600 px-1.5 py-0.2 rounded font-medium">
                         {lead.source}
@@ -427,8 +442,11 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
                   >
                     <option value="new">Mới Nhận (New)</option>
                     <option value="contacted">Đã Liên Hệ (Contacted)</option>
-                    <option value="appraisal_scheduled">Hẹn Xem Máy / Thu Cũ</option>
-                    <option value="deposit_paid">Đã Giữ Cọc</option>
+                    <option value="negotiating">Đang Thương Lượng (Negotiating)</option>
+                    <option value="appointment_scheduled">Hẹn Đến Showroom</option>
+                    <option value="deposit_paid">Đã Cọc Giữ Máy</option>
+                    <option value="won">Thành Công (Won)</option>
+                    <option value="lost">Đã Mất Lead (Lost)</option>
                   </select>
                 </div>
               </div>

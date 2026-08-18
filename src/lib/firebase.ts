@@ -114,15 +114,6 @@ export async function loginWithEmail(email: string, pass: string) {
     const res = await signInWithEmailAndPassword(auth, email, pass);
     return res.user;
   } catch (error: any) {
-    // If user does not exist in Firebase Auth yet, try creating it automatically for seamless bootstrap
-    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-      try {
-        const createRes = await createUserWithEmailAndPassword(auth, email, pass);
-        return createRes.user;
-      } catch (createErr) {
-        throw error;
-      }
-    }
     throw error;
   }
 }

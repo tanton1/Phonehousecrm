@@ -2,8 +2,227 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
+
+    // ============================================================
+    // HELPER FUNCTIONS & AUTHENTICATION / PERMISSION INVARIANTS
+    // ============================================================
+
+    // 1. Basic Authentication Check
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // 2. Self check (User modifying own profile)
+    function isSelf(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // 3. User Data & Role helpers
+    function userExists() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getUserRole() {
+      return userExists() ? getUserData().role : '';
+    }
+
+    function getUserBranch() {
+      return userExists() ? getUserData().branchId : '';
+    }
+
+    // 4. Role Hierarchy Check
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'ADMIN' || 
+        getUserRole() == 'ADMIN' ||
+        request.auth.token.email == 'nhattank16.1@gmail.com'
+      );
+    }
+
+    function isManager() {
+      return isAdmin() || (
+        isAuthenticated() && (
+          request.auth.token.role == 'MANAGER' || 
+          getUserRole() == 'MANAGER'
+        )
+      );
+    }
+
+    // 5. Multi-tenant Branch Isolation
+    function canAccessBranch(branchId) {
+      return isAdmin() || isManager() || (
+        isAuthenticated() && (
+          branchId == null ||
+          branchId == '' ||
+          branchId == 'ALL' ||
+          branchId == getUserBranch() ||
+          (userExists() && 'assignedBranchIds' in getUserData() && branchId in getUserData().assignedBranchIds)
+        )
+      );
+    }
+
+    // ============================================================
+    // COLLECTION-SPECIFIC SECURITY RULES
+    // ============================================================
+
+    // Test connection doc used on boot verification
+    match /test/{docId} {
       allow read, write: if true;
+    }
+
+    // 1. Users Management (Role escalation protection)
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() || isSelf(userId);
+      allow update: if isAdmin() || (
+        isSelf(userId) &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.branchId == resource.data.branchId
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 2. Global Enterprise Settings, Branches & Warehouses
+    match /storeSettings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /branches/{branchId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /warehouses/{warehouseId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // 3. Operational Collections (Scoped by branchId where applicable)
+    match /devices/{deviceId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && (
+        canAccessBranch(resource.data.branchId) || canAccessBranch(request.resource.data.branchId)
+      );
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && (
+        canAccessBranch(resource.data.branchId) || canAccessBranch(request.resource.data.branchId)
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /leads/{leadId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && (
+        canAccessBranch(resource.data.branchId) || canAccessBranch(request.resource.data.branchId)
+      );
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /tradeIns/{tradeInId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && (
+        canAccessBranch(resource.data.branchId) || canAccessBranch(request.resource.data.branchId)
+      );
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /warrantyTickets/{ticketId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && (
+        canAccessBranch(resource.data.branchId) || canAccessBranch(request.resource.data.branchId)
+      );
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /partners/{partnerId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && (
+        canAccessBranch(resource.data.branchId) || canAccessBranch(request.resource.data.branchId)
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /transfers/{transferId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /spareParts/{partId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /repairServices/{serviceId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isManager();
+    }
+
+    match /funds/{fundId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow write: if isAdmin() || isManager() || (isAuthenticated() && canAccessBranch(request.resource.data.branchId));
+    }
+
+    match /cashTransactions/{txId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAdmin() || isManager();
+      allow delete: if isAdmin();
+    }
+
+    match /chatConversations/{convoId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    match /attendance/{attId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /sopTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isManager();
+    }
+
+    match /shiftHandover/{handoverId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /purchaseOrders/{orderId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    match /catalogItems/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isManager();
+    }
+
+    // Default Fallback
+    match /{document=**} {
+      allow read, write: if isAdmin();
     }
   }
 }

@@ -50,7 +50,10 @@ interface InvoicesViewProps {
   onNavigateToPOS: () => void;
   onUpdateInvoice?: (invoice: SalesInvoice) => void;
   onDeleteInvoice?: (invoiceId: string) => void;
+  onCancelInvoice?: (invoice: SalesInvoice, reason: string) => Promise<void> | void;
   initialSelectedInvoiceId?: string | null;
+  currentUser?: any;
+  branches?: any[];
 }
 
 type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
@@ -112,6 +115,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   onNavigateToPOS,
   onUpdateInvoice,
   onDeleteInvoice,
+  onCancelInvoice,
   initialSelectedInvoiceId
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -535,18 +539,27 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   <Share2 className="w-4 h-4 text-zinc-400" />
                   <span>{copiedText === 'link' ? 'Đã sao chép link!' : 'Chia sẻ liên kết'}</span>
                 </button>
-                {onDeleteInvoice && (
+                {(onCancelInvoice || onDeleteInvoice) && (
                   <button
-                    onClick={() => {
-                      if (window.confirm(`Bạn có chắc muốn hủy/xóa hóa đơn ${invoiceCode}?`)) {
-                        onDeleteInvoice(selectedInvoice.id);
+                    onClick={async () => {
+                      if (selectedInvoice.status === 'CANCELLED') {
+                        alert('Hóa đơn này đã ở trạng thái ĐÃ HỦY.');
+                        return;
+                      }
+                      const reason = window.prompt(`Nhập lý do hủy/hoàn hóa đơn ${invoiceCode}:`, 'Khách đổi ý trả hàng hoàn tiền');
+                      if (reason !== null && reason.trim()) {
+                        if (onCancelInvoice) {
+                          await onCancelInvoice(selectedInvoice, reason.trim());
+                        } else if (onDeleteInvoice) {
+                          onDeleteInvoice(selectedInvoice.id);
+                        }
                         setSelectedInvoice(null);
                       }
                     }}
-                    className="w-full px-3.5 py-2 text-left font-medium text-rose-600 hover:bg-rose-50 flex items-center space-x-2 border-t border-zinc-100"
+                    className="w-full px-3.5 py-2 text-left font-medium text-rose-600 hover:bg-rose-50 flex items-center space-x-2 border-t border-zinc-100 cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
-                    <span>Hủy hóa đơn</span>
+                    <span>Hủy & Hoàn trả hóa đơn</span>
                   </button>
                 )}
               </div>

@@ -344,23 +344,12 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     setCapturedSnapshotUrl(liveDataUrl);
     const liveVector = extractFaceFeatureVectorFromCanvas(canvas);
 
-    // If staff profile has no registered vector yet, auto-enroll baseline profile
+    // If staff profile has no approved registered vector, require proper registration & manager approval
     const hasExistingVector = staffFaceProfile?.faceFeatureVector && staffFaceProfile.faceFeatureVector.length > 0;
     if (!hasExistingVector) {
-      const newProfile = {
-        facePhotoUrl: liveDataUrl,
-        assignedFaceEmbedding: true,
-        faceEnrollmentDate: new Date().toISOString().split('T')[0],
-        faceFeatureVector: liveVector
-      };
-      setStaffFaceProfile(newProfile);
-      try {
-        localStorage.setItem(`phonehouse_face_profile_${selectedStaff.id}`, JSON.stringify(newProfile));
-      } catch (e) {}
-
-      setFaceStatus('SUCCESS');
-      setFaceConfidence(98.8);
-      setFaceFeedbackMsg(`✅ Đã ghi nhận gương mặt sinh trắc học chính chủ cho ${selectedStaff.name}. Sẵn sàng hoàn tất!`);
+      setFaceStatus('FAILED');
+      setFaceConfidence(0);
+      setFaceFeedbackMsg(`⚠️ ${selectedStaff.name} chưa có dữ liệu gương mặt được Quản lý phê duyệt. Vui lòng bấm "Đăng ký Face ID" để gửi yêu cầu phê duyệt.`);
       return;
     }
 
