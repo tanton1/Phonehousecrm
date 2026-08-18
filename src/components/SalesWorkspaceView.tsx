@@ -77,7 +77,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
           <div>
             <h1 className="text-sm font-black uppercase tracking-wider">Sales Desk</h1>
             <div className="text-[10px] text-orange-200 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span>
               {branches && branches.length > 0 ? branches[0].name : (currentUser?.branchName || storeSettings?.storeName || 'Chi nhánh chính')}
             </div>
           </div>
@@ -112,18 +112,18 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
             className="bg-white/20 hover:bg-white/30 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm backdrop-blur-md transition-all cursor-pointer active:scale-95 border border-white/20 shrink-0"
             title="Điểm danh khuôn mặt Face ID vào ca"
           >
-            <ScanFace className="w-4 h-4 text-amber-200 animate-pulse" />
+            <ScanFace className="w-4 h-4 text-orange-200 animate-pulse" />
             <span className="hidden sm:inline">⚡ Điểm Danh Face ID</span>
             <span className="sm:hidden">Điểm Danh</span>
           </button>
 
           <div className="hidden lg:flex items-center gap-2 bg-black/15 px-3 py-1.5 rounded-full text-xs font-bold">
-            <Target className="w-4 h-4 text-emerald-400" />
+            <Target className="w-4 h-4 text-orange-400" />
             KPI: 85% <span className="text-white/60 font-normal">/ 300tr</span>
           </div>
           <button className="relative w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
             <Bell className="w-4 h-4 text-white" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-emerald-400 rounded-full border border-[#FF4B16]"></span>
+            <span className="absolute top-1 right-1 w-2 h-2 bg-orange-400 rounded-full border border-[#FF4B16]"></span>
           </button>
           <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-xs text-[#FF4B16] shadow-inner">
             L

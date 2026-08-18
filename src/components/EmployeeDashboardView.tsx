@@ -487,8 +487,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       { name: 'iPhone 16 Series', value: Math.max(counts['iPhone 16 Series'], 6), color: '#F94A1F' },
       { name: 'iPhone 15 Series', value: Math.max(counts['iPhone 15 Series'], 9), color: '#FB923C' },
       { name: 'iPhone 14 Series', value: Math.max(counts['iPhone 14 Series'], 5), color: '#F59E0B' },
-      { name: 'Phụ Kiện SLM/Apple', value: Math.max(counts['Phụ Kiện Chính Hãng'], 14), color: '#10B981' },
-      { name: 'Bảo Hành & Sửa Chữa', value: Math.max(counts['Gói Care & Sửa Chữa'], 8), color: '#6366F1' }
+      { name: 'Phụ Kiện SLM/Apple', value: Math.max(counts['Phụ Kiện Chính Hãng'], 14), color: '#F97316' },
+      { name: 'Bảo Hành & Sửa Chữa', value: Math.max(counts['Gói Care & Sửa Chữa'], 8), color: '#E11D48' }
     ];
   }, [completedInvoices, actualWarrantyProcessed]);
 
@@ -513,7 +513,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               alt={currentStaff.name}
               className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-orange-500 shadow-md"
             />
-            <span className="absolute -bottom-1 -right-1 bg-emerald-500 text-white p-1 rounded-full text-[10px] ring-2 ring-white">
+            <span className="absolute -bottom-1 -right-1 bg-orange-500 text-white p-1 rounded-full text-[10px] ring-2 ring-white">
               <Check className="w-3 h-3 stroke-[3]" />
             </span>
           </div>
@@ -590,7 +590,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             <div className="self-end">
               <button
                 onClick={onOpenCheckIn}
-                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-3.5 py-2 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-md shadow-orange-500/20 active:scale-95"
+                className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-black px-3.5 py-2 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-md shadow-orange-500/20 active:scale-95"
                 title="Điểm danh chấm công Face ID vào/ra ca"
               >
                 <ScanFace className="w-3.5 h-3.5 animate-pulse" />
@@ -630,7 +630,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               </span>
               <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
                 orderAchievementPercent >= 100 
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                  ? 'bg-orange-100 text-orange-800 border border-orange-300' 
                   : 'bg-orange-100 text-orange-800 border border-orange-300'
               }`}>
                 {orderAchievementPercent}% KPI
@@ -650,7 +650,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             {/* Progress Bar */}
             <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden my-3">
               <div 
-                className="bg-gradient-to-r from-orange-500 to-amber-500 h-full rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-orange-500 to-orange-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(orderAchievementPercent, 100)}%` }}
               />
             </div>
@@ -666,20 +666,20 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
         {/* CARD 2: DOANH THU THỰC TẾ SO VỚI MỤC TIÊU */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-orange-200/90 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:border-orange-400 transition-all">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-50/60 rounded-bl-full -z-0 pointer-events-none transition-transform group-hover:scale-110" />
+          <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50/60 rounded-bl-full -z-0 pointer-events-none transition-transform group-hover:scale-110" />
           
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-extrabold uppercase tracking-wider text-zinc-600 flex items-center space-x-1.5">
-                <DollarSign className="w-4 h-4 text-emerald-600" />
+                <DollarSign className="w-4 h-4 text-orange-600" />
                 <span>Doanh Thu vs Mục Tiêu</span>
               </span>
               <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
                 revenueAchievementPercent >= 100 
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                  ? 'bg-orange-100 text-orange-800 border border-orange-300' 
                   : revenueAchievementPercent >= 80 
-                    ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                    : 'bg-orange-100 text-orange-800 border border-orange-300'
               }`}>
                 {revenueAchievementPercent}% Đạt
               </span>
@@ -698,7 +698,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             {/* Progress Bar */}
             <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden my-3">
               <div 
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-orange-500 to-orange-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(revenueAchievementPercent, 100)}%` }}
               />
             </div>
@@ -708,7 +708,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             <span className="text-zinc-600">
               {revenueRemaining > 0 ? 'Còn thiếu:' : 'Vượt chỉ tiêu:'}
             </span>
-            <span className={`font-bold font-mono ${revenueRemaining > 0 ? 'text-amber-600' : 'text-emerald-600 font-extrabold'}`}>
+            <span className={`font-bold font-mono ${revenueRemaining > 0 ? 'text-orange-600' : 'text-orange-600 font-extrabold'}`}>
               {revenueRemaining > 0 ? formatVND(revenueRemaining) : `+${formatVND(actualRevenue - targetRevenue)}`}
             </span>
           </div>
@@ -716,18 +716,18 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
         {/* CARD 3: SỐ LƯỢNG MÁY ĐÃ XỬ LÝ BẢO HÀNH */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-orange-200/90 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:border-orange-400 transition-all">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/60 rounded-bl-full -z-0 pointer-events-none transition-transform group-hover:scale-110" />
+          <div className="absolute top-0 right-0 w-32 h-32 bg-rose-50/60 rounded-bl-full -z-0 pointer-events-none transition-transform group-hover:scale-110" />
           
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-extrabold uppercase tracking-wider text-zinc-600 flex items-center space-x-1.5">
-                <Wrench className="w-4 h-4 text-indigo-600" />
+                <Wrench className="w-4 h-4 text-rose-600" />
                 <span>Máy Xử Lý Bảo Hành</span>
               </span>
               <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
                 warrantyAchievementPercent >= 100 
-                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
-                  : 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                  ? 'bg-orange-100 text-orange-800 border border-orange-300' 
+                  : 'bg-rose-100 text-rose-800 border border-rose-300'
               }`}>
                 {warrantyAchievementPercent}% KPI
               </span>
@@ -746,7 +746,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             {/* Progress Bar */}
             <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden my-3">
               <div 
-                className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-rose-500 to-rose-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(warrantyAchievementPercent, 100)}%` }}
               />
             </div>
@@ -754,7 +754,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
           <div className="relative z-10 pt-2 border-t border-zinc-100 flex items-center justify-between text-xs text-zinc-600">
             <span>Đang kiểm tra / sửa:</span>
-            <span className="font-bold text-indigo-600 font-mono">
+            <span className="font-bold text-rose-600 font-mono">
               {inProgressWarrantyTickets.length} máy
             </span>
           </div>
@@ -765,10 +765,10 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       {/* ========================================================================= */}
       {/* 3. COMMISSION & KPI BONUS BANNER */}
       {/* ========================================================================= */}
-      <div className="bg-gradient-to-r from-orange-500 via-[#F94A1F] to-amber-600 rounded-3xl p-5 sm:p-6 text-white shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-orange-500 via-[#F94A1F] to-orange-600 rounded-3xl p-5 sm:p-6 text-white shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
-            <Award className="w-5 h-5 text-amber-200" />
+            <Award className="w-5 h-5 text-orange-200" />
             <span className="text-xs font-black uppercase tracking-wider text-orange-100">
               Thu Nhập Hoa Hồng & Thưởng KPI Tạm Tính
             </span>
@@ -1000,9 +1000,9 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <div className={`p-4 rounded-2xl border ${revenueAchievementPercent >= 80 && revenueAchievementPercent < 100 ? 'bg-orange-50/70 border-orange-300 ring-2 ring-orange-400' : 'bg-zinc-50 border-zinc-200'}`}>
                   <div className="flex items-center justify-between text-xs font-bold text-zinc-600 mb-1">
                     <span>Mức Đạt 80% - 99%</span>
-                    <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">Bậc 2</span>
+                    <span className="text-[10px] bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-bold">Bậc 2</span>
                   </div>
-                  <div className="text-sm font-black text-blue-900">+ 1.000.000 VNĐ</div>
+                  <div className="text-sm font-black text-orange-900">+ 1.000.000 VNĐ</div>
                   <div className="text-xs text-zinc-500 mt-1">1.5% hoa hồng doanh số</div>
                 </div>
 
@@ -1010,9 +1010,9 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <div className={`p-4 rounded-2xl border ${revenueAchievementPercent >= 100 && revenueAchievementPercent < 120 ? 'bg-orange-50/70 border-orange-300 ring-2 ring-orange-400' : 'bg-zinc-50 border-zinc-200'}`}>
                   <div className="flex items-center justify-between text-xs font-bold text-zinc-600 mb-1">
                     <span>Mức Đạt 100% - 119%</span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">Bậc 3 ⭐</span>
+                    <span className="text-[10px] bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-bold">Bậc 3 ⭐</span>
                   </div>
-                  <div className="text-sm font-black text-emerald-800">+ 3.000.000 VNĐ</div>
+                  <div className="text-sm font-black text-orange-800">+ 3.000.000 VNĐ</div>
                   <div className="text-xs text-zinc-500 mt-1">2.0% hoa hồng + Chiến Binh Bán Hàng</div>
                 </div>
 
@@ -1020,9 +1020,9 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <div className={`p-4 rounded-2xl border ${revenueAchievementPercent >= 120 ? 'bg-orange-50/70 border-orange-300 ring-2 ring-orange-400' : 'bg-zinc-50 border-zinc-200'}`}>
                   <div className="flex items-center justify-between text-xs font-bold text-zinc-600 mb-1">
                     <span>Mức Vượt &gt;= 120%</span>
-                    <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold">Bậc Vàng 🏆</span>
+                    <span className="text-[10px] bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full font-bold">Bậc Vàng 🏆</span>
                   </div>
-                  <div className="text-sm font-black text-purple-900">+ 5.000.000 VNĐ</div>
+                  <div className="text-sm font-black text-rose-900">+ 5.000.000 VNĐ</div>
                   <div className="text-xs text-zinc-500 mt-1">2.5% hoa hồng + Thưởng nóng BGD</div>
                 </div>
 
@@ -1041,11 +1041,11 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               </div>
               <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200">
                 <span className="text-xs text-zinc-500 font-bold">Máy bảo hành xong</span>
-                <div className="text-xl font-black text-indigo-600 font-mono mt-1">{actualWarrantyProcessed} máy</div>
+                <div className="text-xl font-black text-rose-600 font-mono mt-1">{actualWarrantyProcessed} máy</div>
               </div>
               <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200">
                 <span className="text-xs text-zinc-500 font-bold">Tỷ lệ đúng hẹn SLA</span>
-                <div className="text-xl font-black text-emerald-600 font-mono mt-1">100%</div>
+                <div className="text-xl font-black text-orange-600 font-mono mt-1">100%</div>
               </div>
             </div>
 
@@ -1164,7 +1164,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 Danh sách phiếu bảo hành & sửa chữa do <strong className="text-zinc-900">{currentStaff.name}</strong> tiếp nhận / xử lý kỹ thuật
               </div>
 
-              <span className="text-xs font-black bg-indigo-100 text-indigo-800 px-3 py-1 rounded-full">
+              <span className="text-xs font-black bg-rose-100 text-rose-800 px-3 py-1 rounded-full">
                 Tổng cộng: {employeeWarrantyTickets.length} phiếu
               </span>
             </div>
@@ -1186,8 +1186,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 </thead>
                 <tbody className="divide-y divide-zinc-200 bg-white">
                   {employeeWarrantyTickets.map((ticket) => (
-                    <tr key={ticket.id} className="hover:bg-indigo-50/40 transition-colors">
-                      <td className="py-3 px-3.5 font-bold font-mono text-indigo-600">
+                    <tr key={ticket.id} className="hover:bg-rose-50/40 transition-colors">
+                      <td className="py-3 px-3.5 font-bold font-mono text-rose-600">
                         {ticket.ticketNumber || ticket.id}
                       </td>
                       <td className="py-3 px-3.5">
@@ -1207,10 +1207,10 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                       <td className="py-3 px-3.5">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                           ticket.status === 'ready' || ticket.status === 'delivered'
-                            ? 'bg-emerald-100 text-emerald-800'
+                            ? 'bg-orange-100 text-orange-800'
                             : ticket.status === 'repairing'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-blue-100 text-blue-800'
+                              ? 'bg-orange-100 text-orange-800'
+                              : 'bg-orange-100 text-orange-800'
                         }`}>
                           {ticket.status === 'delivered' ? 'Đã giao khách' :
                            ticket.status === 'ready' ? 'Đã sửa xong' :
@@ -1222,7 +1222,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                       </td>
                       <td className="py-3 px-3.5 text-right font-bold font-mono text-zinc-900">
                         {ticket.isWarrantyFree ? (
-                          <span className="text-emerald-600 font-bold">Miễn Phí BH</span>
+                          <span className="text-orange-600 font-bold">Miễn Phí BH</span>
                         ) : (
                           formatVND(ticket.finalCost || ticket.estimatedCost || 0)
                         )}
@@ -1230,7 +1230,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                       <td className="py-3 px-3.5 text-center">
                         <button
                           onClick={() => setSelectedWarrantyPreview(ticket)}
-                          className="p-1.5 hover:bg-indigo-100 text-zinc-600 hover:text-indigo-600 rounded-lg transition-colors cursor-pointer"
+                          className="p-1.5 hover:bg-rose-100 text-zinc-600 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
                           title="Xem chi tiết phiếu bảo hành"
                         >
                           <Eye className="w-4 h-4" />
@@ -1256,7 +1256,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
           return (
             <div className="p-5 sm:p-6 space-y-6 animate-fadeIn">
               {/* WALLET BANNER */}
-              <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-indigo-950 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-rose-950 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="bg-[#F94A1F] text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
@@ -1285,10 +1285,10 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               {/* 2 DUAL WALLETS BREAKDOWN CARDS */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* 1. TECH WALLET */}
-                <div className="bg-white rounded-3xl p-5 border border-blue-200/80 shadow-2xs space-y-4">
+                <div className="bg-white rounded-3xl p-5 border border-orange-200/80 shadow-2xs space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                      <div className="w-10 h-10 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center font-bold">
                         <Wrench className="w-5 h-5" />
                       </div>
                       <div>
@@ -1298,7 +1298,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                     </div>
                     <div className="text-right">
                       <div className="text-base font-black text-orange-600 font-mono">+{formatVND(tech.totalCommission)}</div>
-                      <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] font-bold text-orange-800 bg-orange-50 px-2 py-0.5 rounded-full">
                         {tech.completedTicketCount} ca xong
                       </span>
                     </div>
@@ -1313,21 +1313,21 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                     <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
                       <div className="text-[10px] text-zinc-400 uppercase font-bold">Sửa Dịch Vụ</div>
                       <div className="font-black text-zinc-900 mt-0.5">{tech.repairCount} ca</div>
-                      <div className="text-[10px] text-amber-600 font-mono font-bold">+{formatVND(tech.repairAmount)}</div>
+                      <div className="text-[10px] text-orange-600 font-mono font-bold">+{formatVND(tech.repairAmount)}</div>
                     </div>
                     <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
                       <div className="text-[10px] text-zinc-400 uppercase font-bold">Bảo Hành FREE</div>
                       <div className="font-black text-zinc-900 mt-0.5">{tech.warrantyCount} máy</div>
-                      <div className="text-[10px] text-emerald-600 font-mono font-bold">+{formatVND(tech.warrantyAmount)}</div>
+                      <div className="text-[10px] text-orange-600 font-mono font-bold">+{formatVND(tech.warrantyAmount)}</div>
                     </div>
                   </div>
                 </div>
 
                 {/* 2. SALES WALLET */}
-                <div className="bg-white rounded-3xl p-5 border border-emerald-200/80 shadow-2xs space-y-4">
+                <div className="bg-white rounded-3xl p-5 border border-orange-200/80 shadow-2xs space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                      <div className="w-10 h-10 rounded-2xl bg-orange-100 text-orange-700 flex items-center justify-center font-bold">
                         <Smartphone className="w-5 h-5" />
                       </div>
                       <div>
@@ -1336,8 +1336,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-base font-black text-emerald-600 font-mono">+{formatVND(sales.totalCommission)}</div>
-                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full">
+                      <div className="text-base font-black text-orange-600 font-mono">+{formatVND(sales.totalCommission)}</div>
+                      <span className="text-[10px] font-bold text-orange-800 bg-orange-50 px-2 py-0.5 rounded-full">
                         {sales.completedOrderCount} đơn chốt
                       </span>
                     </div>
@@ -1347,7 +1347,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                     <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
                       <div className="text-[10px] text-zinc-400 uppercase font-bold">Bán Máy iPhone</div>
                       <div className="font-black text-zinc-900 mt-0.5">{sales.deviceOrderCount || 0} máy</div>
-                      <div className="text-[10px] text-emerald-600 font-mono font-bold">+{formatVND(sales.deviceAmount ?? sales.deviceCommission ?? 0)}</div>
+                      <div className="text-[10px] text-orange-600 font-mono font-bold">+{formatVND(sales.deviceAmount ?? sales.deviceCommission ?? 0)}</div>
                     </div>
                     <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
                       <div className="text-[10px] text-zinc-400 uppercase font-bold">Phụ Kiện SLM</div>
@@ -1357,7 +1357,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                     <div className="bg-zinc-50 p-2.5 rounded-xl text-center">
                       <div className="text-[10px] text-zinc-400 uppercase font-bold">Gói VIP Care</div>
                       <div className="font-black text-zinc-900 mt-0.5">{sales.carePackageCount || 0} gói</div>
-                      <div className="text-[10px] text-purple-600 font-mono font-bold">+{formatVND(sales.carePackageAmount ?? sales.carePackageCommission ?? 0)}</div>
+                      <div className="text-[10px] text-rose-600 font-mono font-bold">+{formatVND(sales.carePackageAmount ?? sales.carePackageCommission ?? 0)}</div>
                     </div>
                   </div>
                 </div>
@@ -1382,14 +1382,14 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                       <div key={tx.id || idx} className="p-3.5 hover:bg-zinc-50 flex items-center justify-between text-xs transition-colors">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-                            tx.walletCategory === 'TECH_WALLET' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'
+                            tx.walletCategory === 'TECH_WALLET' ? 'bg-orange-100 text-orange-700' : 'bg-orange-100 text-orange-700'
                           }`}>
                             {tx.walletCategory === 'TECH_WALLET' ? <Wrench className="w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
                           </div>
                           <div>
                             <div className="font-bold text-zinc-900">{tx.productName}</div>
                             <div className="text-[11px] text-zinc-500 flex items-center gap-1.5 mt-0.5">
-                              <span className="font-mono font-bold text-indigo-600">{tx.orderCode}</span>
+                              <span className="font-mono font-bold text-rose-600">{tx.orderCode}</span>
                               <span>•</span>
                               <span>{tx.occurredAt}</span>
                               <span>•</span>
@@ -1399,8 +1399,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                         </div>
 
                         <div className="text-right">
-                          <div className="font-black font-mono text-emerald-600 text-sm">+{formatVND(tx.commissionAmount)}</div>
-                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <div className="font-black font-mono text-orange-600 text-sm">+{formatVND(tx.commissionAmount)}</div>
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-orange-50 text-orange-800 border border-orange-200">
                             {tx.status}
                           </span>
                         </div>
@@ -1609,7 +1609,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div>
                 <span className="text-[10px] font-bold text-zinc-400 uppercase">Phiếu Bảo Hành / Sửa Chữa</span>
-                <h3 className="font-black text-base text-indigo-600 font-mono">
+                <h3 className="font-black text-base text-rose-600 font-mono">
                   {selectedWarrantyPreview.ticketNumber || selectedWarrantyPreview.id}
                 </h3>
               </div>
@@ -1639,7 +1639,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <span className="text-zinc-700 max-w-[280px] text-right">{selectedWarrantyPreview.faultDescription}</span>
               </div>
               {selectedWarrantyPreview.solutionNotes && (
-                <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-200 text-indigo-900">
+                <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-200 text-rose-900">
                   <span className="font-bold block mb-0.5">Phương Án Đã Xử Lý:</span>
                   <span>{selectedWarrantyPreview.solutionNotes}</span>
                 </div>

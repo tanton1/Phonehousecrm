@@ -1,0 +1,10 @@
+--- src/components/POSSalesView.tsx
++++ src/components/POSSalesView.tsx
+@@ -181,6 +181,7 @@
+   const [voucherDiscount, setVoucherDiscount] = useState(200000);
+   const [tradeInModel, setTradeInModel] = useState('');
+   const [tradeInDiscount, setTradeInDiscount] = useState(0);
++  const [tradeInImei, setTradeInImei] = useState('');
+ 
+   // Modals & Drawers State
+   const [showDevicePickerModal, setShowDevicePickerModal] = useState(false);

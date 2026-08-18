@@ -53,7 +53,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         return (
           <button 
             onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'inspecting'); }}
-            className="w-full mt-3 py-1.5 bg-blue-50 text-orange-600 text-xs font-semibold rounded hover:bg-blue-100 flex items-center justify-center transition-colors"
+            className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
           >
             <Wrench className="w-3.5 h-3.5 mr-1" />
             Nhận Xử Lý
@@ -64,14 +64,14 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
           <div className="flex space-x-2 mt-3">
             <button 
               onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'waiting_parts'); }}
-              className="flex-1 py-1.5 bg-amber-50 text-amber-600 text-xs font-semibold rounded hover:bg-amber-100 flex items-center justify-center transition-colors"
+              className="flex-1 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
             >
               <Package className="w-3.5 h-3.5 mr-1" />
               Chờ LK
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'ready'); }}
-              className="flex-1 py-1.5 bg-emerald-50 text-emerald-600 text-xs font-semibold rounded hover:bg-emerald-100 flex items-center justify-center transition-colors"
+              className="flex-1 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
               Xong
@@ -82,7 +82,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         return (
           <button 
             onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'repairing'); }}
-            className="w-full mt-3 py-1.5 bg-blue-50 text-orange-600 text-xs font-semibold rounded hover:bg-blue-100 flex items-center justify-center transition-colors"
+            className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
           >
             <ArrowRight className="w-3.5 h-3.5 mr-1" />
             Tiếp Tục
@@ -108,7 +108,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
           </div>
           <button
             onClick={onOpenAddTaskModal}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
+            className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
           >
             <span>+ Phân Công Task Hoa Hồng KTV</span>
           </button>
@@ -123,8 +123,8 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
               <h3 className="text-sm font-semibold text-zinc-700 flex items-center">
                 {col.id === 'TODO' && <KanbanSquare className="w-4 h-4 mr-2 text-zinc-500" />}
                 {col.id === 'IN_PROGRESS' && <Wrench className="w-4 h-4 mr-2 text-orange-500" />}
-                {col.id === 'PENDING_PARTS' && <Package className="w-4 h-4 mr-2 text-amber-500" />}
-                {col.id === 'DONE' && <CheckCircle2 className="w-4 h-4 mr-2 text-emerald-500" />}
+                {col.id === 'PENDING_PARTS' && <Package className="w-4 h-4 mr-2 text-orange-500" />}
+                {col.id === 'DONE' && <CheckCircle2 className="w-4 h-4 mr-2 text-orange-500" />}
                 {col.title}
               </h3>
               <span className="bg-zinc-200 text-zinc-600 text-xs px-2 py-0.5 rounded-full font-medium">
@@ -138,10 +138,10 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                 <div 
                   key={task.id} 
                   onClick={() => onTaskClick(task)}
-                  className="bg-white p-3 rounded-lg border border-zinc-200 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-all group"
+                  className="bg-white p-3 rounded-lg border border-zinc-200 shadow-sm cursor-pointer hover:border-orange-300 hover:shadow-md transition-all group"
                 >
                   <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-bold text-orange-600 bg-blue-50 px-2 py-0.5 rounded">
+                    <span className="text-xs font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">
                       {task.ticketNumber}
                     </span>
                     <span className="text-[10px] font-medium text-zinc-400">
@@ -159,7 +159,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                   </div>
 
                   {Boolean(task.commissionAmount) && (
-                    <div className="my-2 p-1.5 bg-amber-50 rounded-lg border border-amber-200/60 flex items-center justify-between text-[11px] font-bold text-amber-800">
+                    <div className="my-2 p-1.5 bg-orange-50 rounded-lg border border-orange-200/60 flex items-center justify-between text-[11px] font-bold text-orange-800">
                       <span>💰 Hoa hồng KTV:</span>
                       <span className="font-mono text-xs">{task.commissionAmount?.toLocaleString('vi-VN')} đ</span>
                     </div>
@@ -170,7 +170,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                       KTV: <span className="font-semibold text-zinc-700">{task.technician || 'Chưa nhận'}</span>
                     </div>
                     {task.taskType === 'INBOUND_QC' ? (
-                      <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
                         QC Nhập
                       </span>
                     ) : (

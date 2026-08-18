@@ -197,14 +197,14 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
         setIsCameraActive(true);
         setIsCameraStarting(false);
       } else {
-        setCameraError('Trình duyệt không hỗ trợ Camera API.');
+        setCameraError('Camera bị chặn bởi trình duyệt. Vui lòng nhấn nút MỞ TRONG TAB MỚI (Icon góc trên phải màn hình) để cấp quyền Camera và sử dụng tính năng này.');
         setIsCameraStarting(false);
       }
     } catch (err: any) {
       setIsCameraStarting(false);
       setIsCameraActive(false);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setCameraError('Vui lòng cấp quyền truy cập Camera để xác thực khuôn mặt.');
+        setCameraError('Chưa có quyền Camera. ⚠️ Vui lòng cấp quyền trên trình duyệt, hoặc bấm biểu tượng MỞ TAB MỚI (↗) góc trên bên phải để sử dụng.');
       } else {
         setCameraError('Không thể khởi động Camera: ' + (err.message || 'Lỗi thiết bị'));
       }
@@ -425,7 +425,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
       <div className="bg-white border-b border-zinc-200 sticky top-0 z-20 shadow-2xs">
         <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#FF4B16] to-amber-500 text-white flex items-center justify-center font-black shadow-sm">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white flex items-center justify-center font-black shadow-sm">
               <ScanFace className="w-5 h-5" />
             </div>
             <div>
@@ -511,13 +511,13 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                     isCurrent
                       ? 'bg-orange-500 text-white shadow-md shadow-orange-500/25 ring-2 ring-orange-500/30'
                       : isPassed
-                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      ? 'bg-orange-50 text-orange-800 border border-orange-200'
                       : 'bg-zinc-50 text-zinc-400 border border-zinc-200/60 opacity-60'
                   }`}
                 >
                   <div className="flex items-center justify-center mb-1">
                     {isPassed ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <CheckCircle2 className="w-4 h-4 text-orange-600" />
                     ) : (
                       <Icon className="w-4 h-4" />
                     )}
@@ -583,7 +583,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             </div>
 
             {/* Selected Profile Card */}
-            <div className="bg-gradient-to-br from-orange-50/80 to-amber-50/50 rounded-2xl p-4 border border-orange-100 flex items-center justify-between gap-4">
+            <div className="bg-gradient-to-br from-orange-50/80 to-orange-50/50 rounded-2xl p-4 border border-orange-100 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
                 <img
                   src={staffFaceProfile.facePhotoUrl || selectedStaff.avatar}
@@ -640,14 +640,14 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             {/* GPS Result Box */}
             <div className={`p-4 rounded-2xl border transition-all ${
               gpsStatus === 'SUCCESS'
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                ? 'bg-orange-50 border-orange-200 text-orange-950'
                 : gpsStatus === 'ERROR'
                 ? 'bg-rose-50 border-rose-200 text-rose-950'
                 : 'bg-zinc-50 border-zinc-200 text-zinc-700'
             }`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2 font-extrabold text-sm">
-                  {gpsStatus === 'SUCCESS' && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
+                  {gpsStatus === 'SUCCESS' && <CheckCircle2 className="w-5 h-5 text-orange-600" />}
                   {gpsStatus === 'ERROR' && <AlertTriangle className="w-5 h-5 text-rose-600" />}
                   {gpsStatus === 'SCANNING' && <Loader2 className="w-5 h-5 animate-spin text-[#FF4B16]" />}
                   {gpsStatus === 'PENDING' && <MapPin className="w-5 h-5 text-zinc-400" />}
@@ -727,14 +727,14 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
             <div className={`p-4 rounded-2xl border transition-all ${
               wifiStatus === 'SUCCESS'
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                ? 'bg-orange-50 border-orange-200 text-orange-950'
                 : wifiStatus === 'ERROR'
                 ? 'bg-rose-50 border-rose-200 text-rose-950'
                 : 'bg-zinc-50 border-zinc-200 text-zinc-700'
             }`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2 font-extrabold text-sm">
-                  {wifiStatus === 'SUCCESS' && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
+                  {wifiStatus === 'SUCCESS' && <CheckCircle2 className="w-5 h-5 text-orange-600" />}
                   {wifiStatus === 'ERROR' && <AlertTriangle className="w-5 h-5 text-rose-600" />}
                   {wifiStatus === 'SCANNING' && <Loader2 className="w-5 h-5 animate-spin text-[#FF4B16]" />}
                   {wifiStatus === 'PENDING' && <Wifi className="w-5 h-5 text-zinc-400" />}
@@ -750,7 +750,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               </div>
 
               <div className="text-xs space-y-1">
-                <p>Wi-Fi yêu cầu: <strong className="text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200">{targetWifiSSID}</strong></p>
+                <p>Wi-Fi yêu cầu: <strong className="text-orange-700 bg-white px-2 py-0.5 rounded border border-orange-200">{targetWifiSSID}</strong></p>
                 {wifiStatus === 'ERROR' && (
                   <p className="text-rose-700 font-bold bg-white/80 p-2 rounded-xl border border-rose-200 mt-2">
                     ⚠️ Mạng hiện tại ({currentWifiSSID}) không phải Wi-Fi cửa hàng. Vui lòng kết nối vào Wi-Fi: {targetWifiSSID}.
@@ -772,7 +772,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 </div>
                 <button
                   onClick={runWifiCheck}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1 active:scale-95"
+                  className="bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-colors cursor-pointer flex items-center gap-1 active:scale-95"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>Xác Thực Mạng Wi-Fi</span>
@@ -861,7 +861,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                   <div className={`w-44 h-56 rounded-[50%] border-2 border-dashed transition-all duration-300 ${
                     faceStatus === 'SUCCESS'
-                      ? 'border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.5)]'
+                      ? 'border-orange-400 shadow-[0_0_20px_rgba(52,211,153,0.5)]'
                       : faceStatus === 'ERROR'
                       ? 'border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.5)]'
                       : faceStatus === 'SCANNING'
@@ -905,7 +905,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             {faceFeedbackMsg && (
               <div className={`p-4 rounded-2xl border text-xs font-bold ${
                 faceStatus === 'SUCCESS'
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                  ? 'bg-orange-50 border-orange-200 text-orange-950'
                   : 'bg-rose-50 border-rose-200 text-rose-950'
               }`}>
                 <div className="flex items-center justify-between">
@@ -929,7 +929,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               <button
                 disabled={faceStatus !== 'SUCCESS'}
                 onClick={handleFinishCheckIn}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-emerald-600/25 cursor-pointer active:scale-95"
+                className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-600/25 cursor-pointer active:scale-95"
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Xác Nhận & Hoàn Tất Điểm Danh</span>
@@ -941,12 +941,12 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
         {/* ================= STEP 5: THÀNH CÔNG ================= */}
         {currentStep === 5 && (
           <div className="bg-white rounded-3xl p-8 border border-zinc-200 shadow-md text-center space-y-6 animate-in zoom-in-95">
-            <div className="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
+            <div className="w-20 h-20 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center mx-auto shadow-lg shadow-orange-500/20">
               <CheckCircle2 className="w-10 h-10 animate-bounce" />
             </div>
 
             <div>
-              <span className="bg-emerald-100 text-emerald-800 text-xs font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
+              <span className="bg-orange-100 text-orange-800 text-xs font-extrabold px-3 py-1 rounded-full uppercase tracking-wider">
                 Chấm Công Thành Công
               </span>
               <h2 className="text-2xl font-black text-zinc-900 mt-2">
@@ -969,15 +969,15 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               </div>
               <div className="flex justify-between items-center pb-2 border-b border-zinc-200 font-bold">
                 <span className="text-zinc-500">Vị trí GPS:</span>
-                <span className="text-emerald-700 font-bold">Đạt (cách {gpsDistance}m)</span>
+                <span className="text-orange-700 font-bold">Đạt (cách {gpsDistance}m)</span>
               </div>
               <div className="flex justify-between items-center pb-2 border-b border-zinc-200 font-bold">
                 <span className="text-zinc-500">Wi-Fi:</span>
-                <span className="text-emerald-700 font-bold">Đạt ({currentWifiSSID})</span>
+                <span className="text-orange-700 font-bold">Đạt ({currentWifiSSID})</span>
               </div>
               <div className="flex justify-between items-center font-bold">
                 <span className="text-zinc-500">Sinh trắc học Face ID:</span>
-                <span className="text-emerald-700 font-bold">Đạt ({faceConfidence}%)</span>
+                <span className="text-orange-700 font-bold">Đạt ({faceConfidence}%)</span>
               </div>
             </div>
 
@@ -999,7 +999,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                   onClick={onClose}
                   className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-extrabold transition-colors shadow-md cursor-pointer flex items-center justify-center gap-2"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <CheckCircle2 className="w-4 h-4 text-orange-400" />
                   <span>Hoàn Tất & Vào Ca Làm Việc</span>
                 </button>
               )}

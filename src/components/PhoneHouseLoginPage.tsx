@@ -176,7 +176,7 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
       <div className="w-full max-w-md mx-auto bg-white rounded-[2rem] shadow-xl shadow-zinc-200/50 border border-zinc-100 overflow-hidden relative">
         
         {/* Simple Top Accent Line */}
-        <div className="h-1.5 w-full bg-gradient-to-r from-orange-400 via-orange-500 to-amber-500"></div>
+        <div className="h-1.5 w-full bg-gradient-to-r from-orange-400 via-orange-500 to-orange-500"></div>
 
         {/* Header Content */}
         <div className="p-8 pb-6 text-center">
@@ -201,7 +201,7 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
           )}
 
           {successMessage && (
-            <div className="mb-5 p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-2.5 text-xs text-emerald-700">
+            <div className="mb-5 p-3.5 bg-orange-50 border border-orange-200 rounded-2xl flex items-center space-x-2.5 text-xs text-orange-700">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
               <span className="font-semibold">{successMessage}</span>
             </div>
@@ -350,11 +350,11 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
                             {u.displayName}
                           </span>
                           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
-                            u.role === 'ADMIN' ? 'bg-red-50 text-red-700 border-red-200' :
-                            u.role === 'MANAGER' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                            u.role === 'ADMIN' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                            u.role === 'MANAGER' ? 'bg-rose-50 text-rose-700 border-rose-200' :
                             u.role === 'SALES' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                            u.role === 'TECHNICIAN' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                            'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            u.role === 'TECHNICIAN' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                            'bg-orange-50 text-orange-700 border-orange-200'
                           }`}>
                             {u.role}
                           </span>
@@ -373,7 +373,7 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
         {/* Footer info */}
         <div className="bg-zinc-50/80 p-4 border-t border-zinc-100 flex items-center justify-center gap-4 text-[11px] text-zinc-400 font-medium">
           <div className="flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+            <ShieldCheck className="w-3.5 h-3.5 text-orange-500" />
             <span>Bảo mật an toàn</span>
           </div>
           <div className="w-1 h-1 rounded-full bg-zinc-300"></div>

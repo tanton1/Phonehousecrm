@@ -43,7 +43,9 @@ import {
   SlidersHorizontal,
   Bot,
   PackageCheck,
-  ScanFace
+  ScanFace,
+  ClipboardCheck,
+  MessageSquare
 } from 'lucide-react';
 import { auth, signInWithGoogle, logOut } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
@@ -121,8 +123,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Tổng Quan', icon: Layers },
     { id: 'pos', label: 'Bán Hàng POS', icon: ShoppingCart },
-    { id: 'checkin-portal', label: '⚡ Điểm Danh Face ID', icon: ScanFace, badge: 'HOT' },
-    { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
     { id: 'inventory', label: 'Kho IMEI', icon: Smartphone, badge: stockCount },
     { id: 'purchase-orders', label: 'Nhập Hàng (NCC)', icon: PackageCheck },
     { id: 'transfers', label: 'Chuyển Kho', icon: ArrowLeftRight, badge: transferCount },
@@ -132,9 +132,11 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'cashbook', label: 'Sổ Quỹ Thu Chi', icon: Wallet },
     { id: 'partners', label: 'Đối Tác & NCC', icon: Building2 },
     { id: 'crm', label: 'Khách Hàng (CRM)', icon: Users, badge: leadCount },
+    { id: 'omnichannel-chat', label: 'Chat Đa Kênh', icon: MessageSquare, badge: 'SYNC' },
     { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: RefreshCw },
     { id: 'warranty', label: 'Bảo Hành & Sửa', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
-    { id: 'employee-dashboard', label: 'Dashboard Nhân Viên', icon: TrendingUp },
+    { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
+    { id: 'sop-management', label: 'Quy Trình SOP & Ca', icon: ClipboardCheck },
     { id: 'users', label: 'Phân Quyền User', icon: ShieldCheck, badge: userCount },
     { id: 'more', label: 'Nhiều Hơn (More)', icon: Menu },
     { id: 'erpnext-plan', label: 'Kiến Trúc ERPNext', icon: BookOpen },
@@ -172,24 +174,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Actions */}
             <div className="flex items-center space-x-2">
-              {/* Branch Selector (Desktop) */}
-              {currentUser && (
-                <div className="hidden lg:flex items-center space-x-1 bg-zinc-50 border border-zinc-200 rounded-xl px-2 py-1 mr-2">
-                  <MapPin className="w-3.5 h-3.5 text-zinc-400" />
-                  <select
-                    value={selectedBranchId}
-                    onChange={(e) => onBranchChange(e.target.value)}
-                    disabled={currentUser.role !== 'ADMIN' && currentUser.role !== 'MANAGER'}
-                    className="bg-transparent text-xs font-semibold text-zinc-700 outline-none border-none py-1 w-32 truncate appearance-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-80"
-                    title={currentUser.role !== 'ADMIN' ? 'Chỉ Admin mới có thể đổi chi nhánh' : 'Chọn chi nhánh'}
-                  >
-                    <option value="ALL">Toàn Hệ Thống</option>
-                    {branches.map((b) => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              
 
               {/* Mobile Search Button */}
               <button
@@ -200,29 +185,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Search className="w-4 h-4" />
               </button>
 
-              {/* AI Assistant Button */}
-              <button
-                onClick={onOpenAICopilot}
-                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-orange-500/25 active:scale-95 cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-white animate-pulse" />
-                <span className="hidden sm:inline">AI Copilot</span>
-                <span className="sm:hidden">AI</span>
-              </button>
+              
+              {/* GLOBAL BRANCH SELECTOR */}
+              {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER') && (
+                <div className="flex items-center space-x-1 bg-orange-50/50 border border-orange-200 rounded-lg px-2 py-1.5 shadow-2xs hover:bg-orange-50 transition-colors cursor-pointer mr-1 sm:mr-2">
+                  <MapPin className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                  <select
+                    value={selectedBranchId}
+                    onChange={(e) => onBranchChange(e.target.value)}
+                    className="bg-transparent text-[11px] font-bold text-zinc-700 outline-none border-none w-[80px] lg:w-[100px] truncate cursor-pointer appearance-none"
+                  >
+                    <option value="ALL">Toàn Hệ Thống</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
-              {/* Fast Check-in Quick Button */}
-              <button
-                onClick={() => setActiveTab('checkin-portal')}
-                className={`px-2.5 sm:px-3 py-2 rounded-xl text-xs font-black flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs ${
-                  activeTab === 'checkin-portal'
-                    ? 'bg-[#FF4B16] text-white ring-2 ring-orange-500/30 shadow-md shadow-orange-500/25'
-                    : 'bg-orange-50 hover:bg-orange-100 text-[#FF4B16] border border-orange-200'
-                }`}
-                title="Mở Cổng Điểm Danh Nhanh (Face ID Sinh Trắc Học)"
-              >
-                <ScanFace className="w-4 h-4" />
-                <span className="hidden sm:inline">Điểm Danh</span>
-              </button>
+              
+
+              
 
               {/* Quick POS Checkout (Desktop) */}
               <button
@@ -249,7 +232,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                         className="w-5 h-5 rounded-full object-cover border border-orange-300"
                       />
                       {currentUser.role === 'ADMIN' && (
-                        <Crown className="w-2.5 h-2.5 text-amber-500 absolute -top-1 -right-1" />
+                        <Crown className="w-2.5 h-2.5 text-orange-500 absolute -top-1 -right-1" />
                       )}
                     </div>
                     <div className="flex flex-col text-left">
@@ -297,7 +280,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => setActiveTab(item.id)}
                   className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-sm shadow-orange-500/20'
+                      ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white shadow-sm shadow-orange-500/20'
                       : 'text-zinc-600 hover:text-orange-600 hover:bg-white'
                   }`}
                 >

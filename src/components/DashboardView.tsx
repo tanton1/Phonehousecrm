@@ -1,12 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { 
+import { Wallet, ArrowLeftRight, 
   DeviceItem, 
   Lead, 
   TradeInAppraisal, 
   WarrantyTicket, 
   SalesInvoice 
 } from '../types';
-import { 
+import { Wallet, ArrowLeftRight, 
   PhoneCall, 
   Bell, 
   Mail, 
@@ -272,9 +272,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       colorName: 'Xanh Pacific (Pacific Blue)',
       quantity: 18,
       revenue: 160500000,
-      bgColor: 'from-blue-900 to-blue-950',
+      bgColor: 'from-orange-900 to-orange-950',
       deviceModel: 'iPhone 12 Pro Max',
-      badgeColor: 'bg-blue-500'
+      badgeColor: 'bg-orange-500'
     },
     {
       id: 'bs-2',
@@ -302,9 +302,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       colorName: 'Titan Sa Mạc (Desert Titanium)',
       quantity: 12,
       revenue: 414000000,
-      bgColor: 'from-amber-700 to-amber-900',
+      bgColor: 'from-orange-700 to-orange-900',
       deviceModel: 'iPhone 16 Pro Max',
-      badgeColor: 'bg-amber-600'
+      badgeColor: 'bg-orange-600'
     },
     {
       id: 'bs-5',
@@ -312,9 +312,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       colorName: 'Tím Đậm (Deep Purple)',
       quantity: 8,
       revenue: 182000000,
-      bgColor: 'from-purple-900 to-purple-950',
+      bgColor: 'from-rose-900 to-rose-950',
       deviceModel: 'iPhone 14 Pro Max',
-      badgeColor: 'bg-purple-600'
+      badgeColor: 'bg-rose-600'
     },
     {
       id: 'bs-6',
@@ -322,9 +322,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       colorName: 'Xanh Sierra (Sierra Blue)',
       quantity: 9,
       revenue: 126000000,
-      bgColor: 'from-sky-700 to-blue-900',
+      bgColor: 'from-orange-700 to-orange-900',
       deviceModel: 'iPhone 13 Pro Max',
-      badgeColor: 'bg-sky-500'
+      badgeColor: 'bg-orange-500'
     }
   ], []);
 
@@ -622,16 +622,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </button>
 
-          {/* 3. Giao hàng */}
+          {/* 3. Sổ Quỹ */}
           <button
-            onClick={() => setActiveModal('delivery')}
+            onClick={() => onNavigate('cashbook')}
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <Truck className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <Wallet className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
             <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
-              Giao hàng
+              Sổ quỹ
             </span>
           </button>
 
@@ -651,36 +651,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </span>
           </button>
 
-          {/* 5. Nhân viên */}
+          {/* 5. Nhân sự */}
           <button
-            onClick={() => setActiveModal('staff')}
+            onClick={() => onNavigate('hr-attendance')}
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <User className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <Users className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
             <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
-              Nhân viên
+              Nhân sự
             </span>
           </button>
 
-          {/* 6. Thuế & Kế toán (kèm huy hiệu Mới màu đỏ) */}
+          {/* 6. Chuyển Kho */}
           <button
-            onClick={() => setActiveModal('tax')}
+            onClick={() => onNavigate('transfers')}
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group relative"
           >
-            {/* "Mới" Red Badge */}
-            <span className="absolute top-0 right-1 sm:right-2 bg-red-600 text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full shadow-2xs">
-              Mới
-            </span>
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <PieChart className="w-6 h-6 sm:w-7 sm:h-7 text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <ArrowLeftRight className="w-6 h-6 sm:w-7 sm:h-7 text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
             <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
-              Thuế & Kế toán
+              Chuyển kho
             </span>
           </button>
-
         </div>
       </div>
 
@@ -920,7 +915,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {activeModal === 'notifications' && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-zinc-100 overflow-hidden animate-scaleIn max-h-[85vh] flex flex-col">
-            <div className="p-4 bg-gradient-to-r from-[#F94A1F] to-amber-500 text-white flex items-center justify-between shrink-0">
+            <div className="p-4 bg-gradient-to-r from-[#F94A1F] to-orange-500 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
                 <Bell className="w-5 h-5 text-white" />
                 <h3 className="text-base font-bold">Thông Báo Hoạt Động (56 Mới)</h3>
@@ -944,7 +939,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               <div className="pt-2 flex items-start space-x-3">
-                <span className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 shrink-0"></span>
+                <span className="w-2 h-2 rounded-full bg-orange-500 mt-1.5 shrink-0"></span>
                 <div>
                   <p className="font-bold text-zinc-900">Khách hàng yêu cầu thẩm định Trade-in</p>
                   <p className="text-zinc-500 text-[11px]">iPhone 13 Pro Max lên đời 16 Pro Max - Chờ duyệt giá thu 12.5Tr</p>
@@ -953,7 +948,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               <div className="pt-2 flex items-start space-x-3">
-                <span className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0"></span>
+                <span className="w-2 h-2 rounded-full bg-orange-500 mt-1.5 shrink-0"></span>
                 <div>
                   <p className="font-bold text-zinc-900">Đối soát tiền COD Bưu cục GHN thành công</p>
                   <p className="text-zinc-500 text-[11px]">Đã nhận 45.200.000đ vào tài khoản MBBank Phone House</p>
@@ -1091,216 +1086,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* 4. Vay Vốn Modal */}
-      {activeModal === 'loans' && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-5 border border-zinc-100 space-y-4 animate-scaleIn">
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
-              <div className="flex items-center space-x-2">
-                <CreditCard className="w-5 h-5 text-[#F94A1F]" />
-                <h3 className="text-base font-bold text-zinc-900">Hạn Mức Vay Vốn Nhập Hàng</h3>
-              </div>
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-zinc-400 hover:text-zinc-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-gradient-to-br from-orange-500 to-amber-500 rounded-2xl p-4 text-white space-y-1">
-              <span className="text-xs text-orange-100 font-medium">Hạn mức tín dụng được duyệt:</span>
-              <div className="text-2xl sm:text-3xl font-black">1.500.000.000 đ</div>
-              <p className="text-[11px] text-amber-100">Dựa trên doanh số bán lẻ POS 888.99 triệu/tháng</p>
-            </div>
-
-            <div className="space-y-2 text-xs text-zinc-700">
-              <div className="flex justify-between p-2 bg-zinc-50 rounded-xl">
-                <span>Lãi suất ưu đãi đối tác:</span>
-                <strong className="text-[#F94A1F]">0.65% / tháng</strong>
-              </div>
-              <div className="flex justify-between p-2 bg-zinc-50 rounded-xl">
-                <span>Ngân hàng liên kết:</span>
-                <strong>MBBank & Techcombank</strong>
-              </div>
-            </div>
-
-            <button 
-              onClick={() => {
-                alert('Yêu cầu giải ngân vốn đã được gửi đến chuyên viên ngân hàng phụ trách Phone House!');
-                setActiveModal(null);
-              }}
-              className="w-full py-2.5 bg-[#F94A1F] hover:bg-[#e03d15] text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
-            >
-              Yêu Cầu Giải Ngân Nhanh
-            </button>
-          </div>
-        </div>
-      )}
+      
 
       {/* 5. Giao Hàng Modal */}
-      {activeModal === 'delivery' && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-5 border border-zinc-100 space-y-4 animate-scaleIn">
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
-              <div className="flex items-center space-x-2">
-                <Truck className="w-5 h-5 text-zinc-900" />
-                <h3 className="text-base font-bold text-zinc-900">Vận Đơn & Giao Hàng COD</h3>
-              </div>
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-zinc-400 hover:text-zinc-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      
 
-            <div className="space-y-2.5 text-xs">
-              <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200/80 space-y-1">
-                <div className="flex justify-between font-bold">
-                  <span>GHN-9842104 • Giao Hàng Nhanh</span>
-                  <span className="text-orange-600">Đang giao</span>
-                </div>
-                <p className="text-zinc-500 text-[11px]">iPhone 15 Pro 128GB - Thu COD: 21.500.000đ</p>
-                <p className="text-zinc-400 text-[10px]">Người nhận: Lê Hoàng Nam - TP. Hội An</p>
-              </div>
+      
 
-              <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200/80 space-y-1">
-                <div className="flex justify-between font-bold">
-                  <span>GHTK-552199 • GHTK Express</span>
-                  <span className="text-emerald-600">Đã đối soát COD</span>
-                </div>
-                <p className="text-zinc-500 text-[11px]">Combo Củ Sạc Anker 30W + Ốp - Thu COD: 750.000đ</p>
-                <p className="text-zinc-400 text-[10px]">Người nhận: Phạm Thị Bích - Tam Kỳ</p>
-              </div>
-            </div>
-
-            <button 
-              onClick={() => {
-                setActiveModal(null);
-                onNavigate('pos');
-              }}
-              className="w-full py-2.5 bg-[#F94A1F] hover:bg-[#e03d15] text-white font-bold rounded-xl text-xs cursor-pointer"
-            >
-              Tạo Vận Đơn Mới Tại Quầy POS
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 6. Staff Modal */}
-      {activeModal === 'staff' && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-5 border border-zinc-100 space-y-4 animate-scaleIn">
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
-              <div className="flex items-center space-x-2">
-                <User className="w-5 h-5 text-zinc-900" />
-                <h3 className="text-base font-bold text-zinc-900">Nhân Sự & Ca Trực Hôm Nay</h3>
-              </div>
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-zinc-400 hover:text-zinc-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-2 text-xs">
-              <div className="flex items-center justify-between p-2.5 bg-zinc-50 rounded-2xl">
-                <div>
-                  <span className="font-bold text-zinc-900 block">Nguyễn Nhật Tân</span>
-                  <span className="text-[10px] text-zinc-500">Chủ Cửa Hàng / Quản Lý</span>
-                </div>
-                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Đang trực ca</span>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 bg-zinc-50 rounded-2xl">
-                <div>
-                  <span className="font-bold text-zinc-900 block">Trần Mỹ Linh</span>
-                  <span className="text-[10px] text-zinc-500">Thu Ngân & Bán Hàng</span>
-                </div>
-                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Đang trực ca</span>
-              </div>
-
-              <div className="flex items-center justify-between p-2.5 bg-zinc-50 rounded-2xl">
-                <div>
-                  <span className="font-bold text-zinc-900 block">Lê Tuấn Anh</span>
-                  <span className="text-[10px] text-zinc-500">Kỹ Thuật Phần Cứng & Ép Kính</span>
-                </div>
-                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">Đang trực ca</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button 
-                onClick={() => {
-                  setActiveModal(null);
-                  onNavigate('employee-dashboard');
-                }}
-                className="flex-1 py-2.5 bg-[#F94A1F] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs cursor-pointer shadow-xs"
-              >
-                📊 Dashboard KPI Nhân Viên
-              </button>
-              <button 
-                onClick={() => {
-                  setActiveModal(null);
-                  onNavigate('users');
-                }}
-                className="py-2.5 px-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 font-bold rounded-xl text-xs cursor-pointer"
-              >
-                Phân Quyền
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. Thuế & Kế Toán Modal */}
-      {activeModal === 'tax' && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-5 border border-zinc-100 space-y-4 animate-scaleIn">
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
-              <div className="flex items-center space-x-2">
-                <PieChart className="w-5 h-5 text-[#F94A1F]" />
-                <h3 className="text-base font-bold text-zinc-900">Thuế Khoán & Hóa Đơn Điện Tử VAT</h3>
-              </div>
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-zinc-400 hover:text-zinc-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-3 bg-orange-50 border border-orange-200 rounded-2xl space-y-1 text-xs text-orange-900">
-              <span className="font-bold flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-[#F94A1F]" />
-                Chuẩn Hóa Hóa Đơn Khởi Tạo Từ Máy Tính Tiền
-              </span>
-              <p className="text-[11px] text-orange-800 leading-relaxed">
-                Tự động kết nối phần mềm hóa đơn điện tử VNPT / Viettel / MISA, đồng bộ mã cơ quan thuế cho từng hóa đơn POS.
-              </p>
-            </div>
-
-            <div className="space-y-2 text-xs text-zinc-700">
-              <div className="flex justify-between p-2 bg-zinc-50 rounded-xl">
-                <span>Mã số thuế cửa hàng:</span>
-                <strong className="font-mono">0109988776</strong>
-              </div>
-              <div className="flex justify-between p-2 bg-zinc-50 rounded-xl">
-                <span>Phương pháp tính thuế:</span>
-                <strong>Thuế khoán hộ kinh doanh cá thể</strong>
-              </div>
-            </div>
-
-            <button 
-              onClick={() => setActiveModal(null)}
-              className="w-full py-2.5 bg-[#F94A1F] text-white font-bold rounded-xl text-xs cursor-pointer"
-            >
-              Đã Hiểu & Đóng
-            </button>
-          </div>
-        </div>
-      )}
+      
 
       {/* 8. Fullscreen Chart Modal */}
       {activeModal === 'chart_expand' && (
@@ -1347,7 +1140,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="p-3 bg-zinc-50 rounded-2xl col-span-2 sm:col-span-1">
                 <span className="text-zinc-500 block">Tỷ lệ thanh toán QR:</span>
-                <strong className="text-sm text-emerald-600">82.4%</strong>
+                <strong className="text-sm text-orange-600">82.4%</strong>
               </div>
             </div>
 

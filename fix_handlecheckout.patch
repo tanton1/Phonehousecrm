@@ -1,0 +1,89 @@
+--- src/components/POSSalesView.tsx
++++ src/components/POSSalesView.tsx
+@@ -265,6 +265,11 @@
+     if (!customerName || !customerPhone) {
+       alert('Vui lòng nhập thông tin khách hàng trước khi thanh toán!');
+       setShowCustomerModal(true);
+       return;
+     }
++    if (tradeInDiscount > 0 && !tradeInImei.trim()) {
++      alert('Vui lòng nhập số IMEI của máy thu cũ!');
++      setShowDiscountModal(true);
++      return;
++    }
+ 
+-    // THÊM: Tạo CashTransaction để dòng tiền vào Sổ Quỹ
+     let receiptAmount = 0;
+@@ -288,14 +293,13 @@
+ 
++    let cashTx: import('../types').CashTransaction | null = null;
+     if (receiptAmount > 0) {
+       const fund = funds.find(f => f.type === fundTypeToUse) || funds[0];
+       if (fund) {
+-        const cashTx: import('../types').CashTransaction = {
++        cashTx = {
+           id: `TX-${Date.now()}`,
+           code: `PT-${Math.floor(1000 + Math.random() * 9000)}`,
+           type: 'RECEIPT',
+           category: 'SALES_REVENUE',
+           categoryName: 'Thu tiền bán hàng',
+           amount: receiptAmount,
+           fundType: fund.type,
+           fundName: fund.name,
+           date: new Date().toLocaleString('sv-SE').replace(' ', 'T'), // YYYY-MM-DDTHH:mm
+           partnerName: customerName,
+           partnerPhone: customerPhone,
+           creator: 'Nhật Tân (Admin)',
+           notes: `Thu tiền khách mua hàng (Đơn ${customerPhone})`,
+           status: 'COMPLETED'
+         };
+-        onAddTransaction(cashTx);
+       }
+     }
+ 
+@@ -381,13 +385,8 @@
+     };
+ 
+-    // Update status of all devices to sold in Firestore
+-    selectedDevices.forEach(d => {
+-      onUpdateDeviceStatus(d.imei, 'sold', customerName, customerPhone);
+-    });
+-
+     // AUTO-INGEST TRADE-IN DEVICE TO INVENTORY
++    let tradeInDevice: DeviceItem | null = null;
+     if (tradeInDiscount > 0 && onAddDevice) {
+-      const generatedImei = '35' + Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
+-      const tradeInDevice: DeviceItem = {
++      tradeInDevice = {
+         id: `DEV-TRD-${Date.now().toString().slice(-5)}`,
+-        imei: generatedImei,
++        imei: tradeInImei,
+         serialNo: 'SN-TRD-' + Date.now().toString().slice(-4),
+@@ -411,6 +410,24 @@
+       };
+-      onAddDevice(tradeInDevice);
+     }
+ 
+-    onCreateInvoice(newInvoice);
+-    setCreatedInvoiceForPrint(newInvoice);
++    const customerPartner = partners.find(p => p.phone === customerPhone) || null;
++    const financeCompanyPartner = installmentCompany 
++      ? (partners.find(p => p.name.includes(installmentCompany) || p.phone === installmentCompany) || null)
++      : null;
++
++    processCheckoutTransaction({
++      invoice: newInvoice,
++      devicesToSell: selectedDevices,
++      accessoriesToSell: accessories.filter(a => a.selected && a.productRef).map(a => ({ product: a.productRef!, quantity: 1 })),
++      cashTx,
++      tradeInDevice,
++      customerPartner,
++      financeCompanyPartner
++    }).then(() => {
++      setCreatedInvoiceForPrint(newInvoice);
++      onCreateInvoice(newInvoice);
++      if (cashTx) onAddTransaction(cashTx);
++      if (tradeInDevice && onAddDevice) onAddDevice(tradeInDevice);
++    }).catch(err => {
++      alert('Lỗi thanh toán: ' + (err.message || 'Lỗi không xác định'));
++    });

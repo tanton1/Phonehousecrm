@@ -348,21 +348,21 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
     switch (status) {
       case 'PENDING':
         return (
-          <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
+          <span className="bg-orange-50 text-orange-800 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
             <Clock className="w-3 h-3" />
             <span>Chờ Xuất Kho</span>
           </span>
         );
       case 'IN_TRANSIT':
         return (
-          <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1 animate-pulse">
+          <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1 animate-pulse">
             <Truck className="w-3 h-3" />
             <span>Đang Vận Chuyển</span>
           </span>
         );
       case 'COMPLETED':
         return (
-          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
+          <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
             <CheckCircle2 className="w-3 h-3" />
             <span>Đã Nhập Kho Đích</span>
           </span>
@@ -383,7 +383,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       <div className="bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-orange-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 to-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
               <ArrowLeftRight className="w-5 h-5" />
             </div>
             <div>
@@ -411,7 +411,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
               setSelectedDeviceIds([]);
               setIsCreateModalOpen(true);
             }}
-            className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
+            className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-black px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ Tạo Phiếu Chuyển Kho</span>
@@ -481,9 +481,9 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
 
               {/* Transit badge */}
               {(stats.activeTransfersIn > 0 || stats.activeTransfersOut > 0) && (
-                <div className="mt-2 text-[10px] flex items-center justify-between text-zinc-500 bg-blue-50/60 p-1.5 rounded-lg border border-blue-100 font-medium">
-                  <span className="text-blue-700">Đang điều vận:</span>
-                  <span className="font-bold text-blue-800">
+                <div className="mt-2 text-[10px] flex items-center justify-between text-zinc-500 bg-orange-50/60 p-1.5 rounded-lg border border-orange-100 font-medium">
+                  <span className="text-orange-700">Đang điều vận:</span>
+                  <span className="font-bold text-orange-800">
                     +{stats.activeTransfersIn} máy đến / -{stats.activeTransfersOut} máy đi
                   </span>
                 </div>
@@ -546,7 +546,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Tìm mã CK, IMEI, Model máy, KTV..."
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-3 py-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-8 pr-3 py-1.5 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500"
                 />
               </div>
 
@@ -695,7 +695,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                           {slip.status === 'IN_TRANSIT' && (
                             <button
                               onClick={() => handleCompleteTransfer(slip)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-black px-2.5 py-1 rounded-lg transition-all shadow-xs flex items-center space-x-1"
+                              className="bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-black px-2.5 py-1 rounded-lg transition-all shadow-xs flex items-center space-x-1"
                             >
                               <Check className="w-3 h-3" />
                               <span>Nhập Kho</span>
@@ -766,7 +766,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                       {slip.status === 'IN_TRANSIT' && (
                         <button
                           onClick={() => handleCompleteTransfer(slip)}
-                          className="px-3 py-1 bg-emerald-600 text-white text-xs font-black rounded-lg shadow-xs"
+                          className="px-3 py-1 bg-orange-600 text-white text-xs font-black rounded-lg shadow-xs"
                         >
                           Nhập Kho
                         </button>
@@ -797,17 +797,17 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                     isSelected
                       ? isTong 
-                        ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
+                        ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30'
                         : isPhoneHouse 
                           ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/30'
-                          : 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
+                          : 'bg-orange-600 text-white shadow-sm shadow-orange-600/30'
                       : isTechSub
-                        ? 'bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100'
+                        ? 'bg-rose-50 text-rose-700 border border-rose-100 hover:bg-rose-100'
                         : isTong
-                          ? 'bg-purple-50 text-purple-700 border border-purple-100 hover:bg-purple-100'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-100 hover:bg-rose-100'
                           : isPhoneHouse
                             ? 'bg-orange-50 text-orange-700 border border-orange-100 hover:bg-orange-100'
-                            : 'bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100'
+                            : 'bg-orange-50 text-orange-700 border border-orange-100 hover:bg-orange-100'
                   }`}
                 >
                   {isTechSub && <span>👨‍🔧</span>}
@@ -886,7 +886,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                             <span className="px-2 py-0.5 bg-zinc-100 text-zinc-800 rounded text-[10px] font-bold border border-zinc-200">
                               {d.condition}
                             </span>
-                            <div className="text-[10px] text-emerald-700 font-bold mt-0.5">Pin {d.batteryHealth}%</div>
+                            <div className="text-[10px] text-orange-700 font-bold mt-0.5">Pin {d.batteryHealth}%</div>
                           </td>
 
                           <td className="px-3 py-3 font-mono text-zinc-600">
@@ -945,10 +945,10 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
             </div>
 
             {/* Route 2: Kho Tổng -> Xstore */}
-            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-blue-100 shadow-xs space-y-3">
+            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-orange-100 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-black text-orange-600 uppercase">Tuyến Phân Phối 2</span>
-                <span className="p-1.5 bg-blue-50 text-orange-600 rounded-lg">
+                <span className="p-1.5 bg-orange-50 text-orange-600 rounded-lg">
                   <ArrowRight className="w-4 h-4" />
                 </span>
               </div>
@@ -965,10 +965,10 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
             </div>
 
             {/* Route 3: PhoneHouse <-> Xstore */}
-            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-amber-100 shadow-xs space-y-3">
+            <div className="bg-white p-4 sm:p-5 rounded-3xl border border-orange-100 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-amber-600 uppercase">Tuyến Cân Đối Chi Nhánh</span>
-                <span className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
+                <span className="text-xs font-black text-orange-600 uppercase">Tuyến Cân Đối Chi Nhánh</span>
+                <span className="p-1.5 bg-orange-50 text-orange-600 rounded-lg">
                   <ArrowLeftRight className="w-4 h-4" />
                 </span>
               </div>
@@ -992,7 +992,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[92vh] sm:rounded-3xl sm:max-w-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200">
             {/* Header with PhoneHouse Brand Gradient */}
-            <div className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 text-white px-5 py-3.5 flex items-center justify-between shrink-0 shadow-sm">
+            <div className="bg-gradient-to-r from-orange-600 via-orange-500 to-orange-500 text-white px-5 py-3.5 flex items-center justify-between shrink-0 shadow-sm">
               <div className="flex items-center space-x-3">
                 <div className="w-9 h-9 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-inner">
                   <ArrowLeftRight className="w-5 h-5" />
@@ -1029,7 +1029,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   onClick={() => setCreateStep(1)}
                   className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                     createStep === 1 
-                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20' 
+                      ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white shadow-md shadow-orange-500/20' 
                       : 'text-zinc-600 hover:bg-orange-100/60'
                   }`}
                 >
@@ -1053,7 +1053,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   }}
                   className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                     createStep === 2 
-                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20' 
+                      ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white shadow-md shadow-orange-500/20' 
                       : 'text-zinc-600 hover:bg-orange-100/60'
                   }`}
                 >
@@ -1063,7 +1063,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   <span className="flex items-center space-x-1">
                     <span>Task KTV & Hoa Hồng</span>
                     {autoCreateTechTask && (
-                      <span className="bg-amber-400 text-zinc-900 text-[9px] px-1.5 py-0.2 rounded-full font-black">
+                      <span className="bg-orange-400 text-zinc-900 text-[9px] px-1.5 py-0.2 rounded-full font-black">
                         ⚡ ON
                       </span>
                     )}
@@ -1084,7 +1084,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   }}
                   className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                     createStep === 3 
-                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20' 
+                      ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white shadow-md shadow-orange-500/20' 
                       : 'text-zinc-600 hover:bg-orange-100/60'
                   }`}
                 >
@@ -1103,7 +1103,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
               {createStep === 1 && (
                 <div className="space-y-4 animate-in fade-in duration-150">
                   {/* Warehouse Selection Row */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-gradient-to-r from-orange-50/60 to-amber-50/40 rounded-2xl border border-orange-200/80">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-gradient-to-r from-orange-50/60 to-orange-50/40 rounded-2xl border border-orange-200/80">
                     <div>
                       <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center justify-between">
                         <span>Kho Xuất Hàng (Kho Nguồn) *</span>
@@ -1129,7 +1129,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                       <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center justify-between">
                         <span>Kho Nhận Hàng (Kho Đích) *</span>
                         {toWarehouse.includes('KTV') && (
-                          <span className="text-[10px] text-amber-700 font-bold bg-amber-100 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] text-orange-700 font-bold bg-orange-100 px-1.5 py-0.5 rounded">
                             🛠️ Kho Kỹ Thuật
                           </span>
                         )}
@@ -1260,10 +1260,10 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
               {createStep === 2 && (
                 <div className="space-y-4 animate-in fade-in duration-150">
                   {/* Auto Task Toggle Box */}
-                  <div className="p-3.5 bg-gradient-to-r from-orange-500 to-amber-500 rounded-2xl text-white shadow-md flex items-center justify-between">
+                  <div className="p-3.5 bg-gradient-to-r from-orange-500 to-orange-500 rounded-2xl text-white shadow-md flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <div className="p-2 bg-white/20 backdrop-blur-md rounded-xl">
-                        <Zap className="w-5 h-5 text-amber-200" />
+                        <Zap className="w-5 h-5 text-orange-200" />
                       </div>
                       <div>
                         <h4 className="font-black text-sm">Tự Động Tạo Task & Phân Công KTV</h4>
@@ -1344,7 +1344,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                         <div>
                           <label className="block text-xs font-bold text-zinc-800 mb-1 flex items-center justify-between">
                             <span className="flex items-center space-x-1">
-                              <Award className="w-3.5 h-3.5 text-amber-600" />
+                              <Award className="w-3.5 h-3.5 text-orange-600" />
                               <span>Mức Thưởng Hoa Hồng KTV / Máy (VNĐ) *</span>
                             </span>
                           </label>
@@ -1407,7 +1407,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
               {/* STEP 3: XÁC NHẬN PHIẾU XUẤT 1-BƯỚC */}
               {createStep === 3 && (
                 <div className="space-y-4 animate-in fade-in duration-150">
-                  <div className="bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 p-4 rounded-2xl border border-orange-200 space-y-3">
+                  <div className="bg-gradient-to-r from-orange-50 via-orange-50 to-orange-50 p-4 rounded-2xl border border-orange-200 space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-orange-200/60">
                       <div className="flex items-center space-x-2">
                         <Sparkles className="w-5 h-5 text-orange-600" />
@@ -1444,10 +1444,10 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                           <>
                             <div className="font-bold text-zinc-900">{selectedTechnician}</div>
                             <div className="text-[11px] text-zinc-600">
-                              Loại công việc: <strong className="text-amber-700">{taskType}</strong>
+                              Loại công việc: <strong className="text-orange-700">{taskType}</strong>
                             </div>
                             <div className="text-[11px] text-zinc-600">
-                              Hoa hồng mỗi máy: <strong className="text-emerald-700 font-mono font-bold">+{taskCommission.toLocaleString('vi-VN')} đ</strong>
+                              Hoa hồng mỗi máy: <strong className="text-orange-700 font-mono font-bold">+{taskCommission.toLocaleString('vi-VN')} đ</strong>
                             </div>
                           </>
                         ) : (
@@ -1457,7 +1457,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                     </div>
 
                     {/* Final Cost Calculation Preview Formula */}
-                    <div className="p-3 bg-white rounded-xl border border-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                    <div className="p-3 bg-white rounded-xl border border-orange-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                       <div>
                         <span className="text-[10px] font-bold text-zinc-500 uppercase block">Dự Báo Giá Vốn Cuối Cùng Trung Bình / Máy (Cost_Final)</span>
                         <div className="font-mono font-bold text-zinc-900 text-sm mt-0.5">
@@ -1519,7 +1519,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                         }
                         setCreateStep((createStep + 1) as 2 | 3);
                       }}
-                      className="px-4 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1"
+                      className="px-4 py-1.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1"
                     >
                       <span>Tiếp Tục</span>
                       <ChevronRight className="w-4 h-4" />
@@ -1527,9 +1527,9 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   ) : (
                     <button
                       type="submit"
-                      className="px-5 py-2 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 hover:from-orange-700 hover:to-amber-600 text-white font-black rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1.5"
+                      className="px-5 py-2 bg-gradient-to-r from-orange-600 via-orange-500 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-black rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-1.5"
                     >
-                      <Zap className="w-4 h-4 text-amber-200" />
+                      <Zap className="w-4 h-4 text-orange-200" />
                       <span>Xác Nhận Tạo Phiếu & Giao Task KTV (1-Bước)</span>
                     </button>
                   )}
@@ -1544,7 +1544,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       {activeSlipDetails && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl border border-orange-200 flex flex-col max-h-[90vh]">
-            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-5 py-4 border-b border-orange-100 flex items-center justify-between shrink-0">
+            <div className="bg-gradient-to-r from-orange-50 via-orange-50/50 to-white px-5 py-4 border-b border-orange-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2.5">
                 <FileText className="w-5 h-5 text-orange-600" />
                 <div>
@@ -1656,7 +1656,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
 
                     <button
                       onClick={() => handleCompleteTransfer(activeSlipDetails)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black shadow-md shadow-emerald-600/20 flex items-center space-x-1"
+                      className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-black shadow-md shadow-orange-600/20 flex items-center space-x-1"
                     >
                       <Check className="w-4 h-4" />
                       <span>Xác Nhận Nhập Kho Đích</span>
@@ -1752,7 +1752,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
             <div className="flex space-x-2">
               <button
                 onClick={() => window.print()}
-                className="flex-1 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
+                className="flex-1 py-2 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
               >
                 In Phiếu (Print)
               </button>

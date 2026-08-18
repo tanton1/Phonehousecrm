@@ -38,7 +38,8 @@ import {
   Filter,
   Trash2,
   Edit3,
-  MessageSquare
+  MessageSquare,
+  LogOut
 } from 'lucide-react';
 import { 
   INITIAL_STAFF_MEMBERS, 
@@ -50,6 +51,7 @@ import {
   INITIAL_PAYROLL_LEDGER_CURRENT_USER 
 } from '../data/attendanceData';
 import { UserAccount, StaffMember, AttendanceRecord, StoreBranch, LeaveRequest } from '../types';
+import { ShiftChecklistModule } from './ShiftChecklistModule';
 
 export interface ShiftChecklistItem {
   id: string;
@@ -512,116 +514,94 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-5 animate-fadeIn font-sans pb-12">
-      {/* 1. TOP PROFILE & LIVE STATUS CARD (Clean & Compact Header) */}
-      <div className="bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-950 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-zinc-800 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-full bg-gradient-to-l from-orange-500/10 to-transparent pointer-events-none" />
+      {/* 1. TOP PROFILE & LIVE STATUS CARD (Clean, Compact, Space-Optimized Header) */}
+      <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-900 text-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-lg border border-zinc-800/80 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-72 h-full bg-gradient-to-l from-orange-500/10 to-transparent pointer-events-none" />
         
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Avatar & Info */}
-          <div className="flex items-center gap-4">
-            <div className="relative">
+          <div className="flex items-center gap-3 sm:gap-3.5">
+            <div className="relative shrink-0">
               <img 
                 src={staffMember.avatar} 
                 alt={staffMember.name} 
-                className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-orange-400 shadow-md"
+                className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover border-2 border-orange-500/80 shadow-md"
               />
-              <span className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-zinc-900 ${
-                isCheckedIn ? 'bg-emerald-500 animate-pulse' : isCheckedOut ? 'bg-zinc-400' : 'bg-amber-400'
+              <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-zinc-900 ${
+                isCheckedIn ? 'bg-orange-500 animate-pulse' : isCheckedOut ? 'bg-zinc-400' : 'bg-orange-400'
               }`} />
             </div>
 
-            <div>
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-orange-500/20 text-orange-400 border border-orange-500/30">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                <span className="text-[10px] font-black uppercase px-1.5 py-0.2 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">
                   {staffMember.code}
                 </span>
-                <span className="text-xs text-zinc-400 font-medium">
+                <span className="text-[11px] text-zinc-300 font-medium truncate">
                   {staffMember.roleTitle}
                 </span>
-              </div>
-              <h2 className="text-xl sm:text-2xl font-black text-white">
-                {staffMember.name}
-              </h2>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300 mt-1">
-                <span className="flex items-center gap-1">
-                  <Building2 className="w-3.5 h-3.5 text-orange-400" />
+                <span className="text-[11px] text-zinc-500">•</span>
+                <span className="text-[11px] text-orange-400/90 flex items-center gap-1 font-medium truncate">
+                  <Building2 className="w-3 h-3 text-orange-400 shrink-0" />
                   {staffMember.branchName}
                 </span>
-                <span>•</span>
-                <span className="flex items-center gap-1">
-                  <Phone className="w-3.5 h-3.5 text-zinc-400" />
-                  {staffMember.phone}
-                </span>
               </div>
+              <h2 className="text-base sm:text-lg font-black text-white truncate">
+                {staffMember.name}
+              </h2>
             </div>
           </div>
 
-          {/* Real-time Status & 1-Touch Fast Check-in */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-white/5 border border-white/10 p-4 rounded-2xl backdrop-blur-sm">
-            <div>
-              <div className="text-[11px] text-zinc-400 font-bold uppercase tracking-wider">Trạng Thái Chấm Công</div>
-              <div className="flex items-center gap-2 mt-1">
-                {isCheckedIn ? (
-                  <>
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                    <span className="text-sm font-extrabold text-emerald-400">
-                      Đang Trong Ca (Vào lúc: {attendance.checkInTime})
-                    </span>
-                  </>
-                ) : isCheckedOut ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-blue-400" />
-                    <span className="text-sm font-extrabold text-blue-400">
-                      Đã Tan Ca ({attendance.checkOutTime})
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 text-amber-400" />
-                    <span className="text-sm font-extrabold text-amber-400">
-                      Chưa Điểm Danh Vào Ca
-                    </span>
-                  </>
-                )}
-              </div>
-              <div className="text-[11px] text-zinc-400 mt-0.5">
-                Ca sáng 08:00 - 15:00 • Wi-Fi: {staffMember.allowedWifiSSID}
+          {/* Compact Attendance Status Button (Tối ưu hiển thị, tiết kiệm không gian) */}
+          <div className="flex items-center justify-between sm:justify-end gap-2.5 bg-white/5 border border-white/10 px-3.5 py-2 rounded-2xl backdrop-blur-md">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                isCheckedIn ? 'bg-orange-400 animate-pulse ring-2 ring-orange-400/20' : isCheckedOut ? 'bg-orange-400' : 'bg-orange-400 animate-bounce'
+              }`} />
+              <div className="text-left">
+                <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider leading-tight">
+                  {isCheckedIn ? 'Đang Trong Ca' : isCheckedOut ? 'Đã Tan Ca' : 'Chưa Check-In'}
+                </div>
+                <div className="text-xs font-black text-white leading-tight font-mono">
+                  {isCheckedIn ? (attendance.checkInTime || '08:00') : isCheckedOut ? (attendance.checkOutTime || '17:00') : 'Ca: 08:00 - 15:00'}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-2 sm:pt-0 sm:border-l sm:border-white/10 sm:pl-3">
-              {!isCheckedIn && !isCheckedOut && (
-                <button
-                  onClick={handleSelfCheckIn}
-                  className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-orange-500/30 active:scale-95 transition-all cursor-pointer"
-                  title="Điểm danh khuôn mặt Face ID và vị trí GPS"
-                >
-                  <ScanFace className="w-4 h-4 animate-pulse" />
-                  <span>⚡ Điểm Danh Face ID</span>
-                </button>
-              )}
+            <div className="h-6 w-px bg-white/15 mx-1" />
 
-              {isCheckedIn && (
-                <button
-                  onClick={handleSelfCheckOut}
-                  className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white text-xs font-black px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-md shadow-rose-600/30 active:scale-95 transition-all cursor-pointer"
-                  title="Xác nhận kết thúc ca làm việc hôm nay"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Kết Thúc Ca (Check-Out)</span>
-                </button>
-              )}
+            {/* Quick Action Button */}
+            {!isCheckedIn && !isCheckedOut && (
+              <button
+                onClick={handleSelfCheckIn}
+                className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                title="Điểm danh khuôn mặt Face ID và vị trí GPS"
+              >
+                <ScanFace className="w-3.5 h-3.5" />
+                <span>Face ID Vào Ca</span>
+              </button>
+            )}
 
-              {isCheckedOut && (
-                <button
-                  onClick={handleSelfCheckIn}
-                  className="w-full sm:w-auto bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Quét Lại</span>
-                </button>
-              )}
-            </div>
+            {isCheckedIn && (
+              <button
+                onClick={handleSelfCheckOut}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm shadow-rose-600/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                title="Xác nhận kết thúc ca làm việc hôm nay"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Chốt Ca Ra</span>
+              </button>
+            )}
+
+            {isCheckedOut && (
+              <button
+                onClick={handleSelfCheckIn}
+                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold px-2.5 py-1.5 rounded-xl flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Quét Lại</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -663,294 +643,20 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
 
       {/* 3. TAB CONTENT */}
 
-      {/* ================= TAB 0: CHECKLIST TRONG NGÀY (DEDICATED TAB) ================= */}
+      {/* ================= TAB 0: CHECKLIST TRONG NGÀY (DEDICATED STANDARDIZED SOP MODULE) ================= */}
       {activeTab === 'CHECKLIST' && (
         <div className="space-y-5 animate-fadeIn">
-          {/* Header Progress & Live Activity Bar */}
-          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-zinc-200 shadow-2xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-100">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-orange-100 text-orange-700 border border-orange-200">
-                    {roleType === 'SALES' ? 'Quy trình NVBH Showroom' : 'Quy trình Kỹ Thuật Viên'}
-                  </span>
-                  <span className="text-xs text-zinc-400">• Hôm nay: {new Date().toLocaleDateString('vi-VN')}</span>
-                </div>
-                <h3 className="text-lg font-black text-zinc-900 mt-1 flex items-center gap-2">
-                  <ListTodo className="w-5 h-5 text-orange-500" />
-                  <span>Checklist Nhiệm Vụ Ca Trực & Bàn Giao</span>
-                </h3>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsAddingCustomTask(!isAddingCustomTask)}
-                  className="px-3.5 py-2 bg-orange-50 hover:bg-orange-100 text-orange-600 text-xs font-bold rounded-xl border border-orange-200 transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Thêm việc phát sinh</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Progress Metric Bar */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center text-xs">
-                <span className="font-extrabold text-zinc-700">
-                  Tiến độ ca trực: <strong className="text-orange-600">{completedCount}/{checklistItems.length} đầu việc</strong> ({progressPercent}%)
-                </span>
-                <span className={`font-black text-xs px-2.5 py-0.5 rounded-full ${
-                  progressPercent === 100 
-                    ? 'bg-emerald-100 text-emerald-800' 
-                    : progressPercent >= 50 
-                    ? 'bg-amber-100 text-amber-800' 
-                    : 'bg-zinc-100 text-zinc-700'
-                }`}>
-                  {progressPercent === 100 ? '✓ Đã Hoàn Tất 100%' : 'Đang thực hiện'}
-                </span>
-              </div>
-              <div className="w-full h-2.5 bg-zinc-100 rounded-full overflow-hidden border border-zinc-200">
-                <div 
-                  className="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full transition-all duration-500"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Live Activity Mode Selector (Moved from large header into this dedicated tab) */}
-            <div className="pt-3 border-t border-zinc-100">
-              <div className="text-xs font-bold text-zinc-600 mb-2 flex items-center gap-1.5">
-                <ActivityIcon role={roleType} />
-                <span>Báo Cáo Trạng Thái Đang Làm (Tức thời):</span>
-                <span className="text-[11px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200/60">
-                  Đang: {currentActivity}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {[
-                  roleType === 'SALES' ? 'Bán hàng Showroom' : 'Sửa chữa & KCS',
-                  roleType === 'SALES' ? 'Tư vấn online CRM' : 'Kiểm tra máy thu cũ',
-                  'Kiểm kê hàng hoá',
-                  'Đi giao hàng',
-                  'Tạm nghỉ trưa (30p)',
-                  'Ra ngoài có việc (15p)'
-                ].map((act) => (
-                  <button
-                    key={act}
-                    onClick={() => setCurrentActivity(act)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      currentActivity === act
-                        ? 'bg-orange-500 text-white shadow-sm shadow-orange-500/20 ring-2 ring-orange-400/40'
-                        : 'bg-zinc-100 text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/80 border border-zinc-200/60'
-                    }`}
-                  >
-                    {act}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Add Custom Task Inline Form */}
-          {isAddingCustomTask && (
-            <form onSubmit={handleAddCustomTask} className="bg-white rounded-3xl p-5 border border-orange-200 shadow-md space-y-3 animate-scaleIn">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-black uppercase text-zinc-900">Thêm nhiệm vụ phát sinh trong ca</h4>
-                <button type="button" onClick={() => setIsAddingCustomTask(false)} className="text-xs text-zinc-400 hover:text-zinc-700">✕ Đóng</button>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <input
-                    type="text"
-                    placeholder="Nhập tên công việc phát sinh (Ví dụ: Test lô tai nghe mới, vệ sinh kho phụ kiện...)"
-                    value={customTaskTitle}
-                    onChange={(e) => setCustomTaskTitle(e.target.value)}
-                    className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 outline-none focus:border-orange-500"
-                    autoFocus
-                    required
-                  />
-                </div>
-                <div>
-                  <select
-                    value={customTaskCategory}
-                    onChange={(e) => setCustomTaskCategory(e.target.value as any)}
-                    className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 outline-none focus:border-orange-500"
-                  >
-                    <option value="OPENING">Đầu ca trực</option>
-                    <option value="MID_SHIFT">Trong ca làm</option>
-                    <option value="CLOSING">Cuối ca trực</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddingCustomTask(false)}
-                  className="px-3.5 py-1.5 bg-zinc-100 text-zinc-600 rounded-xl text-xs font-bold"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-orange-500 text-white rounded-xl text-xs font-black shadow-sm"
-                >
-                  Thêm Việc
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Checklist Filter Tabs */}
-          <div className="flex items-center gap-2">
-            {[
-              { id: 'ALL', label: 'Tất cả nhiệm vụ', count: checklistItems.length },
-              { id: 'OPENING', label: '1. Đầu ca trực', count: checklistItems.filter(i => i.category === 'OPENING').length },
-              { id: 'MID_SHIFT', label: '2. Trong ca làm', count: checklistItems.filter(i => i.category === 'MID_SHIFT').length },
-              { id: 'CLOSING', label: '3. Cuối ca trực & Bàn giao', count: checklistItems.filter(i => i.category === 'CLOSING').length },
-            ].map(f => (
-              <button
-                key={f.id}
-                onClick={() => setChecklistFilter(f.id as any)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  checklistFilter === f.id
-                    ? 'bg-zinc-900 text-white shadow-xs'
-                    : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
-                }`}
-              >
-                <span>{f.label}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                  checklistFilter === f.id ? 'bg-zinc-800 text-zinc-200' : 'bg-zinc-100 text-zinc-600'
-                }`}>
-                  {f.count}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {/* Interactive Checklist Cards */}
-          <div className="bg-white rounded-3xl border border-zinc-200 shadow-2xs overflow-hidden divide-y divide-zinc-100">
-            {filteredChecklist.map((item) => (
-              <div 
-                key={item.id}
-                onClick={() => handleToggleCheckItem(item.id)}
-                className={`p-4 sm:p-5 flex items-start justify-between gap-4 transition-all cursor-pointer select-none ${
-                  item.isCompleted 
-                    ? 'bg-emerald-50/20 hover:bg-emerald-50/40' 
-                    : 'hover:bg-zinc-50'
-                }`}
-              >
-                <div className="flex items-start gap-3.5">
-                  <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all mt-0.5 shrink-0 ${
-                    item.isCompleted
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'border-2 border-zinc-300 hover:border-orange-500 bg-white'
-                  }`}>
-                    {item.isCompleted && <Check className="w-4 h-4 stroke-[3]" />}
-                  </div>
-
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
-                        item.category === 'OPENING' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                        item.category === 'MID_SHIFT' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                        'bg-purple-50 text-purple-700 border border-purple-200'
-                      }`}>
-                        {item.categoryName}
-                      </span>
-
-                      {item.priority === 'HIGH' && (
-                        <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                          Quan trọng
-                        </span>
-                      )}
-
-                      <span className="text-[11px] text-zinc-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        <span>{item.timeHint}</span>
-                      </span>
-                    </div>
-
-                    <h4 className={`text-sm font-extrabold mt-1.5 leading-snug transition-colors ${
-                      item.isCompleted ? 'line-through text-zinc-400 font-medium' : 'text-zinc-900'
-                    }`}>
-                      {item.title}
-                    </h4>
-
-                    {item.note && (
-                      <div className="text-xs text-zinc-500 bg-zinc-50 px-3 py-1.5 rounded-xl border border-zinc-200 mt-2 font-medium">
-                        💡 {item.note}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0">
-                  {item.isCompleted ? (
-                    <div className="flex flex-col items-end">
-                      <span className="text-[11px] font-bold text-emerald-600 bg-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>Xong lúc {item.completedAt}</span>
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-[11px] font-medium text-zinc-400 bg-zinc-100 px-2.5 py-1 rounded-full">
-                      Chờ thực hiện
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Handover Notes & Shift Report Box */}
-          <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-3xl p-5 sm:p-6 shadow-xl border border-zinc-700 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-orange-400" />
-                <h4 className="text-sm font-black uppercase tracking-wider text-white">Ghi Chú & Biên Bản Bàn Giao Ca Trực</h4>
-              </div>
-              <span className="text-xs text-zinc-400">Tự động đồng bộ với Cửa hàng trưởng</span>
-            </div>
-
-            <textarea
-              rows={3}
-              value={handoverNote}
-              onChange={(e) => setHandoverNote(e.target.value)}
-              placeholder="Ghi chú các việc cần bàn giao: Số tiền mặt két, máy khách hẹn lấy, máy cần KCS gấp..."
-              className="w-full p-3.5 bg-zinc-800/90 border border-zinc-700 rounded-2xl text-xs text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-orange-500 transition-colors"
-            />
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-              <div className="text-xs text-zinc-400 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Tiến độ ca: <strong>{completedCount}/{checklistItems.length} việc</strong> • Trạng thái: <strong>{currentActivity}</strong></span>
-              </div>
-
-              <button
-                onClick={() => {
-                  setIsHandoverSubmitted(true);
-                  setTimeout(() => setIsHandoverSubmitted(false), 4000);
-                }}
-                className={`px-5 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95 ${
-                  isHandoverSubmitted 
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                    : 'bg-orange-500 hover:bg-orange-600 text-white shadow-md shadow-orange-500/25'
-                }`}
-              >
-                {isHandoverSubmitted ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>✓ Đã Lưu & Bàn Giao Ca Thành Công</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4" />
-                    <span>Lưu & Báo Cáo Bàn Giao Ca</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
+          <ShiftChecklistModule
+            staffId={staffMember.id}
+            staffName={staffMember.name}
+            staffRole={staffMember.role}
+            branchName={staffMember.branchName}
+            currentActivity={currentActivity}
+            onChangeActivity={setCurrentActivity}
+            onHandoverSubmit={(report) => {
+              console.log('Handover submitted:', report);
+            }}
+          />
         </div>
       )}
 
@@ -962,7 +668,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
               <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Ngày Công Đạt</div>
               <div className="text-2xl font-black text-zinc-900 font-mono mt-1">24 / 26</div>
-              <div className="text-[11px] text-emerald-600 font-bold mt-0.5">✓ Đạt 92.3% chuẩn tháng</div>
+              <div className="text-[11px] text-orange-600 font-bold mt-0.5">✓ Đạt 92.3% chuẩn tháng</div>
             </div>
 
             <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
@@ -973,13 +679,13 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
 
             <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
               <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Đi Muộn / Về Sớm</div>
-              <div className="text-2xl font-black text-emerald-600 font-mono mt-1">0 lần</div>
-              <div className="text-[11px] text-emerald-600 font-bold mt-0.5">Thưởng chuyên cần: +500k</div>
+              <div className="text-2xl font-black text-orange-600 font-mono mt-1">0 lần</div>
+              <div className="text-[11px] text-orange-600 font-bold mt-0.5">Thưởng chuyên cần: +500k</div>
             </div>
 
             <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
               <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">Phép Năm Còn Lại</div>
-              <div className="text-2xl font-black text-purple-600 font-mono mt-1">10.0 ngày</div>
+              <div className="text-2xl font-black text-rose-600 font-mono mt-1">10.0 ngày</div>
               <div className="text-[11px] text-zinc-400 font-bold mt-0.5">Đã dùng 2.0 ngày</div>
             </div>
           </div>
@@ -1016,7 +722,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                     item.status === 'IN_PROGRESS'
                       ? 'bg-orange-50/80 border-orange-300 ring-2 ring-orange-500/20'
                       : item.status === 'COMPLETED'
-                      ? 'bg-emerald-50/40 border-emerald-200'
+                      ? 'bg-orange-50/40 border-orange-200'
                       : item.status === 'OFF'
                       ? 'bg-zinc-50 border-zinc-200 opacity-60'
                       : 'bg-white border-zinc-200'
@@ -1026,7 +732,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                   <div className="text-xs font-bold text-zinc-600 mt-1">{item.shift}</div>
                   <div className="mt-2 pt-2 border-t border-zinc-100 flex items-center justify-between">
                     <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${
-                      item.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' :
+                      item.status === 'COMPLETED' ? 'bg-orange-100 text-orange-800' :
                       item.status === 'IN_PROGRESS' ? 'bg-orange-500 text-white' :
                       item.status === 'OFF' ? 'bg-zinc-200 text-zinc-700' : 'bg-zinc-100 text-zinc-600'
                     }`}>
@@ -1044,40 +750,40 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
           {/* SENSOR VERIFICATION AUDIT */}
           <div className="bg-white rounded-3xl p-5 sm:p-6 border border-zinc-200 shadow-2xs space-y-4">
             <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wide flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <ShieldCheck className="w-4 h-4 text-orange-600" />
               <span>Nhật Ký Cảm Biến Điểm Danh Gần Nhất</span>
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
+                <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
                   <MapPin className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="text-xs font-bold text-zinc-800">Định Vị GPS</div>
-                  <div className="text-xs font-black text-emerald-600">Hợp lệ • 14m từ Cửa Hàng</div>
+                  <div className="text-xs font-black text-orange-600">Hợp lệ • 14m từ Cửa Hàng</div>
                   <div className="text-[10px] text-zinc-400">Tọa độ: 16.0678° N, 108.2208° E</div>
                 </div>
               </div>
 
               <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
+                <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
                   <Wifi className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="text-xs font-bold text-zinc-800">Wi-Fi Showroom</div>
-                  <div className="text-xs font-black text-emerald-600">Đã Kết Nối ({staffMember.allowedWifiSSID})</div>
+                  <div className="text-xs font-black text-orange-600">Đã Kết Nối ({staffMember.allowedWifiSSID})</div>
                   <div className="text-[10px] text-zinc-400">BSSID: e4:38:83:19:bc:40</div>
                 </div>
               </div>
 
               <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
+                <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
                   <ScanFace className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="text-xs font-bold text-zinc-800">Face ID Sinh Trắc Học</div>
-                  <div className="text-xs font-black text-emerald-600">Trùng khớp 99.4%</div>
+                  <div className="text-xs font-black text-orange-600">Trùng khớp 99.4%</div>
                   <div className="text-[10px] text-zinc-400">Đã lưu vector nhận diện</div>
                 </div>
               </div>
@@ -1090,7 +796,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
       {activeTab === 'EARNINGS' && (
         <div className="space-y-5 animate-fadeIn">
           {/* Earnings Hero Banner */}
-          <div className="bg-gradient-to-r from-orange-600 via-amber-600 to-orange-700 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="bg-gradient-to-r from-orange-600 via-orange-600 to-orange-700 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="bg-white text-orange-600 text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
@@ -1127,19 +833,19 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
-                <div className="text-[10px] font-bold text-amber-600 uppercase">Hoa Hồng Phụ Kiện</div>
+                <div className="text-[10px] font-bold text-orange-600 uppercase">Hoa Hồng Phụ Kiện</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).accessoryCommission)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">5% giá trị phụ kiện</div>
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
-                <div className="text-[10px] font-bold text-emerald-600 uppercase">Thưởng Bảo Hành Mở Rộng</div>
+                <div className="text-[10px] font-bold text-orange-600 uppercase">Thưởng Bảo Hành Mở Rộng</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).warrantyBonus)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">10% gói bảo hành rơi vỡ</div>
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
-                <div className="text-[10px] font-bold text-purple-600 uppercase">Thưởng Vượt KPI</div>
+                <div className="text-[10px] font-bold text-rose-600 uppercase">Thưởng Vượt KPI</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).kpiBonus)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">Thưởng mốc &gt; 120% target</div>
               </div>
@@ -1153,19 +859,19 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
-                <div className="text-[10px] font-bold text-amber-600 uppercase">Sửa Chữa ({ (roleCommissions as any).repairCount } ca)</div>
+                <div className="text-[10px] font-bold text-orange-600 uppercase">Sửa Chữa ({ (roleCommissions as any).repairCount } ca)</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).repairAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">Ép kính, thay màn/pin, main</div>
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
-                <div className="text-[10px] font-bold text-emerald-600 uppercase">Bảo Hành Tiêu Chuẩn</div>
+                <div className="text-[10px] font-bold text-orange-600 uppercase">Bảo Hành Tiêu Chuẩn</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).warrantyAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">50.000 đ / máy bảo hành</div>
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
-                <div className="text-[10px] font-bold text-purple-600 uppercase">Test Thu Cũ ({ (roleCommissions as any).tradeInCount } máy)</div>
+                <div className="text-[10px] font-bold text-rose-600 uppercase">Test Thu Cũ ({ (roleCommissions as any).tradeInCount } máy)</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).tradeInAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">50.000 đ / máy thu cũ</div>
               </div>
@@ -1201,8 +907,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                   </div>
 
                   <div className="text-right shrink-0">
-                    <div className="font-black text-emerald-600 font-mono text-sm">+{formatVND(tx.amount)}</div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                    <div className="font-black text-orange-600 font-mono text-sm">+{formatVND(tx.amount)}</div>
+                    <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full">
                       ✓ Đã cộng ví
                     </span>
                   </div>
@@ -1218,7 +924,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
         <div className="bg-white rounded-3xl p-6 border border-zinc-200 shadow-2xs space-y-6 animate-fadeIn max-w-3xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-100">
             <div>
-              <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+              <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-orange-100 text-orange-800">
                 Kỳ Lương Tháng 08/2026
               </span>
               <h3 className="text-xl font-black text-zinc-900 mt-1">Phiếu Lương & Thu Nhập Chi Tiết</h3>
@@ -1252,7 +958,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 <span>Tổng hoa hồng & thù lao (Từ Ví):</span>
                 <span className="font-mono font-black">{formatVND(roleCommissions.totalEarnings)}</span>
               </div>
-              <div className="flex justify-between items-center text-emerald-600 font-bold">
+              <div className="flex justify-between items-center text-orange-600 font-bold">
                 <span>Thưởng chuyên cần (Không đi muộn):</span>
                 <span className="font-mono font-black">{formatVND(500000)}</span>
               </div>
@@ -1277,13 +983,13 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
 
           <div className="bg-orange-50 rounded-2xl p-4 border border-orange-200 flex items-center justify-between text-xs">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <CheckCircle2 className="w-5 h-5 text-orange-600" />
               <div>
                 <div className="font-bold text-zinc-900">Quy trình duyệt 3 cấp:</div>
                 <div className="text-zinc-600 text-[11px]">1. Kế toán lập ✓ • 2. Cửa hàng trưởng đã duyệt ✓ • 3. Chờ Giám đốc chi</div>
               </div>
             </div>
-            <span className="font-bold text-emerald-700 bg-emerald-100 px-3 py-1 rounded-xl">ĐÃ DUYỆT CHT</span>
+            <span className="font-bold text-orange-700 bg-orange-100 px-3 py-1 rounded-xl">ĐÃ DUYỆT CHT</span>
           </div>
         </div>
       )}
@@ -1390,8 +1096,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="font-black text-zinc-900 text-sm">{req.reason}</span>
                       <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                        req.type === 'ANNUAL_LEAVE' ? 'bg-purple-100 text-purple-800' :
-                        req.type === 'SHIFT_SWAP' ? 'bg-blue-100 text-blue-800' :
+                        req.type === 'ANNUAL_LEAVE' ? 'bg-rose-100 text-rose-800' :
+                        req.type === 'SHIFT_SWAP' ? 'bg-orange-100 text-orange-800' :
                         req.type === 'OVERTIME' ? 'bg-orange-100 text-orange-800' : 'bg-zinc-100 text-zinc-700'
                       }`}>
                         {req.type === 'ANNUAL_LEAVE' ? 'Phép năm' :
@@ -1408,8 +1114,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
 
                   <div className="flex items-center gap-2 self-start sm:self-auto">
                     <span className={`text-xs font-bold px-3 py-1 rounded-xl ${
-                      req.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' :
-                      req.status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                      req.status === 'APPROVED' ? 'bg-orange-100 text-orange-800' :
+                      req.status === 'PENDING' ? 'bg-orange-100 text-orange-800' : 'bg-rose-100 text-rose-800'
                     }`}>
                       {req.status === 'APPROVED' ? '✓ Đã Phê Duyệt' :
                        req.status === 'PENDING' ? '⏳ Chờ CHT Duyệt' : '✕ Từ Chối'}
@@ -1429,5 +1135,5 @@ const ActivityIcon: React.FC<{ role: 'SALES' | 'TECH' }> = ({ role }) => {
   if (role === 'SALES') {
     return <Briefcase className="w-3.5 h-3.5 text-orange-400" />;
   }
-  return <Wrench className="w-3.5 h-3.5 text-indigo-400" />;
+  return <Wrench className="w-3.5 h-3.5 text-rose-400" />;
 };

@@ -63,6 +63,7 @@ export interface StoreSettings {
   printHeaderNote: string;
   printFooterNote: string;
   defaultWarrantyMonths: number;
+  warrantyPackages?: { name: string; price: number }[];
   branches: StoreBranch[];
   warehouses: WarehouseInfo[];
 }
@@ -77,7 +78,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
     address: 'Khu Công Nghệ Cao / Kho Phân Phối Trung Tâm, Hà Nội',
     manager: 'Nhật Tân (Giám Đốc Kho)',
     phone: '0988.999.888',
-    color: 'from-purple-600 to-indigo-600',
+    color: 'from-rose-600 to-rose-600',
     systemType: 'TONG',
     systemName: 'Tổng Hệ Thống (Central)',
     type: 'CENTRAL',
@@ -92,7 +93,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
     address: 'Tầng 2 - Trung Tâm Kỹ Thuật & Thẩm Định Tổng Kho',
     manager: 'Trưởng Phòng Kỹ Thuật',
     phone: '0988.777.666',
-    color: 'from-indigo-500 to-blue-600',
+    color: 'from-rose-500 to-orange-600',
     systemType: 'TONG',
     systemName: 'Tổng Hệ Thống (Central)',
     type: 'TECHNICIAN_SUB',
@@ -108,7 +109,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
     address: 'Bàn Kỹ Thuật 01 - Trạm Kỹ Thuật Tổng',
     manager: 'KTV Nam (Main & Phần Cứng)',
     phone: '0912.345.678',
-    color: 'from-indigo-600 to-sky-500',
+    color: 'from-rose-600 to-orange-500',
     systemType: 'TONG',
     systemName: 'Tổng Hệ Thống (Central)',
     type: 'TECHNICIAN_SUB',
@@ -125,7 +126,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
     address: 'Bàn Kỹ Thuật 02 - Trạm Kỹ Thuật Tổng',
     manager: 'KTV Trọng (Ép Kính)',
     phone: '0912.888.999',
-    color: 'from-sky-500 to-teal-500',
+    color: 'from-orange-500 to-orange-500',
     systemType: 'TONG',
     systemName: 'Tổng Hệ Thống (Central)',
     type: 'TECHNICIAN_SUB',
@@ -142,7 +143,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
     address: 'Bàn Kỹ Thuật 03 - Trạm Kỹ Thuật Tổng',
     manager: 'KTV Dương (KCS & Linh Kiện)',
     phone: '0912.555.444',
-    color: 'from-teal-500 to-emerald-500',
+    color: 'from-orange-500 to-orange-500',
     systemType: 'TONG',
     systemName: 'Tổng Hệ Thống (Central)',
     type: 'TECHNICIAN_SUB',
@@ -161,7 +162,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
     address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, Hà Nội',
     manager: 'Tuấn Cửa Hàng Trưởng',
     phone: '0977.111.222',
-    color: 'from-orange-500 to-amber-500',
+    color: 'from-orange-500 to-orange-500',
     systemType: 'PHONEHOUSE',
     systemName: 'PhoneHouse Retail',
     type: 'RETAIL_STORE',
@@ -177,7 +178,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
     address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, Hà Nội',
     manager: 'Hoàng Quản Lý Chi Nhánh',
     phone: '0966.333.444',
-    color: 'from-blue-600 to-cyan-500',
+    color: 'from-orange-600 to-orange-500',
     systemType: 'XSTORE',
     systemName: 'Xstore Apple Premium',
     type: 'RETAIL_STORE',
@@ -391,7 +392,7 @@ export interface Lead {
   source: 'Facebook Ads' | 'TikTok' | 'Zalo OA' | 'Khách Vãng Lai' | 'Khách Quen Giới Thiệu';
   interestedModel: string;
   budget: number;
-  tradeInRequired: boolean;
+  tradeInRequirose: boolean;
   tradeInModel?: string;
   status: 'new' | 'contacted' | 'negotiating' | 'deposit' | 'won' | 'lost';
   assignedStaff: string;
@@ -1111,3 +1112,200 @@ export interface MonthlyPayrollSlip {
     notes?: string;
   }>;
 }
+
+export type SOPCategory = 'OPENING' | 'MID_SHIFT' | 'CLOSING';
+export type SOPTargetRole = 'ALL' | 'SALES' | 'SALE_ONLINE' | 'TECHNICIAN' | 'CASHIER' | 'WAREHOUSE' | 'MANAGER';
+export type TaskPriority = 'HIGH' | 'MEDIUM' | 'NORMAL';
+
+export interface SOPTemplateItem {
+  id: string;
+  code: string; // e.g. 'SOP-SALES-01'
+  title: string;
+  targetRole: SOPTargetRole;
+  targetRoleName?: string;
+  category: SOPCategory;
+  categoryName: string; // 'Đầu ca trực' | 'Trong ca làm' | 'Cuối ca trực & Bàn giao'
+  timeHint: string; // '08:00 - 08:30'
+  priority: TaskPriority;
+  description: string;
+  guidelines?: string[];
+  requiresPhotoProof?: boolean;
+  requiresNote?: boolean;
+  penaltyPoints?: number;
+  bonusPoints?: number;
+  isActive: boolean;
+  orderIndex: number;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  version?: string;
+}
+
+export interface DailyShiftChecklistItem {
+  id: string;
+  templateId?: string;
+  date: string;
+  staffId: string;
+  staffName: string;
+  staffRole: string;
+  branchId?: string;
+  branchName?: string;
+  title: string;
+  category: SOPCategory;
+  categoryName: string;
+  timeHint: string;
+  priority: TaskPriority;
+  isCompleted: boolean;
+  completedAt?: string;
+  completedBy?: string;
+  note?: string;
+  photoProofUrl?: string;
+  isCustomTask?: boolean;
+  assignedByLeaderName?: string;
+  verifiedByManager?: boolean;
+  verifiedAt?: string;
+  verifiedBy?: string;
+}
+
+export interface ShiftHandoverReport {
+  id: string;
+  code: string;
+  date: string;
+  shiftName: string;
+  branchId: string;
+  branchName: string;
+  staffId: string;
+  staffName: string;
+  staffRole: string;
+  cashInSafe: number;
+  cashRevenueToday: number;
+  posCardRevenueToday: number;
+  qrBankRevenueToday: number;
+  totalRevenueToday: number;
+  demoDevicesCount: number;
+  demoDevicesLocked: boolean;
+  glassShowcasesLocked: boolean;
+  powerHeatDevicesTurnedOff: boolean;
+  pendingRepairsCount: number;
+  pendingTradeInsCount: number;
+  pendingAppointmentsNote: string;
+  generalNotes: string;
+  completedTasksCount: number;
+  totalTasksCount: number;
+  status: 'SUBMITTED' | 'ACKNOWLEDGED' | 'APPROVED_BY_MANAGER';
+  acknowledgedByStaffName?: string;
+  managerApprovedBy?: string;
+  managerFeedback?: string;
+  createdAt: string;
+}
+
+// ==========================================
+// OMNICHANNEL CHAT & MULTI-CHANNEL CRM TYPES
+// ==========================================
+
+export type ChatChannelType = 'FACEBOOK' | 'ZALO' | 'TIKTOK' | 'WEB' | 'SHOPEE' | 'INSTAGRAM' | 'HOTLINE';
+
+export type ChatMessageType = 'text' | 'image' | 'product_card' | 'quote_card' | 'tradein_card' | 'order_summary' | 'system_alert';
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  sender: 'CUSTOMER' | 'STAFF' | 'AI_BOT' | 'SYSTEM';
+  senderName: string;
+  senderAvatar?: string;
+  content: string;
+  timestamp: string;
+  type: ChatMessageType;
+  attachments?: string[];
+  productData?: {
+    name: string;
+    price: number;
+    image?: string;
+    imei?: string;
+    storage?: string;
+    condition?: string;
+    inStock?: boolean;
+    warehouseName?: string;
+  };
+  quoteData?: {
+    oldDeviceName?: string;
+    tradeInEstimated?: number;
+    newDeviceName?: string;
+    newDevicePrice?: number;
+    priceGap?: number;
+    installmentMonthly?: number;
+  };
+  status?: 'sending' | 'sent' | 'delivered' | 'read';
+}
+
+export type ConversationStatus = 'NEW' | 'IN_PROGRESS' | 'WAITING_CUSTOMER' | 'APPOINTMENT_SET' | 'DEPOSIT_PAID' | 'WON' | 'CLOSED';
+
+export interface ChatConversation {
+  id: string;
+  channel: ChatChannelType;
+  channelAccountName: string; // VD: "Fanpage PhoneHouse Store", "Zalo OA PhoneHouse Care"
+  channelExternalId?: string;
+  customer: {
+    id?: string;
+    name: string;
+    phone?: string;
+    avatar?: string;
+    facebookId?: string;
+    zaloId?: string;
+    tiktokId?: string;
+    address?: string;
+    isVip?: boolean;
+    totalSpent?: number;
+    orderCount?: number;
+    tags?: string[];
+  };
+  lastMessage: {
+    content: string;
+    timestamp: string;
+    sender: 'CUSTOMER' | 'STAFF' | 'AI_BOT' | 'SYSTEM';
+    unread: boolean;
+  };
+  unreadCount: number;
+  status: ConversationStatus;
+  assignedStaff: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  tags: string[];
+  interestedProduct?: {
+    model: string;
+    storage?: string;
+    color?: string;
+    budget?: number;
+  };
+  tradeInOffer?: {
+    oldModel: string;
+    estimatedPrice: number;
+    batteryHealth?: number;
+    status: 'EVALUATING' | 'AGREED' | 'REJECTED';
+  };
+  branchId?: string;
+  branchName?: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+  aiSentiment?: 'HOT_LEAD' | 'PRICE_HUNTING' | 'NEED_CONSULTATION' | 'COMPLAINT';
+  aiSummary?: string;
+}
+
+export interface ChannelConnectionConfig {
+  id: string;
+  channel: ChatChannelType;
+  name: string;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'SYNCING' | 'ERROR';
+  accountHandle: string;
+  avatarUrl?: string;
+  lastSyncedAt: string;
+  totalMessagesSynced: number;
+  webhookUrl: string;
+  autoAiReply: boolean;
+  assignRule: 'ROUND_ROBIN' | 'BRANCH_BASED' | 'FIRST_RESPONDER';
+  color: string;
+}
+

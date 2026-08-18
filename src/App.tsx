@@ -1,3 +1,5 @@
+import { MapPin, Sparkles } from "lucide-react";
+import { GeofenceBackgroundTracker } from "./components/GeofenceBackgroundTracker";
 import { INITIAL_TODAY_ATTENDANCE_LIST } from "./data/attendanceData";
 import { RoleSwitcher, WorkspaceMode } from './components/RoleSwitcher';
 import React, { useState, useEffect, useCallback } from 'react';
@@ -47,6 +49,7 @@ import { INITIAL_CATALOG_ITEMS } from './data/catalogData';
 import { MasterCatalogItem } from './types';
 import { ProductsView } from './components/ProductsView';
 import { CRMLeadsView } from './components/CRMLeadsView';
+import { OmnichannelChatView } from './components/OmnichannelChatView';
 import { TradeInView } from './components/TradeInView';
 import { WarrantyServiceView } from './components/WarrantyServiceView';
 import { POSSalesView } from './components/POSSalesView';
@@ -59,6 +62,7 @@ import { CashbookView } from './components/CashbookView';
 import { StoreSettingsView } from './components/StoreSettingsView';
 import { MoreHubView } from './components/MoreHubView';
 import { HRHubView } from './components/HRHubView';
+import { SOPManagementView } from './components/SOPManagementView';
 import { StandaloneCheckInView } from './components/StandaloneCheckInView';
 import { EmployeeDashboardView } from './components/EmployeeDashboardView';
 import { TechWorkspaceView } from './components/TechWorkspaceView';
@@ -393,6 +397,13 @@ export default function App() {
   const filteredUsers = activeBranchId === 'ALL' || !activeBranchId 
     ? users 
     : users.filter(u => u.branchId === activeBranchId);
+
+    const filteredPurchaseOrders = activeBranchId === 'ALL' || !activeBranchId
+    ? purchaseOrders
+    : purchaseOrders.filter(o => {
+        const currentWarehouseId = branches.find(b => b.id === activeBranchId)?.warehouseId;
+        return o.warehouseId === currentWarehouseId || !o.warehouseId;
+      });
 
   const filteredPartners = activeBranchId === 'ALL' || !activeBranchId 
     ? partners 
@@ -996,6 +1007,61 @@ export default function App() {
     setPurchaseOrders(prev => prev.filter(o => o.id !== orderId));
   };
 
+  
+  const handleAutoPayDebt = (partnerId: string, amount: number, direction: 'PAYMENT' | 'RECEIPT') => {
+    let remainingAmount = amount;
+
+    if (direction === 'PAYMENT') {
+      // Payment to Supplier -> reduce debt on Purchase Orders
+      setPurchaseOrders(prev => {
+        const sortedOrders = [...prev]
+          .filter(o => o.supplierId === partnerId && o.debtAmount > 0)
+          .sort((a, b) => new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime());
+
+        const updatedOrdersMap = new Map();
+        for (const order of sortedOrders) {
+          if (remainingAmount <= 0) break;
+          const toPay = Math.min(order.debtAmount, remainingAmount);
+          remainingAmount -= toPay;
+          const newDebt = order.debtAmount - toPay;
+          const newPaid = (order.paidAmount || 0) + toPay;
+          updatedOrdersMap.set(order.id, {
+            ...order,
+            debtAmount: newDebt,
+            paidAmount: newPaid,
+            paymentStatus: newDebt === 0 ? 'PAID' : 'PARTIAL'
+          });
+        }
+
+        return prev.map(o => updatedOrdersMap.has(o.id) ? updatedOrdersMap.get(o.id) : o);
+      });
+    } else {
+      // Receipt from Customer -> reduce debt on Invoices
+      setInvoices(prev => {
+        const sortedInvoices = [...prev]
+          .filter(i => i.customerId === partnerId && i.debtAmount > 0)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        const updatedInvoicesMap = new Map();
+        for (const invoice of sortedInvoices) {
+          if (remainingAmount <= 0) break;
+          const toPay = Math.min(invoice.debtAmount, remainingAmount);
+          remainingAmount -= toPay;
+          const newDebt = invoice.debtAmount - toPay;
+          const newPaid = (invoice.paidAmount || 0) + toPay;
+          updatedInvoicesMap.set(invoice.id, {
+            ...invoice,
+            debtAmount: newDebt,
+            paidAmount: newPaid,
+            paymentStatus: newDebt === 0 ? 'PAID' : 'PARTIAL'
+          });
+        }
+
+        return prev.map(i => updatedInvoicesMap.has(i.id) ? updatedInvoicesMap.get(i.id) : i);
+      });
+    }
+  };
+
   const handlePaySupplierDebt = (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => {
     const targetFund = funds.find(f => f.id === fundId);
     const supplier = partners.find(p => p.id === supplierId);
@@ -1092,28 +1158,27 @@ export default function App() {
       <RoleSwitcher currentMode={workspaceMode} onModeChange={setWorkspaceMode} />
 
       {workspaceMode === 'SALES' && (
-        <SalesWorkspaceView 
-          devices={filteredDevices}
-          invoices={filteredInvoices}
-          leads={filteredLeads}
-          branches={branches}
-          warehouses={warehouses}
-          storeSettings={storeSettings}
-          onCreateInvoice={handleCreateInvoice}
-          onUpdateDeviceStatus={handleUpdateDeviceStatus}
-          preSelectedDevice={posPreSelectedDevice}
-          onNavigateToInvoices={() => setActiveTab('invoices')}
+        <SalesWorkspaceView
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  invoices={filteredInvoices}
+  leads={filteredLeads}
+  warehouses={warehouses}
+  storeSettings={storeSettings}
+  onCreateInvoice={handleCreateInvoice}
+  onUpdateDeviceStatus={handleUpdateDeviceStatus}
+  preSelectedDevice={posPreSelectedDevice}
+  onNavigateToInvoices={() => setActiveTab('invoices')}
           funds={funds}
           onAddTransaction={handleAddCashTransaction}
+  onAutoPayDebt={handleAutoPayDebt}
           onOpenNewDeviceModal={() => setActiveTab('inventory')}
           onOpenCheckIn={() => setIsCheckInModalOpen(true)}
           onAddLead={handleAddLead}
           onUpdateLead={handleUpdateLead}
           onConvertLeadToSale={handleConvertLeadToSale}
-          currentUser={currentUser}
-          users={filteredUsers}
-          onUpdateUser={handleUpdateUser}
-          warrantyTickets={filteredWarrantyTickets}
+            onUpdateUser={handleUpdateUser}
           onCheckIn={handleCheckIn}
           onCheckOut={handleCheckOut}
           attendanceRecord={currentAttendance}
@@ -1126,14 +1191,14 @@ export default function App() {
       )}
 
       {workspaceMode === 'TECH' && (
-        <TechWorkspaceView 
-          tasks={filteredWarrantyTickets}
-          devices={filteredDevices}
-          branches={branches}
-          currentUser={currentUser}
-          onCheckIn={handleCheckIn}
-          onCheckOut={handleCheckOut}
-          onOpenCheckIn={() => setIsCheckInModalOpen(true)}
+        <TechWorkspaceView
+  tasks={filteredWarrantyTickets}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  onCheckIn={handleCheckIn}
+  onCheckOut={handleCheckOut}
+  onOpenCheckIn={() => setIsCheckInModalOpen(true)}
           attendanceRecord={currentAttendance}
           attendanceRecords={attendanceRecords}
         />
@@ -1141,6 +1206,7 @@ export default function App() {
 
       {workspaceMode === 'ADMIN' && (
         <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans selection:bg-orange-500 selection:text-white">
+      <GeofenceBackgroundTracker currentUser={currentUser} />
           {/* Top Navigation Bar */}
       <Navbar
         activeTab={activeTab}
@@ -1155,7 +1221,7 @@ export default function App() {
         onOpenAICopilot={() => setIsAICopilotOpen(true)}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         currentUser={currentUser}
-        onLogout={() => {
+            onLogout={() => {
           setCurrentUser(null);
           localStorage.removeItem('phonehouse_active_user');
           setIsLoginModalOpen(true);
@@ -1169,15 +1235,18 @@ export default function App() {
         selectedBranchId={selectedBranchId}
         onBranchChange={setSelectedBranchId}
         branches={branches}
-      />
+            />
 
       {/* Main Content View Area */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-1 sm:px-4 lg:px-8 pt-2 sm:pt-6 pb-20 md:pb-8">
+
+        
+
         {activeTab === 'login' && (
           <PhoneHouseLoginPage
-            users={users}
-            currentUser={currentUser}
-            onLoginSuccess={(loggedUser) => {
+  users={users}
+  currentUser={currentUser}
+  onLoginSuccess={(loggedUser) => {
               setCurrentUser(loggedUser);
               localStorage.setItem('phonehouse_active_user', JSON.stringify(loggedUser));
               setActiveTab('dashboard');
@@ -1187,12 +1256,14 @@ export default function App() {
 
         {activeTab === 'dashboard' && (
           <DashboardView
-            devices={filteredDevices}
-            leads={filteredLeads}
-            tradeIns={filteredTradeIns}
-            warrantyTickets={filteredWarrantyTickets}
-            invoices={filteredInvoices}
-            onNavigate={(tab) => setActiveTab(tab)}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  leads={filteredLeads}
+  tradeIns={filteredTradeIns}
+  warrantyTickets={filteredWarrantyTickets}
+  invoices={filteredInvoices}
+  onNavigate={(tab) => setActiveTab(tab)}
             onOpenPOS={() => {
               setPosPreSelectedDevice(null);
               setActiveTab('pos');
@@ -1204,21 +1275,23 @@ export default function App() {
 
         {activeTab === 'purchase-orders' && (
           <PurchaseOrdersView
-            purchaseOrders={purchaseOrders}
-            partners={partners}
-            warehouses={warehouses}
-            funds={funds}
-            currentUser={currentUser}
-            catalogItems={catalogItems}
-            onAddPurchaseOrder={handleAddPurchaseOrder}
-            onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
-            onDeletePurchaseOrder={handleDeletePurchaseOrder}
-            onPaySupplierDebt={handlePaySupplierDebt}
-          />
+  purchaseOrders={filteredPurchaseOrders}
+  partners={partners}
+  warehouses={warehouses}
+  funds={funds}
+  currentUser={currentUser}
+  catalogItems={catalogItems}
+  onAddPurchaseOrder={handleAddPurchaseOrder}
+  onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
+  onDeletePurchaseOrder={handleDeletePurchaseOrder}
+  onPaySupplierDebt={handlePaySupplierDebt}
+/>
         )}
 
         {activeTab === 'inventory' && (
           <InventoryView
+            catalogItems={catalogItems}
+            currentUser={currentUser}
             devices={filteredDevices}
             branches={branches}
             warehouses={warehouses}
@@ -1230,6 +1303,7 @@ export default function App() {
             users={filteredUsers}
             onAddDevice={handleAddDevice}
             onAddMultipleDevices={handleAddMultipleDevices}
+            onAddPurchaseOrder={handleAddPurchaseOrder}
             onUpdateDevice={handleUpdateDevice}
             onDeleteDevice={handleDeleteDevice}
             onQuickSell={handleQuickSell}
@@ -1242,23 +1316,24 @@ export default function App() {
 
         {activeTab === 'transfers' && (
           <WarehouseTransfersView
-            transfers={filteredTransfers}
-            devices={filteredDevices}
-            products={products}
-            warehouses={warehouses}
-            users={filteredUsers}
-            onAddTransfer={handleAddTransfer}
-            onUpdateTransfer={handleUpdateTransfer}
-            onUpdateDevicesWarehouse={handleUpdateDevicesWarehouse}
-            onAddWarrantyTicket={handleAddWarrantyTicket}
-          />
+  transfers={filteredTransfers}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  products={products}
+  warehouses={warehouses}
+  users={filteredUsers}
+  onAddTransfer={handleAddTransfer}
+  onUpdateTransfer={handleUpdateTransfer}
+  onUpdateDevicesWarehouse={handleUpdateDevicesWarehouse}
+  onAddWarrantyTicket={handleAddWarrantyTicket}
+/>
         )}
 
         
         {activeTab === 'master-catalog' && (
-          <MasterCatalogView 
-            items={catalogItems}
-            onAddItem={(item) => setCatalogItems([...catalogItems, item])}
+          <MasterCatalogView
+  items={catalogItems}
+  onAddItem={(item) => setCatalogItems([...catalogItems, item])}
             onUpdateItem={(item) => setCatalogItems(catalogItems.map(i => i.id === item.id ? item : i))}
             onDeleteItem={(id) => setCatalogItems(catalogItems.filter(i => i.id !== id))}
           />
@@ -1266,8 +1341,8 @@ export default function App() {
 
         {activeTab === 'products' && (
           <ProductsView
-            products={products}
-            onAddProduct={(p) => {
+  products={products}
+  onAddProduct={(p) => {
               setProducts([...products, p]);
               addProductToFirestore(p);
             }}
@@ -1284,67 +1359,102 @@ export default function App() {
 
         {activeTab === 'crm' && (
           <CRMLeadsView
-            leads={filteredLeads}
-            devices={filteredDevices}
-            onAddLead={handleAddLead}
-            onUpdateLead={handleUpdateLead}
-            onConvertLeadToSale={handleConvertLeadToSale}
+  currentUser={currentUser}
+  branches={branches}
+  leads={filteredLeads}
+  devices={filteredDevices}
+  onAddLead={handleAddLead}
+  onUpdateLead={handleUpdateLead}
+  onConvertLeadToSale={handleConvertLeadToSale}
+  onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
+/>
+        )}
+
+        {activeTab === 'omnichannel-chat' && (
+          <OmnichannelChatView
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  leads={filteredLeads}
+  invoices={filteredInvoices}
+  onConvertChatToPOS={(device, customer) => {
+              setPosPreSelectedDevice(device);
+              setActiveTab('pos');
+            }
+}
+            onConvertChatToLead={(newLead) => {
+              handleAddLead(newLead);
+              setActiveTab('crm');
+            }}
+            onConvertChatToTradeIn={(customerName, phone, oldModel) => {
+              setActiveTab('tradein');
+            }}
           />
         )}
 
         {activeTab === 'tradein' && (
           <TradeInView
-            tradeIns={filteredTradeIns}
-            devices={filteredDevices}
-            onAddTradeIn={handleAddTradeIn}
-            onUpdateTradeIn={handleUpdateTradeIn}
-            onImportToInventory={handleAddDevice}
-          />
+  currentUser={currentUser}
+  branches={branches}
+  tradeIns={filteredTradeIns}
+  devices={filteredDevices}
+  onAddTradeIn={handleAddTradeIn}
+  onUpdateTradeIn={handleUpdateTradeIn}
+  onImportToInventory={handleAddDevice}
+/>
         )}
 
         {activeTab === 'warranty' && (
           <WarrantyServiceView
-            warrantyTickets={filteredWarrantyTickets}
-            devices={filteredDevices}
-            funds={funds}
-            users={users}
-            spareParts={spareParts}
-            onUpdateSparePart={(updatedPart) => updateSparePartInFirestore(updatedPart)}
+  currentUser={currentUser}
+  branches={branches}
+  warrantyTickets={filteredWarrantyTickets}
+  devices={filteredDevices}
+  funds={funds}
+  users={users}
+  spareParts={spareParts}
+  onUpdateSparePart={(updatedPart) => updateSparePartInFirestore(updatedPart)}
             onAddTicket={handleAddWarrantyTicket}
             onUpdateTicket={handleUpdateWarrantyTicket}
             onAddTransaction={handleAddCashTransaction}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
-          />
+/>
         )}
 
         {activeTab === 'pos' && (
           <POSSalesView
-            devices={filteredDevices}
-            invoices={filteredInvoices}
-            leads={filteredLeads}
-            branches={branches}
-            warehouses={warehouses}
-            storeSettings={storeSettings}
-            onCreateInvoice={handleCreateInvoice}
-            onUpdateDeviceStatus={handleUpdateDeviceStatus}
-            preSelectedDevice={posPreSelectedDevice}
-            onNavigateToInvoices={() => setActiveTab('invoices')}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  invoices={filteredInvoices}
+  leads={filteredLeads}
+  warehouses={warehouses}
+  storeSettings={storeSettings}
+  products={products}
+  partners={partners}
+  onCreateInvoice={handleCreateInvoice}
+  onUpdateDeviceStatus={handleUpdateDeviceStatus}
+  preSelectedDevice={posPreSelectedDevice}
+  onNavigateToInvoices={() => setActiveTab('invoices')}
             funds={funds}
             onAddTransaction={handleAddCashTransaction}
             onAddTradeIn={handleAddTradeIn}
             onAddDevice={handleAddDevice}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
-          />
+/>
         )}
 
         {activeTab === 'invoices' && (
           <InvoicesView
-            invoices={filteredInvoices}
-            devices={filteredDevices}
-            onNavigateToPOS={() => {
+  currentUser={currentUser}
+  branches={branches}
+  invoices={filteredInvoices}
+  devices={filteredDevices}
+  onNavigateToPOS={() => {
               setPosPreSelectedDevice(null);
               setActiveTab('pos');
-            }}
+            }
+}
             onUpdateInvoice={handleUpdateInvoice}
             onDeleteInvoice={handleDeleteInvoice}
           />
@@ -1352,65 +1462,72 @@ export default function App() {
 
         {activeTab === 'installments' && (
           <InstallmentReconciliationView
-            invoices={filteredInvoices}
-            funds={funds}
-            partners={partners}
-            onUpdateInvoice={handleUpdateInvoice}
-            onAddTransaction={handleAddCashTransaction}
-            onUpdateFunds={(updatedFunds) => {
+  currentUser={currentUser}
+  branches={branches}
+  invoices={filteredInvoices}
+  funds={funds}
+  partners={partners}
+  onUpdateInvoice={handleUpdateInvoice}
+  onAddTransaction={handleAddCashTransaction}
+  onUpdateFunds={(updatedFunds) => {
               setFunds(updatedFunds);
               updatedFunds.forEach(f => updateFundInFirestore(f));
-            }}
+            }
+}
             onUpdatePartner={handleUpdatePartner}
           />
         )}
 
         {activeTab === 'cashbook' && (
           <CashbookView
-            transactions={filteredCashTransactions}
-            funds={funds}
-            partners={partners}
-            onAddTransaction={handleAddCashTransaction}
-            onUpdateFunds={(updatedFunds) => {
+  currentUser={currentUser}
+  branches={branches}
+  transactions={filteredCashTransactions}
+  funds={funds}
+  partners={partners}
+  onAddTransaction={handleAddCashTransaction}
+  onUpdateFunds={(updatedFunds) => {
               setFunds(updatedFunds);
               updatedFunds.forEach(f => updateFundInFirestore(f));
-            }}
+            }
+}
             onTransferFunds={handleTransferFunds}
           />
         )}
 
         {activeTab === 'partners' && (
           <PartnersView
-            partners={filteredPartners}
-            devices={filteredDevices}
-            onAddPartner={handleAddPartner}
-            onUpdatePartner={handleUpdatePartner}
-            onDeletePartner={handleDeletePartner}
-            funds={funds}
-            onAddTransaction={handleAddCashTransaction}
-          />
+  partners={filteredPartners}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  onAddPartner={handleAddPartner}
+  onUpdatePartner={handleUpdatePartner}
+  onDeletePartner={handleDeletePartner}
+  funds={funds}
+  onAddTransaction={handleAddCashTransaction}
+/>
         )}
 
         {activeTab === 'store-settings' && (
           <StoreSettingsView
-            branches={branches}
-            warehouses={warehouses}
-            settings={storeSettings}
-            onAddBranch={handleAddBranch}
-            onUpdateBranch={handleUpdateBranch}
-            onDeleteBranch={handleDeleteBranch}
-            onAddWarehouse={handleAddWarehouse}
-            onUpdateWarehouse={handleUpdateWarehouse}
-            onDeleteWarehouse={handleDeleteWarehouse}
-            onSaveSettings={handleSaveStoreSettings}
-            onBack={() => setActiveTab('more')}
+  branches={branches}
+  warehouses={warehouses}
+  settings={storeSettings}
+  onAddBranch={handleAddBranch}
+  onUpdateBranch={handleUpdateBranch}
+  onDeleteBranch={handleDeleteBranch}
+  onAddWarehouse={handleAddWarehouse}
+  onUpdateWarehouse={handleUpdateWarehouse}
+  onDeleteWarehouse={handleDeleteWarehouse}
+  onSaveSettings={handleSaveStoreSettings}
+  onBack={() => setActiveTab('more')}
           />
         )}
 
         {activeTab === 'more' && (
           <MoreHubView
-            currentUser={currentUser}
-            onSelectTab={(tabId) => setActiveTab(tabId)}
+  currentUser={currentUser}
+  onSelectTab={(tabId) => setActiveTab(tabId)}
             onOpenPOSModal={() => setActiveTab('pos')}
             onOpenNewDeviceModal={() => setActiveTab('inventory')}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
@@ -1420,18 +1537,37 @@ export default function App() {
               setIsLoginModalOpen(true);
             }}
             partners={filteredPartners}
-            invoices={filteredInvoices}
+              branches={branches}
+              invoices={filteredInvoices}
             devices={filteredDevices}
           />
         )}
 
         {activeTab === 'users' && (
           <UserManagementView
-            users={filteredUsers}
+  users={filteredUsers}
+  branches={branches}
+  onAddUser={handleAddUser}
+  onUpdateUser={handleUpdateUser}
+  onDeleteUser={handleDeleteUser}
+/>
+        )}
+
+        {activeTab === 'sop-management' && (
+          <SOPManagementView
             branches={branches}
-            onAddUser={handleAddUser}
-            onUpdateUser={handleUpdateUser}
-            onDeleteUser={handleDeleteUser}
+            staffMembers={filteredUsers.map(u => ({
+              id: u.id,
+              name: u.displayName,
+              role: u.role,
+              roleTitle: u.role === 'ADMIN' ? 'Ban Giám Đốc' : u.role === 'MANAGER' ? 'Cửa Hàng Trưởng' : u.role === 'TECHNICIAN' ? 'Kỹ Thuật Viên' : 'Chuyên Viên Bán Hàng',
+              branchId: u.branchId || 'BRANCH_01',
+              branchName: branches.find(b => b.id === u.branchId)?.name || 'Chi nhánh Hải Châu',
+              avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+              phone: u.phone || '0905000111',
+              email: u.email || 'staff@phonehouse.vn',
+              allowedWifiSSID: 'PhoneHouse_Internal_5G'
+            }))}
           />
         )}
 
@@ -1450,21 +1586,23 @@ export default function App() {
         {activeTab === 'hr-attendance' && (
           <HRHubView 
             attendanceRecords={attendanceRecords} 
+            currentUser={currentUser}
+            branches={branches}
             invoices={filteredInvoices}
             warrantyTickets={warrantyTickets}
-            branches={branches}
             onNavigateToCheckIn={() => setActiveTab('checkin-portal')}
           />
         )}
 
         {(activeTab === 'employee-dashboard' || activeTab === 'employee-kpi') && (
           <EmployeeDashboardView
-            invoices={filteredInvoices}
-            warrantyTickets={filteredWarrantyTickets}
-            currentUser={currentUser}
-            users={filteredUsers}
-            devices={filteredDevices}
-            onNavigate={(tab) => setActiveTab(tab)}
+  currentUser={currentUser}
+  branches={branches}
+  invoices={filteredInvoices}
+  warrantyTickets={filteredWarrantyTickets}
+  users={filteredUsers}
+  devices={filteredDevices}
+  onNavigate={(tab) => setActiveTab(tab)}
             onOpenPOS={() => {
               setPosPreSelectedDevice(null);
               setActiveTab('pos');
@@ -1476,26 +1614,27 @@ export default function App() {
 
         {activeTab === 'tech-workspace' && (
           <TechWorkspaceView
-            tasks={filteredWarrantyTickets}
-            devices={filteredDevices}
-            branches={branches}
-            currentUser={currentUser}
-            onOpenCheckIn={() => setActiveTab('checkin-portal')}
+  tasks={filteredWarrantyTickets}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  onOpenCheckIn={() => setActiveTab('checkin-portal')}
           />
         )}
 
         {activeTab === 'sales-workspace' && (
           <SalesWorkspaceView
-            devices={filteredDevices}
-            invoices={filteredInvoices}
-            leads={filteredLeads}
-            branches={branches}
-            warehouses={warehouses}
-            storeSettings={storeSettings}
-            onCreateInvoice={handleCreateInvoice}
-            onUpdateDeviceStatus={handleUpdateDeviceStatus}
-            preSelectedDevice={posPreSelectedDevice}
-            onNavigateToInvoices={() => setActiveTab('invoices')}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  invoices={filteredInvoices}
+  leads={filteredLeads}
+  warehouses={warehouses}
+  storeSettings={storeSettings}
+  onCreateInvoice={handleCreateInvoice}
+  onUpdateDeviceStatus={handleUpdateDeviceStatus}
+  preSelectedDevice={posPreSelectedDevice}
+  onNavigateToInvoices={() => setActiveTab('invoices')}
             funds={funds}
             onAddTransaction={handleAddCashTransaction}
             onOpenNewDeviceModal={() => setActiveTab('inventory')}
@@ -1503,10 +1642,7 @@ export default function App() {
             onAddLead={handleAddLead}
             onUpdateLead={handleUpdateLead}
             onConvertLeadToSale={handleConvertLeadToSale}
-            currentUser={currentUser}
-            users={filteredUsers}
-            warrantyTickets={filteredWarrantyTickets}
-            tradeIns={filteredTradeIns}
+              tradeIns={filteredTradeIns}
             onAddTradeIn={handleAddTradeIn}
             onUpdateTradeIn={handleUpdateTradeIn}
             onAddDevice={handleAddDevice}
@@ -1517,6 +1653,15 @@ export default function App() {
           <ERPNextPlanView />
         )}
       </main>
+
+      {/* Floating AI Copilot Button */}
+      <button
+        onClick={() => setIsAICopilotOpen(true)}
+        className="fixed bottom-20 right-4 md:bottom-8 md:right-8 z-50 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white shadow-lg shadow-orange-500/40 rounded-full w-12 h-12 flex items-center justify-center transition-all hover:scale-105 active:scale-95 cursor-pointer"
+        title="AI Copilot"
+      >
+        <Sparkles className="w-5 h-5 animate-pulse" />
+      </button>
 
       {/* Quick Search Modal */}
       <QuickSearchModal
@@ -1550,10 +1695,10 @@ export default function App() {
               ✕
             </button>
             <PhoneHouseLoginPage
-              users={users}
-              currentUser={currentUser}
-              isModal={true}
-              onClose={() => setIsLoginModalOpen(false)}
+  users={users}
+  currentUser={currentUser}
+  isModal={true}
+  onClose={() => setIsLoginModalOpen(false)}
               onLoginSuccess={(loggedUser) => {
                 setCurrentUser(loggedUser);
                 localStorage.setItem('phonehouse_active_user', JSON.stringify(loggedUser));
@@ -1569,8 +1714,8 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span className="font-medium text-zinc-600">iStore Pro CRM & ERP • Kế thừa Frappe Framework & Cloud Firestore Enterprise</span>
           <div className="flex items-center space-x-3 text-zinc-500">
-            <span className="font-semibold text-emerald-600 flex items-center space-x-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="font-semibold text-orange-600 flex items-center space-x-1">
+              <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
               <span>Firestore Connected</span>
             </span>
             <span>•</span>
@@ -1606,8 +1751,8 @@ export default function App() {
           <div className="relative w-full max-w-4xl max-h-[95vh] overflow-y-auto bg-zinc-50 rounded-3xl shadow-2xl border border-zinc-700 my-auto">
             <StandaloneCheckInView
               currentUser={currentUser}
-              branches={branches}
-              attendanceRecords={attendanceRecords}
+            branches={branches}
+            attendanceRecords={attendanceRecords}
               onCheckInSuccess={(record) => {
                 handleCheckIn(record.checkInTime);
               }}

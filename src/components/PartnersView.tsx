@@ -51,6 +51,7 @@ interface PartnersViewProps {
   onDeletePartner: (partnerId: string) => void;
   funds: import('../types').FundAccount[];
   onAddTransaction: (tx: import('../types').CashTransaction) => void;
+  onAutoPayDebt?: (partnerId: string, amount: number, direction: 'PAYMENT' | 'RECEIPT') => void;
 }
 
 type TimeFilterType = 'ALL' | 'TODAY' | 'YESTERDAY' | 'LAST_7_DAYS' | 'THIS_MONTH' | 'LAST_MONTH';
@@ -64,7 +65,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   onUpdatePartner,
   onDeletePartner,
   funds,
-  onAddTransaction
+  onAddTransaction,
+  onAutoPayDebt
 }) => {
   // Navigation & Filtering
   const [activeTab, setActiveTab] = useState<'ALL' | 'CUSTOMERS' | 'SUPPLIERS' | 'DEBT_HUB'>(initialTab);
@@ -89,6 +91,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   
   // Debt Settle Modal
   const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [historyPartner, setHistoryPartner] = useState<Partner | null>(null);
   const [debtActionPartner, setDebtActionPartner] = useState<Partner | null>(null);
   const [settleAmount, setSettleAmount] = useState<number>(0);
   const [settleNote, setSettleNote] = useState('');
@@ -382,7 +386,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-orange-100 shadow-sm">
         <div>
           <div className="flex items-center space-x-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 to-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
               <Truck className="w-5 h-5" />
             </div>
             <div>
@@ -427,7 +431,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
           onClick={() => setActiveTab('SUPPLIERS')}
           className={`flex-1 min-w-[130px] py-2 px-3 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'SUPPLIERS'
-              ? 'bg-blue-600 text-white shadow-xs'
+              ? 'bg-orange-600 text-white shadow-xs'
               : 'text-zinc-600 hover:bg-zinc-100'
           }`}
         >
@@ -437,7 +441,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
           onClick={() => setActiveTab('CUSTOMERS')}
           className={`flex-1 min-w-[120px] py-2 px-3 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'CUSTOMERS'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-orange-600 text-white shadow-xs'
               : 'text-zinc-600 hover:bg-zinc-100'
           }`}
         >
@@ -628,8 +632,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
             onClick={() => setQuickDebtFilter('NO_DEBT')}
             className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
               quickDebtFilter === 'NO_DEBT'
-                ? 'bg-emerald-600 text-white'
-                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60'
+                ? 'bg-orange-600 text-white'
+                : 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200/60'
             }`}
           >
             Đã thanh toán hết (0đ)
@@ -638,8 +642,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
             onClick={() => setQuickDebtFilter('VIP_WHOLESALE')}
             className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all ${
               quickDebtFilter === 'VIP_WHOLESALE'
-                ? 'bg-purple-600 text-white'
-                : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200/60'
+                ? 'bg-rose-600 text-white'
+                : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/60'
             }`}
           >
             👑 VIP & Sỉ Like New
@@ -670,12 +674,12 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                       {partner.name}
                     </span>
                     {partner.type === 'SUPPLIER' && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-blue-50 text-blue-700">
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-orange-50 text-orange-700">
                         NCC
                       </span>
                     )}
                     {partner.type === 'CUSTOMER' && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-700">
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-orange-50 text-orange-700">
                         Khách
                       </span>
                     )}
@@ -729,17 +733,17 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                     </td>
                     <td className="px-4 py-3">
                       {partner.type === 'SUPPLIER' && (
-                        <span className="inline-block px-2 py-0.5 rounded-md font-semibold text-[11px] bg-blue-50 text-blue-700">
+                        <span className="inline-block px-2 py-0.5 rounded-md font-semibold text-[11px] bg-orange-50 text-orange-700">
                           {partner.supplierCategory || 'Nhà cung cấp'}
                         </span>
                       )}
                       {partner.type === 'CUSTOMER' && (
-                        <span className="inline-block px-2 py-0.5 rounded-md font-semibold text-[11px] bg-emerald-50 text-emerald-700">
+                        <span className="inline-block px-2 py-0.5 rounded-md font-semibold text-[11px] bg-orange-50 text-orange-700">
                           {partner.customerTier || 'Khách chuẩn'}
                         </span>
                       )}
                       {partner.type === 'BOTH' && (
-                        <span className="inline-block px-2 py-0.5 rounded-md font-semibold text-[11px] bg-purple-50 text-purple-700">
+                        <span className="inline-block px-2 py-0.5 rounded-md font-semibold text-[11px] bg-rose-50 text-rose-700">
                           Đối tác song phương
                         </span>
                       )}
@@ -807,22 +811,22 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                   {(selectedPartner.outstandingDebt || 0).toLocaleString('vi-VN')} đ
                 </div>
               </div>
-              <div className="bg-blue-50/70 border border-blue-100 p-3 rounded-2xl">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Hạn Mức Tín Dụng</div>
+              <div className="bg-orange-50/70 border border-orange-100 p-3 rounded-2xl">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-orange-700">Hạn Mức Tín Dụng</div>
                 <div className="text-lg font-black text-orange-600 mt-1">
                   {(selectedPartner.creditLimit || 0).toLocaleString('vi-VN')} đ
                 </div>
               </div>
               <div className="bg-zinc-50 border border-zinc-200 p-3 rounded-2xl col-span-2 sm:col-span-1">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">Đánh Giá Uy Tín</div>
-                <div className="text-lg font-black text-emerald-600 mt-1 flex items-center gap-1">
+                <div className="text-lg font-black text-orange-600 mt-1 flex items-center gap-1">
                   ★ {selectedPartner.qualityRating || 5.0} / 5.0
                 </div>
               </div>
             </div>
 
             {/* AI Recommendation Box */}
-            <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-2xl p-4 space-y-2">
+            <div className="bg-gradient-to-r from-orange-50 to-orange-50 border border-orange-200 rounded-2xl p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-xs text-orange-900 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-orange-500" />
@@ -851,6 +855,16 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setHistoryPartner(selectedPartner);
+                  setIsHistoryModalOpen(true);
+                }}
+                className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-orange-600/20 cursor-pointer"
+              >
+                <Clock className="w-4 h-4" />
+                <span>Lịch Sử Giao Dịch</span>
+              </button>
               <button
                 onClick={() => handleOpenDebtSettle(selectedPartner)}
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md shadow-rose-600/20 cursor-pointer"
@@ -898,7 +912,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">
-                  Số tiền thanh toán đối soát (VND) <span className="text-red-500">*</span>
+                  Số tiền thanh toán đối soát (VND) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -973,7 +987,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                   type="button"
                   onClick={() => setFormData(prev => ({ ...prev, type: 'SUPPLIER' }))}
                   className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                    formData.type === 'SUPPLIER' ? 'bg-blue-600 text-white shadow-xs' : 'text-zinc-600'
+                    formData.type === 'SUPPLIER' ? 'bg-orange-600 text-white shadow-xs' : 'text-zinc-600'
                   }`}
                 >
                   🏢 Nhà Cung Cấp
@@ -982,7 +996,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                   type="button"
                   onClick={() => setFormData(prev => ({ ...prev, type: 'CUSTOMER' }))}
                   className={`py-2 rounded-xl text-xs font-bold transition-all ${
-                    formData.type === 'CUSTOMER' ? 'bg-emerald-600 text-white shadow-xs' : 'text-zinc-600'
+                    formData.type === 'CUSTOMER' ? 'bg-orange-600 text-white shadow-xs' : 'text-zinc-600'
                   }`}
                 >
                   👤 Khách Hàng
@@ -991,7 +1005,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">
-                  Tên đối tác / Thương hiệu <span className="text-red-500">*</span>
+                  Tên đối tác / Thương hiệu <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -1006,7 +1020,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">
-                    Số điện thoại <span className="text-red-500">*</span>
+                    Số điện thoại <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -1068,6 +1082,59 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* History Modal */}
+      {isHistoryModalOpen && historyPartner && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-scaleIn">
+            <div className="p-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-2xl bg-orange-100 text-orange-600 flex items-center justify-center">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-zinc-900 text-lg">Lịch Sử Công Nợ / Giao Dịch</h3>
+                  <p className="text-xs text-zinc-500 font-medium">{historyPartner.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsHistoryModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-zinc-100 text-zinc-500 hover:bg-zinc-200 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              {(!historyPartner.debtTransactions || historyPartner.debtTransactions.length === 0) ? (
+                <div className="text-center py-10 text-zinc-500 text-sm">
+                  Chưa có lịch sử giao dịch.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {historyPartner.debtTransactions.map((tx, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold text-zinc-800">{tx.note}</div>
+                        <div className="text-[11px] text-zinc-500">{new Date(tx.date).toLocaleDateString('vi-VN')} {tx.referenceId ? ` • Tham chiếu: ${tx.referenceId}` : ''}</div>
+                      </div>
+                      <div className={`text-sm font-bold ${['DEBT_INCREASE'].includes(tx.type) ? 'text-rose-600' : 'text-orange-600'}`}>
+                        {['DEBT_INCREASE'].includes(tx.type) ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')} đ
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-zinc-100 bg-zinc-50/50">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-zinc-600 font-semibold">Dư nợ hiện tại:</span>
+                <span className="font-black text-rose-600 text-base">{(historyPartner.outstandingDebt || 0).toLocaleString('vi-VN')} đ</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

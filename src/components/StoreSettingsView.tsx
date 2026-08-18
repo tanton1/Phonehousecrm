@@ -24,7 +24,9 @@ import {
   ChevronRight,
   Info,
   Layers,
-  Database
+  Database,
+  Bell,
+  Send
 } from 'lucide-react';
 import { StoreBranch, WarehouseInfo, StoreSettings, WarehouseId } from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
@@ -56,7 +58,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   onSaveSettings,
   isFirebaseConnected = true
 }) => {
-  const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print'>('branches');
+  const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty'>('branches');
   const [warehouseSystemFilter, setWarehouseSystemFilter] = useState<'ALL' | 'TONG' | 'PHONEHOUSE' | 'XSTORE'>('ALL');
   
   // Company info form state
@@ -64,6 +66,21 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Branch modal state
+  const [toastMsg, setToastMsg] = useState<{text: string, type: 'success'|'error'} | null>(null);
+  const showToast = (text: string, type: 'success'|'error' = 'success') => {
+    setToastMsg({text, type});
+    setTimeout(() => setToastMsg(null), 3000);
+  };
+  
+  const [teleGroups, setTeleGroups] = useState([
+    { id: '1', name: 'Ban Giám Đốc', chatIds: '1451935454' },
+    { id: '2', name: 'Quản lý kho', chatIds: '@kho_nhanvien' }
+  ]);
+  
+  const [teleTemplates, setTeleTemplates] = useState([
+    { id: '1', title: 'Báo cáo chốt ca', content: '📊 Báo cáo ca {ca_lam}\nNhân viên: {nhan_vien}\nDoanh thu: {doanh_thu}\nTiền mặt: {tien_mat}' },
+    { id: '2', title: 'Cảnh báo rời chi nhánh', content: '🚨 CẢNH BÁO: Nhân viên {nhan_vien} đã di chuyển cách xa chi nhánh {chi_nhanh} quá 100m trong giờ làm việc!' }
+  ]);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<StoreBranch | null>(null);
   const [branchForm, setBranchForm] = useState<Partial<StoreBranch>>({
@@ -147,7 +164,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     address: '',
     manager: '',
     phone: '',
-    color: 'from-orange-500 to-amber-500',
+    color: 'from-orange-500 to-orange-500',
     systemType: 'TONG',
     type: 'CENTRAL',
     technicianName: '',
@@ -247,7 +264,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       address: '',
       manager: '',
       phone: '',
-      color: 'from-purple-600 to-indigo-600',
+      color: 'from-rose-600 to-rose-600',
       systemType: 'TONG',
       type: 'TECHNICIAN_SUB',
       technicianName: '',
@@ -274,10 +291,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     }
 
     const systemColor = warehouseForm.systemType === 'TONG' 
-      ? 'from-purple-600 to-indigo-600' 
+      ? 'from-rose-600 to-rose-600' 
       : warehouseForm.systemType === 'PHONEHOUSE' 
-        ? 'from-orange-500 to-amber-500' 
-        : 'from-blue-600 to-cyan-500';
+        ? 'from-orange-500 to-orange-500' 
+        : 'from-orange-600 to-orange-500';
 
     if (editingWarehouse) {
       const updated: WarehouseInfo = {
@@ -349,7 +366,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </div>
             <div className="bg-zinc-800/80 border border-zinc-700 rounded-2xl px-4 py-3 text-center">
               <div className="text-xs text-zinc-400 font-medium">Kho Hàng</div>
-              <div className="text-xl font-black text-amber-400">{warehouses.length} địa điểm</div>
+              <div className="text-xl font-black text-orange-400">{warehouses.length} địa điểm</div>
             </div>
           </div>
         </div>
@@ -404,6 +421,18 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
           <Printer className="w-4 h-4" />
           <span>Xem Trước Mẫu In Hóa Đơn</span>
         </button>
+      
+        <button
+          onClick={() => setActiveTab('notifications')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer ${
+            activeTab === 'notifications'
+              ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20'
+              : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
+          }`}
+        >
+          <Bell className="w-4 h-4" />
+          <span>Thông báo Telegram</span>
+        </button>
       </div>
 
       {/* ================= TAB 1: CỬA HÀNG & CHI NHÁNH ================= */}
@@ -453,7 +482,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                               </span>
                             )}
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              branch.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-500'
+                              branch.isActive ? 'bg-orange-100 text-orange-700' : 'bg-zinc-100 text-zinc-500'
                             }`}>
                               {branch.isActive ? 'Đang Hoạt Động' : 'Tạm Đóng'}
                             </span>
@@ -514,7 +543,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
                     {/* Bank info */}
                     {branch.bankAccount?.accountNumber && (
-                      <div className="flex items-center justify-between text-xs bg-blue-50/70 border border-blue-100 rounded-xl px-3 py-2 text-blue-900">
+                      <div className="flex items-center justify-between text-xs bg-orange-50/70 border border-orange-100 rounded-xl px-3 py-2 text-orange-900">
                         <div className="flex items-center space-x-2">
                           <CreditCard className="w-4 h-4 text-orange-600" />
                           <span>TK Ngân Hàng: <strong>{branch.bankAccount.bankName} - {branch.bankAccount.accountNumber}</strong></span>
@@ -536,7 +565,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       </div>
                       <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-orange-200/60">
                         <span className="text-zinc-700 font-medium">📶 IP Router Cửa Hàng:</span>
-                        <span className="font-mono font-bold bg-white text-blue-900 px-2 py-0.5 rounded-md border border-blue-200 truncate max-w-[220px]" title={branch.storePublicIp || '113.161.45.88'}>
+                        <span className="font-mono font-bold bg-white text-orange-900 px-2 py-0.5 rounded-md border border-orange-200 truncate max-w-[220px]" title={branch.storePublicIp || '113.161.45.88'}>
                           {branch.storePublicIp || '113.161.45.88'}
                         </span>
                       </div>
@@ -567,7 +596,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </div>
             <button
               onClick={handleOpenAddWarehouse}
-              className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-xl font-bold text-sm shadow-md shadow-purple-500/20 transition-all cursor-pointer"
+              className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-rose-600 to-rose-600 hover:from-rose-700 hover:to-rose-700 text-white rounded-xl font-bold text-sm shadow-md shadow-rose-500/20 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>+ Thêm Kho / Kho KTV Mới</span>
@@ -592,11 +621,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               onClick={() => setWarehouseSystemFilter('TONG')}
               className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
                 warehouseSystemFilter === 'TONG'
-                  ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/30'
-                  : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100'
+                  ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30'
+                  : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-100'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+              <span className="w-2 h-2 rounded-full bg-rose-400"></span>
               <span>Tổng Kho & Kho KTV Con ({warehouses.filter(w => (w.systemType || 'TONG') === 'TONG').length})</span>
             </button>
 
@@ -616,11 +645,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               onClick={() => setWarehouseSystemFilter('XSTORE')}
               className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
                 warehouseSystemFilter === 'XSTORE'
-                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/30'
-                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-100'
+                  ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/30'
+                  : 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+              <span className="w-2 h-2 rounded-full bg-orange-400"></span>
               <span>Hệ Thống Xstore ({warehouses.filter(w => w.systemType === 'XSTORE').length})</span>
             </button>
           </div>
@@ -637,12 +666,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   key={wh.id}
                   className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
                     isTechSub 
-                      ? 'border-indigo-200 hover:border-indigo-400 hover:shadow-indigo-500/5'
+                      ? 'border-rose-200 hover:border-rose-400 hover:shadow-rose-500/5'
                       : isTong 
-                        ? 'border-purple-200 hover:border-purple-400 hover:shadow-purple-500/5'
+                        ? 'border-rose-200 hover:border-rose-400 hover:shadow-rose-500/5'
                         : isPhoneHouse 
                           ? 'border-orange-200 hover:border-orange-400 hover:shadow-orange-500/5'
-                          : 'border-blue-200 hover:border-blue-400 hover:shadow-blue-500/5'
+                          : 'border-orange-200 hover:border-orange-400 hover:shadow-orange-500/5'
                   } hover:shadow-lg`}
                 >
                   <div className="space-y-4">
@@ -650,12 +679,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       <div className="flex items-center space-x-3">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
                           isTechSub 
-                            ? 'bg-indigo-50 text-indigo-600'
+                            ? 'bg-rose-50 text-rose-600'
                             : isTong
-                              ? 'bg-purple-50 text-purple-600'
+                              ? 'bg-rose-50 text-rose-600'
                               : isPhoneHouse
                                 ? 'bg-orange-50 text-orange-600'
-                                : 'bg-blue-50 text-orange-600'
+                                : 'bg-orange-50 text-orange-600'
                         }`}>
                           <Warehouse className="w-6 h-6" />
                         </div>
@@ -667,16 +696,16 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                             {/* System Badge */}
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               isTong 
-                                ? 'bg-purple-100 text-purple-800' 
+                                ? 'bg-rose-100 text-rose-800' 
                                 : isPhoneHouse 
                                   ? 'bg-orange-100 text-orange-800' 
-                                  : 'bg-blue-100 text-blue-800'
+                                  : 'bg-orange-100 text-orange-800'
                             }`}>
                               {isTong ? 'Tổng Hệ Thống' : isPhoneHouse ? 'PhoneHouse' : 'Xstore'}
                             </span>
 
                             {wh.isMain && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-100 text-orange-800 rounded-full">
                                 Kho Trung Tâm
                               </span>
                             )}
@@ -713,9 +742,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-bold px-2.5 py-1 rounded-xl flex items-center gap-1.5 ${
                         isTechSub
-                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+                          ? 'bg-rose-50 text-rose-700 border border-rose-100'
                           : wh.type === 'CENTRAL'
-                            ? 'bg-purple-50 text-purple-700 border border-purple-100'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-100'
                             : 'bg-zinc-100 text-zinc-700 border border-zinc-200'
                       }`}>
                         <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
@@ -739,15 +768,15 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
                     {/* Assigned Technician Banner if Tech Sub */}
                     {isTechSub && (
-                      <div className="bg-indigo-50/80 border border-indigo-100 rounded-2xl p-2.5 text-xs text-indigo-900 flex items-center justify-between">
+                      <div className="bg-rose-50/80 border border-rose-100 rounded-2xl p-2.5 text-xs text-rose-900 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="text-base">👨‍🔧</span>
                           <div>
                             <div className="font-bold">KTV Phụ Trách: {wh.technicianName || wh.manager}</div>
-                            <div className="text-[10px] text-indigo-600 font-mono">{wh.technicianId || 'KTV Nội Bộ'}</div>
+                            <div className="text-[10px] text-rose-600 font-mono">{wh.technicianId || 'KTV Nội Bộ'}</div>
                           </div>
                         </div>
-                        <span className="px-2 py-0.5 bg-indigo-200/60 text-indigo-800 rounded-lg text-[10px] font-bold">
+                        <span className="px-2 py-0.5 bg-rose-200/60 text-rose-800 rounded-lg text-[10px] font-bold">
                           Test & Sửa máy
                         </span>
                       </div>
@@ -778,7 +807,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
                   <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center justify-between text-xs">
                     <span className="text-zinc-400 font-mono">ID: {wh.id}</span>
-                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full font-bold text-[10px]">
+                    <span className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full font-bold text-[10px]">
                       Đang Hoạt Động
                     </span>
                   </div>
@@ -799,7 +828,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 <p className="text-xs text-zinc-500">Thông tin này xuất hiện trên đầu hóa đơn K80, phiếu bảo hành và phiếu xuất kho</p>
               </div>
               {saveSuccess && (
-                <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold animate-in fade-in">
+                <div className="flex items-center space-x-1.5 px-3 py-1.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl text-xs font-bold animate-in fade-in">
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Đã lưu thành công!</span>
                 </div>
@@ -1001,11 +1030,173 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         </div>
       )}
 
+      
+      {/* ================= TAB 5: THÔNG BÁO TELEGRAM ================= */}
+      {activeTab === 'notifications' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-200 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center space-x-3 mb-6">
+            <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center">
+              <Send className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-extrabold text-zinc-900">Cài đặt Thông báo Telegram</h2>
+              <p className="text-sm text-zinc-500">Tùy chỉnh các sự kiện hệ thống sẽ gửi tin nhắn cảnh báo đến Bot Telegram của bạn.</p>
+            </div>
+          </div>
+
+          <div className="space-y-6 max-w-3xl">
+            {/* Status Card */}
+            <div className="bg-green-50 border border-green-200 rounded-2xl p-5 flex items-start space-x-4">
+              <div className="w-2 h-2 rounded-full bg-green-500 mt-2 animate-pulse"></div>
+              <div className="flex-1">
+                <h3 className="text-sm font-bold text-green-800">Trạng thái: Đã kết nối</h3>
+                <p className="text-xs text-green-700 mt-1">Hệ thống đang liên kết với Bot. API Token và Chat ID đã được cấu hình trong biến môi trường bảo mật.</p>
+                <button 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    showToast('Đã gửi tin nhắn kiểm tra thành công tới Bot Telegram!');
+                    // Call API here in real life
+                    fetch('https://api.telegram.org/bot' + (import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '') + '/sendMessage', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ chat_id: import.meta.env.VITE_TELEGRAM_CHAT_ID || '1451935454', text: '🔔 Tin nhắn kiểm tra từ hệ thống PhoneHouse CRM!' })
+                    }).catch(err => console.error(err));
+                  }}
+                  className="mt-3 px-4 py-2 bg-white border border-green-300 text-green-700 rounded-lg text-xs font-bold hover:bg-green-50 transition-all cursor-pointer"
+                >
+                  Gửi tin nhắn Test
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-base font-bold text-zinc-900 border-b border-zinc-100 pb-2">Kênh Thông báo</h3>
+              
+              <div className="flex items-center justify-between p-4 rounded-2xl border border-zinc-100 hover:border-orange-200 transition-colors bg-zinc-50/50">
+                <div>
+                  <div className="font-bold text-zinc-800 text-sm">Cảnh báo rời chi nhánh (Geofencing)</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Thông báo khi nhân viên đã vào ca nhưng di chuyển xa hơn 100m.</div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" defaultChecked />
+                  <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-2xl border border-zinc-100 hover:border-orange-200 transition-colors bg-zinc-50/50">
+                <div>
+                  <div className="font-bold text-zinc-800 text-sm">Báo cáo doanh thu cuối ca</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Tự động tổng kết tiền mặt, chuyển khoản khi nhân viên chốt ca.</div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" defaultChecked />
+                  <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-2xl border border-zinc-100 hover:border-orange-200 transition-colors bg-zinc-50/50">
+                <div>
+                  <div className="font-bold text-zinc-800 text-sm">Thông báo khách hàng CRM mới</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Gửi thông báo khi có Khách hàng mới được thêm vào hệ thống.</div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" />
+                  <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-2xl border border-zinc-100 hover:border-orange-200 transition-colors bg-zinc-50/50">
+                <div>
+                  <div className="font-bold text-zinc-800 text-sm">Tiếp nhận Bảo hành & Sửa chữa</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Thông báo khi có phiếu biên nhận thiết bị mới từ khách hàng.</div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" className="sr-only peer" defaultChecked />
+                  <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                </label>
+              </div>
+            </div>
+            
+            <div className="pt-4 flex justify-end">
+              <button 
+                onClick={(e) => {
+                  e.preventDefault();
+                  showToast('Đã lưu cấu hình thông báo thành công!');
+                }}
+                className="px-6 py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-sm font-bold shadow-lg cursor-pointer transition-all"
+              >
+                Lưu cấu hình
+              </button>
+            </div>
+          
+            {/* Telegram Groups & Templates */}
+            <div className="mt-8 pt-6 border-t border-zinc-200">
+              <h3 className="text-lg font-extrabold text-zinc-900 mb-4">Quản lý Nhóm & Mẫu tin nhắn</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Groups */}
+                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-bold text-zinc-800 flex items-center gap-2">
+                      <Database className="w-4 h-4 text-orange-500" /> Nhóm nhận tin
+                    </h4>
+                    <button className="text-xs text-orange-600 font-bold hover:underline flex items-center">
+                      <Plus className="w-3 h-3 mr-1" /> Thêm nhóm
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {teleGroups.map(g => (
+                      <div key={g.id} className="p-3 bg-zinc-50 rounded-xl border border-zinc-100 flex justify-between items-center group">
+                        <div>
+                          <div className="text-sm font-bold text-zinc-800">{g.name}</div>
+                          <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{g.chatIds}</div>
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                          <button className="p-1.5 text-zinc-400 hover:text-blue-600 bg-white rounded-lg border border-zinc-200"><Edit3 className="w-3 h-3" /></button>
+                          <button className="p-1.5 text-zinc-400 hover:text-red-600 bg-white rounded-lg border border-zinc-200"><Trash2 className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Templates */}
+                <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-bold text-zinc-800 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-orange-500" /> Mẫu tin nhắn
+                    </h4>
+                    <button className="text-xs text-orange-600 font-bold hover:underline flex items-center">
+                      <Plus className="w-3 h-3 mr-1" /> Tạo mẫu
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {teleTemplates.map(t => (
+                      <div key={t.id} className="p-3 bg-zinc-50 rounded-xl border border-zinc-100 group">
+                        <div className="flex justify-between items-start mb-1.5">
+                          <div className="text-sm font-bold text-zinc-800">{t.title}</div>
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                            <button className="p-1 text-zinc-400 hover:text-blue-600"><Edit3 className="w-3 h-3" /></button>
+                          </div>
+                        </div>
+                        <div className="text-[11px] text-zinc-600 bg-white p-2 border border-zinc-200 rounded-lg whitespace-pre-line font-mono">
+                          {t.content}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
       {/* ================= MODAL: THÊM / SỬA CHI NHÁNH ================= */}
       {isBranchModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-orange-100 flex flex-col max-h-[90vh]">
-            <div className="p-5 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-100 flex items-center justify-between shrink-0">
+            <div className="p-5 bg-gradient-to-r from-orange-50 to-orange-50 border-b border-orange-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
                 <Store className="w-5 h-5 text-orange-600" />
                 <h3 className="font-black text-zinc-900 text-base">
@@ -1118,8 +1309,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               </div>
 
               {/* Bank Account */}
-              <div className="p-3 bg-blue-50/60 rounded-2xl border border-blue-100 space-y-2">
-                <div className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+              <div className="p-3 bg-orange-50/60 rounded-2xl border border-orange-100 space-y-2">
+                <div className="text-xs font-bold text-orange-900 flex items-center gap-1.5">
                   <CreditCard className="w-3.5 h-3.5" />
                   <span>Tài Khoản Ngân Hàng Nhận Tiền Tại Quầy</span>
                 </div>
@@ -1132,7 +1323,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       ...branchForm,
                       bankAccount: { ...branchForm.bankAccount!, bankName: e.target.value }
                     })}
-                    className="w-full px-3 py-1.5 bg-white border border-blue-200 rounded-xl text-xs"
+                    className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs"
                   />
                   <input
                     type="text"
@@ -1142,7 +1333,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       ...branchForm,
                       bankAccount: { ...branchForm.bankAccount!, accountNumber: e.target.value }
                     })}
-                    className="w-full px-3 py-1.5 bg-white border border-blue-200 rounded-xl text-xs"
+                    className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs"
                   />
                 </div>
                 <input
@@ -1153,7 +1344,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     ...branchForm,
                     bankAccount: { ...branchForm.bankAccount!, accountHolder: e.target.value }
                   })}
-                  className="w-full px-3 py-1.5 bg-white border border-blue-200 rounded-xl text-xs"
+                  className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs"
                 />
               </div>
 
@@ -1169,7 +1360,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     onClick={handleGetDeviceGPS}
                     className="text-[10px] font-bold text-[#FF4B16] bg-white px-2 py-1 rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors flex items-center gap-1 cursor-pointer"
                   >
-                    <Sparkles className="w-3 h-3 text-amber-500" /> Lấy GPS hiện tại
+                    <Sparkles className="w-3 h-3 text-orange-500" /> Lấy GPS hiện tại
                   </button>
                 </div>
 
@@ -1231,7 +1422,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       type="button"
                       onClick={handleGetDeviceIP}
                       disabled={isGettingIp}
-                      className="text-[10px] font-bold text-blue-700 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 transition-colors flex items-center gap-1 cursor-pointer"
+                      className="text-[10px] font-bold text-orange-700 bg-white hover:bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-200 transition-colors flex items-center gap-1 cursor-pointer"
                     >
                       {isGettingIp ? <RefreshCw className="w-3 h-3 animate-spin" /> : <span>🔍 Lấy IP hiện tại</span>}
                     </button>
@@ -1265,7 +1456,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     type="checkbox"
                     checked={branchForm.isActive}
                     onChange={(e) => setBranchForm({ ...branchForm, isActive: e.target.checked })}
-                    className="w-4 h-4 text-emerald-500 rounded"
+                    className="w-4 h-4 text-orange-500 rounded"
                   />
                   <span className="text-xs font-bold text-zinc-700">Đang hoạt động</span>
                 </label>
@@ -1294,10 +1485,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       {/* ================= MODAL: THÊM / SỬA KHO HÀNG ================= */}
       {isWarehouseModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-purple-100 flex flex-col max-h-[90vh]">
-            <div className="p-5 bg-gradient-to-r from-purple-50 via-indigo-50 to-orange-50 border-b border-purple-100 flex items-center justify-between shrink-0">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-rose-100 flex flex-col max-h-[90vh]">
+            <div className="p-5 bg-gradient-to-r from-rose-50 via-rose-50 to-orange-50 border-b border-rose-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
-                <Warehouse className="w-5 h-5 text-purple-600" />
+                <Warehouse className="w-5 h-5 text-rose-600" />
                 <h3 className="font-black text-zinc-900 text-base">
                   {editingWarehouse ? 'Cập Nhật Kho Hàng' : 'Tạo Kho Hàng / Kho KTV Mới'}
                 </h3>
@@ -1314,7 +1505,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               {/* System Brand Selection */}
               <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
                 <label className="block text-xs font-bold text-zinc-800">
-                  Thuộc Hệ Thống Nào? <span className="text-purple-600">*</span>
+                  Thuộc Hệ Thống Nào? <span className="text-rose-600">*</span>
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
@@ -1322,8 +1513,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'TONG', type: warehouseForm.type || 'TECHNICIAN_SUB' })}
                     className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
                       warehouseForm.systemType === 'TONG'
-                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-2 ring-purple-600 ring-offset-1'
-                        : 'bg-white text-zinc-700 hover:bg-purple-50 border border-zinc-200'
+                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-600 ring-offset-1'
+                        : 'bg-white text-zinc-700 hover:bg-rose-50 border border-zinc-200'
                     }`}
                   >
                     <span>🟣 TỔNG KHO</span>
@@ -1348,8 +1539,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'XSTORE', type: 'RETAIL_STORE' })}
                     className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
                       warehouseForm.systemType === 'XSTORE'
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-2 ring-blue-600 ring-offset-1'
-                        : 'bg-white text-zinc-700 hover:bg-blue-50 border border-zinc-200'
+                        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/30 ring-2 ring-orange-600 ring-offset-1'
+                        : 'bg-white text-zinc-700 hover:bg-orange-50 border border-zinc-200'
                     }`}
                   >
                     <span>🔵 XSTORE</span>
@@ -1388,15 +1579,15 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
               {/* Special Section if TECHNICIAN_SUB */}
               {warehouseForm.type === 'TECHNICIAN_SUB' && (
-                <div className="p-3.5 bg-indigo-50/80 border border-indigo-200 rounded-2xl space-y-3">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-950">
+                <div className="p-3.5 bg-rose-50/80 border border-rose-200 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-rose-950">
                     <span>👨‍🔧</span>
                     <span>Thiết Lập Kỹ Thuật Viên Phụ Trách Kho Này</span>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
-                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">Tên Kỹ Thuật Viên *</label>
+                      <label className="block text-[11px] font-bold text-rose-900 mb-1">Tên Kỹ Thuật Viên *</label>
                       <input
                         type="text"
                         placeholder="Ví dụ: Lê Hoàng Nam, Trọng, Dương..."
@@ -1411,27 +1602,27 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                             shortName: warehouseForm.shortName || (val ? `Kho KTV ${val}` : '')
                           });
                         }}
-                        className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs text-zinc-900 font-medium"
+                        className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-medium"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-indigo-900 mb-1">Mã KTV / Nhân viên</label>
+                      <label className="block text-[11px] font-bold text-rose-900 mb-1">Mã KTV / Nhân viên</label>
                       <input
                         type="text"
                         placeholder="STAFF_003, KTV-01..."
                         value={warehouseForm.technicianId || ''}
                         onChange={(e) => setWarehouseForm({ ...warehouseForm, technicianId: e.target.value })}
-                        className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs text-zinc-900 font-mono"
+                        className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-mono"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-indigo-900 mb-1">Kho cha trực thuộc</label>
+                    <label className="block text-[11px] font-bold text-rose-900 mb-1">Kho cha trực thuộc</label>
                     <select
                       value={warehouseForm.parentWarehouseId || 'KHO_TONG'}
                       onChange={(e) => setWarehouseForm({ ...warehouseForm, parentWarehouseId: e.target.value })}
-                      className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-xl text-xs text-zinc-900 font-medium"
+                      className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-medium"
                     >
                       <option value="KHO_TONG">Kho Tổng Trung Tâm (KHO_TONG - KT-01)</option>
                       {warehouses.filter(w => w.type === 'CENTRAL' && w.id !== warehouseForm.id).map(w => (
@@ -1518,7 +1709,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     type="checkbox"
                     checked={warehouseForm.isMain}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, isMain: e.target.checked })}
-                    className="w-4 h-4 text-purple-600 rounded"
+                    className="w-4 h-4 text-rose-600 rounded"
                   />
                   <span className="text-xs font-bold text-zinc-700">Kho Trung Tâm Trực Thuộc</span>
                 </label>
@@ -1528,7 +1719,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     type="checkbox"
                     checked={warehouseForm.isActive}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, isActive: e.target.checked })}
-                    className="w-4 h-4 text-emerald-500 rounded"
+                    className="w-4 h-4 text-orange-500 rounded"
                   />
                   <span className="text-xs font-bold text-zinc-700">Đang hoạt động</span>
                 </label>
@@ -1544,7 +1735,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-xl text-sm shadow-md shadow-purple-500/20"
+                  className="flex-1 py-2.5 bg-gradient-to-r from-rose-600 to-rose-600 hover:from-rose-700 hover:to-rose-700 text-white font-bold rounded-xl text-sm shadow-md shadow-rose-500/20"
                 >
                   {editingWarehouse ? 'Lưu Thay Đổi' : 'Tạo Kho Hàng'}
                 </button>

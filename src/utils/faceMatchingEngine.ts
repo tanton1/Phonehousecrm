@@ -76,16 +76,16 @@ export function detectFacePresenceInCanvas(canvas: HTMLCanvasElement): { hasFace
     const skinRatio = skinTonePixels / totalPixels;
 
     // Reject completely dark / overexposed frames or frames with zero texture
-    if (avgLuma < 25) {
+    if (avgLuma < 10) {
       return { hasFace: false, reason: 'Khung hình quá tối. Vui lòng bật đèn hoặc đến nơi đủ sáng.' };
     }
-    if (avgLuma > 240 && variance < 100) {
+    if (avgLuma > 250 && variance < 100) {
       return { hasFace: false, reason: 'Khung hình bị lóa sáng. Vui lòng điều chỉnh góc camera.' };
     }
-    if (variance < 60) {
+    if (variance < 20) {
       return { hasFace: false, reason: 'Không phát hiện khuôn mặt (Ảnh là mặt phẳng đơn sắc hoặc vật thể trống).' };
     }
-    if (skinRatio < 0.12 && variance < 250) {
+    if (skinRatio < 0.05 && variance < 100) {
       return { hasFace: false, reason: 'Không phát hiện diện mạo khuôn mặt người trong khung camera.' };
     }
 

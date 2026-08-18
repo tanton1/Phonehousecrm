@@ -126,11 +126,11 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   </span>
                   <div className="flex items-center space-x-3 text-[11px]">
                     <span className="flex items-center space-x-1 font-bold text-orange-600">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" />
                       <span>Luồng Hàng Hoá (IMEI)</span>
                     </span>
-                    <span className="flex items-center space-x-1 font-bold text-emerald-600">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                    <span className="flex items-center space-x-1 font-bold text-orange-600">
+                      <span className="w-2.5 h-2.5 rounded-full bg-orange-500 inline-block" />
                       <span>Luồng Tiền Mặt & Chuyển Khoản</span>
                     </span>
                   </div>
@@ -146,14 +146,14 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                     </div>
                     <div className="font-extrabold text-sm text-white">Nhà Cung Cấp (NCC)</div>
                     <p className="text-[11px] text-zinc-300">FPT Synnex, Digiworld, Đầu mối xách tay LL/A, Khách thu cũ đổi mới.</p>
-                    <div className="pt-2 border-t border-zinc-700 text-[10px] text-amber-300 font-mono flex items-center justify-between">
+                    <div className="pt-2 border-t border-zinc-700 text-[10px] text-orange-300 font-mono flex items-center justify-between">
                       <span>Cung cấp số lượng lớn</span>
                       <span>Nhận thanh toán sỉ</span>
                     </div>
                   </div>
 
                   {/* Step 2: Kho Tổng */}
-                  <div className="bg-gradient-to-br from-orange-50 to-amber-50 rounded-2xl p-4 border-2 border-orange-300 shadow-md space-y-2 relative">
+                  <div className="bg-gradient-to-br from-orange-50 to-orange-50 rounded-2xl p-4 border-2 border-orange-300 shadow-md space-y-2 relative">
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-bold px-2 py-0.5 bg-[#F94A1F] text-white rounded-full">Hub Trung Tâm</span>
                       <Warehouse className="w-4 h-4 text-[#F94A1F]" />
@@ -167,14 +167,14 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   </div>
 
                   {/* Step 3: Các Chi Nhánh */}
-                  <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 border border-emerald-300 shadow-md space-y-2">
+                  <div className="bg-gradient-to-br from-orange-50 to-orange-50 rounded-2xl p-4 border border-orange-300 shadow-md space-y-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-600 text-white rounded-full">Điểm Bán POS</span>
-                      <Store className="w-4 h-4 text-emerald-600" />
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-600 text-white rounded-full">Điểm Bán POS</span>
+                      <Store className="w-4 h-4 text-orange-600" />
                     </div>
                     <div className="font-black text-sm text-zinc-900">Chi Nhánh Showroom</div>
                     <p className="text-[11px] text-zinc-600">Trưng bày máy, tiếp khách lẻ, quẹt thẻ POS / QR / Tiền mặt, kết ca nộp tiền về Quỹ Tổng.</p>
-                    <div className="pt-2 border-t border-emerald-200 text-[10px] font-bold text-emerald-700 flex items-center justify-between">
+                    <div className="pt-2 border-t border-orange-200 text-[10px] font-bold text-orange-700 flex items-center justify-between">
                       <span>💰 Thu tiền khách 100%</span>
                       <span>🔄 Nộp tiền cuối ngày</span>
                     </div>
@@ -184,8 +184,8 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
 
                 {/* Legend & Mechanics */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <div className="bg-blue-50/60 rounded-xl p-3 border border-blue-200 text-xs space-y-1">
-                    <div className="font-bold text-blue-900 flex items-center gap-1.5">
+                  <div className="bg-orange-50/60 rounded-xl p-3 border border-orange-200 text-xs space-y-1">
+                    <div className="font-bold text-orange-900 flex items-center gap-1.5">
                       <Truck className="w-3.5 h-3.5 text-orange-600" />
                       <span>Luồng Hàng Hoá (Vật Lý)</span>
                     </div>
@@ -194,9 +194,9 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                     </p>
                   </div>
 
-                  <div className="bg-emerald-50/60 rounded-xl p-3 border border-emerald-200 text-xs space-y-1">
-                    <div className="font-bold text-emerald-900 flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                  <div className="bg-orange-50/60 rounded-xl p-3 border border-orange-200 text-xs space-y-1">
+                    <div className="font-bold text-orange-900 flex items-center gap-1.5">
+                      <DollarSign className="w-3.5 h-3.5 text-orange-600" />
                       <span>Luồng Dòng Tiền (Tài Chính)</span>
                     </div>
                     <p className="text-zinc-600 text-[11px]">
@@ -218,15 +218,15 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   </div>
                   <ul className="text-xs text-zinc-600 space-y-2">
                     <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
                       <span><strong>Không tiếp khách bán lẻ:</strong> Địa điểm bảo mật, an ninh cao, trang bị camera giám sát 24/7 để chống thất thoát.</span>
                     </li>
                     <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
                       <span><strong>Quản lý tồn kho khối lượng lớn:</strong> Chứa hàng nghìn máy iPhone đủ dòng (11 đến 16 Pro Max), linh phụ kiện.</span>
                     </li>
                     <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
                       <span><strong>Kiểm định kỹ thuật chuyên sâu (KCS/QC):</strong> Kiểm tra pin, màn hình, iCloud, áp suất, camera trước khi cho phép xuất về showroom.</span>
                     </li>
                   </ul>
@@ -234,21 +234,21 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
 
                 {/* Chi nhánh Card */}
                 <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-xs space-y-3">
-                  <div className="flex items-center space-x-2 text-emerald-600 font-extrabold text-sm border-b border-zinc-100 pb-2">
-                    <Store className="w-4 h-4 text-emerald-600" />
+                  <div className="flex items-center space-x-2 text-orange-600 font-extrabold text-sm border-b border-zinc-100 pb-2">
+                    <Store className="w-4 h-4 text-orange-600" />
                     <span>Đặc Trưng Chi Nhánh / Showroom (Branch)</span>
                   </div>
                   <ul className="text-xs text-zinc-600 space-y-2">
                     <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
                       <span><strong>Vị trí đắc địa mặt phố:</strong> Showroom sang trọng, bàn trải nghiệm, tư vấn viên chăm sóc khách hàng.</span>
                     </li>
                     <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
                       <span><strong>Định mức tồn kho an toàn (Buffer Stock):</strong> Chỉ giữ từ 15 - 50 máy hot nhất để tối ưu diện tích và giảm rủi ro mất mát.</span>
                     </li>
                     <li className="flex items-start space-x-2">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
                       <span><strong>Đầu mối thu tiền mặt & POS:</strong> Tiếp nhận doanh thu trực tiếp từ khách hàng cuối, xử lý hồ sơ trả góp ngân hàng.</span>
                     </li>
                   </ul>
@@ -273,10 +273,10 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   <div className="bg-zinc-50 rounded-xl p-4 border border-zinc-200 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-xs text-zinc-900 flex items-center gap-1.5">
-                        <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[11px]">1</span>
+                        <span className="w-5 h-5 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-[11px]">1</span>
                         Nhập Hàng Sỉ Tập Trung (Inbound Procurement)
                       </span>
-                      <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">NCC ➔ Kho Tổng</span>
+                      <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">NCC ➔ Kho Tổng</span>
                     </div>
                     <p className="text-xs text-zinc-600">
                       Toàn bộ đơn hàng sỉ (ví dụ: lô 50 cây iPhone 16 Pro Max từ FPT hoặc lô 30 cây 99% xách tay) được tập kết thẳng về <strong>Kho Tổng</strong>. Tại đây, thủ kho quét toàn bộ số IMEI, nhập thông số kỹ thuật (Pin, Màn, iCloud) và in tem mã vạch K80 dán lên máy.
@@ -301,10 +301,10 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   <div className="bg-zinc-50 rounded-xl p-4 border border-zinc-200 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-xs text-zinc-900 flex items-center gap-1.5">
-                        <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-[11px]">3</span>
+                        <span className="w-5 h-5 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-[11px]">3</span>
                         Điều Chuyển Ngang Ứng Cứu (Inter-Branch Balancing)
                       </span>
-                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold">Chi Nhánh A ⇄ Chi Nhánh B</span>
+                      <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">Chi Nhánh A ⇄ Chi Nhánh B</span>
                     </div>
                     <p className="text-xs text-zinc-600">
                       Khi khách hàng tại <em>PhoneHouse Cầu Giấy</em> muốn lấy ngay 1 cây iPhone 16 Pro 256GB Desert mà chi nhánh đang hết, hệ thống kiểm tra thấy <em>PhoneHouse Đống Đa</em> còn tồn 2 cây. Lệnh điều chuyển ngang được kích hoạt để ship máy qua cho khách trong 30 phút mà không cần đợi nhập từ Kho Tổng.
@@ -315,10 +315,10 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   <div className="bg-zinc-50 rounded-xl p-4 border border-zinc-200 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-extrabold text-xs text-zinc-900 flex items-center gap-1.5">
-                        <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-[11px]">4</span>
+                        <span className="w-5 h-5 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center text-[11px]">4</span>
                         Thu Hồi Bảo Hành & Thu Cũ (Reverse Logistics / RMA)
                       </span>
-                      <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">Chi Nhánh ➔ Kho / Trung Tâm Kỹ Thuật</span>
+                      <span className="text-[10px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-bold">Chi Nhánh ➔ Kho / Trung Tâm Kỹ Thuật</span>
                     </div>
                     <p className="text-xs text-zinc-600">
                       Máy khách mang đến bảo hành hoặc máy tiếp nhận từ chương trình Thu Cũ Đổi Mới tại showroom được lập phiếu điều chuyển ngược về Kho Trung Tâm để kỹ thuật viên thẩm định chuyên sâu hoặc gửi sang Hãng đổi máy mới.
@@ -334,15 +334,15 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
             <div className="space-y-4">
               <div className="bg-white rounded-2xl p-5 border border-zinc-200 shadow-xs space-y-4">
                 <h3 className="text-sm sm:text-base font-extrabold text-zinc-900 flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                  <DollarSign className="w-4 h-4 text-orange-600" />
                   Cơ Chế Dòng Tiền & Quy Tắc Quản Trị Quỹ (Cash Flow Logistics)
                 </h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
                   {/* Dòng Tiền Ra */}
-                  <div className="bg-red-50/70 border border-red-200 rounded-2xl p-4 space-y-2">
-                    <div className="flex items-center space-x-2 text-red-700 font-extrabold text-xs">
+                  <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center space-x-2 text-rose-700 font-extrabold text-xs">
                       <TrendingDown className="w-4 h-4" />
                       <span>DÒNG TIỀN RA (Outflow - Tập trung tại Kho/Tổng)</span>
                     </div>
@@ -354,8 +354,8 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   </div>
 
                   {/* Dòng Tiền Vào */}
-                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-2">
-                    <div className="flex items-center space-x-2 text-emerald-700 font-extrabold text-xs">
+                  <div className="bg-orange-50/70 border border-orange-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center space-x-2 text-orange-700 font-extrabold text-xs">
                       <TrendingUp className="w-4 h-4" />
                       <span>DÒNG TIỀN VÀO (Inflow - Tập trung tại Chi Nhánh)</span>
                     </div>
@@ -369,24 +369,24 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                 </div>
 
                 {/* Cash Sweep Protocol */}
-                <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center space-x-2 text-amber-800 font-extrabold text-xs">
-                    <Coins className="w-4 h-4 text-amber-600" />
+                <div className="bg-orange-50/80 border border-orange-200 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center space-x-2 text-orange-800 font-extrabold text-xs">
+                    <Coins className="w-4 h-4 text-orange-600" />
                     <span>Quy Tắc Điều Hòa Quỹ & Chốt Ca Cuối Ngày (Cash Sweeping Mechanism)</span>
                   </div>
                   <p className="text-xs text-zinc-700 leading-relaxed">
                     Để hạn chế tối đa rủi ro mất cắp tiền mặt tại showroom và đảm bảo luôn có sẵn thanh khoản nhập hàng mới, chuỗi PhoneHouse áp dụng cơ chế <strong>"Quỹ Tiền Mặt Định Mức (Petty Cash Float)"</strong>:
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                    <div className="bg-white p-3 rounded-xl border border-amber-200">
+                    <div className="bg-white p-3 rounded-xl border border-orange-200">
                       <div className="font-bold text-zinc-900">1. Giữ Quỹ Lẻ Cố Định</div>
                       <div className="text-[11px] text-zinc-500 mt-0.5">Mỗi quầy thu ngân chỉ giữ <strong>2.000.000 đ - 5.000.000 đ</strong> để trả lại tiền thừa và chi tiêu vặt.</div>
                     </div>
-                    <div className="bg-white p-3 rounded-xl border border-amber-200">
+                    <div className="bg-white p-3 rounded-xl border border-orange-200">
                       <div className="font-bold text-zinc-900">2. Kết Ca 21h30 Hàng Ngày</div>
                       <div className="text-[11px] text-zinc-500 mt-0.5">Toàn bộ tiền mặt vượt hạn mức được nộp vào máy CDM / chuyển khoản về <strong>Quỹ Tổng Công Ty</strong>.</div>
                     </div>
-                    <div className="bg-white p-3 rounded-xl border border-amber-200">
+                    <div className="bg-white p-3 rounded-xl border border-orange-200">
                       <div className="font-bold text-zinc-900">3. Vòng Quay Vốn Nhanh</div>
                       <div className="text-[11px] text-zinc-500 mt-0.5">Tiền về Quỹ Tổng lập tức được dùng để thanh toán lô máy mới, đạt vòng quay vốn từ <strong>7 - 12 ngày/lô</strong>.</div>
                     </div>
@@ -411,59 +411,59 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                     <tr>
                       <th className="p-3 w-1/4">Tiêu Chí Quản Lý</th>
                       <th className="p-3 w-[37.5%] bg-orange-50/50 text-[#F94A1F]">🏢 Kho Lưu Hàng Hoá (Warehouse)</th>
-                      <th className="p-3 w-[37.5%] bg-emerald-50/50 text-emerald-700">🏪 Chi Nhánh Showroom (Branch)</th>
+                      <th className="p-3 w-[37.5%] bg-orange-50/50 text-orange-700">🏪 Chi Nhánh Showroom (Branch)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-200 text-zinc-700 font-medium">
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">1. Mục đích cốt lõi</td>
                       <td className="p-3 bg-orange-50/20">Lưu trữ tập trung, kiểm định KCS, đóng gói, điều phối logistic.</td>
-                      <td className="p-3 bg-emerald-50/20">Trưng bày máy mẫu, tư vấn bán hàng, chốt đơn POS, dịch vụ sau bán.</td>
+                      <td className="p-3 bg-orange-50/20">Trưng bày máy mẫu, tư vấn bán hàng, chốt đơn POS, dịch vụ sau bán.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">2. Nguồn hàng tiếp nhận</td>
                       <td className="p-3 bg-orange-50/20">Nhà cung cấp sỉ (FPT, DGW, Apple Authorized), Đại lý lớn.</td>
-                      <td className="p-3 bg-emerald-50/20">Nhận điều chuyển từ Kho Tổng hoặc máy Thu Cũ từ khách lẻ.</td>
+                      <td className="p-3 bg-orange-50/20">Nhận điều chuyển từ Kho Tổng hoặc máy Thu Cũ từ khách lẻ.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">3. Quy mô tồn kho (Stock Depth)</td>
                       <td className="p-3 bg-orange-50/20">Lớn (Vài trăm đến hàng nghìn máy, đa dạng toàn bộ dải model).</td>
-                      <td className="p-3 bg-emerald-50/20">Nhỏ gọn (15 - 50 máy hot, đáp ứng nhu cầu bán trong 2-3 ngày).</td>
+                      <td className="p-3 bg-orange-50/20">Nhỏ gọn (15 - 50 máy hot, đáp ứng nhu cầu bán trong 2-3 ngày).</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">4. Quản lý định danh IMEI</td>
                       <td className="p-3 bg-orange-50/20">Nhập danh sách IMEI hàng loạt, in dán tem mã vạch K80 lên hộp.</td>
-                      <td className="p-3 bg-emerald-50/20">Quét barcode súng scan khi bán và gán trực tiếp vào Hóa đơn khách.</td>
+                      <td className="p-3 bg-orange-50/20">Quét barcode súng scan khi bán và gán trực tiếp vào Hóa đơn khách.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">5. Dòng tiền Vào (Doanh thu)</td>
                       <td className="p-3 bg-orange-50/20">Gần như 0 (Không bán lẻ thu tiền trực tiếp).</td>
-                      <td className="p-3 bg-emerald-50/20"><strong>100% doanh thu chuỗi</strong> (Tiền mặt, quẹt thẻ POS, trả góp).</td>
+                      <td className="p-3 bg-orange-50/20"><strong>100% doanh thu chuỗi</strong> (Tiền mặt, quẹt thẻ POS, trả góp).</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">6. Dòng tiền Ra (Chi phí)</td>
                       <td className="p-3 bg-orange-50/20"><strong>Chi tiền vốn lớn nhất</strong> (Thanh toán đơn hàng sỉ NCC).</td>
-                      <td className="p-3 bg-emerald-50/20">Chi phí vận hành điểm bán nhỏ (điện nước, trà nước khách, ship hỏa tốc).</td>
+                      <td className="p-3 bg-orange-50/20">Chi phí vận hành điểm bán nhỏ (điện nước, trà nước khách, ship hỏa tốc).</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">7. Hạch toán Quỹ tiền</td>
                       <td className="p-3 bg-orange-50/20">Liên kết trực tiếp với Quỹ Tài Khoản Ngân Hàng Công Ty (Techcombank/MB).</td>
-                      <td className="p-3 bg-emerald-50/20">Quỹ Tiền Mặt Chi Nhánh (Két sắt cửa hàng) + Thiết bị POS quẹt thẻ.</td>
+                      <td className="p-3 bg-orange-50/20">Quỹ Tiền Mặt Chi Nhánh (Két sắt cửa hàng) + Thiết bị POS quẹt thẻ.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">8. Rủi ro chính</td>
                       <td className="p-3 bg-orange-50/20">Rủi ro đọng vốn, trượt giá dòng máy cũ, cháy nổ, bảo quản độ ẩm pin.</td>
-                      <td className="p-3 bg-emerald-50/20">Rủi ro thiếu hàng tức thời, sai sót tiền mặt thu ngân, trộm cắp quầy.</td>
+                      <td className="p-3 bg-orange-50/20">Rủi ro thiếu hàng tức thời, sai sót tiền mặt thu ngân, trộm cắp quầy.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">9. Nhân sự phụ trách</td>
                       <td className="p-3 bg-orange-50/20">Thủ kho, Kỹ thuật viên KCS phần cứng, Nhân viên đóng gói vận đơn.</td>
-                      <td className="p-3 bg-emerald-50/20">Cửa hàng trưởng, Chuyên viên bán hàng (Sales), Thu ngân, Bảo vệ.</td>
+                      <td className="p-3 bg-orange-50/20">Cửa hàng trưởng, Chuyên viên bán hàng (Sales), Thu ngân, Bảo vệ.</td>
                     </tr>
                     <tr>
                       <td className="p-3 font-bold text-zinc-900">10. Chỉ số đo lường (KPI)</td>
                       <td className="p-3 bg-orange-50/20">Độ chính xác tồn kho 100%, Tốc độ xuất kho &lt; 15p, Tỷ lệ lỗi KCS &lt; 0.5%.</td>
-                      <td className="p-3 bg-emerald-50/20">Doanh số/ngày, Tỷ lệ chốt đơn (Conversion Rate), Đánh giá hài lòng (CSAT).</td>
+                      <td className="p-3 bg-orange-50/20">Doanh số/ngày, Tỷ lệ chốt đơn (Conversion Rate), Đánh giá hài lòng (CSAT).</td>
                     </tr>
                   </tbody>
                 </table>
@@ -491,9 +491,9 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                     </p>
                   </div>
 
-                  <div className="bg-blue-50/40 rounded-xl p-3.5 border border-blue-200 space-y-1.5">
-                    <div className="font-bold text-blue-950 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  <div className="bg-orange-50/40 rounded-xl p-3.5 border border-orange-200 space-y-1.5">
+                    <div className="font-bold text-orange-950 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-orange-500" />
                       <span>2. Chuyển kho phải có 2 bên xác nhận</span>
                     </div>
                     <p className="text-zinc-600 text-[11px] leading-relaxed">
@@ -501,9 +501,9 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                     </p>
                   </div>
 
-                  <div className="bg-emerald-50/40 rounded-xl p-3.5 border border-emerald-200 space-y-1.5">
-                    <div className="font-bold text-emerald-950 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <div className="bg-orange-50/40 rounded-xl p-3.5 border border-orange-200 space-y-1.5">
+                    <div className="font-bold text-orange-950 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-orange-500" />
                       <span>3. Kiểm kê đối soát hàng ngày (Daily Audit)</span>
                     </div>
                     <p className="text-zinc-600 text-[11px] leading-relaxed">
@@ -511,9 +511,9 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                     </p>
                   </div>
 
-                  <div className="bg-purple-50/40 rounded-xl p-3.5 border border-purple-200 space-y-1.5">
-                    <div className="font-bold text-purple-950 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-purple-500" />
+                  <div className="bg-rose-50/40 rounded-xl p-3.5 border border-rose-200 space-y-1.5">
+                    <div className="font-bold text-rose-950 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-rose-500" />
                       <span>4. Minh bạch công nợ & luồng thanh toán</span>
                     </div>
                     <p className="text-zinc-600 text-[11px] leading-relaxed">

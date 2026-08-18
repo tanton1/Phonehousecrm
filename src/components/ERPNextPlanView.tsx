@@ -39,9 +39,9 @@ services:
     environment:
       - DB_HOST=db
       - DB_PORT=3306
-      - REDIS_CACHE=redis-cache:6379
-      - REDIS_QUEUE=redis-queue:6379
-      - REDIS_SOCKETIO=redis-socketio:6379
+      - REDIS_CACHE=roseis-cache:6379
+      - REDIS_QUEUE=roseis-queue:6379
+      - REDIS_SOCKETIO=roseis-socketio:6379
     volumes:
       - sites:/home/frappe/frappe-bench/sites
       - logs:/home/frappe/frappe-bench/logs
@@ -61,14 +61,14 @@ services:
       - frappe_network
 
   # 3. Redis Caches & Queues
-  redis-cache:
-    image: redis:6.2-alpine
+  roseis-cache:
+    image: roseis:6.2-alpine
     restart: unless-stopped
     networks:
       - frappe_network
 
-  redis-queue:
-    image: redis:6.2-alpine
+  roseis-queue:
+    image: roseis:6.2-alpine
     networks:
       - frappe_network
 
@@ -164,7 +164,7 @@ class iPhoneDevice(Document):
               onClick={() => setActiveSubTab(tab.id as any)}
               className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
                 isActive
-                  ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20'
+                  ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white shadow-md shadow-orange-500/20'
                   : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
               }`}
             >
@@ -281,7 +281,7 @@ class iPhoneDevice(Document):
               onClick={() => handleCopyCode('docker', dockerComposeCode)}
               className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors border border-zinc-200"
             >
-              {copiedCodeKey === 'docker' ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-orange-600" />}
+              {copiedCodeKey === 'docker' ? <Check className="w-4 h-4 text-orange-600" /> : <Copy className="w-4 h-4 text-orange-600" />}
               <span>{copiedCodeKey === 'docker' ? 'Đã Sao Chép!' : 'Sao Chép File'}</span>
             </button>
           </div>
@@ -304,7 +304,7 @@ class iPhoneDevice(Document):
               onClick={() => handleCopyCode('python', pythonDoctypeCode)}
               className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors border border-zinc-200"
             >
-              {copiedCodeKey === 'python' ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-orange-600" />}
+              {copiedCodeKey === 'python' ? <Check className="w-4 h-4 text-orange-600" /> : <Copy className="w-4 h-4 text-orange-600" />}
               <span>{copiedCodeKey === 'python' ? 'Đã Sao Chép!' : 'Sao Chép Code'}</span>
             </button>
           </div>

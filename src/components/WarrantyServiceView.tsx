@@ -57,7 +57,10 @@ import {
   ScanFace
 } from 'lucide-react';
 
+import { StoreBranch } from "../types";
 interface WarrantyServiceViewProps {
+  currentUser?: UserAccount | null;
+  branches?: StoreBranch[];
   warrantyTickets: WarrantyTicket[];
   devices: DeviceItem[];
   funds?: FundAccount[];
@@ -71,6 +74,8 @@ interface WarrantyServiceViewProps {
 }
 
 export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
+  currentUser,
+  branches = [],
   warrantyTickets,
   devices,
   funds = [],
@@ -260,6 +265,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       issueType: 'Khác',
       faultDescription: `${newTaskFormData.taskName}${newTaskFormData.notes ? ` - ${newTaskFormData.notes}` : ''}`,
       status: 'received',
+      branchId: formData.branchId || currentUser?.branchId || branches[0]?.id || '',
       isWarrantyFree: newTaskFormData.taskType === 'INBOUND_QC' || newTaskFormData.taskType === 'WARRANTY',
       repairCategory: newTaskFormData.taskType === 'INBOUND_QC' || newTaskFormData.taskType === 'WARRANTY' ? 'WARRANTY_FREE' : 'REPAIR_SERVICE',
       estimatedCost: Number(newTaskFormData.estimatedCost) || 0,
@@ -630,28 +636,28 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
         );
       case 'inspecting':
         return (
-          <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
+          <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
             <Activity className="w-3 h-3" />
             <span>Đang Kiểm Tra</span>
           </span>
         );
       case 'waiting_parts':
         return (
-          <span className="bg-purple-50 text-purple-700 border border-purple-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
+          <span className="bg-rose-50 text-rose-700 border border-rose-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
             <Cpu className="w-3 h-3" />
             <span>Chờ Linh Kiện</span>
           </span>
         );
       case 'repairing':
         return (
-          <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1 animate-pulse">
+          <span className="bg-orange-50 text-orange-800 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1 animate-pulse">
             <Wrench className="w-3 h-3" />
             <span>Đang Sửa Chữa</span>
           </span>
         );
       case 'ready':
         return (
-          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
+          <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center space-x-1">
             <CheckCircle2 className="w-3 h-3" />
             <span>Đã Xong (Chờ Trả)</span>
           </span>
@@ -671,7 +677,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       {/* 1. TOP BANNER */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl sm:rounded-3xl border border-orange-100 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-2.5">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 to-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20">
             <Wrench className="w-5 h-5" />
           </div>
           <div>
@@ -691,17 +697,6 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          {onOpenCheckIn && (
-            <button
-              onClick={onOpenCheckIn}
-              className="bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-indigo-900/20 active:scale-95 cursor-pointer border border-indigo-700/50"
-              title="Điểm danh khuôn mặt KTV vào/ra ca"
-            >
-              <ScanFace className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span>⚡ Điểm Danh Face ID</span>
-            </button>
-          )}
-
           <button
             onClick={() => {
               setFormData({
@@ -727,7 +722,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
               });
               setIsAddModalOpen(true);
             }}
-            className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
+            className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ Tiếp Nhận Máy</span>
@@ -735,7 +730,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
           <button
             onClick={() => setIsAddPriceModalOpen(true)}
-            className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-amber-500/20 active:scale-95 cursor-pointer"
+            className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
           >
             <DollarSign className="w-4 h-4" />
             <span>+ Tạo Bảng Giá Dịch Vụ</span>
@@ -743,7 +738,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
           <button
             onClick={() => setIsAddTaskModalOpen(true)}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-emerald-600/20 active:scale-95 cursor-pointer"
+            className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-orange-600/20 active:scale-95 cursor-pointer"
           >
             <Wrench className="w-4 h-4" />
             <span>+ Phân Công Task KTV</span>
@@ -759,19 +754,19 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
           <div className="text-[10px] text-zinc-400 mt-0.5">Chờ KTV kiểm tra & chẩn đoán</div>
         </div>
 
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-amber-100 shadow-xs">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-orange-100 shadow-xs">
           <div className="text-[10px] font-bold text-zinc-500 uppercase">Đang Sửa Chữa</div>
-          <div className="text-xl sm:text-2xl font-black text-amber-600 mt-0.5">{stats.repairing}</div>
+          <div className="text-xl sm:text-2xl font-black text-orange-600 mt-0.5">{stats.repairing}</div>
           <div className="text-[10px] text-zinc-400 mt-0.5">KTV đang thao tác xử lý</div>
         </div>
 
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-emerald-100 shadow-xs">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-orange-100 shadow-xs">
           <div className="text-[10px] font-bold text-zinc-500 uppercase">Đã Xong / Chờ Giao</div>
-          <div className="text-xl sm:text-2xl font-black text-emerald-600 mt-0.5">{stats.ready}</div>
+          <div className="text-xl sm:text-2xl font-black text-orange-600 mt-0.5">{stats.ready}</div>
           <div className="text-[10px] text-zinc-400 mt-0.5">Đã test QC đạt chuẩn 100%</div>
         </div>
 
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-blue-100 shadow-xs">
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-orange-100 shadow-xs">
           <div className="text-[10px] font-bold text-zinc-500 uppercase">Doanh Thu Dịch Vụ</div>
           <div className="text-lg sm:text-xl font-black text-orange-600 mt-0.5 font-mono">
             {stats.totalRevenue.toLocaleString('vi-VN')} đ
@@ -798,7 +793,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
           onClick={() => setActiveTab('KANBAN')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
             activeTab === 'KANBAN'
-              ? 'bg-blue-600 text-white shadow-xs'
+              ? 'bg-orange-600 text-white shadow-xs'
               : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
           }`}
         >
@@ -834,7 +829,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
           onClick={() => setActiveTab('KPI')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
             activeTab === 'KPI'
-              ? 'bg-emerald-600 text-white shadow-xs'
+              ? 'bg-orange-600 text-white shadow-xs'
               : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
           }`}
         >
@@ -856,7 +851,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   placeholder="Tìm Mã phiếu, IMEI, Tên khách, Model..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-3 py-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-8 pr-3 py-1.5 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500"
                 />
               </div>
 
@@ -929,7 +924,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                       </td>
 
                       <td className="px-4 py-3.5 max-w-xs">
-                        <span className="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded text-[10px] font-bold">
+                        <span className="bg-orange-50 text-orange-800 border border-orange-200 px-2 py-0.5 rounded text-[10px] font-bold">
                           {t.issueType}
                         </span>
                         <p className="text-[11px] text-zinc-600 mt-1 line-clamp-1 italic">"{t.faultDescription}"</p>
@@ -943,7 +938,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                       <td className="px-4 py-3.5">
                         {t.isWarrantyFree ? (
                           <div>
-                            <span className="text-emerald-700 font-bold text-xs bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            <span className="text-orange-700 font-bold text-xs bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
                               BH Miễn Phí
                             </span>
                             <div className="text-[10px] text-zinc-400 mt-0.5">Gói VIP 1 đổi 1</div>
@@ -983,7 +978,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                           {t.status === 'received' && (
                             <button
                               onClick={() => handleUpdateStatus(t, 'repairing')}
-                              className="bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg"
+                              className="bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg"
                             >
                               Sửa Máy
                             </button>
@@ -991,7 +986,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                           {t.status === 'repairing' && (
                             <button
                               onClick={() => handleUpdateStatus(t, 'ready')}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg"
+                              className="bg-orange-600 hover:bg-orange-700 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg"
                             >
                               Sửa Xong
                             </button>
@@ -999,7 +994,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                           {t.status === 'ready' && (
                             <button
                               onClick={() => handleUpdateStatus(t, 'delivered')}
-                              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg shadow-xs"
+                              className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg shadow-xs"
                             >
                               Giao Máy
                             </button>
@@ -1040,7 +1035,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     </div>
                     <div className="flex justify-between text-zinc-500">
                       <span>Lỗi:</span>
-                      <span className="text-amber-800 font-bold">{t.issueType}</span>
+                      <span className="text-orange-800 font-bold">{t.issueType}</span>
                     </div>
                     <div className="flex justify-between text-zinc-500">
                       <span>Chi phí:</span>
@@ -1073,7 +1068,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                       {t.status === 'received' && (
                         <button
                           onClick={() => handleUpdateStatus(t, 'repairing')}
-                          className="px-3 py-1 bg-amber-500 text-white text-xs font-bold rounded-lg shadow-xs"
+                          className="px-3 py-1 bg-orange-500 text-white text-xs font-bold rounded-lg shadow-xs"
                         >
                           Sửa Máy
                         </button>
@@ -1081,7 +1076,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                       {t.status === 'repairing' && (
                         <button
                           onClick={() => handleUpdateStatus(t, 'ready')}
-                          className="px-3 py-1 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-xs"
+                          className="px-3 py-1 bg-orange-600 text-white text-xs font-bold rounded-lg shadow-xs"
                         >
                           Sửa Xong
                         </button>
@@ -1123,7 +1118,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 placeholder="Tìm bảng giá thay màn hình, thay pin, ép kính, sửa Face ID..."
                 value={priceSearchTerm}
                 onChange={(e) => setPriceSearchTerm(e.target.value)}
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-8 pr-3 py-1.5 text-[11px] text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
               />
             </div>
 
@@ -1145,7 +1140,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
               <button
                 onClick={() => setIsAddPriceModalOpen(true)}
-                className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl flex items-center space-x-1.5 shadow-sm active:scale-95 cursor-pointer whitespace-nowrap"
+                className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl flex items-center space-x-1.5 shadow-sm active:scale-95 cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ Tạo Bảng Giá / Dịch Vụ Mới</span>
@@ -1180,11 +1175,11 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 <div className="p-2.5 bg-zinc-50 rounded-xl text-xs text-zinc-600 space-y-1">
                   <div className="flex justify-between text-[11px]">
                     <span>Thời gian hoàn thành: <strong>{item.durationMinutes} phút</strong></span>
-                    <span>Bảo hành: <strong className="text-emerald-700">{item.warrantyPeriodMonths} tháng</strong></span>
+                    <span>Bảo hành: <strong className="text-orange-700">{item.warrantyPeriodMonths} tháng</strong></span>
                   </div>
 
                   {Boolean(item.techCommission) && (
-                    <div className="mt-1.5 pt-1.5 border-t border-zinc-200/60 flex justify-between items-center text-[11px] font-bold text-amber-800 bg-amber-50/80 p-1.5 rounded-lg">
+                    <div className="mt-1.5 pt-1.5 border-t border-zinc-200/60 flex justify-between items-center text-[11px] font-bold text-orange-800 bg-orange-50/80 p-1.5 rounded-lg">
                       <span>💰 Hoa hồng KTV:</span>
                       <span className="font-mono text-xs">{item.techCommission?.toLocaleString('vi-VN')} đ</span>
                     </div>
@@ -1243,7 +1238,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
               <div className="p-3.5 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs space-y-1.5">
                 <div className="font-bold text-zinc-900 flex items-center space-x-1.5">
-                  <span className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px]">2</span>
+                  <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px]">2</span>
                   <span>Sửa Chữa Trong Phòng Kỹ Thuật</span>
                 </div>
                 <p className="text-[11px] text-zinc-500">
@@ -1253,7 +1248,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
               <div className="p-3.5 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs space-y-1.5">
                 <div className="font-bold text-zinc-900 flex items-center space-x-1.5">
-                  <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px]">3</span>
+                  <span className="w-5 h-5 rounded-full bg-orange-500 text-white flex items-center justify-center text-[10px]">3</span>
                   <span>Kiểm Tra QC & Xuất Phiếu Bảo Hành</span>
                 </div>
                 <p className="text-[11px] text-zinc-500">
@@ -1280,7 +1275,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200">
-            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-5 py-4 border-b border-orange-100 flex items-center justify-between shrink-0">
+            <div className="bg-gradient-to-r from-orange-50 via-orange-50/50 to-white px-5 py-4 border-b border-orange-100 flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-xl bg-orange-500 text-white flex items-center justify-center">
                   <Wrench className="w-4 h-4" />
@@ -1340,6 +1335,24 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 </div>
 
                 <div>
+                  
+                {/* Chi nhánh */}
+                {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">Chi nhánh tiếp nhận</label>
+                    <select
+                      value={formData.branchId || ''}
+                      onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+                      className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-sm focus:border-orange-500 outline-none"
+                    >
+                      <option value="">-- Chọn chi nhánh --</option>
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Tên Khách Hàng *</label>
                   <input
                     type="text"
@@ -1426,7 +1439,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Hình Thức Xử Lý & Chi Phí</label>
                   <div className="flex gap-2">
                     <label className={`flex-1 p-2 rounded-xl border text-xs font-bold flex items-center justify-center space-x-1.5 cursor-pointer ${
-                      formData.isWarrantyFree ? 'bg-emerald-50 border-emerald-500 text-emerald-800' : 'bg-zinc-50 border-zinc-200 text-zinc-600'
+                      formData.isWarrantyFree ? 'bg-orange-50 border-orange-500 text-orange-800' : 'bg-zinc-50 border-zinc-200 text-zinc-600'
                     }`}>
                       <input
                         type="radio"
@@ -1462,7 +1475,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     type="button"
                     onClick={handleRunAIDiagnostic}
                     disabled={isDiagnosing}
-                    className="text-xs bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold px-3 py-1 rounded-lg flex items-center space-x-1 shadow-xs cursor-pointer"
+                    className="text-xs bg-gradient-to-r from-orange-500 to-orange-500 text-white font-bold px-3 py-1 rounded-lg flex items-center space-x-1 shadow-xs cursor-pointer"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>{isDiagnosing ? 'Đang phân tích...' : 'AI Chẩn Đoán Kỹ Thuật'}</span>
@@ -1480,7 +1493,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
               {/* AI Diagnostic Result Card */}
               {aiDiagnosticResult && (
-                <div className="p-3.5 bg-gradient-to-r from-orange-50/80 to-amber-50/80 border border-orange-200 rounded-2xl text-xs space-y-2">
+                <div className="p-3.5 bg-gradient-to-r from-orange-50/80 to-orange-50/80 border border-orange-200 rounded-2xl text-xs space-y-2">
                   <div className="flex items-center space-x-1.5 font-bold text-orange-800">
                     <Sparkles className="w-4 h-4 text-orange-600" />
                     <span>Kết Quả Phân Tích & Đề Xuất Kỹ Thuật (Gemini AI)</span>
@@ -1491,7 +1504,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     <div><strong>Phương án xử lý:</strong> {aiDiagnosticResult.recommendedAction}</div>
                     <div className="flex gap-4 pt-1 text-[11px] font-bold">
                       <span className="text-orange-700">Thời gian: {aiDiagnosticResult.repairTime}</span>
-                      <span className="text-emerald-700">Dự toán: {aiDiagnosticResult.estimatedCostRange}</span>
+                      <span className="text-orange-700">Dự toán: {aiDiagnosticResult.estimatedCostRange}</span>
                     </div>
                   </div>
                 </div>
@@ -1510,13 +1523,13 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-amber-800 mb-1">Hoa Hồng KTV (VNĐ)</label>
+                  <label className="block text-xs font-bold text-orange-800 mb-1">Hoa Hồng KTV (VNĐ)</label>
                   <input
                     type="number"
                     step={10000}
                     value={formData.commissionAmount || 0}
                     onChange={(e) => setFormData({ ...formData, commissionAmount: Number(e.target.value) })}
-                    className="w-full bg-amber-50/60 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-900 font-mono font-bold focus:bg-white focus:border-amber-500"
+                    className="w-full bg-orange-50/60 border border-orange-200 rounded-xl px-3 py-2 text-xs text-orange-900 font-mono font-bold focus:bg-white focus:border-orange-500"
                   />
                 </div>
 
@@ -1553,7 +1566,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95"
+                  className="px-5 py-2 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20 active:scale-95"
                 >
                   Lưu & Xuất Phiếu Biên Nhận
                 </button>
@@ -1607,7 +1620,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
               {/* Lỗi */}
               <div>
                 <h4 className="font-black text-zinc-900 uppercase text-[11px] tracking-wider mb-2">Tình Trạng Lỗi</h4>
-                <div className="bg-red-50 p-3 rounded-2xl border border-red-100 text-red-800 text-sm font-medium">
+                <div className="bg-rose-50 p-3 rounded-2xl border border-rose-100 text-rose-800 text-sm font-medium">
                   {activeTicketDetails.issueType} - {activeTicketDetails.faultDescription}
                 </div>
               </div>
@@ -1645,7 +1658,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     onClick={() => handleUpdateStatus(activeTicketDetails, 'repairing')}
                     disabled={activeTicketDetails.status === 'repairing'}
                     className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-1 cursor-pointer ${
-                      activeTicketDetails.status === 'repairing' ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-zinc-100 hover:bg-amber-50 text-zinc-700'
+                      activeTicketDetails.status === 'repairing' ? 'bg-orange-100 text-orange-800 border border-orange-300' : 'bg-zinc-100 hover:bg-orange-50 text-zinc-700'
                     }`}
                   >
                     <Wrench className="w-3.5 h-3.5" />
@@ -1656,7 +1669,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     onClick={() => handleUpdateStatus(activeTicketDetails, 'ready')}
                     disabled={activeTicketDetails.status === 'ready'}
                     className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center space-x-1 cursor-pointer ${
-                      activeTicketDetails.status === 'ready' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-zinc-100 hover:bg-emerald-50 text-zinc-700'
+                      activeTicketDetails.status === 'ready' ? 'bg-orange-100 text-orange-800 border border-orange-300' : 'bg-zinc-100 hover:bg-orange-50 text-zinc-700'
                     }`}
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1681,7 +1694,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
             <div className="p-4 bg-zinc-50 border-t border-zinc-200 flex flex-wrap gap-2 justify-between items-center">
               <button
                 onClick={() => setIsErrorModalOpen(true)}
-                className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-xl font-bold text-xs flex items-center space-x-1"
+                className="px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl font-bold text-xs flex items-center space-x-1"
               >
                 <AlertTriangle className="w-3.5 h-3.5" />
                 <span>Báo Lỗi Đền Bù</span>
@@ -1712,15 +1725,15 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       {/* MODAL 2: TẠO BẢNG GIÁ DỊCH VỤ SỬA CHỮA MỚI */}
       {isAddPriceModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full sm:max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-amber-200 max-h-[90vh]">
-            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-4 text-white flex items-center justify-between shrink-0">
+          <div className="bg-white w-full sm:max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200 max-h-[90vh]">
+            <div className="bg-gradient-to-r from-orange-500 to-orange-500 px-5 py-4 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-bold">
                   <DollarSign className="w-4 h-4 text-white" />
                 </div>
                 <div>
                   <h3 className="font-black text-base">Thêm Dịch Vụ Sửa Chữa & Bảng Giá Mới</h3>
-                  <p className="text-[11px] text-amber-100">Định giá linh kiện, thời gian hoàn thành & định mức hoa hồng KTV</p>
+                  <p className="text-[11px] text-orange-100">Định giá linh kiện, thời gian hoàn thành & định mức hoa hồng KTV</p>
                 </div>
               </div>
               <button 
@@ -1740,7 +1753,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   value={newPriceFormData.name}
                   onChange={(e) => setNewPriceFormData({ ...newPriceFormData, name: e.target.value })}
                   placeholder="VD: Thay Pin Pisen iPhone 15 Pro Max, Ép kính 14PM,..."
-                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:bg-white focus:border-amber-500"
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:bg-white focus:border-orange-500"
                 />
               </div>
 
@@ -1766,7 +1779,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                         categoryName: catNames[cat] || 'Dịch Vụ Khác'
                       });
                     }}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-amber-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-orange-500"
                   >
                     <option value="THAY_MAN_HINH">Thay Màn Hình iPhone</option>
                     <option value="THAY_PIN">Thay Pin iPhone Chính Hãng</option>
@@ -1786,7 +1799,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     value={newPriceFormData.compatibleModels}
                     onChange={(e) => setNewPriceFormData({ ...newPriceFormData, compatibleModels: e.target.value })}
                     placeholder="VD: iPhone 13 Pro Max, Toàn bộ Series 14..."
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-amber-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-orange-500"
                   />
                 </div>
               </div>
@@ -1799,7 +1812,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     step={50000}
                     value={newPriceFormData.costPrice}
                     onChange={(e) => setNewPriceFormData({ ...newPriceFormData, costPrice: Number(e.target.value) })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-mono font-bold text-zinc-900 focus:border-amber-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-mono font-bold text-zinc-900 focus:border-orange-500"
                   />
                 </div>
 
@@ -1815,13 +1828,13 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-bold text-amber-800 mb-1">Hoa Hồng KTV (VNĐ)</label>
+                  <label className="block font-bold text-orange-800 mb-1">Hoa Hồng KTV (VNĐ)</label>
                   <input
                     type="number"
                     step={10000}
                     value={newPriceFormData.techCommission}
                     onChange={(e) => setNewPriceFormData({ ...newPriceFormData, techCommission: Number(e.target.value) })}
-                    className="w-full bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 font-mono font-black text-amber-900 focus:border-amber-500"
+                    className="w-full bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 font-mono font-black text-orange-900 focus:border-orange-500"
                   />
                 </div>
               </div>
@@ -1833,7 +1846,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     type="number"
                     value={newPriceFormData.durationMinutes}
                     onChange={(e) => setNewPriceFormData({ ...newPriceFormData, durationMinutes: Number(e.target.value) })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-bold text-zinc-900 focus:border-amber-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-bold text-zinc-900 focus:border-orange-500"
                   />
                 </div>
 
@@ -1843,7 +1856,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     type="number"
                     value={newPriceFormData.warrantyPeriodMonths}
                     onChange={(e) => setNewPriceFormData({ ...newPriceFormData, warrantyPeriodMonths: Number(e.target.value) })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-bold text-zinc-900 focus:border-amber-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 font-bold text-zinc-900 focus:border-orange-500"
                   />
                 </div>
               </div>
@@ -1855,7 +1868,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   value={newPriceFormData.notes}
                   onChange={(e) => setNewPriceFormData({ ...newPriceFormData, notes: e.target.value })}
                   placeholder="VD: Dán ron chống nước sau khi hoàn thành, sàng cáp IC zin gốc..."
-                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl p-2.5 text-zinc-900 focus:bg-white focus:border-amber-500"
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl p-2.5 text-zinc-900 focus:bg-white focus:border-orange-500"
                 />
               </div>
 
@@ -1869,7 +1882,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                  className="px-5 py-2 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl shadow-md cursor-pointer"
                 >
                   Lưu Bảng Giá Mới
                 </button>
@@ -1884,12 +1897,12 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       {isErrorModalOpen && activeTicketDetails && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-5 py-4 border-b border-zinc-100 flex justify-between items-center bg-red-50 text-red-800">
+            <div className="px-5 py-4 border-b border-zinc-100 flex justify-between items-center bg-rose-50 text-rose-800">
               <h3 className="font-black flex items-center space-x-2">
                 <AlertTriangle className="w-5 h-5" />
                 <span>Báo Cáo Sự Cố & Đền Bù</span>
               </h3>
-              <button onClick={() => setIsErrorModalOpen(false)} className="p-1 hover:bg-red-200 rounded-full text-red-600 transition-colors">
+              <button onClick={() => setIsErrorModalOpen(false)} className="p-1 hover:bg-rose-200 rounded-full text-rose-600 transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1908,7 +1921,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 <select 
                   value={errorFormData.errorType}
                   onChange={(e) => setErrorFormData({...errorFormData, errorType: e.target.value})}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm focus:border-red-500"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm focus:border-rose-500"
                 >
                   <option value="Lỗi phát sinh trong quá trình xử lý">Lỗi phát sinh trong quá trình xử lý (Chung)</option>
                   <option value="Lỗi ép kính dẫn tới hư màn">Lỗi ép kính dẫn tới hư màn</option>
@@ -1921,7 +1934,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   <select 
                     value={errorFormData.errorRate}
                     onChange={(e) => setErrorFormData({...errorFormData, errorRate: e.target.value})}
-                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm focus:border-red-500"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm focus:border-rose-500"
                   >
                     <option value="< 1%">Dưới 1%</option>
                     <option value="< 5%">Dưới 5%</option>
@@ -1936,7 +1949,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   type="number"
                   value={errorFormData.compensationCost}
                   onChange={(e) => setErrorFormData({...errorFormData, compensationCost: Number(e.target.value)})}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:border-red-500"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:border-rose-500"
                   placeholder="Ví dụ: 2000000"
                 />
               </div>
@@ -1945,13 +1958,13 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
             <div className="p-4 border-t border-zinc-100 flex justify-end gap-2 bg-zinc-50">
               <button 
                 onClick={() => setIsErrorModalOpen(false)}
-                className="px-4 py-2 text-sm font-bold text-zinc-600 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-100"
+                className="px-3 py-1.5 text-xs font-semibold text-zinc-600 bg-white border border-zinc-200 rounded-xl hover:bg-zinc-100"
               >
                 Hủy
               </button>
               <button 
                 onClick={handleReportError}
-                className="px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700"
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-rose-600 rounded-xl hover:bg-rose-700"
               >
                 Ghi nhận phạt KTV
               </button>
@@ -1962,15 +1975,15 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
       {isAddTaskModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full sm:max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-emerald-200 max-h-[90vh]">
-            <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-white flex items-center justify-between shrink-0">
+          <div className="bg-white w-full sm:max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200 max-h-[90vh]">
+            <div className="bg-gradient-to-r from-orange-600 to-orange-600 px-5 py-4 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-bold">
                   <Wrench className="w-4 h-4 text-white" />
                 </div>
                 <div>
                   <h3 className="font-black text-base">Phân Công Task KTV & Hoa Hồng</h3>
-                  <p className="text-[11px] text-emerald-100">Giao việc kỹ thuật, quy định mức thưởng hoa hồng & hạn deadline</p>
+                  <p className="text-[11px] text-orange-100">Giao việc kỹ thuật, quy định mức thưởng hoa hồng & hạn deadline</p>
                 </div>
               </div>
               <button 
@@ -1983,20 +1996,20 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
 
             <form onSubmit={handleSaveNewTask} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto custom-scrollbar flex-1 bg-white text-xs">
               {/* MATRIX QUICK SELECTOR CARD */}
-              <div className="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl space-y-2.5">
+              <div className="p-3.5 bg-gradient-to-r from-orange-50 to-orange-50 border border-orange-200 rounded-2xl space-y-2.5">
                 <div className="flex justify-between items-center">
-                  <span className="font-black text-amber-900 text-xs flex items-center space-x-1.5">
-                    <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-black text-orange-900 text-xs flex items-center space-x-1.5">
+                    <Sparkles className="w-4 h-4 text-orange-600 shrink-0" />
                     <span>⚡ Chọn Nhanh Task Tu Ma Trận Đơn Giá (Auto Tính Hoa Hồng)</span>
                   </span>
-                  <span className="text-[10px] text-amber-700 bg-amber-200/60 font-bold px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] text-orange-700 bg-orange-200/60 font-bold px-2 py-0.5 rounded-md">
                     Đồng Bộ Ma Trận KTV
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-[11px] font-bold text-amber-900 mb-1">Dòng Máy Tiếp Nhận:</label>
+                    <label className="block text-[11px] font-bold text-orange-900 mb-1">Dòng Máy Tiếp Nhận:</label>
                     <select
                       value={getDeviceGroupForModel(newTaskFormData.model || 'iPhone 13 Pro Max')}
                       onChange={(e) => {
@@ -2010,7 +2023,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                           }));
                         }
                       }}
-                      className="w-full bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 font-bold text-xs text-amber-950 focus:border-amber-500"
+                      className="w-full bg-white border border-orange-300 rounded-xl px-2.5 py-1.5 font-bold text-xs text-orange-950 focus:border-orange-500"
                     >
                       {getLiveTechCommissionMatrix().models.map(m => (
                         <option key={m.id} value={m.id}>📱 {m.name}</option>
@@ -2019,23 +2032,23 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-amber-900 mb-1">Nhập Tên Máy Cụ Thể:</label>
+                    <label className="block text-[11px] font-bold text-orange-900 mb-1">Nhập Tên Máy Cụ Thể:</label>
                     <input
                       type="text"
                       placeholder="VD: iPhone 14 Pro Max 128GB"
                       value={newTaskFormData.model}
                       onChange={(e) => setNewTaskFormData({ ...newTaskFormData, model: e.target.value })}
-                      className="w-full bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 font-bold text-xs text-amber-950 focus:border-amber-500"
+                      className="w-full bg-white border border-orange-300 rounded-xl px-2.5 py-1.5 font-bold text-xs text-orange-950 focus:border-orange-500"
                     />
                   </div>
                 </div>
 
                 {/* Matrix Tasks Grid */}
                 <div>
-                  <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                  <label className="block text-[11px] font-bold text-orange-900 mb-1">
                     Bấm chọn tác vụ từ Ma Trận để tự động cộng hoa hồng KTV:
                   </label>
-                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 bg-white/90 rounded-xl border border-amber-200">
+                  <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 bg-white/90 rounded-xl border border-orange-200">
                     {(() => {
                       const matrix = getLiveTechCommissionMatrix();
                       const currentGroupId = getDeviceGroupForModel(newTaskFormData.model);
@@ -2076,12 +2089,12 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                             }}
                             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer flex items-center space-x-1 ${
                               isAlreadySelected 
-                                ? 'bg-amber-500 text-white border-amber-600 shadow-2xs font-black'
-                                : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                                ? 'bg-orange-500 text-white border-orange-600 shadow-2xs font-black'
+                                : 'bg-orange-50 text-orange-900 border-orange-200 hover:bg-orange-100'
                             }`}
                           >
                             <span>{t.name}</span>
-                            <span className={`text-[10px] font-mono ${isAlreadySelected ? 'text-amber-100' : 'text-amber-700 font-bold'}`}>
+                            <span className={`text-[10px] font-mono ${isAlreadySelected ? 'text-orange-100' : 'text-orange-700 font-bold'}`}>
                               (+{(rate / 1000)}k)
                             </span>
                           </button>
@@ -2100,7 +2113,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   value={newTaskFormData.taskName}
                   onChange={(e) => setNewTaskFormData({ ...newTaskFormData, taskName: e.target.value })}
                   placeholder="VD: Thay Màn Hình & Fix TrueTone 13PM, KCS Kiểm Tra Lô 10 Máy Nhập..."
-                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:bg-white focus:border-emerald-500"
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:bg-white focus:border-orange-500"
                 />
               </div>
 
@@ -2110,7 +2123,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   <select
                     value={newTaskFormData.taskType}
                     onChange={(e) => setNewTaskFormData({ ...newTaskFormData, taskType: e.target.value as any })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-emerald-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-orange-500"
                   >
                     <option value="RETAIL_REPAIR">Sửa Chữa Dịch Vụ Khách Lẻ</option>
                     <option value="INBOUND_QC">KCS Kiểm Tra Hàng Kho Nhập</option>
@@ -2124,7 +2137,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   <select
                     value={newTaskFormData.technician}
                     onChange={(e) => setNewTaskFormData({ ...newTaskFormData, technician: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-emerald-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 font-bold focus:border-orange-500"
                   >
                     {users && users.filter(u => u.role === 'TECHNICIAN' || u.role === 'ADMIN' || u.role === 'MANAGER').length > 0 ? (
                       users.filter(u => u.role === 'TECHNICIAN' || u.role === 'ADMIN' || u.role === 'MANAGER').map(u => (
@@ -2144,29 +2157,29 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200">
-                  <label className="block font-bold text-amber-900 mb-1">Mức Hoa Hồng KTV (VNĐ) *</label>
+                <div className="p-3 bg-orange-50/80 rounded-2xl border border-orange-200">
+                  <label className="block font-bold text-orange-900 mb-1">Mức Hoa Hồng KTV (VNĐ) *</label>
                   <input
                     type="number"
                     step={10000}
                     required
                     value={newTaskFormData.commissionAmount}
                     onChange={(e) => setNewTaskFormData({ ...newTaskFormData, commissionAmount: Number(e.target.value) })}
-                    className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 font-mono font-black text-amber-900 text-sm focus:border-amber-500"
+                    className="w-full bg-white border border-orange-300 rounded-xl px-3 py-2 font-mono font-black text-orange-900 text-sm focus:border-orange-500"
                   />
-                  <span className="text-[10px] text-amber-700 mt-0.5 block">Sẽ được tự động tính vào lương KTV khi hoàn thành</span>
+                  <span className="text-[10px] text-orange-700 mt-0.5 block">Sẽ được tự động tính vào lương KTV khi hoàn thành</span>
                 </div>
 
-                <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200">
-                  <label className="block font-bold text-emerald-900 mb-1">Báo Giá Dịch Vụ Khách (VNĐ)</label>
+                <div className="p-3 bg-orange-50/80 rounded-2xl border border-orange-200">
+                  <label className="block font-bold text-orange-900 mb-1">Báo Giá Dịch Vụ Khách (VNĐ)</label>
                   <input
                     type="number"
                     step={50000}
                     value={newTaskFormData.estimatedCost}
                     onChange={(e) => setNewTaskFormData({ ...newTaskFormData, estimatedCost: Number(e.target.value) })}
-                    className="w-full bg-white border border-emerald-300 rounded-xl px-3 py-2 font-mono font-black text-emerald-900 text-sm focus:border-emerald-500"
+                    className="w-full bg-white border border-orange-300 rounded-xl px-3 py-2 font-mono font-black text-orange-900 text-sm focus:border-orange-500"
                   />
-                  <span className="text-[10px] text-emerald-700 mt-0.5 block">Nhập 0đ nếu là task QC nhập kho hoặc bảo hành miễn phí</span>
+                  <span className="text-[10px] text-orange-700 mt-0.5 block">Nhập 0đ nếu là task QC nhập kho hoặc bảo hành miễn phí</span>
                 </div>
               </div>
 
@@ -2177,7 +2190,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     type="text"
                     value={newTaskFormData.customerName}
                     onChange={(e) => setNewTaskFormData({ ...newTaskFormData, customerName: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-orange-500"
                   />
                 </div>
 
@@ -2187,7 +2200,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     type="text"
                     value={newTaskFormData.model}
                     onChange={(e) => setNewTaskFormData({ ...newTaskFormData, model: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-orange-500"
                   />
                 </div>
 
@@ -2197,7 +2210,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     type="date"
                     value={newTaskFormData.expectedReturnDate}
                     onChange={(e) => setNewTaskFormData({ ...newTaskFormData, expectedReturnDate: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2 text-zinc-900 focus:bg-white focus:border-orange-500"
                   />
                 </div>
               </div>
@@ -2209,7 +2222,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   value={newTaskFormData.notes}
                   onChange={(e) => setNewTaskFormData({ ...newTaskFormData, notes: e.target.value })}
                   placeholder="Ghi rõ tiêu chuẩn kiểm tra hoặc chú ý bảo quản máy..."
-                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl p-2.5 text-zinc-900 focus:bg-white focus:border-emerald-500"
+                  className="w-full bg-zinc-50 border border-zinc-300 rounded-xl p-2.5 text-zinc-900 focus:bg-white focus:border-orange-500"
                 />
               </div>
 
@@ -2223,7 +2236,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                  className="px-5 py-2 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-md cursor-pointer"
                 >
                   Phân Công Task Ngay
                 </button>
@@ -2311,7 +2324,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
             <div className="flex space-x-2">
               <button
                 onClick={() => window.print()}
-                className="flex-1 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
+                className="flex-1 py-2 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
               >
                 In Biên Nhận (Print)
               </button>

@@ -457,14 +457,14 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
         );
       case 'PART': 
         return (
-          <span className="px-2 py-0.5 bg-amber-100/80 text-amber-800 text-[10px] font-bold rounded-lg border border-amber-200 inline-flex items-center gap-1">
-            <Wrench className="w-3 h-3 text-amber-700" /> Linh Kiện Thay Thế
+          <span className="px-2 py-0.5 bg-orange-100/80 text-orange-800 text-[10px] font-bold rounded-lg border border-orange-200 inline-flex items-center gap-1">
+            <Wrench className="w-3 h-3 text-orange-700" /> Linh Kiện Thay Thế
           </span>
         );
       case 'ACCESSORY': 
         return (
-          <span className="px-2 py-0.5 bg-emerald-100/80 text-emerald-800 text-[10px] font-bold rounded-lg border border-emerald-200 inline-flex items-center gap-1">
-            <Headphones className="w-3 h-3 text-emerald-700" /> Phụ Kiện Apple
+          <span className="px-2 py-0.5 bg-orange-100/80 text-orange-800 text-[10px] font-bold rounded-lg border border-orange-200 inline-flex items-center gap-1">
+            <Headphones className="w-3 h-3 text-orange-700" /> Phụ Kiện Apple
           </span>
         );
     }
@@ -487,7 +487,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
       )}
 
       {/* ================= 1. CLEAN HEADER WITH ACTION BUTTONS ================= */}
-      <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 rounded-2xl p-3 sm:p-4 text-white shadow-sm border border-orange-400/30">
+      <div className="bg-gradient-to-r from-orange-500 via-orange-500 to-orange-600 rounded-2xl p-3 sm:p-4 text-white shadow-sm border border-orange-400/30">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
           {/* Left: App Title & Total Count */}
           <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
@@ -513,7 +513,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
               className="flex items-center justify-center space-x-1 px-2 py-1.5 sm:px-3 sm:py-2 bg-white text-orange-700 hover:bg-orange-50 font-bold text-[11px] sm:text-xs rounded-xl shadow-xs active:scale-95 transition-all cursor-pointer border border-white/80 whitespace-nowrap min-w-0"
               title="Sinh hàng chục mã SKU biến thể theo ma trận Dung lượng x Màu sắc"
             >
-              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500 fill-amber-500 shrink-0" />
+              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-orange-500 fill-orange-500 shrink-0" />
               <span className="truncate">Sinh biến thể</span>
             </button>
 
@@ -524,7 +524,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
               className="flex items-center justify-center space-x-1 px-2 py-1.5 sm:px-3 sm:py-2 bg-white/15 hover:bg-white/25 text-white font-bold text-[11px] sm:text-xs rounded-xl backdrop-blur-xs transition-all border border-white/30 cursor-pointer whitespace-nowrap min-w-0"
               title="Chỉnh sửa tên, mã tiền tố hoặc xóa các danh mục con"
             >
-              <Settings className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-200 shrink-0" />
+              <Settings className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-orange-200 shrink-0" />
               <span className="truncate">Nhóm cấp 2</span>
             </button>
 
@@ -550,7 +550,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
             desc: 'Toàn bộ danh mục SKU',
             count: stats.total,
             icon: Boxes,
-            activeBg: 'bg-gradient-to-br from-orange-500 via-amber-500 to-orange-600 text-white shadow-lg shadow-orange-500/25 border-orange-600',
+            activeBg: 'bg-gradient-to-br from-orange-500 via-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/25 border-orange-600',
             inactiveBg: 'bg-white hover:border-orange-300 text-zinc-900 border-orange-100/90 shadow-2xs',
             iconBgActive: 'bg-white/25 text-white shadow-xs',
             iconBgInactive: 'bg-orange-50 text-orange-600 border border-orange-100',
@@ -563,7 +563,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
             desc: 'iPhone, iPad, Watch, Mac',
             count: stats.devices,
             icon: Smartphone,
-            activeBg: 'bg-gradient-to-br from-orange-600 via-amber-600 to-orange-700 text-white shadow-lg shadow-orange-600/25 border-orange-700',
+            activeBg: 'bg-gradient-to-br from-orange-600 via-orange-600 to-orange-700 text-white shadow-lg shadow-orange-600/25 border-orange-700',
             inactiveBg: 'bg-white hover:border-orange-300 text-zinc-900 border-orange-100/90 shadow-2xs',
             iconBgActive: 'bg-white/25 text-white shadow-xs',
             iconBgInactive: 'bg-orange-50/80 text-orange-700 border border-orange-100',
@@ -576,12 +576,12 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
             desc: 'Màn hình, Pin, Kính, Vỏ',
             count: stats.parts,
             icon: Wrench,
-            activeBg: 'bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 text-white shadow-lg shadow-amber-500/25 border-amber-600',
-            inactiveBg: 'bg-white hover:border-amber-300 text-zinc-900 border-orange-100/90 shadow-2xs',
+            activeBg: 'bg-gradient-to-br from-orange-500 via-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/25 border-orange-600',
+            inactiveBg: 'bg-white hover:border-orange-300 text-zinc-900 border-orange-100/90 shadow-2xs',
             iconBgActive: 'bg-white/25 text-white shadow-xs',
-            iconBgInactive: 'bg-amber-50 text-amber-600 border border-amber-100',
+            iconBgInactive: 'bg-orange-50 text-orange-600 border border-orange-100',
             badgeBgActive: 'bg-white/25 text-white',
-            badgeBgInactive: 'bg-amber-50 text-amber-800'
+            badgeBgInactive: 'bg-orange-50 text-orange-800'
           },
           {
             id: 'ACCESSORY',
@@ -589,7 +589,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
             desc: 'Củ cáp, Tai nghe, Ốp lưng',
             count: stats.accessories,
             icon: Headphones,
-            activeBg: 'bg-gradient-to-br from-amber-600 via-orange-500 to-amber-700 text-white shadow-lg shadow-orange-500/25 border-orange-600',
+            activeBg: 'bg-gradient-to-br from-orange-600 via-orange-500 to-orange-700 text-white shadow-lg shadow-orange-500/25 border-orange-600',
             inactiveBg: 'bg-white hover:border-orange-300 text-zinc-900 border-orange-100/90 shadow-2xs',
             iconBgActive: 'bg-white/25 text-white shadow-xs',
             iconBgInactive: 'bg-orange-50 text-orange-600 border border-orange-100',
@@ -806,7 +806,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                       {item.defaultRetailPrice.toLocaleString('vi-VN')} đ
                     </span>
                     {margin > 0 && (
-                      <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-700 px-1 py-0.2 rounded-sm">
+                      <span className="text-[9px] font-extrabold bg-orange-100 text-orange-700 px-1 py-0.2 rounded-sm">
                         +{marginPct}%
                       </span>
                     )}
@@ -824,7 +824,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
             <p className="text-xs text-zinc-500 mt-1">Thử đổi từ khóa tìm kiếm hoặc chọn danh mục khác</p>
             <button
               onClick={handleOpenCreateForm}
-              className="mt-3 px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl text-xs font-bold shadow-sm inline-flex items-center space-x-1"
+              className="mt-3 px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-500 text-white rounded-xl text-xs font-bold shadow-sm inline-flex items-center space-x-1"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Thêm hàng hóa mới</span>
@@ -904,7 +904,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                             {item.model && <span>{item.model}</span>}
                             {item.storage && <span className="font-semibold text-orange-600">• {item.storage}</span>}
                             {item.color && <span>• Màu {item.color}</span>}
-                            {item.condition && <span className="text-emerald-600 font-medium">({item.condition})</span>}
+                            {item.condition && <span className="text-orange-600 font-medium">({item.condition})</span>}
                             {item.region && <span className="font-mono bg-zinc-100 px-1 py-0.2 rounded text-[10px]">{item.region.split(' ')[0]}</span>}
                           </div>
                         </div>
@@ -943,7 +943,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                         {item.defaultRetailPrice.toLocaleString('vi-VN')} đ
                       </div>
                       {margin > 0 && (
-                        <div className="text-[10px] text-emerald-600 font-bold">
+                        <div className="text-[10px] text-orange-600 font-bold">
                           Lãi: +{margin.toLocaleString('vi-VN')} đ ({marginPct}%)
                         </div>
                       )}
@@ -997,7 +997,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs animate-fadeIn p-0 sm:p-2 md:p-3">
           <div className="bg-white w-full h-full sm:h-[97vh] sm:max-w-7xl sm:rounded-3xl shadow-2xl border border-orange-200 overflow-hidden flex flex-col transition-all">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 px-4 sm:px-6 py-3.5 text-white flex items-center justify-between shrink-0 shadow-md">
+            <div className="bg-gradient-to-r from-orange-500 via-orange-500 to-orange-600 px-4 sm:px-6 py-3.5 text-white flex items-center justify-between shrink-0 shadow-md">
               <div className="flex items-center space-x-2.5">
                 <div className="p-2 bg-white/20 text-white rounded-xl backdrop-blur-xs shadow-xs border border-white/25">
                   <Package className="w-5 h-5" />
@@ -1027,7 +1027,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                     }}
                     className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white text-orange-700 hover:bg-orange-50 text-xs font-bold transition-all shadow-xs cursor-pointer border border-white/80"
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                    <Sparkles className="w-3.5 h-3.5 text-orange-500 fill-orange-500" />
                     <span>Mở Bộ Sinh Biến Thể Hàng Loạt</span>
                   </button>
                 )}
@@ -1176,7 +1176,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                               <select
                                 value={formData.condition || 'New Seal'}
                                 onChange={(e) => setFormData({ ...formData, condition: e.target.value })}
-                                className="w-full px-2 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold text-emerald-700"
+                                className="w-full px-2 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-bold text-orange-700"
                               >
                                 <option value="New Seal">New Seal (Chưa Active)</option>
                                 <option value="Like New 99%">Like New 99%</option>
@@ -1267,7 +1267,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                             onClick={handleAutoGenerateName}
                             className="text-[10px] font-bold text-orange-600 hover:text-orange-700 flex items-center gap-0.5 cursor-pointer"
                           >
-                            <Sparkles className="w-3 h-3 text-amber-500" /> Tự ghép tên
+                            <Sparkles className="w-3 h-3 text-orange-500" /> Tự ghép tên
                           </button>
                         </div>
                         <input
@@ -1291,7 +1291,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                             onClick={handleAutoGenerateSku}
                             className="text-[10px] font-bold text-orange-600 hover:text-orange-700 flex items-center gap-0.5 cursor-pointer"
                           >
-                            <Sparkles className="w-3 h-3 text-amber-500" /> Tự sinh SKU
+                            <Sparkles className="w-3 h-3 text-orange-500" /> Tự sinh SKU
                           </button>
                         </div>
                         <input
@@ -1363,11 +1363,11 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
 
                       {/* Live Margin Indicator (Chỉ hiện khi có giá bán) */}
                       {Number(formData.defaultRetailPrice) > 0 && (
-                        <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-100 flex items-center justify-between text-xs">
-                          <span className="text-[11px] font-bold text-emerald-900">
+                        <div className="bg-orange-50 rounded-lg p-2 border border-orange-100 flex items-center justify-between text-xs">
+                          <span className="text-[11px] font-bold text-orange-900">
                             Lãi gộp: +{estProfit.toLocaleString('vi-VN')} đ
                           </span>
-                          <span className="text-[10px] font-black bg-emerald-600 text-white px-1.5 py-0.2 rounded">
+                          <span className="text-[10px] font-black bg-orange-600 text-white px-1.5 py-0.2 rounded">
                             Margin {estMargin}%
                           </span>
                         </div>
@@ -1472,7 +1472,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                 <button
                   type="submit"
                   form="sku-single-form"
-                  className="px-5 py-1.5 bg-gradient-to-r from-[#F94A1F] to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs rounded-xl shadow-md active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                  className="px-5 py-1.5 bg-gradient-to-r from-[#F94A1F] to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-black text-xs rounded-xl shadow-md active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
                 >
                   <Save className="w-3.5 h-3.5" />
                   <span>{editingItem ? 'Lưu Thay Đổi' : 'Lưu Mã SKU'}</span>
@@ -1558,7 +1558,7 @@ export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+                  className="px-5 py-2 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
                 >
                   Tạo Danh Mục Con
                 </button>

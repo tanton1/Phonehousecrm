@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST, TradeInAppraisal } from '../types';
+import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST, TradeInAppraisal, ProductItem, Partner } from '../types';
+import { processCheckoutTransaction } from '../services/firestoreService';
 import { TradeInAssessmentModal } from './TradeInAssessmentModal';
 import { 
   ShoppingCart, 
@@ -52,6 +53,8 @@ interface POSSalesViewProps {
   branches?: StoreBranch[];
   warehouses?: WarehouseInfo[];
   storeSettings?: StoreSettings;
+  products: ProductItem[];
+  partners: Partner[];
   onCreateInvoice: (invoice: SalesInvoice) => void;
   onUpdateDeviceStatus: (imei: string, status: DeviceItem['status'], customerName?: string, phone?: string) => void;
   preSelectedDevice?: DeviceItem | null;
@@ -101,7 +104,9 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   onAddTransaction,
   onAddTradeIn,
   onAddDevice,
-  onOpenCheckIn
+  onOpenCheckIn,
+  products,
+  partners
 }) => {
   // Available stock items
   const inStockDevices = devices.filter(d => d.status === 'in_stock');
@@ -133,8 +138,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   }, [branches, selectedBranchId]);
 
   const currentWarehouse = useMemo(() => {
-    return activeWarehouses.find(w => w.id === selectedWarehouseId) || activeWarehouses[0];
-  }, [activeWarehouses, selectedWarehouseId]);
+    return activeWarehouses.find(w => w.id === currentBranch.warehouseId) || activeWarehouses[0];
+  }, [activeWarehouses, currentBranch]);
 
   // Active Stepper stage (1: Chọn máy, 2: Khách hàng, 3: Phụ kiện & Ưu đãi, 4: Thanh toán)
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -153,16 +158,31 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   const [customerNotes, setCustomerNotes] = useState('');
 
   // Accessories bundle
-  const [accessories, setAccessories] = useState<Array<{ id: string; name: string; price: number; selected: boolean; note?: string }>>([
-    { id: 'acc-1', name: 'Củ sạc nhanh Apple 20W / Anker 30W Type-C', price: 350000, selected: true, note: 'Bảo hành 12 tháng' },
-    { id: 'acc-2', name: 'Kính cường lực KingKong chống nhìn trộm', price: 150000, selected: true, note: 'Dán miễn phí' },
-    { id: 'acc-3', name: 'Ốp lưng từ tính MagSafe chống sốc', price: 180000, selected: true, note: 'Chống ố vàng' },
-    { id: 'acc-4', name: 'Cáp sạc bọc dù Type-C to C siêu bền', price: 200000, selected: false, note: 'Độ dài 1m' },
-    { id: 'acc-5', name: 'Tai nghe Bluetooth Air-Pro 2 Hổ Vằn', price: 450000, selected: false, note: 'Pin trâu 6h' }
-  ]);
+  const [accessories, setAccessories] = useState<Array<{ id: string; name: string; price: number; selected: boolean; note?: string; productRef?: ProductItem }>>([]);
+
+  useEffect(() => {
+    const prodAccs = products.filter(p => p.category === 'Phụ kiện' && p.status === 'active' && p.stockQuantity > 0).map(p => ({ 
+      id: p.id, 
+      name: p.name, 
+      price: p.sellPrice, 
+      selected: false, 
+      note: `Tồn kho: ${p.stockQuantity}`, 
+      productRef: p 
+    }));
+    setAccessories(prodAccs.length > 0 ? prodAccs : []);
+  }, [products]);
 
   // Warranty Package
-  const [warrantyPackage, setWarrantyPackage] = useState('Gói VIP: 12 tháng (Bao nguồn + Màn hình)');
+  const [warrantyPackage, setWarrantyPackage] = useState(() => storeSettings?.warrantyPackages?.[0]?.name || 'Bảo hành tiêu chuẩn 6 tháng');
+  
+  React.useEffect(() => {
+    if (storeSettings?.warrantyPackages && storeSettings.warrantyPackages.length > 0) {
+      if (!storeSettings.warrantyPackages.find(p => p.name === warrantyPackage)) {
+        setWarrantyPackage(storeSettings.warrantyPackages[0].name);
+        setWarrantyPrice(storeSettings.warrantyPackages[0].price);
+      }
+    }
+  }, [storeSettings, warrantyPackage]);
   const [warrantyPrice, setWarrantyPrice] = useState(0);
 
   // Discounts & Trade-in
@@ -170,6 +190,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   const [voucherDiscount, setVoucherDiscount] = useState(200000);
   const [tradeInModel, setTradeInModel] = useState('');
   const [tradeInDiscount, setTradeInDiscount] = useState(0);
+  const [tradeInImei, setTradeInImei] = useState('');
 
   // Modals & Drawers State
   const [showDevicePickerModal, setShowDevicePickerModal] = useState(false);
@@ -260,12 +281,16 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       setShowCustomerModal(true);
       return;
     }
+    if (tradeInDiscount > 0 && !tradeInImei.trim()) {
+      alert('Vui lòng nhập IMEI máy thu cũ để nhập kho!');
+      setShowDiscountModal(true);
+      return;
+    }
 
-    // THÊM: Tạo CashTransaction để dòng tiền vào Sổ Quỹ
     let receiptAmount = 0;
     let fundTypeToUse: import('../types').PaymentFundType = 'CASH';
     
-    if (paymentMethod === 'Trả góp 0% / CCCD') {
+    if (paymentMethod === 'Trả góp') {
       receiptAmount = downPaymentAmount; // Thu tiền trả trước ngay lập tức
       fundTypeToUse = 'CASH'; // Tạm thời mặc định tiền mặt cho khoản trả trước
     } else {
@@ -275,10 +300,11 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       if (paymentMethod === 'Quẹt thẻ POS') fundTypeToUse = 'POS_CARD';
     }
 
+    let cashTx: import('../types').CashTransaction | null = null;
     if (receiptAmount > 0) {
       const fund = funds.find(f => f.type === fundTypeToUse) || funds[0];
       if (fund) {
-        const cashTx: import('../types').CashTransaction = {
+        cashTx = {
           id: `TX-${Date.now()}`,
           code: `PT-${Math.floor(1000 + Math.random() * 9000)}`,
           type: 'RECEIPT',
@@ -294,7 +320,6 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           notes: `Thu tiền khách mua hàng (Đơn ${customerPhone})`,
           status: 'COMPLETED'
         };
-        onAddTransaction(cashTx);
       }
     }
 
@@ -336,7 +361,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       tradeInDeduction: tradeInDiscount,
       finalAmount,
       paymentMethod,
-      installmentDetails: paymentMethod === 'Trả góp 0% / CCCD' ? {
+      installmentDetails: paymentMethod === 'Trả góp' ? {
         financeCompany: installmentCompany,
         tenorMonths: installmentTenor,
         downPayment: downPaymentAmount,
@@ -352,32 +377,27 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
         hour: '2-digit', 
         minute: '2-digit' 
       }),
-      status: paymentMethod === 'Trả góp 0% / CCCD' ? 'pending' : 'completed',
-      installmentDisbursementStatus: paymentMethod === 'Trả góp 0% / CCCD' ? 'PENDING' : undefined,
-      installmentExpectedAmount: paymentMethod === 'Trả góp 0% / CCCD' ? (finalAmount - downPaymentAmount) : undefined,
-      installmentContractCode: paymentMethod === 'Trả góp 0% / CCCD' ? installmentContractCode : undefined,
+      status: paymentMethod === 'Trả góp' ? 'pending' : 'completed',
+      installmentDisbursementStatus: paymentMethod === 'Trả góp' ? 'PENDING' : undefined,
+      installmentExpectedAmount: paymentMethod === 'Trả góp' ? (finalAmount - downPaymentAmount) : undefined,
+      installmentContractCode: paymentMethod === 'Trả góp' ? installmentContractCode : undefined,
       branch: currentBranch.name,
       branchId: currentBranch.id,
       warehouseId: currentWarehouse.id,
       warehouseName: currentWarehouse.name,
       history: [{
         time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16),
-        action: paymentMethod === 'Trả góp 0% / CCCD' ? 'Tạo đơn trả góp' : 'Tạo đơn hàng thành công',
+        action: paymentMethod === 'Trả góp' ? 'Tạo đơn trả góp' : 'Tạo đơn hàng thành công',
         user: "Nhật ADMIN"
       }]
     };
 
-    // Update status of all devices to sold in Firestore
-    selectedDevices.forEach(d => {
-      onUpdateDeviceStatus(d.imei, 'sold', customerName, customerPhone);
-    });
-
     // AUTO-INGEST TRADE-IN DEVICE TO INVENTORY
+    let tradeInDevice: DeviceItem | null = null;
     if (tradeInDiscount > 0 && onAddDevice) {
-      const generatedImei = '35' + Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
-      const tradeInDevice: DeviceItem = {
+      tradeInDevice = {
         id: `DEV-TRD-${Date.now().toString().slice(-5)}`,
-        imei: generatedImei,
+        imei: tradeInImei,
         serialNo: 'SN-TRD-' + Date.now().toString().slice(-4),
         model: tradeInModel || 'iPhone Thu Cũ',
         storage: '128GB',
@@ -414,20 +434,10 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-600">POS Thu Ngân</h2>
         </div>
         <div className="flex items-center space-x-2">
-          {onOpenCheckIn && (
-            <button
-              onClick={onOpenCheckIn}
-              className="text-xs font-black text-white bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 cursor-pointer active:scale-95"
-              title="Điểm danh khuôn mặt Face ID vào ca"
-            >
-              <ScanFace className="w-3.5 h-3.5 animate-pulse" />
-              <span>⚡ Điểm Danh</span>
-            </button>
-          )}
           {onNavigateToInvoices && (
             <button
               onClick={() => setShowRecentInvoicesDrawer(true)}
-              className="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs cursor-pointer"
+              className="text-xs font-medium text-orange-600 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 border border-orange-200/80 px-2.5 py-1 rounded-xl flex items-center space-x-1.5 transition-all shadow-2xs cursor-pointer"
             >
               <Receipt className="w-3.5 h-3.5" />
               <span>Đơn hôm nay</span>
@@ -659,9 +669,9 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                   <div className="flex items-center space-x-1.5 text-[11px] text-zinc-500 font-mono">
                     <span>IMEI: <strong className="text-orange-600 font-bold">{device.imei}</strong></span>
                     <span>•</span>
-                    <span className="flex items-center text-emerald-700 font-bold">
+                    <span className="flex items-center text-orange-700 font-bold">
                       Pin {device.batteryHealth}%
-                      <span className="ml-1 inline-block w-4 h-2 bg-emerald-500 rounded-2xs align-middle" />
+                      <span className="ml-1 inline-block w-4 h-2 bg-orange-500 rounded-2xs align-middle" />
                     </span>
                   </div>
 
@@ -674,7 +684,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                 {/* Right: Delete button */}
                 <button
                   onClick={() => handleRemoveDevice(device.imei)}
-                  className="w-10 h-10 rounded-xl border border-zinc-200 hover:border-red-200 bg-white hover:bg-red-50 text-zinc-400 hover:text-red-600 flex items-center justify-center transition-all shrink-0 shadow-2xs"
+                  className="w-10 h-10 rounded-xl border border-zinc-200 hover:border-rose-200 bg-white hover:bg-rose-50 text-zinc-400 hover:text-rose-600 flex items-center justify-center transition-all shrink-0 shadow-2xs"
                   title="Xóa máy khỏi giỏ"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -776,7 +786,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
           <div className="flex items-center space-x-1 text-right group-hover:translate-x-0.5 transition-transform">
             <div>
-              <span className="block text-xs font-black text-red-600 font-mono">
+              <span className="block text-xs font-black text-rose-600 font-mono">
                 {voucherDiscount > 0 ? `-${voucherDiscount.toLocaleString('vi-VN')}đ` : '0đ'}
               </span>
               <span className="text-[10px] text-zinc-400 font-medium">
@@ -803,7 +813,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                 <span className="font-mono text-zinc-200 font-bold">+{accessoriesTotal.toLocaleString('vi-VN')} đ</span>
               </div>
               {voucherDiscount > 0 && (
-                <div className="flex justify-between items-center text-red-400">
+                <div className="flex justify-between items-center text-rose-400">
                   <span>Giảm giá Voucher:</span>
                   <span className="font-mono font-bold">-{voucherDiscount.toLocaleString('vi-VN')} đ</span>
                 </div>
@@ -816,7 +826,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
               )}
               <div className="flex justify-between items-center text-zinc-400">
                 <span>Gói bảo hành:</span>
-                <span className="text-emerald-400 font-bold">{warrantyPackage}</span>
+                <span className="text-orange-400 font-bold">{warrantyPackage}</span>
               </div>
             </div>
           )}
@@ -842,7 +852,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
             {/* Right: Large Orange Checkout Button */}
             <button
               onClick={() => setShowPaymentModal(true)}
-              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-sm sm:text-base px-6 sm:px-8 py-3.5 rounded-2xl shadow-lg shadow-orange-500/25 flex items-center space-x-2 active:scale-95 transition-all cursor-pointer"
+              className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-black text-sm sm:text-base px-6 sm:px-8 py-3.5 rounded-2xl shadow-lg shadow-orange-500/25 flex items-center space-x-2 active:scale-95 transition-all cursor-pointer"
             >
               <span>Thanh toán</span>
               <ChevronRight className="w-4 h-4 stroke-[3]" />
@@ -924,7 +934,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                     </div>
                     <div className="text-right">
                       <span className="font-bold text-xs text-orange-600 font-mono">{device.sellPrice.toLocaleString('vi-VN')}đ</span>
-                      <span className="block text-[9px] text-emerald-600 font-bold">Chọn +</span>
+                      <span className="block text-[9px] text-orange-600 font-bold">Chọn +</span>
                     </div>
                   </div>
                 ))}
@@ -1175,18 +1185,18 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
               </label>
               <select
                 value={warrantyPackage}
-                onChange={(e) => setWarrantyPackage(e.target.value)}
+                onChange={(e) => {
+                  setWarrantyPackage(e.target.value);
+                  const pkg = storeSettings?.warrantyPackages?.find(p => p.name === e.target.value);
+                  if (pkg) setWarrantyPrice(pkg.price);
+                }}
                 className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 font-bold"
               >
-                <option value="Gói VIP: 12 tháng (Bao nguồn + Màn hình)">
-                  Gói VIP: 12 tháng (Bao nguồn + Màn hình + FaceID) [Miễn Phí]
-                </option>
-                <option value="Gói Kim Cương: 24 tháng (Rơi Vỡ + Vào Nước)">
-                  Gói Kim Cương: 24 tháng (Bao Rơi Vỡ / Vào Nước)
-                </option>
-                <option value="Bảo hành tiêu chuẩn 6 tháng phần cứng">
-                  Bảo hành tiêu chuẩn 6 tháng phần cứng
-                </option>
+                {storeSettings?.warrantyPackages?.map((pkg, idx) => (
+                  <option key={idx} value={pkg.name}>
+                    {pkg.name} {pkg.price > 0 ? `[+${pkg.price.toLocaleString('vi-VN')}đ]` : '[Miễn Phí]'}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1270,7 +1280,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowTradeInAssessmentModal(true)}
-                  className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-lg text-[10px] font-black shadow-2xs flex items-center space-x-1 cursor-pointer"
+                  className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white rounded-lg text-[10px] font-black shadow-2xs flex items-center space-x-1 cursor-pointer"
                 >
                   <Sparkles className="w-3 h-3" />
                   <span>⚡ Thẩm Định 12 Bước</span>
@@ -1282,6 +1292,13 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                 value={tradeInModel}
                 onChange={(e) => setTradeInModel(e.target.value)}
                 className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 mb-1.5 font-medium"
+              />
+              <input
+                type="text"
+                placeholder="Nhập số IMEI (Bắt buộc để nhập kho)"
+                value={tradeInImei}
+                onChange={(e) => setTradeInImei(e.target.value)}
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:border-orange-500 mb-1.5 font-mono"
               />
               <input
                 type="number"
@@ -1332,7 +1349,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                 { id: 'Chuyển khoản QR', label: 'Chuyển khoản VietQR', icon: QrCode },
                 { id: 'Tiền mặt', label: 'Tiền mặt', icon: Receipt },
                 { id: 'Quẹt thẻ POS', label: 'Quẹt thẻ MPOS', icon: CreditCard },
-                { id: 'Trả góp 0% / CCCD', label: 'Trả góp 0% / CCCD', icon: Percent }
+                { id: 'Trả góp', label: 'Trả góp', icon: Percent }
               ].map((m) => {
                 const Icon = m.icon;
                 const isSelected = paymentMethod === m.id;
@@ -1343,7 +1360,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                     onClick={() => setPaymentMethod(m.id as any)}
                     className={`p-2.5 rounded-xl border text-xs font-bold flex items-center space-x-2 transition-all ${
                       isSelected 
-                        ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white border-transparent shadow-xs' 
+                        ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white border-transparent shadow-xs' 
                         : 'bg-zinc-50 border-zinc-200 text-zinc-700 hover:bg-orange-50/50'
                     }`}
                   >
@@ -1385,13 +1402,13 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                 </div>
                 <div className="flex justify-between items-center pt-1 border-t border-zinc-200 font-bold">
                   <span>Tiền thối lại:</span>
-                  <span className="text-emerald-600 font-mono text-sm">{cashChange.toLocaleString('vi-VN')} đ</span>
+                  <span className="text-orange-600 font-mono text-sm">{cashChange.toLocaleString('vi-VN')} đ</span>
                 </div>
               </div>
             )}
 
-            {paymentMethod === 'Trả góp 0% / CCCD' && (
-              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs space-y-3">
+            {paymentMethod === 'Trả góp' && (
+              <div className="p-3 bg-orange-50 rounded-2xl border border-orange-200 text-xs space-y-3">
                 <div>
                   <label className="block text-zinc-600 mb-1 font-bold">Đối tác trả góp (HD Saison, HomeCredit...)</label>
                   <select
@@ -1464,7 +1481,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
             {/* Action Checkout Button */}
             <button
               onClick={handleCheckout}
-              className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-sm rounded-xl flex items-center justify-center space-x-2 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
+              className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-black text-sm rounded-xl flex items-center justify-center space-x-2 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
             >
               <Receipt className="w-4 h-4" />
               <span>Xác Nhận & Xuất Hóa Đơn (K80)</span>
@@ -1582,7 +1599,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
             <div className="flex space-x-2">
               <button
                 onClick={() => window.print()}
-                className="flex-1 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
+                className="flex-1 py-2.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
               >
                 In Hóa Đơn K80
               </button>
@@ -1607,7 +1624,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           <div className="bg-white w-full max-w-sm h-full flex flex-col shadow-2xl animate-slideInRight">
             <div className="flex items-center justify-between p-4 border-b border-zinc-100 bg-zinc-50/50">
               <div className="flex items-center space-x-2">
-                <Receipt className="w-5 h-5 text-emerald-600" />
+                <Receipt className="w-5 h-5 text-orange-600" />
                 <h3 className="font-bold text-zinc-900">Đơn Hàng Hôm Nay</h3>
               </div>
               <button
@@ -1628,8 +1645,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                         <span className="block text-[10px] text-zinc-500 font-mono mt-0.5">{inv.invoiceCode || inv.id}</span>
                       </div>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        inv.status === 'completed' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                        inv.status === 'pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                        inv.status === 'completed' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
+                        inv.status === 'pending' ? 'bg-orange-50 text-orange-600 border border-orange-100' :
                         'bg-zinc-100 text-zinc-600'
                       }`}>
                         {inv.status === 'completed' ? 'Hoàn tất' : inv.status === 'pending' ? 'Chờ xử lý' : inv.status}

@@ -118,7 +118,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           
           <div className="p-2 sm:p-3 bg-zinc-50/50 lg:bg-transparent rounded-2xl lg:rounded-none border lg:border-none border-zinc-100/80">
             <div className="flex items-center space-x-2 text-zinc-500 mb-1.5 sm:mb-2">
-              <div className="p-1.5 bg-blue-100/50 rounded-lg">
+              <div className="p-1.5 bg-orange-100/50 rounded-lg">
                 <Layers className="w-4 h-4 text-orange-600" />
               </div>
               <span className="text-xs font-semibold">Tổng số SKU</span>
@@ -142,8 +142,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
           <div className="p-2 sm:p-3 bg-zinc-50/50 lg:bg-transparent rounded-2xl lg:rounded-none border lg:border-none border-zinc-100/80 lg:pl-6">
             <div className="flex items-center space-x-2 text-zinc-500 mb-1.5 sm:mb-2">
-              <div className="p-1.5 bg-purple-100/50 rounded-lg">
-                <Package className="w-4 h-4 text-purple-600" />
+              <div className="p-1.5 bg-rose-100/50 rounded-lg">
+                <Package className="w-4 h-4 text-rose-600" />
               </div>
               <span className="text-xs font-semibold">Tồn kho phụ kiện</span>
             </div>
@@ -243,16 +243,16 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     </td>
                     <td className="px-5 py-4">
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold ${
-                        product.category === 'Phụ kiện' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
-                        product.category === 'Linh kiện' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
-                        'bg-purple-50 text-purple-700 border border-purple-100'
+                        product.category === 'Phụ kiện' ? 'bg-orange-50 text-orange-700 border border-orange-100' :
+                        product.category === 'Linh kiện' ? 'bg-orange-50 text-orange-700 border border-orange-100' :
+                        'bg-rose-50 text-rose-700 border border-rose-100'
                       }`}>
                         {product.category}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex flex-col items-end justify-center">
-                        <span className={`font-bold text-sm ${product.stockQuantity <= product.minStockLevel ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        <span className={`font-bold text-sm ${product.stockQuantity <= product.minStockLevel ? 'text-rose-600' : 'text-orange-600'}`}>
                           {product.stockQuantity}
                         </span>
                         {product.stockQuantity <= product.minStockLevel && (
@@ -279,7 +279,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                         </button>
                         <button
                           onClick={() => onDeleteProduct(product.id)}
-                          className="p-1.5 text-zinc-400 hover:text-red-600 bg-white border border-zinc-200 hover:border-red-200 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                          className="p-1.5 text-zinc-400 hover:text-rose-600 bg-white border border-zinc-200 hover:border-rose-200 rounded-lg transition-colors cursor-pointer shadow-2xs"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -341,7 +341,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                           onDeleteProduct(product.id);
                           setActiveMenuId(null);
                         }}
-                        className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 rounded-xl flex items-center space-x-2 font-medium cursor-pointer"
+                        className="w-full text-left px-3 py-2 hover:bg-rose-50 text-rose-600 rounded-xl flex items-center space-x-2 font-medium cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>Xóa sản phẩm</span>
@@ -353,9 +353,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
 
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
-                  product.category === 'Phụ kiện' ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                  product.category === 'Linh kiện' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                  'bg-purple-50 text-purple-700 border-purple-100'
+                  product.category === 'Phụ kiện' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                  product.category === 'Linh kiện' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                  'bg-rose-50 text-rose-700 border-rose-100'
                 }`}>
                   {product.category}
                 </span>
@@ -363,7 +363,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
                   product.stockQuantity <= product.minStockLevel 
                     ? 'bg-rose-50 text-rose-700 border-rose-100' 
-                    : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                    : 'bg-orange-50 text-orange-700 border-orange-100'
                 }`}>
                   Tồn: {product.stockQuantity}
                 </span>
@@ -464,7 +464,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     <button
                       onClick={() => setFormData({...formData, status: 'active'})}
                       className={`flex-1 rounded-lg text-sm font-bold transition-all cursor-pointer ${
-                        formData.status === 'active' ? 'bg-white text-emerald-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
+                        formData.status === 'active' ? 'bg-white text-orange-600 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
                       }`}
                     >
                       Đang bán
@@ -511,7 +511,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
                     type="number"
                     value={formData.stockQuantity === undefined ? '' : formData.stockQuantity}
                     onChange={(e) => setFormData({...formData, stockQuantity: Number(e.target.value)})}
-                    className="w-full px-4 py-2.5 sm:py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono text-sm font-bold text-emerald-700"
+                    className="w-full px-4 py-2.5 sm:py-3 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 font-mono text-sm font-bold text-orange-700"
                     placeholder="0"
                   />
                 </div>

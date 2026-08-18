@@ -6,8 +6,8 @@ export const DeviceImageThumbnail: React.FC<{ model?: string; color?: string; fa
   
   const isDesert = colorLower.includes('sa mạc') || colorLower.includes('desert');
   const isNatural = colorLower.includes('tự nhiên') || colorLower.includes('natural');
-  const isBlue = colorLower.includes('xanh') || colorLower.includes('blue');
-  const isPurple = colorLower.includes('tím') || colorLower.includes('purple');
+  const isBlue = colorLower.includes('xanh') || colorLower.includes('orange');
+  const isPurple = colorLower.includes('tím') || colorLower.includes('rose');
   const isBlack = colorLower.includes('đen') || colorLower.includes('black') || nameLower.includes('đen');
   const isWhite = colorLower.includes('trắng') || colorLower.includes('white') || nameLower.includes('trắng');
 
@@ -51,13 +51,13 @@ export const DeviceImageThumbnail: React.FC<{ model?: string; color?: string; fa
         {!isAccessory ? (
           <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-black/25 backdrop-blur-xs p-0.5 grid grid-cols-2 gap-0.5 border border-white/20 shadow-inner">
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center">
-              <div className="w-0.5 h-0.5 rounded-full bg-blue-900/80" />
+              <div className="w-0.5 h-0.5 rounded-full bg-orange-900/80" />
             </div>
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center">
-              <div className="w-0.5 h-0.5 rounded-full bg-blue-900/80" />
+              <div className="w-0.5 h-0.5 rounded-full bg-orange-900/80" />
             </div>
             <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center col-span-2 mx-auto">
-              <div className="w-0.5 h-0.5 rounded-full bg-blue-900/80" />
+              <div className="w-0.5 h-0.5 rounded-full bg-orange-900/80" />
             </div>
           </div>
         ) : (

@@ -255,7 +255,7 @@ export const BatchVariantGeneratorModal: React.FC<BatchVariantGeneratorModalProp
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/75 backdrop-blur-xs animate-fadeIn">
       <div className="bg-white w-full h-full sm:h-[95vh] sm:max-w-6xl sm:rounded-3xl shadow-2xl border border-orange-200 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-[#F94A1F] via-orange-500 to-amber-500 p-4 sm:p-5 text-white flex items-center justify-between shrink-0 shadow-md">
+        <div className="bg-gradient-to-r from-[#F94A1F] via-orange-500 to-orange-500 p-4 sm:p-5 text-white flex items-center justify-between shrink-0 shadow-md">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 bg-white text-orange-600 rounded-2xl shadow-sm">
               <Sparkles className="w-6 h-6" />
@@ -380,7 +380,7 @@ export const BatchVariantGeneratorModal: React.FC<BatchVariantGeneratorModalProp
                     <select
                       value={condition}
                       onChange={(e) => setCondition(e.target.value)}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-emerald-700"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-orange-700"
                     >
                       <option value="New Seal">New Seal (Chưa Active)</option>
                       <option value="Like New 99%">Like New 99% Keng</option>
@@ -496,14 +496,14 @@ export const BatchVariantGeneratorModal: React.FC<BatchVariantGeneratorModalProp
                         }`}
                       >
                         <span className={`w-2 h-2 rounded-full ${
-                          col.includes('Sa Mạc') ? 'bg-amber-400' :
+                          col.includes('Sa Mạc') ? 'bg-orange-400' :
                           col.includes('Tự Nhiên') ? 'bg-stone-300' :
                           col.includes('Đen') ? 'bg-zinc-800' :
                           col.includes('Trắng') ? 'bg-zinc-200' :
-                          col.includes('Hồng') ? 'bg-pink-300' :
-                          col.includes('Xanh') ? 'bg-sky-400' :
-                          col.includes('Tím') ? 'bg-purple-400' :
-                          col.includes('Vàng') ? 'bg-yellow-400' : 'bg-orange-400'
+                          col.includes('Hồng') ? 'bg-rose-300' :
+                          col.includes('Xanh') ? 'bg-orange-400' :
+                          col.includes('Tím') ? 'bg-rose-400' :
+                          col.includes('Vàng') ? 'bg-orange-400' : 'bg-orange-400'
                         }`} />
                         <span>{col}</span>
                         {isChecked && <Check className="w-3 h-3 text-orange-400" />}
@@ -534,7 +534,7 @@ export const BatchVariantGeneratorModal: React.FC<BatchVariantGeneratorModalProp
               {/* Pricing Base */}
               <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-3">
                 <div className="text-xs font-black text-zinc-800 uppercase flex items-center gap-1.5 border-b border-zinc-100 pb-2">
-                  <DollarSign className="w-4 h-4 text-emerald-600" />
+                  <DollarSign className="w-4 h-4 text-orange-600" />
                   <span>4. Định Mức Giá Cơ Sở & Bậc Dung Lượng</span>
                 </div>
 
@@ -660,7 +660,7 @@ export const BatchVariantGeneratorModal: React.FC<BatchVariantGeneratorModalProp
                               {item.retailPrice.toLocaleString('vi-VN')} đ
                             </td>
                             <td className="p-2 text-center font-bold">
-                              <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] rounded">
+                              <span className="px-1.5 py-0.5 bg-orange-100 text-orange-800 text-[10px] rounded">
                                 +{item.marginPct}%
                               </span>
                             </td>
@@ -708,7 +708,7 @@ export const BatchVariantGeneratorModal: React.FC<BatchVariantGeneratorModalProp
             type="button"
             onClick={handleGenerateConfirm}
             disabled={activeItemsToGenerate.length === 0}
-            className="px-6 py-2.5 bg-gradient-to-r from-[#F94A1F] to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-2 disabled:opacity-50"
+            className="px-6 py-2.5 bg-gradient-to-r from-[#F94A1F] to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-orange-500/20 active:scale-95 transition-all cursor-pointer flex items-center space-x-2 disabled:opacity-50"
           >
             <Sparkles className="w-4 h-4" />
             <span>⚡ Sinh & Thêm {activeItemsToGenerate.length} Mã SKU Vào Danh Mục</span>

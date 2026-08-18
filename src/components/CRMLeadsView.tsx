@@ -22,20 +22,27 @@ import {
   Tag
 , X } from 'lucide-react';
 
+import { UserAccount, StoreBranch } from "../types";
 interface CRMLeadsViewProps {
+  currentUser?: UserAccount | null;
+  branches?: StoreBranch[];
   leads: Lead[];
   devices: DeviceItem[];
   onAddLead: (lead: Lead) => void;
   onUpdateLead: (lead: Lead) => void;
   onConvertLeadToSale: (lead: Lead) => void;
+  onNavigateToOmnichannelChat?: () => void;
 }
 
 export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
+  currentUser,
+  branches = [],
   leads,
   devices,
   onAddLead,
   onUpdateLead,
-  onConvertLeadToSale
+  onConvertLeadToSale,
+  onNavigateToOmnichannelChat
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
@@ -56,12 +63,13 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     source: 'Facebook Ads',
     interestedModel: 'iPhone 16 Pro Max 256GB Desert',
     budget: 34000000,
-    tradeInRequired: false,
+    tradeInRequirose: false,
     tradeInModel: '',
     status: 'new',
-    assignedStaff: 'Tuấn Bán Hàng',
+      assignedStaff: 'Tuấn Bán Hàng',
     followUpDate: new Date().toISOString().split('T')[0],
-    notes: ''
+    notes: '',
+    branchId: ''
   });
 
   const filteredLeads = leads.filter(l => {
@@ -91,13 +99,14 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       source: (formData.source as any) || 'Facebook Ads',
       interestedModel: formData.interestedModel || 'iPhone 15 Pro Max',
       budget: Number(formData.budget) || 20000000,
-      tradeInRequired: Boolean(formData.tradeInRequired),
+      tradeInRequirose: Boolean(formData.tradeInRequirose),
       tradeInModel: formData.tradeInModel || '',
       status: (formData.status as any) || 'new',
       assignedStaff: formData.assignedStaff || 'Tuấn Bán Hàng',
       followUpDate: formData.followUpDate || new Date().toISOString().split('T')[0],
       createdAt: new Date().toISOString().split('T')[0],
-      notes: formData.notes || ''
+      notes: formData.notes || '',
+      branchId: formData.branchId || currentUser?.branchId || branches[0]?.id || ''
     };
 
     onAddLead(newLead);
@@ -109,7 +118,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       source: 'Facebook Ads',
       interestedModel: 'iPhone 16 Pro Max 256GB Desert',
       budget: 34000000,
-      tradeInRequired: false,
+      tradeInRequirose: false,
       tradeInModel: '',
       status: 'new',
       assignedStaff: 'Tuấn Bán Hàng',
@@ -126,7 +135,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     setTimeout(() => {
       let script = '';
       if (aiScenario.includes('Chốt deal')) {
-        script = `Dạ em chào anh/chị ${lead.name} ạ! Em là ${lead.assignedStaff} từ iStore Pro. Bên em vừa về đúng 1 cây ${lead.interestedModel} zin keng ${lead.tradeInRequired ? `(hỗ trợ thu cũ lên đời trợ giá đến 2.000.000đ cho cây ${lead.tradeInModel || 'cũ'})` : ''}. Em đang giữ ưu đãi tặng gói dán cường lực KingKong trọn đời và củ sạc nhanh 20W cho anh/chị hôm nay. Anh/chị ghé shop em lúc 15h hay 18h để trải nghiệm máy trực tiếp ạ?`;
+        script = `Dạ em chào anh/chị ${lead.name} ạ! Em là ${lead.assignedStaff} từ iStore Pro. Bên em vừa về đúng 1 cây ${lead.interestedModel} zin keng ${lead.tradeInRequirose ? `(hỗ trợ thu cũ lên đời trợ giá đến 2.000.000đ cho cây ${lead.tradeInModel || 'cũ'})` : ''}. Em đang giữ ưu đãi tặng gói dán cường lực KingKong trọn đời và củ sạc nhanh 20W cho anh/chị hôm nay. Anh/chị ghé shop em lúc 15h hay 18h để trải nghiệm máy trực tiếp ạ?`;
       } else if (aiScenario.includes('Thu cũ')) {
         script = `Chào ${lead.name} thân mến! Về chương trình Thu Cũ Đổi Mới ${lead.tradeInModel || 'máy cũ'} lên ${lead.interestedModel}, iStore Pro đang trợ giá thêm 1.500.000đ trực tiếp vào giá máy mới. Phần chênh lệch mình có thể quẹt thẻ trả góp 0% lãi suất mỗi tháng chỉ từ 800k. Em xin phép gửi bảng định giá chi tiết qua Zalo nhé ạ!`;
       } else {
@@ -142,13 +151,13 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       case 'new':
         return <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Mới Nhận</span>;
       case 'contacted':
-        return <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Tư Vấn</span>;
+        return <span className="bg-orange-50 text-orange-800 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Tư Vấn</span>;
       case 'negotiating':
-        return <span className="bg-yellow-50 text-yellow-800 border border-yellow-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đang Thương Lượng</span>;
+        return <span className="bg-orange-50 text-orange-800 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đang Thương Lượng</span>;
       case 'deposit':
-        return <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Đặt Cọc</span>;
+        return <span className="bg-orange-50 text-orange-700 border border-orange-200 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold">Đã Đặt Cọc</span>;
       case 'won':
-        return <span className="bg-emerald-600 text-white text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold shadow-xs">Đã Chốt Sale</span>;
+        return <span className="bg-orange-600 text-white text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-bold shadow-xs">Đã Chốt Sale</span>;
       case 'lost':
         return <span className="bg-zinc-100 text-zinc-600 text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full font-medium">Hủy / Mất Khách</span>;
     }
@@ -170,13 +179,25 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAddLeadModalOpen(true)}
-          className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Thêm Lead Khách Hàng</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {onNavigateToOmnichannelChat && (
+            <button
+              onClick={onNavigateToOmnichannelChat}
+              className="w-full sm:w-auto bg-white hover:bg-orange-50/80 border border-orange-200 text-[#FF4B16] text-xs font-black px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+            >
+              <MessageSquare className="w-4 h-4 text-[#FF4B16]" />
+              <span>⚡ Mở Hộp Thư Chat Đa Kênh</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsAddLeadModalOpen(true)}
+            className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all shadow-md shadow-orange-500/20 active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Thêm Lead Khách Hàng</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter & Search Bar */}
@@ -189,7 +210,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
               placeholder="Tìm theo tên, SĐT, máy quan tâm, ghi chú..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-9 pr-4 py-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500"
+              className="w-full bg-zinc-50 border border-zinc-200 rounded-xl pl-8 pr-3 py-1.5 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500"
             />
           </div>
 
@@ -252,10 +273,10 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
                     <span className="text-zinc-500">Ngân sách:</span>
                     <span className="text-orange-600 font-bold font-mono">{lead.budget.toLocaleString('vi-VN')} đ</span>
                   </div>
-                  {lead.tradeInRequired && (
-                    <div className="flex items-center justify-between text-amber-800 font-medium pt-1 border-t border-zinc-200">
+                  {lead.tradeInRequirose && (
+                    <div className="flex items-center justify-between text-orange-800 font-medium pt-1 border-t border-zinc-200">
                       <span className="flex items-center space-x-1">
-                        <RefreshCw className="w-3 h-3 text-amber-600" />
+                        <RefreshCw className="w-3 h-3 text-orange-600" />
                         <span>Cần thu cũ:</span>
                       </span>
                       <span>{lead.tradeInModel || 'Chưa rõ đời'}</span>
@@ -287,7 +308,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
 
                   <button
                     onClick={() => onConvertLeadToSale(lead)}
-                    className="py-2 px-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs shadow-orange-500/20 active:scale-95"
+                    className="py-2 px-2.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-xs shadow-orange-500/20 active:scale-95"
                   >
                     <UserCheck className="w-3.5 h-3.5" />
                     <span>Chốt Đơn POS</span>
@@ -303,7 +324,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       {isAddLeadModalOpen && (
         <div className="fixed inset-0 bg-white sm:bg-black/60 sm:backdrop-blur-xs z-50 flex items-center justify-center sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-lg overflow-hidden shadow-none sm:shadow-2xl flex flex-col border-0 sm:border sm:border-orange-200">
-            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-4 py-3.5 sm:px-5 sm:py-4 border-b border-orange-100 flex items-center gap-3 shrink-0">
+            <div className="bg-gradient-to-r from-orange-50 via-orange-50/50 to-white px-4 py-3.5 sm:px-5 sm:py-4 border-b border-orange-100 flex items-center gap-3 shrink-0">
               <button onClick={() => setIsAddLeadModalOpen(false)} className="sm:hidden p-1.5 -ml-2 text-zinc-400 hover:bg-zinc-100 rounded-lg">
                 <X className="w-5 h-5 text-zinc-600" />
               </button>
@@ -319,7 +340,25 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
             <form onSubmit={handleSaveLead} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto custom-scrollbar flex-1 bg-white">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Tên Khách Hàng *</label>
+                  
+            {/* Chi nhánh */}
+            {(currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Chi nhánh quản lý</label>
+                <select
+                  value={formData.branchId || ''}
+                  onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-sm focus:border-orange-500 outline-none"
+                >
+                  <option value="">-- Chọn chi nhánh --</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+              <label className="block text-xs font-bold text-zinc-700 mb-1">Tên Khách Hàng *</label>
                   <input
                     type="text"
                     required
@@ -399,13 +438,13 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
                 <label className="flex items-center space-x-2 text-xs text-zinc-800 cursor-pointer font-bold">
                   <input
                     type="checkbox"
-                    checked={formData.tradeInRequired}
-                    onChange={(e) => setFormData({ ...formData, tradeInRequired: e.target.checked })}
+                    checked={formData.tradeInRequirose}
+                    onChange={(e) => setFormData({ ...formData, tradeInRequirose: e.target.checked })}
                     className="rounded text-orange-500 focus:ring-orange-400"
                   />
                   <span>Khách có nhu cầu Thu Cũ Đổi Mới (Trade-in)</span>
                 </label>
-                {formData.tradeInRequired && (
+                {formData.tradeInRequirose && (
                   <input
                     type="text"
                     placeholder="Nhập tên máy cũ của khách (VD: iPhone 13 Pro 128GB Gold)"
@@ -437,7 +476,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
+                  className="px-5 py-2 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl text-xs shadow-md shadow-orange-500/20"
                 >
                   Lưu Khách Hàng
                 </button>
@@ -451,7 +490,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       {activeAIModalLead && (
         <div className="fixed inset-0 bg-white sm:bg-black/60 sm:backdrop-blur-xs z-50 flex items-center justify-center sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-lg overflow-hidden shadow-none sm:shadow-2xl flex flex-col border-0 sm:border sm:border-orange-200">
-            <div className="bg-gradient-to-r from-orange-50 via-amber-50/50 to-white px-4 py-3.5 sm:px-5 sm:py-4 border-b border-orange-100 flex items-center gap-3 shrink-0">
+            <div className="bg-gradient-to-r from-orange-50 via-orange-50/50 to-white px-4 py-3.5 sm:px-5 sm:py-4 border-b border-orange-100 flex items-center gap-3 shrink-0">
               <button onClick={() => setActiveAIModalLead(null)} className="sm:hidden p-1.5 -ml-2 text-zinc-400 hover:bg-zinc-100 rounded-lg">
                 <X className="w-5 h-5 text-zinc-600" />
               </button>
@@ -483,7 +522,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
               <button
                 onClick={() => handleGenerateScript(activeAIModalLead)}
                 disabled={isGeneratingAI}
-                className="w-full py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 shadow-xs"
+                className="w-full py-2 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-2 shadow-xs"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>{isGeneratingAI ? 'Đang soạn tin nhắn AI...' : 'Tạo Kịch Bản Mới Với AI'}</span>
@@ -504,7 +543,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
                       }}
                       className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5"
                     >
-                      {copiedText ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-orange-600" />}
+                      {copiedText ? <Check className="w-4 h-4 text-orange-600" /> : <Copy className="w-4 h-4 text-orange-600" />}
                       <span>{copiedText ? 'Đã Sao Chép!' : 'Sao Chép Tin Nhắn'}</span>
                     </button>
 
@@ -512,7 +551,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
                       href={`https://zalo.me/${activeAIModalLead.phone}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1"
+                      className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-xs font-bold flex items-center space-x-1"
                     >
                       <span>Mở Zalo</span>
                       <ExternalLink className="w-3.5 h-3.5" />

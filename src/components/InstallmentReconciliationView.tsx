@@ -120,7 +120,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
         <div className="flex space-x-6">
           <button
             onClick={() => setActiveTab('PENDING')}
-            className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'PENDING' ? 'border-[#16A36A] text-[#16A36A]' : 'border-transparent text-zinc-500 hover:text-zinc-700'}`}
+            className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'PENDING' ? 'border-[#EA580C] text-[#EA580C]' : 'border-transparent text-zinc-500 hover:text-zinc-700'}`}
           >
             Chờ giải ngân ({pendingInvoices.length})
           </button>
@@ -139,7 +139,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
             <div key={inv.id} className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-3">
                 <div>
-                  <span className={`text-[10px] uppercase font-black tracking-wider px-2 py-1 rounded-md ${inv.installmentDetails?.financeCompany === 'HD Saison' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-orange-600'}`}>
+                  <span className={`text-[10px] uppercase font-black tracking-wider px-2 py-1 rounded-md ${inv.installmentDetails?.financeCompany === 'HD Saison' ? 'bg-rose-100 text-rose-600' : 'bg-orange-100 text-orange-600'}`}>
                     {inv.installmentCompany || inv.installmentDetails?.financeCompany || 'MPOS'}
                   </span>
                   <p className="font-bold text-[#171717] mt-2">{inv.customerName}</p>
@@ -160,7 +160,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                 </div>
                 <div className="flex justify-between text-sm border-t border-zinc-200 pt-2">
                   <span className="font-bold text-zinc-700">Chờ giải ngân:</span>
-                  <span className="font-black text-[#16A36A]">{formatCurrency(inv.installmentExpectedAmount || 0)}</span>
+                  <span className="font-black text-[#EA580C]">{formatCurrency(inv.installmentExpectedAmount || 0)}</span>
                 </div>
               </div>
               {activeTab === 'PENDING' ? (
@@ -172,7 +172,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                 </button>
               ) : (
                 <div className="flex items-center justify-center space-x-1.5 text-xs font-bold text-zinc-500 bg-zinc-100 py-2.5 rounded-xl">
-                  <CheckCircle2 className="w-4 h-4 text-[#16A36A]" />
+                  <CheckCircle2 className="w-4 h-4 text-[#EA580C]" />
                   <span>Đã nhận tiền</span>
                 </div>
               )}
@@ -211,7 +211,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                     const val = e.target.value.replace(/[^0-9]/g, '');
                     setActualAmount(val ? parseInt(val).toLocaleString('vi-VN') : '');
                   }}
-                  className="w-full px-4 py-3 bg-white border border-emerald-200 rounded-xl text-xl font-black text-[#16A36A] focus:outline-none focus:ring-2 focus:ring-[#16A36A]"
+                  className="w-full px-4 py-3 bg-white border border-orange-200 rounded-xl text-xl font-black text-[#EA580C] focus:outline-none focus:ring-2 focus:ring-[#EA580C]"
                 />
               </div>
               <div>
@@ -223,7 +223,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                     const val = e.target.value.replace(/[^0-9]/g, '');
                     setFeeAmount(val ? parseInt(val).toLocaleString('vi-VN') : '');
                   }}
-                  className="w-full px-4 py-3 bg-white border border-red-200 rounded-xl text-lg font-bold text-red-500 focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-4 py-3 bg-white border border-rose-200 rounded-xl text-lg font-bold text-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
                 />
               </div>
               <div>
@@ -231,7 +231,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                 <select
                   value={selectedFund}
                   onChange={e => setSelectedFund(e.target.value)}
-                  className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold"
+                  className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-semibold"
                 >
                   {funds.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
                 </select>
@@ -243,7 +243,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
               </div>
               <button
                 type="submit"
-                className="w-full py-3.5 bg-[#16A36A] hover:bg-[#128a59] text-white font-bold rounded-xl shadow-lg shadow-emerald-500/30 cursor-pointer"
+                className="w-full py-3.5 bg-[#EA580C] hover:bg-[#128a59] text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer"
               >
                 Hoàn tất & Cập nhật sổ sách
               </button>

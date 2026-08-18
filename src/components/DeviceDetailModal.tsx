@@ -148,9 +148,9 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       description: `Máy được nhập vào hệ thống tại ${currentWarehouseInfo?.name || 'Kho Tổng'}. Giá vốn gốc: ${device.buyPrice.toLocaleString('vi-VN')} đ. Tình trạng: ${device.condition}, Pin: ${device.batteryHealth}%, Mã xuất xứ: ${device.region}.`,
       performedBy: 'Thủ Kho Nhập (Nhật Tân)',
       badgeText: 'NHẬP KHO',
-      badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+      badgeColor: 'bg-orange-100 text-orange-800 border-orange-200',
       icon: Warehouse,
-      iconColor: 'bg-emerald-500 text-white',
+      iconColor: 'bg-orange-500 text-white',
       meta: {
         supplier: device.supplier,
         buyPrice: device.buyPrice,
@@ -172,9 +172,9 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         description: `Mã phiếu chuyển: ${slip.code}. Người tạo: ${slip.creator}. Người vận chuyển / shipper: ${slip.transporter || 'Nội bộ'}. Ghi chú: ${slip.notes || 'Điều chuyển hàng theo kế hoạch'}. Trạng thái: ${isCompleted ? 'Đã nhận tại kho đích' : 'Đang trên đường vận chuyển'}.`,
         performedBy: slip.transporter || slip.creator,
         badgeText: isCompleted ? 'ĐÃ NHẬN KHO' : 'ĐANG CHUYỂN',
-        badgeColor: isCompleted ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-amber-100 text-amber-800 border-amber-200',
+        badgeColor: isCompleted ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-orange-100 text-orange-800 border-orange-200',
         icon: ArrowLeftRight,
-        iconColor: isCompleted ? 'bg-blue-600 text-white' : 'bg-amber-500 text-white',
+        iconColor: isCompleted ? 'bg-orange-600 text-white' : 'bg-orange-500 text-white',
         meta: {
           slipCode: slip.code,
           from: fromName,
@@ -200,7 +200,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         description: `Mã phiếu: ${ticket.ticketNumber}. KTV phụ trách: ${ticket.technician}. Vấn đề/Sự cố: ${ticket.issueType} - ${ticket.faultDescription || 'Kiểm tra tổng thể'}. Thưởng hoa hồng KTV: ${ticket.commissionAmount ? `${ticket.commissionAmount.toLocaleString('vi-VN')} đ` : '0 đ'}. Trạng thái: ${ticket.status}. ${ticket.solutionNotes ? `[Giải pháp]: ${ticket.solutionNotes}` : ''}`,
         performedBy: ticket.technician || 'KTV Kỹ Thuật',
         badgeText: ticket.status === 'ready' || ticket.status === 'delivered' ? 'KCS HOÀN TẤT' : 'ĐANG XỬ LÝ',
-        badgeColor: ticket.status === 'ready' || ticket.status === 'delivered' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-orange-100 text-orange-800 border-orange-200',
+        badgeColor: ticket.status === 'ready' || ticket.status === 'delivered' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-orange-100 text-orange-800 border-orange-200',
         icon: Wrench,
         iconColor: 'bg-orange-500 text-white',
         meta: {
@@ -223,9 +223,9 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         description: `Mã hóa đơn: ${inv.invoiceNumber}. Số điện thoại: ${inv.customerPhone}. Giá bán: ${inv.totalAmount.toLocaleString('vi-VN')} đ. Nhân viên bán hàng: ${inv.salesPerson || 'Thu ngân'}. Thời hạn bảo hành: 12 tháng tại hệ thống.`,
         performedBy: inv.salesPerson || 'Nhân viên bán hàng',
         badgeText: 'ĐÃ XUẤT BÁN',
-        badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
+        badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',
         icon: ShoppingCart,
-        iconColor: 'bg-purple-600 text-white',
+        iconColor: 'bg-rose-600 text-white',
         meta: {
           invoiceNumber: inv.invoiceNumber,
           customer: inv.customerName,
@@ -245,7 +245,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         if (log.type === 'WAREHOUSE_TRANSFER') {
           cat = 'TRANSFER';
           icon = ArrowLeftRight;
-          color = 'bg-blue-600 text-white';
+          color = 'bg-orange-600 text-white';
         } else if (log.type === 'WARRANTY_QC') {
           cat = 'WARRANTY';
           icon = Wrench;
@@ -253,7 +253,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
         } else if (log.type === 'RESPONSIBILITY_CHANGE') {
           cat = 'CUSTODY';
           icon = UserCheck;
-          color = 'bg-indigo-600 text-white';
+          color = 'bg-rose-600 text-white';
         }
 
         events.push({
@@ -264,7 +264,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
           description: log.description,
           performedBy: log.performedBy || 'Quản lý',
           badgeText: log.statusBadge || (cat === 'CUSTODY' ? 'BÀN GIAO' : 'NHẬT KÝ'),
-          badgeColor: cat === 'CUSTODY' ? 'bg-indigo-100 text-indigo-800 border-indigo-200' : 'bg-zinc-100 text-zinc-800 border-zinc-200',
+          badgeColor: cat === 'CUSTODY' ? 'bg-rose-100 text-rose-800 border-rose-200' : 'bg-zinc-100 text-zinc-800 border-zinc-200',
           icon: icon,
           iconColor: color,
           meta: log.metadata
@@ -349,13 +349,13 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const getStatusBadge = (status: DeviceItem['status']) => {
     switch (status) {
       case 'in_stock':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Sẵn Hàng</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800 border border-orange-200">Sẵn Hàng</span>;
       case 'reserved':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">Đang Giữ Chờ Giao</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800 border border-orange-200">Đang Giữ Chờ Giao</span>;
       case 'sold':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-zinc-200 text-zinc-800 border border-zinc-300">Đã Bán</span>;
       case 'warranty':
-        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-200">Đang Bảo Hành</span>;
+        return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200">Đang Bảo Hành</span>;
       case 'repairing':
         return <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800 border border-orange-200">KTV Sửa Chữa / KCS</span>;
       default:
@@ -368,7 +368,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[92vh] sm:rounded-3xl sm:max-w-4xl overflow-hidden shadow-2xl flex flex-col border border-orange-200">
         
         {/* Top Header Card */}
-        <div className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 text-white px-4 sm:px-6 py-4 shrink-0 shadow-sm">
+        <div className="bg-gradient-to-r from-orange-600 via-orange-500 to-orange-500 text-white px-4 sm:px-6 py-4 shrink-0 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center space-x-3.5 min-w-0">
               <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-inner shrink-0">
@@ -382,7 +382,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                   <span className="bg-white/20 text-white font-bold text-xs px-2.5 py-0.5 rounded-full border border-white/30">
                     {device.color}
                   </span>
-                  <span className="bg-amber-400 text-zinc-950 font-black text-[11px] px-2 py-0.5 rounded-full uppercase">
+                  <span className="bg-orange-400 text-zinc-950 font-black text-[11px] px-2 py-0.5 rounded-full uppercase">
                     {device.condition}
                   </span>
                 </div>
@@ -395,7 +395,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                       className="p-1 hover:bg-white/20 rounded-md transition-colors cursor-pointer"
                       title="Sao chép IMEI"
                     >
-                      {copiedImei ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5 text-white/80" />}
+                      {copiedImei ? <Check className="w-3.5 h-3.5 text-orange-300" /> : <Copy className="w-3.5 h-3.5 text-white/80" />}
                     </button>
                   </div>
                   <span>•</span>
@@ -422,7 +422,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
             <div className="bg-white/10 backdrop-blur-xs p-2 rounded-xl border border-white/15">
               <span className="text-[10px] text-orange-100 block">Vị trí kho hiện tại</span>
               <span className="font-black text-white flex items-center space-x-1 truncate mt-0.5">
-                <Warehouse className="w-3.5 h-3.5 shrink-0 text-amber-200" />
+                <Warehouse className="w-3.5 h-3.5 shrink-0 text-orange-200" />
                 <span className="truncate">{currentWarehouseInfo?.shortName || device.warehouse || 'Kho Tổng'}</span>
               </span>
             </div>
@@ -430,7 +430,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
             <div className="bg-white/10 backdrop-blur-xs p-2 rounded-xl border border-white/15">
               <span className="text-[10px] text-orange-100 block">Chịu trách nhiệm trực tiếp</span>
               <span className="font-black text-white flex items-center space-x-1 truncate mt-0.5">
-                <UserCheck className="w-3.5 h-3.5 shrink-0 text-amber-200" />
+                <UserCheck className="w-3.5 h-3.5 shrink-0 text-orange-200" />
                 <span className="truncate">{currentResponsiblePerson}</span>
               </span>
             </div>
@@ -506,7 +506,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
             {onQuickSell && device.status === 'in_stock' && (
               <button
                 onClick={() => onQuickSell(device)}
-                className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-black flex items-center space-x-1 shadow-sm transition-all cursor-pointer"
+                className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white rounded-xl text-xs font-black flex items-center space-x-1 shadow-sm transition-all cursor-pointer"
               >
                 <ShoppingCart className="w-3.5 h-3.5" />
                 <span>Bán Máy</span>
@@ -727,12 +727,12 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                                   </span>
                                 )}
                                 {event.meta.ticketNumber && (
-                                  <span className="bg-amber-50 text-amber-800 font-mono px-2 py-0.5 rounded border border-amber-200 font-bold">
+                                  <span className="bg-orange-50 text-orange-800 font-mono px-2 py-0.5 rounded border border-orange-200 font-bold">
                                     {event.meta.ticketNumber}
                                   </span>
                                 )}
                                 {event.meta.invoiceNumber && (
-                                  <span className="bg-purple-50 text-purple-800 font-mono px-2 py-0.5 rounded border border-purple-200 font-bold">
+                                  <span className="bg-rose-50 text-rose-800 font-mono px-2 py-0.5 rounded border border-rose-200 font-bold">
                                     {event.meta.invoiceNumber}
                                   </span>
                                 )}
@@ -790,18 +790,18 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                 {/* Inspection & Condition Card */}
                 <div className="bg-zinc-50/70 p-4 rounded-2xl border border-zinc-200 space-y-3">
                   <h4 className="font-bold text-xs text-zinc-900 flex items-center space-x-1.5 uppercase tracking-wide">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <ShieldCheck className="w-4 h-4 text-orange-600" />
                     <span>Tình Trạng KCS & Thẩm Định Kỹ Thuật</span>
                   </h4>
 
                   <div className="space-y-2 text-xs divide-y divide-zinc-200/60">
                     <div className="flex justify-between py-1.5">
                       <span className="text-zinc-500">Tình trạng ngoại hình:</span>
-                      <span className="font-black text-amber-800 bg-amber-100 px-2 py-0.5 rounded">{device.condition}</span>
+                      <span className="font-black text-orange-800 bg-orange-100 px-2 py-0.5 rounded">{device.condition}</span>
                     </div>
                     <div className="flex justify-between py-1.5">
                       <span className="text-zinc-500">Tình trạng Pin:</span>
-                      <span className={`font-mono font-bold px-2 py-0.5 rounded ${device.batteryHealth >= 90 ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800'}`}>
+                      <span className={`font-mono font-bold px-2 py-0.5 rounded ${device.batteryHealth >= 90 ? 'bg-orange-100 text-orange-800' : 'bg-orange-100 text-orange-800'}`}>
                         {device.batteryHealth}% Dung lượng
                       </span>
                     </div>
@@ -811,7 +811,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     </div>
                     <div className="flex justify-between py-1.5">
                       <span className="text-zinc-500">Trạng thái iCloud:</span>
-                      <span className="font-bold text-emerald-700 flex items-center space-x-1">
+                      <span className="font-bold text-orange-700 flex items-center space-x-1">
                         <Lock className="w-3 h-3 inline" />
                         <span>{device.icloudStatus || 'Clean / Đã Thoát'}</span>
                       </span>
@@ -829,7 +829,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
               </div>
 
               {/* Financial & Valuation Card */}
-              <div className="p-4 bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 rounded-2xl border border-orange-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-4 bg-gradient-to-r from-orange-50 via-orange-50 to-orange-50 rounded-2xl border border-orange-200 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                 <div className="bg-white p-3 rounded-xl border border-orange-100">
                   <span className="text-[10px] text-zinc-500 block uppercase font-bold">1. Giá Vốn Nhập Gốc (Cost)</span>
                   <div className="font-mono font-black text-zinc-900 text-base mt-1">
@@ -846,7 +846,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
 
                 <div className="bg-white p-3 rounded-xl border border-orange-100">
                   <span className="text-[10px] text-zinc-500 block uppercase font-bold">3. Lợi Nhuận Gộp Dự Kiến</span>
-                  <div className="font-mono font-black text-emerald-700 text-base mt-1">
+                  <div className="font-mono font-black text-orange-700 text-base mt-1">
                     +{(device.sellPrice - device.buyPrice).toLocaleString('vi-VN')} đ
                   </div>
                 </div>
@@ -918,8 +918,8 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                           <span className="text-zinc-500">Trạng thái:</span>
                           <span className={`px-2 py-0.5 rounded-full text-[11px] ${
                             ticket.status === 'ready' || ticket.status === 'delivered' 
-                              ? 'bg-emerald-100 text-emerald-800' 
-                              : 'bg-amber-100 text-amber-800'
+                              ? 'bg-orange-100 text-orange-800' 
+                              : 'bg-orange-100 text-orange-800'
                           }`}>
                             {ticket.status === 'ready' ? 'Đã Xử Lý Xong' : ticket.status === 'repairing' ? 'Đang Sửa' : 'Đang Kiểm Tra'}
                           </span>
@@ -934,7 +934,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
 
                         <div className="bg-zinc-50 p-2.5 rounded-xl border border-zinc-200/60">
                           <span className="text-[10px] text-zinc-500 block font-semibold">Thưởng Hoa Hồng KTV</span>
-                          <strong className="text-emerald-700 font-mono font-bold">
+                          <strong className="text-orange-700 font-mono font-bold">
                             {ticket.commissionAmount ? `${ticket.commissionAmount.toLocaleString('vi-VN')} đ` : '0 đ'}
                           </strong>
                         </div>
@@ -963,7 +963,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                             {ticket.techChecklist.map((step, idx) => (
                               <div key={idx} className="flex items-center space-x-1.5 p-1 bg-zinc-50 rounded-lg">
                                 <span className={`w-3.5 h-3.5 rounded flex items-center justify-center text-[9px] font-bold ${
-                                  step.isPassed ? 'bg-emerald-500 text-white' : 'bg-zinc-300 text-zinc-700'
+                                  step.isPassed ? 'bg-orange-500 text-white' : 'bg-zinc-300 text-zinc-700'
                                 }`}>
                                   {step.isPassed ? '✓' : '-'}
                                 </span>
@@ -985,40 +985,40 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
           {/* TAB 4: BÀN GIAO & QUẢN LÝ TRÁCH NHIỆM */}
           {activeTab === 'CUSTODY' && (
             <div className="space-y-4">
-              <div className="p-4 bg-gradient-to-r from-indigo-50 via-purple-50 to-indigo-50 rounded-2xl border border-indigo-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="p-4 bg-gradient-to-r from-rose-50 via-rose-50 to-rose-50 rounded-2xl border border-rose-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                  <h4 className="font-black text-sm text-indigo-950 flex items-center space-x-1.5">
-                    <UserCheck className="w-4 h-4 text-indigo-600" />
+                  <h4 className="font-black text-sm text-rose-950 flex items-center space-x-1.5">
+                    <UserCheck className="w-4 h-4 text-rose-600" />
                     <span>Chuỗi Bàn Giao & Người Chịu Trách Nhiệm Trực Tiếp (Chain of Custody)</span>
                   </h4>
-                  <p className="text-xs text-indigo-800/80 mt-0.5">
+                  <p className="text-xs text-rose-800/80 mt-0.5">
                     Đảm bảo tính minh bạch 100% khi xảy ra mất mát, trầy xước hoặc hư hỏng thiết bị
                   </p>
                 </div>
 
-                <div className="bg-white px-3.5 py-1.5 rounded-xl border border-indigo-200 text-xs font-bold text-indigo-900 shrink-0">
-                  Hiện tại: <strong className="text-indigo-600 font-black">{currentResponsiblePerson}</strong>
+                <div className="bg-white px-3.5 py-1.5 rounded-xl border border-rose-200 text-xs font-bold text-rose-900 shrink-0">
+                  Hiện tại: <strong className="text-rose-600 font-black">{currentResponsiblePerson}</strong>
                 </div>
               </div>
 
               {/* Custody Responsibility Steps */}
               <div className="space-y-3">
                 <div className="bg-white p-3.5 rounded-2xl border border-zinc-200 flex items-center space-x-3 text-xs">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-800 flex items-center justify-center font-bold shrink-0">
                     1
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-bold text-zinc-900">Thủ Kho Nhập Ban Đầu: Nhật Tân (Admin Kho)</div>
                     <div className="text-[11px] text-zinc-500">Tiếp nhận từ NCC {device.supplier || 'Đối tác'} vào ngày {device.receivedDate}</div>
                   </div>
-                  <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-bold border border-emerald-200 shrink-0">
+                  <span className="text-[10px] bg-orange-50 text-orange-700 px-2 py-0.5 rounded font-bold border border-orange-200 shrink-0">
                     Đã Nghiệm Thu
                   </span>
                 </div>
 
                 {relatedTransfers.map((trf, idx) => (
                   <div key={trf.id} className="bg-white p-3.5 rounded-2xl border border-zinc-200 flex items-center space-x-3 text-xs">
-                    <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold shrink-0">
+                    <div className="w-8 h-8 rounded-xl bg-orange-100 text-orange-800 flex items-center justify-center font-bold shrink-0">
                       {idx + 2}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1027,7 +1027,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                         Chuyển từ {trf.fromWarehouseName} ➔ {trf.toWarehouseName} ({trf.code})
                       </div>
                     </div>
-                    <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold border border-blue-200 shrink-0">
+                    <span className="text-[10px] bg-orange-50 text-orange-700 px-2 py-0.5 rounded font-bold border border-orange-200 shrink-0">
                       {trf.status === 'COMPLETED' ? 'Đã Bàn Giao Kho Đích' : 'Đang Giữ Hàng'}
                     </span>
                   </div>

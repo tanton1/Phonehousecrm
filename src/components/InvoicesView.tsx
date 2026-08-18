@@ -58,42 +58,42 @@ type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string; dot: string; icon: any }> = {
   completed: {
     label: 'Hoàn thành',
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-700',
-    border: 'border-emerald-200',
-    dot: 'bg-emerald-500',
+    bg: 'bg-orange-50',
+    text: 'text-orange-700',
+    border: 'border-orange-200',
+    dot: 'bg-orange-500',
     icon: CheckCircle2
   },
   pending: {
     label: 'Chờ xử lý',
-    bg: 'bg-amber-50',
-    text: 'text-amber-700',
-    border: 'border-amber-200',
-    dot: 'bg-amber-500',
+    bg: 'bg-orange-50',
+    text: 'text-orange-700',
+    border: 'border-orange-200',
+    dot: 'bg-orange-500',
     icon: Clock
   },
   delivering: {
     label: 'Đang giao hàng',
-    bg: 'bg-blue-50',
-    text: 'text-blue-700',
-    border: 'border-blue-200',
-    dot: 'bg-blue-500',
+    bg: 'bg-orange-50',
+    text: 'text-orange-700',
+    border: 'border-orange-200',
+    dot: 'bg-orange-500',
     icon: Truck
   },
   installment_approved: {
     label: 'Trả góp đã duyệt',
-    bg: 'bg-purple-50',
-    text: 'text-purple-700',
-    border: 'border-purple-200',
-    dot: 'bg-purple-500',
+    bg: 'bg-rose-50',
+    text: 'text-rose-700',
+    border: 'border-rose-200',
+    dot: 'bg-rose-500',
     icon: CreditCard
   },
   cancelled: {
     label: 'Đã hủy đơn',
-    bg: 'bg-red-50',
-    text: 'text-red-700',
-    border: 'border-red-200',
-    dot: 'bg-red-500',
+    bg: 'bg-rose-50',
+    text: 'text-rose-700',
+    border: 'border-rose-200',
+    dot: 'bg-rose-500',
     icon: AlertCircle
   },
   refunded: {
@@ -426,7 +426,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         {/* Firestore Sync Toast Notification */}
         {syncToast && (
           <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 backdrop-blur-md text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 animate-fadeIn border border-white/10">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0" />
             <span className="font-medium">{syncToast}</span>
           </div>
         )}
@@ -543,7 +543,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         setSelectedInvoice(null);
                       }
                     }}
-                    className="w-full px-3.5 py-2 text-left font-medium text-red-600 hover:bg-red-50 flex items-center space-x-2 border-t border-zinc-100"
+                    className="w-full px-3.5 py-2 text-left font-medium text-rose-600 hover:bg-rose-50 flex items-center space-x-2 border-t border-zinc-100"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Hủy hóa đơn</span>
@@ -652,7 +652,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </div>
 
           {(selectedInvoice.discountAmount || 0) > 0 && (
-            <div className="flex justify-between items-center py-1 text-red-600 font-normal">
+            <div className="flex justify-between items-center py-1 text-rose-600 font-normal">
               <span className="flex items-center gap-1">
                 <Tag className="w-3.5 h-3.5" />
                 <span>Giảm giá Voucher / Khuyến mãi</span>
@@ -689,7 +689,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 {selectedInvoice.paymentMethod}
               </span>
             </span>
-            <span className="font-semibold text-emerald-600 font-mono">
+            <span className="font-semibold text-orange-600 font-mono">
               {(selectedInvoice.paidAmount ?? selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ
             </span>
           </div>
@@ -709,23 +709,23 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
           {/* Installment breakdown if applicable */}
           {selectedInvoice.installmentDetails && (
-            <div className="mt-2 p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 text-xs space-y-1.5 text-amber-950">
-              <div className="font-semibold flex items-center gap-1 text-amber-800">
+            <div className="mt-2 p-3 bg-orange-50/70 rounded-xl border border-orange-200/80 text-xs space-y-1.5 text-orange-950">
+              <div className="font-semibold flex items-center gap-1 text-orange-800">
                 <CreditCard className="w-3.5 h-3.5" />
                 <span>Trả góp 0%: {selectedInvoice.installmentDetails.financeCompany}</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-[11px] pt-1">
                 <div>
-                  <span className="text-amber-700 block font-normal">Kỳ hạn:</span>
+                  <span className="text-orange-700 block font-normal">Kỳ hạn:</span>
                   <span className="font-semibold">{selectedInvoice.installmentDetails.tenorMonths} tháng</span>
                 </div>
                 <div>
-                  <span className="text-amber-700 block font-normal">Trả trước:</span>
+                  <span className="text-orange-700 block font-normal">Trả trước:</span>
                   <span className="font-semibold font-mono">{selectedInvoice.installmentDetails.downPayment.toLocaleString('vi-VN')}đ</span>
                 </div>
                 <div>
-                  <span className="text-amber-700 block font-normal">Mỗi tháng:</span>
-                  <span className="font-semibold text-amber-800 font-mono">{selectedInvoice.installmentDetails.monthlyPayment.toLocaleString('vi-VN')}đ</span>
+                  <span className="text-orange-700 block font-normal">Mỗi tháng:</span>
+                  <span className="font-semibold text-orange-800 font-mono">{selectedInvoice.installmentDetails.monthlyPayment.toLocaleString('vi-VN')}đ</span>
                 </div>
               </div>
             </div>
@@ -847,7 +847,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
             <button
               onClick={() => setIsQRModalOpen(true)}
-              className="py-2.5 px-4 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
+              className="py-2.5 px-4 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-md shadow-orange-500/20 active:scale-95 cursor-pointer"
             >
               <QrCode className="w-4 h-4" />
               <span>Tạo QR Thu Tiền</span>
@@ -873,7 +873,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
 
               {/* Thermal Paper Look */}
-              <div className="p-4 bg-amber-50/40 border border-dashed border-zinc-300 rounded-2xl font-mono text-xs space-y-3 text-zinc-900">
+              <div className="p-4 bg-orange-50/40 border border-dashed border-zinc-300 rounded-2xl font-mono text-xs space-y-3 text-zinc-900">
                 <div className="text-center space-y-0.5">
                   <h4 className="font-semibold text-sm uppercase">PHONE HOUSE STORE</h4>
                   <p className="text-[10px] text-zinc-600">Đ/c: 123 Cầu Giấy, Hà Nội</p>
@@ -912,7 +912,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   </div>
 
                   {(selectedInvoice.discountAmount || 0) > 0 && (
-                    <div className="flex justify-between text-red-600">
+                    <div className="flex justify-between text-rose-600">
                       <span>- Giảm giá Voucher:</span>
                       <span>-{(selectedInvoice.discountAmount || 0).toLocaleString('vi-VN')}đ</span>
                     </div>
@@ -958,7 +958,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     window.print();
                     setIsPrintModalOpen(false);
                   }}
-                  className="px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-semibold rounded-xl shadow-md flex items-center space-x-1.5"
+                  className="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-500 text-white text-xs font-semibold rounded-xl shadow-md flex items-center space-x-1.5"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>In Máy K80 Ngay</span>
@@ -1021,7 +1021,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   handleQuickChangeStatus('completed');
                   setIsQRModalOpen(false);
                 }}
-                className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-semibold rounded-xl shadow-md cursor-pointer"
+                className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-orange-500 text-white text-xs font-semibold rounded-xl shadow-md cursor-pointer"
               >
                 Đã Thu Tiền Xong
               </button>
@@ -1048,14 +1048,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </span>
         </div>
 
-        {/* Top Header Actions: + POS */}
-        <button
-          onClick={onNavigateToPOS}
-          className="px-3 py-1.5 bg-[#F94A1F] hover:bg-orange-600 text-white font-bold text-xs rounded-full flex items-center justify-center space-x-1 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>POS</span>
-        </button>
+        
       </div>
 
       {/* 2. Filter Bar (Segmented Pills & Filter Button) */}
@@ -1076,11 +1069,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           onClick={() => setStatusFilter('completed')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${
             statusFilter === 'completed'
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-2xs'
+              ? 'bg-orange-50 text-orange-700 border border-orange-300 shadow-2xs'
               : 'bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50'
           }`}
         >
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+          <CheckCircle2 className="w-3.5 h-3.5 text-orange-500" />
           <span>Hoàn thành</span>
         </button>
 
@@ -1088,11 +1081,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           onClick={() => setStatusFilter('pending')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${
             statusFilter === 'pending'
-              ? 'bg-amber-50 text-amber-700 border border-amber-300 shadow-2xs'
+              ? 'bg-orange-50 text-orange-700 border border-orange-300 shadow-2xs'
               : 'bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50'
           }`}
         >
-          <Clock className="w-3.5 h-3.5 text-amber-500" />
+          <Clock className="w-3.5 h-3.5 text-orange-500" />
           <span>Chờ xử lý</span>
         </button>
 
@@ -1100,11 +1093,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           onClick={() => setStatusFilter('installment')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${
             statusFilter === 'installment'
-              ? 'bg-purple-50 text-purple-700 border border-purple-300 shadow-2xs'
+              ? 'bg-rose-50 text-rose-700 border border-rose-300 shadow-2xs'
               : 'bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50'
           }`}
         >
-          <CreditCard className="w-3.5 h-3.5 text-purple-500" />
+          <CreditCard className="w-3.5 h-3.5 text-rose-500" />
           <span>Trả góp 0%</span>
         </button>
 
@@ -1152,7 +1145,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Tìm mã HĐ, khách, SĐT, IMEI..."
-          className="w-full pl-9 pr-10 py-2.5 text-xs sm:text-sm bg-white border border-zinc-200/90 rounded-2xl focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all font-normal text-zinc-800 shadow-2xs"
+          className="w-full pl-8 pr-8 py-1.5 text-xs bg-white border border-zinc-200/90 rounded-2xl focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all font-normal text-zinc-800 shadow-2xs"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-1.5">
           {searchQuery ? (
@@ -1211,7 +1204,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </p>
           <button
             onClick={onNavigateToPOS}
-            className="px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-medium text-xs rounded-xl shadow-xs cursor-pointer"
+            className="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-500 text-white font-medium text-xs rounded-xl shadow-xs cursor-pointer"
           >
             + Lên Đơn Mới Tại POS
           </button>
@@ -1270,7 +1263,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                             </span>
 
                             {isInstallment && (
-                              <span className="text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full">
+                              <span className="text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full">
                                 Trả góp 0%
                               </span>
                             )}
@@ -1307,14 +1300,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </div>
       )}
 
-      {/* Floating Action Button (FAB) */}
-      <button
-        onClick={onNavigateToPOS}
-        className="fixed bottom-20 right-4 sm:bottom-8 sm:right-8 z-30 w-12 h-12 rounded-full bg-[#F94A1F] hover:bg-orange-600 text-white shadow-lg shadow-orange-500/35 flex items-center justify-center hover:scale-105 active:scale-95 transition-all cursor-pointer"
-        title="Tạo hóa đơn / Bán hàng POS"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      
     </div>
   );
 };

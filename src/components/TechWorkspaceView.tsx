@@ -91,39 +91,37 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col font-sans">
       {/* TECH TOPBAR */}
-      <div className="bg-indigo-950 text-white p-3 sm:px-6 flex items-center justify-between shadow-md border-b border-indigo-900">
+      <div className="bg-gradient-to-r from-zinc-900 via-zinc-800 to-orange-600 text-white p-2 sm:p-3 sm:px-6 flex items-center justify-between shadow-md z-10 border-b border-zinc-800">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-indigo-800/80 rounded-2xl flex items-center justify-center border border-indigo-700/50 shadow-inner">
-            <Wrench className="w-5 h-5 text-indigo-300" />
+          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <Wrench className="w-5 h-5 text-white" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-black uppercase tracking-wider text-white">Trạm Kỹ Thuật & KCS</h1>
-              <span className="bg-indigo-700/60 text-indigo-200 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">
-                Phase 3 Active
-              </span>
-            </div>
-            <div className="text-[10px] text-indigo-300 flex items-center gap-1.5 mt-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>KTV: {staffMember.name} • {staffMember.roleTitle || 'Kỹ thuật viên Trưởng'}</span>
+            <h1 className="text-sm font-black uppercase tracking-wider">Tech Desk</h1>
+            <div className="text-[10px] text-orange-200 flex items-center gap-1 mt-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span>
+              <span>KTV: {staffMember.name}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-3 bg-indigo-900/60 border border-indigo-800/80 px-3.5 py-1.5 rounded-2xl text-xs">
-            <div className="flex items-center gap-1.5 text-indigo-200">
-              <Activity className="w-4 h-4 text-emerald-400"/> 
+        {/* METRICS (Center) */}
+        <div className="hidden md:flex flex-1 max-w-xl mx-8 justify-center">
+          <div className="flex items-center gap-3 bg-black/10 border border-white/20 px-4 py-1.5 rounded-full text-xs font-medium">
+            <div className="flex items-center gap-1.5 text-white/90">
+              <Activity className="w-4 h-4 text-orange-300"/> 
               <span>Hoàn thành: <strong className="text-white">{todayCompletedCount} máy</strong></span>
             </div>
-            <span className="text-indigo-600">|</span>
-            <div className="flex items-center gap-1.5 text-indigo-200">
-              <Zap className="w-4 h-4 text-amber-400"/> 
-              <span>Ví Kỹ Thuật: <strong className="text-amber-300 font-mono">{formatVND(techWallet.totalCommission)}</strong></span>
+            <span className="text-white/40">|</span>
+            <div className="flex items-center gap-1.5 text-white/90">
+              <Zap className="w-4 h-4 text-orange-300"/> 
+              <span>Ví Kỹ Thuật: <strong className="text-white font-mono">{formatVND(techWallet.totalCommission)}</strong></span>
             </div>
           </div>
+        </div>
 
-          <button
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button 
             onClick={() => {
               if (onOpenCheckIn) {
                 onOpenCheckIn();
@@ -131,29 +129,28 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 setActiveTab('HR');
               }
             }}
-            className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-md shadow-orange-500/30 transition-all cursor-pointer active:scale-95 shrink-0"
-            title="Điểm danh Face ID 4 bước"
+            className="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
+            title="Điểm danh Face ID"
           >
-            <ScanFace className="w-4 h-4 animate-pulse" />
-            <span className="hidden sm:inline">⚡ Điểm Danh Face ID</span>
-            <span className="sm:hidden">Điểm Danh</span>
+            <ScanFace className="w-4 h-4" />
+            <span className="hidden sm:inline">Điểm Danh</span>
           </button>
 
           <button 
             onClick={handleManualSync}
             disabled={isSyncing}
-            className="p-2 bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 rounded-xl transition-all border border-indigo-700/40 cursor-pointer disabled:opacity-50"
-            title="Đồng bộ lại Ví Kỹ Thuật từ toàn bộ Phiếu sửa chữa"
+            className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all cursor-pointer disabled:opacity-50"
+            title="Đồng bộ"
           >
-            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-amber-400' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
           </button>
 
-          <button className="relative w-9 h-9 rounded-xl bg-indigo-900/80 hover:bg-indigo-800 flex items-center justify-center transition-colors border border-indigo-700/40">
-            <Bell className="w-4 h-4 text-indigo-200" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-indigo-950"></span>
+          <button className="relative p-1.5 bg-white/10 hover:bg-white/20 rounded-lg flex items-center justify-center transition-colors cursor-pointer">
+            <Bell className="w-4 h-4 text-white" />
+            <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full border border-[#FF4B16]"></span>
           </button>
           
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center font-black text-xs text-white shadow-md">
+          <div className="w-9 h-9 rounded-xl bg-white text-[#FF4B16] flex items-center justify-center font-black text-xs shadow-md ml-1 border border-orange-200">
             {staffMember.name.slice(0, 2).toUpperCase()}
           </div>
         </div>
@@ -173,7 +170,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-700 flex items-center gap-2 shadow-2xs">
-                    <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    <Clock className="w-3.5 h-3.5 text-orange-500" />
                     <span>SLA Tiêu Chuẩn: &lt; 2h / ca</span>
                   </div>
                 </div>
@@ -190,20 +187,20 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
           {activeTab === 'KPI' && (
             <div className="max-w-5xl mx-auto space-y-5 animate-fadeIn">
               {/* WALLET HEADER BANNER */}
-              <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-3xl p-5 sm:p-6 text-white shadow-xl relative overflow-hidden">
-                <div className="absolute right-0 top-0 w-80 h-full bg-indigo-600/10 rounded-l-full pointer-events-none" />
+              <div className="bg-gradient-to-r from-zinc-900 via-zinc-800 to-orange-900 rounded-3xl p-5 sm:p-6 text-white shadow-xl relative overflow-hidden">
+                <div className="absolute right-0 top-0 w-80 h-full bg-orange-500/10 rounded-l-full pointer-events-none" />
                 <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="bg-amber-400 text-indigo-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
+                      <span className="bg-orange-400 text-zinc-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
                         Ví Kỹ Thuật Độc Lập
                       </span>
-                      <span className="text-xs text-indigo-200 font-medium">Tự động kết nối Phiếu Tiếp Nhận & KCS</span>
+                      <span className="text-xs text-zinc-300 font-medium">Tự động kết nối Phiếu Tiếp Nhận & KCS</span>
                     </div>
-                    <div className="text-2xl sm:text-4xl font-black tracking-tight font-mono text-amber-300">
+                    <div className="text-2xl sm:text-4xl font-black tracking-tight font-mono text-orange-300">
                       {formatVND(techWallet.totalCommission)}
                     </div>
-                    <p className="text-xs text-indigo-200 mt-1">
+                    <p className="text-xs text-zinc-300 mt-1">
                       Tích lũy từ {techWallet.completedTicketCount} công việc đạt chuẩn QC • {techWallet.pendingCount} ca đang kiểm tra
                     </p>
                   </div>
@@ -239,12 +236,12 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 {/* Repair Card */}
                 <div className="bg-white rounded-2xl p-4 border border-zinc-200/90 shadow-2xs flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center justify-between text-amber-600 mb-1.5">
+                    <div className="flex items-center justify-between text-orange-600 mb-1.5">
                       <span className="text-[10px] font-black uppercase tracking-wider">Sửa Chữa Dịch Vụ</span>
                       <Wrench className="w-4 h-4" />
                     </div>
                     <div className="text-xl sm:text-2xl font-black text-zinc-900 font-mono">{techWallet.repairCount} ca</div>
-                    <div className="text-xs font-bold text-amber-600 font-mono mt-0.5">+{formatVND(techWallet.repairAmount)}</div>
+                    <div className="text-xs font-bold text-orange-600 font-mono mt-0.5">+{formatVND(techWallet.repairAmount)}</div>
                   </div>
                   <div className="text-[10px] text-zinc-400 mt-2 pt-2 border-t border-zinc-100">Thay màn, pin, ép kính, main</div>
                 </div>
@@ -252,12 +249,12 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 {/* Warranty Free Card */}
                 <div className="bg-white rounded-2xl p-4 border border-zinc-200/90 shadow-2xs flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center justify-between text-emerald-600 mb-1.5">
+                    <div className="flex items-center justify-between text-orange-600 mb-1.5">
                       <span className="text-[10px] font-black uppercase tracking-wider">Bảo Hành Tiêu Chuẩn</span>
                       <ShieldCheck className="w-4 h-4" />
                     </div>
                     <div className="text-xl sm:text-2xl font-black text-zinc-900 font-mono">{techWallet.warrantyCount} máy</div>
-                    <div className="text-xs font-bold text-emerald-600 font-mono mt-0.5">+{formatVND(techWallet.warrantyAmount)}</div>
+                    <div className="text-xs font-bold text-orange-600 font-mono mt-0.5">+{formatVND(techWallet.warrantyAmount)}</div>
                   </div>
                   <div className="text-[10px] text-zinc-400 mt-2 pt-2 border-t border-zinc-100">Công KTV: 50.000 đ/máy</div>
                 </div>
@@ -265,12 +262,12 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 {/* Trade-in Card */}
                 <div className="bg-white rounded-2xl p-4 border border-zinc-200/90 shadow-2xs flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center justify-between text-purple-600 mb-1.5">
+                    <div className="flex items-center justify-between text-orange-600 mb-1.5">
                       <span className="text-[10px] font-black uppercase tracking-wider">Test Thu Cũ</span>
                       <Zap className="w-4 h-4" />
                     </div>
                     <div className="text-xl sm:text-2xl font-black text-zinc-900 font-mono">{techWallet.tradeInCount} máy</div>
-                    <div className="text-xs font-bold text-purple-600 font-mono mt-0.5">+{formatVND(techWallet.tradeInAmount)}</div>
+                    <div className="text-xs font-bold text-orange-600 font-mono mt-0.5">+{formatVND(techWallet.tradeInAmount)}</div>
                   </div>
                   <div className="text-[10px] text-zinc-400 mt-2 pt-2 border-t border-zinc-100">Định mức: 50.000 đ/máy</div>
                 </div>
@@ -300,7 +297,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                         onClick={() => setWalletFilter(f.id as any)}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                           walletFilter === f.id
-                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            ? 'bg-orange-600 text-white shadow-2xs'
                             : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
                         }`}
                       >
@@ -318,13 +315,13 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                     </div>
                   ) : (
                     filteredTechTransactions.map(tx => (
-                      <div key={tx.id} className="p-3.5 sm:p-4 hover:bg-indigo-50/30 transition-colors flex items-center justify-between gap-3 text-xs">
+                      <div key={tx.id} className="p-3.5 sm:p-4 hover:bg-orange-50/30 transition-colors flex items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-3">
                           <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold shrink-0 ${
-                            tx.type === 'TECH_KCS' ? 'bg-blue-100 text-orange-600' :
-                            tx.type === 'TECH_REPAIR' ? 'bg-amber-100 text-amber-600' :
-                            tx.type === 'TECH_WARRANTY' ? 'bg-emerald-100 text-emerald-600' :
-                            'bg-purple-100 text-purple-600'
+                            tx.type === 'TECH_KCS' ? 'bg-orange-100 text-orange-600' :
+                            tx.type === 'TECH_REPAIR' ? 'bg-orange-100 text-orange-600' :
+                            tx.type === 'TECH_WARRANTY' ? 'bg-orange-100 text-orange-600' :
+                            'bg-orange-100 text-orange-600'
                           }`}>
                             {tx.type === 'TECH_KCS' ? <Smartphone className="w-4 h-4" /> :
                              tx.type === 'TECH_REPAIR' ? <Wrench className="w-4 h-4" /> :
@@ -335,7 +332,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                           <div>
                             <div className="font-extrabold text-zinc-900 text-xs sm:text-sm">{tx.productName}</div>
                             <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-500 mt-0.5">
-                              <span className="font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
+                              <span className="font-mono font-bold text-orange-600 bg-orange-50 px-1.5 py-0.2 rounded border border-orange-100">
                                 {tx.orderCode}
                               </span>
                               {tx.imei && <span className="font-mono text-zinc-400">IMEI: {tx.imei}</span>}
@@ -346,12 +343,12 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                         </div>
 
                         <div className="text-right shrink-0">
-                          <div className="font-black text-sm sm:text-base text-emerald-600 font-mono">
+                          <div className="font-black text-sm sm:text-base text-orange-600 font-mono">
                             +{formatVND(tx.commissionAmount)}
                           </div>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-0.5 ${
-                            tx.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-800' :
-                            tx.status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 'bg-zinc-100 text-zinc-600'
+                            tx.status === 'CONFIRMED' ? 'bg-orange-100 text-orange-800' :
+                            tx.status === 'PENDING' ? 'bg-orange-100 text-orange-800' : 'bg-zinc-100 text-zinc-600'
                           }`}>
                             {tx.status === 'CONFIRMED' ? '✓ Đã vào ví' : '⏳ Chờ QC xong'}
                           </span>
@@ -392,28 +389,28 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
       <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-zinc-200 flex items-center justify-around z-40 px-2 pb-safe">
         <button 
           onClick={() => setActiveTab('KANBAN')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KANBAN' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KANBAN' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
           <CheckCircle2 className={`w-5 h-5 ${activeTab === 'KANBAN' ? 'scale-110' : ''}`} />
           <span className="text-[10px]">Kanban</span>
         </button>
         <button 
           onClick={() => setActiveTab('INVENTORY')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'INVENTORY' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'INVENTORY' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
           <Package className={`w-5 h-5 ${activeTab === 'INVENTORY' ? 'scale-110' : ''}`} />
           <span className="text-[10px]">Kho Linh Kiện</span>
         </button>
         <button 
           onClick={() => setActiveTab('KPI')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KPI' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KPI' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
           <Zap className={`w-5 h-5 ${activeTab === 'KPI' ? 'scale-110' : ''}`} />
           <span className="text-[10px]">Ví Kỹ Thuật</span>
         </button>
         <button 
           onClick={() => setActiveTab('HR')}
-          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'HR' ? 'text-indigo-600 font-bold' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'HR' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
           <Activity className={`w-5 h-5 ${activeTab === 'HR' ? 'scale-110' : ''}`} />
           <span className="text-[10px]">Chấm Công</span>

@@ -131,7 +131,7 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
     <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-2 md:p-4 bg-black/80 backdrop-blur-xs animate-fadeIn">
       <div className="bg-white w-full h-full sm:h-[96vh] sm:max-w-6xl sm:rounded-3xl shadow-2xl border border-orange-200 flex flex-col overflow-hidden">
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 px-4 sm:px-6 py-4 text-white flex items-center justify-between shrink-0 shadow-md">
+        <div className="bg-gradient-to-r from-orange-500 via-orange-500 to-orange-600 px-4 sm:px-6 py-4 text-white flex items-center justify-between shrink-0 shadow-md">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 bg-white text-orange-600 rounded-2xl shadow-sm">
               <FolderTree className="w-6 h-6" />
@@ -304,16 +304,16 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
                   <form 
                     key={sub.id} 
                     onSubmit={handleSaveEdit}
-                    className="col-span-1 md:col-span-2 bg-amber-50/80 p-4 rounded-2xl border border-amber-300 space-y-3 animate-fadeIn"
+                    className="col-span-1 md:col-span-2 bg-orange-50/80 p-4 rounded-2xl border border-orange-300 space-y-3 animate-fadeIn"
                   >
-                    <div className="flex items-center justify-between border-b border-amber-200 pb-2">
-                      <span className="text-xs font-black uppercase text-amber-900 flex items-center gap-1.5">
-                        <Edit2 className="w-4 h-4 text-amber-600" /> Chỉnh Sửa Danh Mục: {sub.name}
+                    <div className="flex items-center justify-between border-b border-orange-200 pb-2">
+                      <span className="text-xs font-black uppercase text-orange-900 flex items-center gap-1.5">
+                        <Edit2 className="w-4 h-4 text-orange-600" /> Chỉnh Sửa Danh Mục: {sub.name}
                       </span>
                       <button 
                         type="button" 
                         onClick={() => setEditingSub(null)}
-                        className="text-xs text-amber-700 hover:text-amber-950 font-bold"
+                        className="text-xs text-orange-700 hover:text-orange-950 font-bold"
                       >
                         Hủy
                       </button>
@@ -325,7 +325,7 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
                         <select
                           value={editParent}
                           onChange={(e) => setEditParent(e.target.value as CatalogCategory)}
-                          className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold"
+                          className="w-full px-3 py-2 bg-white border border-orange-300 rounded-xl text-xs font-bold"
                         >
                           <option value="DEVICE">📱 Thiết Bị (Máy)</option>
                           <option value="PART">🔧 Linh Kiện</option>
@@ -339,7 +339,7 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold"
+                          className="w-full px-3 py-2 bg-white border border-orange-300 rounded-xl text-xs font-bold"
                           required
                         />
                       </div>
@@ -350,7 +350,7 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
                           type="text"
                           value={editCode}
                           onChange={(e) => setEditCode(e.target.value.toUpperCase())}
-                          className="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-mono font-bold uppercase"
+                          className="w-full px-3 py-2 bg-white border border-orange-300 rounded-xl text-xs font-mono font-bold uppercase"
                         />
                       </div>
                     </div>
@@ -361,7 +361,7 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
                         type="text"
                         value={editDescription}
                         onChange={(e) => setEditDescription(e.target.value)}
-                        className="w-full px-3 py-1.5 bg-white border border-amber-300 rounded-xl text-xs"
+                        className="w-full px-3 py-1.5 bg-white border border-orange-300 rounded-xl text-xs"
                       />
                     </div>
 
@@ -375,7 +375,7 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
                       </button>
                       <button
                         type="submit"
-                        className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1 cursor-pointer"
+                        className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1 cursor-pointer"
                       >
                         <Save className="w-3.5 h-3.5" />
                         <span>Lưu Thay Đổi</span>
@@ -393,8 +393,8 @@ export const ManageSubCategoriesModal: React.FC<ManageSubCategoriesModalProps> =
                   <div className="flex items-center space-x-3 min-w-0">
                     <div className={`p-2.5 rounded-xl shrink-0 ${
                       sub.parentCategory === 'DEVICE' ? 'bg-orange-50 text-orange-600' :
-                      sub.parentCategory === 'PART' ? 'bg-amber-50 text-amber-600' :
-                      'bg-emerald-50 text-emerald-600'
+                      sub.parentCategory === 'PART' ? 'bg-orange-50 text-orange-600' :
+                      'bg-orange-50 text-orange-600'
                     }`}>
                       {sub.parentCategory === 'DEVICE' ? <Smartphone className="w-4 h-4" /> :
                        sub.parentCategory === 'PART' ? <Wrench className="w-4 h-4" /> :

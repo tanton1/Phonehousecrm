@@ -261,7 +261,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       setIsCameraStarting(false);
       setIsCameraActive(false);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setCameraError('Quyền Camera bị từ chối. Vui lòng bấm Bật Camera & Cho phép trên trình duyệt để nhận diện khuôn mặt.');
+        setCameraError('Quyền Camera bị từ chối. Nếu đang xem trên Preview, hãy mở ứng dụng ở Tab mới (↗️) và Bật quyền Camera.');
       } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
         setCameraError('Không tìm thấy thiết bị Camera khả dụng.');
       } else {
@@ -289,6 +289,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     setFaceFeedbackMsg('Đang chụp khung hình camera & đối soát dữ liệu sinh trắc học...');
 
     try {
+      // Đợi 500ms để camera lấy nét và điều chỉnh sáng
+      await new Promise(resolve => setTimeout(resolve, 500));
       const video = liveVideoRef.current;
       const canvas = liveCanvasRef.current || document.createElement('canvas');
       const width = video.videoWidth || 640;
@@ -626,10 +628,13 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       qrScanned: qrStatus === 'SUCCESS'
     });
     setCurrentScreen('SUCCESS_CHECKIN');
+    localStorage.setItem(`phonehouse_is_checked_in_${currentUser.id}`, 'true');
   };
 
   const handleConfirmCheckOut = () => {
     onCheckOut();
+    localStorage.removeItem(`phonehouse_is_checked_in_${currentUser.id}`);
+    setShiftStatusOverride('AUTO'); // reset demo state
     setCurrentScreen('HOME');
   };
 
@@ -782,9 +787,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                           setGpsStatus('SUCCESS');
                           setGpsErrorMsg(null);
                         }}
-                        className="text-[11px] font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-3 py-2 rounded-xl border border-emerald-300 transition-colors flex items-center gap-1.5 cursor-pointer w-full justify-center shadow-2xs"
+                        className="text-[11px] font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 px-3 py-2 rounded-xl border border-orange-300 transition-colors flex items-center gap-1.5 cursor-pointer w-full justify-center shadow-2xs"
                       >
-                        <MapPin className="w-3.5 h-3.5 text-emerald-600" />
+                        <MapPin className="w-3.5 h-3.5 text-orange-600" />
                         <span>📍 Lấy vị trí này làm GPS chuẩn cho {targetBranch.name}</span>
                       </button>
                     </div>
@@ -804,7 +809,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     </span>
                   </div>
                   <p className="text-rose-800 font-medium">
-                    Mạng hiện tại: <strong className="line-through text-rose-950">{currentWifiSSID}</strong>. Cửa hàng yêu cầu kết nối đúng Wi-Fi nội bộ: <strong className="text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">{targetWifiSSID}</strong>.
+                    Mạng hiện tại: <strong className="line-through text-rose-950">{currentWifiSSID}</strong>. Cửa hàng yêu cầu kết nối đúng Wi-Fi nội bộ: <strong className="text-orange-800 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">{targetWifiSSID}</strong>.
                   </p>
                   <div className="pt-1">
                     <button
@@ -812,9 +817,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                         setCurrentWifiSSID(targetWifiSSID);
                         setWifiStatus('SUCCESS');
                       }}
-                      className="text-[11px] font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-3 py-1.5 rounded-xl border border-emerald-300 transition-colors cursor-pointer w-full flex items-center justify-center gap-1.5"
+                      className="text-[11px] font-bold text-orange-800 bg-orange-100 hover:bg-orange-200 px-3 py-1.5 rounded-xl border border-orange-300 transition-colors cursor-pointer w-full flex items-center justify-center gap-1.5"
                     >
-                      <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                      <Wifi className="w-3.5 h-3.5 text-orange-600" />
                       <span>📶 Kết nối Wi-Fi cửa hàng ({targetWifiSSID})</span>
                     </button>
                   </div>
@@ -838,12 +843,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="text-right">
                 <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-xl text-xs font-black border ${
                   isAllVerified 
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-2xs' 
+                    ? 'bg-orange-50 text-orange-700 border-orange-200 shadow-2xs' 
                     : 'bg-orange-50 text-[#FF4B16] border-orange-200'
                 }`}>
                   {isAllVerified ? (
                     <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" />
                       <span>ĐẠT 3/3</span>
                     </>
                   ) : (
@@ -868,15 +873,15 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="relative w-full aspect-4/3 max-w-[280px] mx-auto rounded-2xl overflow-hidden bg-zinc-900 flex items-center justify-center border-2 border-zinc-700 shadow-inner">
                 
                 {/* Live Video Stream from Device Camera */}
-                {isCameraActive && (
-                  <video 
-                    ref={liveVideoRef} 
-                    autoPlay 
-                    playsInline 
-                    muted 
-                    className="w-full h-full object-cover mirror-mode"
-                  />
-                )}
+                <video 
+     ref={liveVideoRef} 
+     autoPlay 
+     playsInline 
+     muted 
+     className={`w-full h-full object-cover ${isCameraActive ? 'block' : 'hidden'}`} 
+     style={{ transform: "scaleX(-1)" }}
+     onLoadedMetadata={() => liveVideoRef.current?.play().catch(e=>console.warn(e))}
+   />
 
                 {/* Camera Starting / Initializing State */}
                 {isCameraStarting && (
@@ -908,8 +913,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 {/* Live Camera Badge */}
                 {isCameraActive && (
                   <div className="absolute top-2.5 left-2.5 bg-zinc-950/80 backdrop-blur-md px-2.5 py-1 rounded-full border border-zinc-700/60 flex items-center gap-1.5 shadow-xs z-10 pointer-events-none">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                    <span className="text-[10px] font-black text-emerald-400 tracking-wider">LIVE HD CAMERA</span>
+                    <span className="w-2 h-2 rounded-full bg-orange-500 animate-ping" />
+                    <span className="text-[10px] font-black text-orange-400 tracking-wider">LIVE HD CAMERA</span>
                   </div>
                 )}
 
@@ -930,14 +935,14 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="flex justify-between">
                     <div className={`w-6 h-6 border-t-[3px] border-l-[3px] rounded-tl-lg transition-all ${
                       faceStatus === 'SUCCESS' 
-                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
                         : faceStatus === 'PENDING' 
                         ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
                         : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                     <div className={`w-6 h-6 border-t-[3px] border-r-[3px] rounded-tr-lg transition-all ${
                       faceStatus === 'SUCCESS' 
-                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
                         : faceStatus === 'PENDING' 
                         ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
                         : 'border-rose-500 shadow-sm shadow-rose-500'
@@ -946,7 +951,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   
                   {/* Subtle Face Alignment Oval */}
                   <div className={`w-28 h-36 mx-auto rounded-full border border-dashed transition-colors flex items-center justify-center ${
-                    faceStatus === 'SUCCESS' ? 'border-emerald-400/60' : faceStatus === 'PENDING' ? 'border-orange-400/60' : 'border-rose-500/60'
+                    faceStatus === 'SUCCESS' ? 'border-orange-400/60' : faceStatus === 'PENDING' ? 'border-orange-400/60' : 'border-rose-500/60'
                   }`}>
                     {isVerifyingFace && (
                       <span className="text-[10px] font-bold text-[#FF4B16] bg-zinc-950/80 px-2 py-0.5 rounded-md">
@@ -958,14 +963,14 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="flex justify-between">
                     <div className={`w-6 h-6 border-b-[3px] border-l-[3px] rounded-bl-lg transition-all ${
                       faceStatus === 'SUCCESS' 
-                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
                         : faceStatus === 'PENDING' 
                         ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
                         : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                     <div className={`w-6 h-6 border-b-[3px] border-r-[3px] rounded-br-lg transition-all ${
                       faceStatus === 'SUCCESS' 
-                        ? 'border-emerald-400 shadow-sm shadow-emerald-400' 
+                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
                         : faceStatus === 'PENDING' 
                         ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
                         : 'border-rose-500 shadow-sm shadow-rose-500'
@@ -981,7 +986,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 {/* Face ID Status Pill on Camera Viewport */}
                 <div className="absolute bottom-2.5 inset-x-2 flex justify-center z-20 pointer-events-none">
                   {faceStatus === 'SUCCESS' && (
-                    <div className="bg-emerald-600/95 text-white text-[11px] font-black px-3.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1.5 shadow-md border border-emerald-400/50 animate-in fade-in">
+                    <div className="bg-orange-600/95 text-white text-[11px] font-black px-3.5 py-1 rounded-full backdrop-blur-md flex items-center space-x-1.5 shadow-md border border-orange-400/50 animate-in fade-in">
                       <Check className="w-3.5 h-3.5 text-white stroke-[3]" />
                       <span>Khớp khuôn mặt AI ({faceConfidence}%)</span>
                     </div>
@@ -1012,7 +1017,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       alt={currentUser.name} 
                       className="w-11 h-11 rounded-xl object-cover border-2 border-[#FF4B16]/60 shadow-xs"
                     />
-                    <span className="absolute -bottom-1 -right-1 bg-emerald-500 text-white rounded-full p-0.5 shadow-xs">
+                    <span className="absolute -bottom-1 -right-1 bg-orange-500 text-white rounded-full p-0.5 shadow-xs">
                       <Check className="w-2.5 h-2.5" />
                     </span>
                   </div>
@@ -1024,7 +1029,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       </span>
                     </div>
                     <p className="text-[10px] text-zinc-400 truncate mt-0.5">
-                      Hồ sơ mẫu Face ID: <strong className="text-emerald-400 font-semibold">{staffFaceProfile.assignedFaceEmbedding ? 'Đã cài đặt AI' : 'Chưa có'}</strong>
+                      Hồ sơ mẫu Face ID: <strong className="text-orange-400 font-semibold">{staffFaceProfile.assignedFaceEmbedding ? 'Đã cài đặt AI' : 'Chưa có'}</strong>
                     </p>
                   </div>
                 </div>
@@ -1032,9 +1037,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <button
                   type="button"
                   onClick={() => setIsFaceRegistrationOpen(true)}
-                  className="shrink-0 text-[10px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/80 px-2.5 py-1.5 rounded-xl border border-emerald-700/60 transition-colors flex items-center gap-1 cursor-pointer"
+                  className="shrink-0 text-[10px] font-bold text-orange-400 hover:text-orange-300 bg-orange-950/60 hover:bg-orange-900/80 px-2.5 py-1.5 rounded-xl border border-orange-700/60 transition-colors flex items-center gap-1 cursor-pointer"
                 >
-                  <ScanFace className="w-3 h-3 text-emerald-400" />
+                  <ScanFace className="w-3 h-3 text-orange-400" />
                   <span>Đổi mẫu</span>
                 </button>
               </div>
@@ -1049,8 +1054,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     isVerifyingFace
                       ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed'
                       : faceStatus === 'SUCCESS'
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30'
-                      : 'bg-gradient-to-r from-[#FF4B16] to-amber-500 hover:from-[#E03E0C] hover:to-amber-600 text-white shadow-orange-900/40 active:scale-[0.99]'
+                      ? 'bg-orange-600 hover:bg-orange-500 text-white shadow-orange-900/30'
+                      : 'bg-gradient-to-r from-[#FF4B16] to-orange-500 hover:from-[#E03E0C] hover:to-orange-600 text-white shadow-orange-900/40 active:scale-[0.99]'
                   }`}
                 >
                   {isVerifyingFace ? (
@@ -1079,7 +1084,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               {/* 1. GPS VERIFICATION */}
               <div className={`p-3 rounded-2xl border transition-all ${
                 gpsStatus === 'SUCCESS'
-                  ? 'bg-emerald-50/90 border-emerald-300 ring-1 ring-emerald-400/20'
+                  ? 'bg-orange-50/90 border-orange-300 ring-1 ring-orange-400/20'
                   : gpsStatus === 'PENDING'
                   ? 'bg-orange-50/90 border-orange-300 ring-1 ring-orange-400/20'
                   : 'bg-rose-50/90 border-rose-300 ring-1 ring-rose-400/20'
@@ -1088,9 +1093,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="flex items-start space-x-2.5 min-w-0">
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
                       gpsStatus === 'SUCCESS'
-                        ? 'bg-emerald-500 text-white'
+                        ? 'bg-orange-500 text-white'
                         : gpsStatus === 'PENDING'
-                        ? 'bg-gradient-to-br from-[#FF4B16] to-amber-500 text-white animate-pulse'
+                        ? 'bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white animate-pulse'
                         : 'bg-rose-600 text-white'
                     }`}>
                       <MapPin className="w-4 h-4" />
@@ -1103,8 +1108,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       </div>
 
                       {gpsStatus === 'SUCCESS' && (
-                        <div className="text-[11px] text-emerald-800 font-medium mt-0.5">
-                          Hợp lệ • Cách cửa hàng <strong className="font-black text-emerald-900">{gpsDistance}m</strong> ({targetBranch.name})
+                        <div className="text-[11px] text-orange-800 font-medium mt-0.5">
+                          Hợp lệ • Cách cửa hàng <strong className="font-black text-orange-900">{gpsDistance}m</strong> ({targetBranch.name})
                         </div>
                       )}
 
@@ -1125,8 +1130,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {gpsStatus === 'SUCCESS' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-emerald-300 flex items-center space-x-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="bg-orange-100 text-orange-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" />
                         <span>ĐẠT</span>
                       </span>
                     )}
@@ -1154,7 +1159,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               {/* 2. WI-FI VERIFICATION */}
               <div className={`p-3 rounded-2xl border transition-all ${
                 wifiStatus === 'SUCCESS'
-                  ? 'bg-emerald-50/90 border-emerald-300 ring-1 ring-emerald-400/20'
+                  ? 'bg-orange-50/90 border-orange-300 ring-1 ring-orange-400/20'
                   : wifiStatus === 'PENDING'
                   ? 'bg-orange-50/90 border-orange-300 ring-1 ring-orange-400/20'
                   : 'bg-rose-50/90 border-rose-300 ring-1 ring-rose-400/20'
@@ -1163,9 +1168,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="flex items-start space-x-2.5 min-w-0">
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
                       wifiStatus === 'SUCCESS'
-                        ? 'bg-emerald-500 text-white'
+                        ? 'bg-orange-500 text-white'
                         : wifiStatus === 'PENDING'
-                        ? 'bg-gradient-to-br from-[#FF4B16] to-amber-500 text-white animate-pulse'
+                        ? 'bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white animate-pulse'
                         : 'bg-rose-600 text-white'
                     }`}>
                       <Wifi className="w-4 h-4" />
@@ -1178,8 +1183,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       </div>
 
                       {wifiStatus === 'SUCCESS' && (
-                        <div className="text-[11px] text-emerald-800 font-medium mt-0.5">
-                          Đã kết nối Wi-Fi cửa hàng: <strong className="font-black text-emerald-900">{currentWifiSSID}</strong>
+                        <div className="text-[11px] text-orange-800 font-medium mt-0.5">
+                          Đã kết nối Wi-Fi cửa hàng: <strong className="font-black text-orange-900">{currentWifiSSID}</strong>
                         </div>
                       )}
 
@@ -1212,8 +1217,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                           }}
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-colors cursor-pointer ${
                             wifiStatus === 'SUCCESS'
-                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
-                              : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-300'
+                              ? 'bg-orange-600 text-white border-orange-700 shadow-2xs'
+                              : 'bg-white hover:bg-orange-50 text-orange-800 border-orange-300'
                           }`}
                         >
                           📶 Kết nối Wi-Fi cửa hàng ({targetWifiSSID})
@@ -1238,8 +1243,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {wifiStatus === 'SUCCESS' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-emerald-300 flex items-center space-x-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="bg-orange-100 text-orange-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" />
                         <span>ĐẠT</span>
                       </span>
                     )}
@@ -1267,7 +1272,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               {/* 3. FACE ID VERIFICATION */}
               <div className={`p-3 rounded-2xl border transition-all ${
                 faceStatus === 'SUCCESS'
-                  ? 'bg-emerald-50/90 border-emerald-300 ring-1 ring-emerald-400/20'
+                  ? 'bg-orange-50/90 border-orange-300 ring-1 ring-orange-400/20'
                   : faceStatus === 'PENDING'
                   ? 'bg-orange-50/90 border-orange-300 ring-1 ring-orange-400/20'
                   : 'bg-rose-50/90 border-rose-300 ring-1 ring-rose-400/20'
@@ -1276,9 +1281,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="flex items-start space-x-2.5 min-w-0">
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
                       faceStatus === 'SUCCESS'
-                        ? 'bg-emerald-500 text-white'
+                        ? 'bg-orange-500 text-white'
                         : faceStatus === 'PENDING'
-                        ? 'bg-gradient-to-br from-[#FF4B16] to-amber-500 text-white animate-pulse'
+                        ? 'bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white animate-pulse'
                         : 'bg-rose-600 text-white'
                     }`}>
                       <ScanFace className="w-4 h-4" />
@@ -1291,12 +1296,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       </div>
 
                       {faceStatus === 'SUCCESS' && (
-                        <div className="text-[11px] text-emerald-800 font-medium mt-0.5 space-y-0.5">
+                        <div className="text-[11px] text-orange-800 font-medium mt-0.5 space-y-0.5">
                           <div>
-                            Khớp nhân viên: <strong className="font-black text-emerald-900">{currentUser.name}</strong> ({faceConfidence}%)
+                            Khớp nhân viên: <strong className="font-black text-orange-900">{currentUser.name}</strong> ({faceConfidence}%)
                           </div>
                           {faceFeedbackMsg && (
-                            <div className="text-[10px] text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded border border-emerald-200">
+                            <div className="text-[10px] text-orange-700 bg-orange-100/60 px-2 py-0.5 rounded border border-orange-200">
                               {faceFeedbackMsg}
                             </div>
                           )}
@@ -1327,9 +1332,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                         <button
                           type="button"
                           onClick={() => setIsFaceRegistrationOpen(true)}
-                          className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-md border border-emerald-300 transition-colors cursor-pointer flex items-center gap-1"
+                          className="text-[10px] font-bold px-2 py-0.5 bg-orange-50 hover:bg-orange-100 text-orange-800 rounded-md border border-orange-300 transition-colors cursor-pointer flex items-center gap-1"
                         >
-                          <ScanFace className="w-3 h-3 text-emerald-600" />
+                          <ScanFace className="w-3 h-3 text-orange-600" />
                           <span>1. Đăng ký / Đổi ảnh mẫu</span>
                         </button>
                         <button
@@ -1347,8 +1352,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                   <div className="flex items-center space-x-1.5 shrink-0">
                     {faceStatus === 'SUCCESS' && (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-emerald-300 flex items-center space-x-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="bg-orange-100 text-orange-800 text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" />
                         <span>ĐẠT</span>
                       </span>
                     )}
@@ -1418,10 +1423,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
               {/* Outer pulsing ring in brand orange */}
               <div className="absolute inset-0 rounded-full bg-[#FF4B16]/20 animate-ping" />
-              {/* Mid ring in emerald */}
-              <div className="absolute -inset-2 rounded-full bg-emerald-500/15 animate-pulse" />
+              {/* Mid ring in orange */}
+              <div className="absolute -inset-2 rounded-full bg-orange-500/15 animate-pulse" />
               {/* Main Badge */}
-              <div className="relative w-24 h-24 rounded-full bg-gradient-to-tr from-emerald-600 to-emerald-400 border-4 border-white shadow-xl shadow-emerald-500/30 flex items-center justify-center">
+              <div className="relative w-24 h-24 rounded-full bg-gradient-to-tr from-orange-600 to-orange-400 border-4 border-white shadow-xl shadow-orange-500/30 flex items-center justify-center">
                 <Check className="w-12 h-12 text-white stroke-[3.5]" />
               </div>
               {/* Floating Sparkle Badge */}
@@ -1445,8 +1450,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs text-left space-y-2.5">
               <div className="flex justify-between items-center pb-2 border-b border-zinc-100">
                 <span className="text-[11px] font-extrabold text-zinc-400 uppercase tracking-wider">Thông tin ca làm việc</span>
-                <span className="bg-emerald-100 text-emerald-800 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center space-x-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span className="bg-orange-100 text-orange-800 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
                   <span>Đúng giờ</span>
                 </span>
               </div>
@@ -1469,7 +1474,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             </div>
 
             {/* Tóm tắt nhiệm vụ trọng tâm hôm nay (Tư vấn: 15 khách, Đơn hàng: 10 đơn, Doanh số: 20M) */}
-            <div className="bg-gradient-to-br from-orange-50/90 to-amber-50/70 rounded-2xl p-4 border border-orange-200/80 text-left space-y-3 shadow-2xs">
+            <div className="bg-gradient-to-br from-orange-50/90 to-orange-50/70 rounded-2xl p-4 border border-orange-200/80 text-left space-y-3 shadow-2xs">
               <div className="text-xs font-black text-orange-950 flex items-center justify-between">
                 <div className="flex items-center space-x-1.5">
                   <Award className="w-4 h-4 text-[#FF4B16]" />
@@ -1497,15 +1502,15 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
               <ul className="text-xs text-zinc-700 space-y-1.5 pt-1 pl-0.5">
                 <li className="flex items-center space-x-2">
-                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 stroke-[3]" />
+                  <Check className="w-3.5 h-3.5 text-orange-600 shrink-0 stroke-[3]" />
                   <span>Tư vấn giới thiệu sản phẩm tối thiểu <strong>15 lượt khách</strong></span>
                 </li>
                 <li className="flex items-center space-x-2">
-                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 stroke-[3]" />
+                  <Check className="w-3.5 h-3.5 text-orange-600 shrink-0 stroke-[3]" />
                   <span>Chốt <strong>10 đơn hàng</strong> máy kèm phụ kiện & gói Care+</span>
                 </li>
                 <li className="flex items-center space-x-2">
-                  <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 stroke-[3]" />
+                  <Check className="w-3.5 h-3.5 text-orange-600 shrink-0 stroke-[3]" />
                   <span>Đạt mốc <strong>20.000.000 đ</strong> để nhận thưởng nóng ngày</span>
                 </li>
               </ul>
@@ -1516,6 +1521,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <button
               onClick={() => {
                 setShiftStatusOverride('IN_PROGRESS');
+                localStorage.setItem(`phonehouse_is_checked_in_${currentUser.id}`, 'true');
                 setCurrentScreen('HOME');
               }}
               className="w-full py-4 bg-[#FF4B16] hover:bg-[#E94312] text-white font-black text-sm rounded-2xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"
@@ -1545,7 +1551,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs text-center">
               <div className="text-xs text-zinc-500 font-medium">Giờ hiện tại</div>
               <div className="text-3xl font-black font-mono text-zinc-900 mt-0.5">{liveTimeString}</div>
-              <div className="text-xs font-bold text-emerald-600 mt-1">Đủ điều kiện chốt công hoàn thành ca</div>
+              <div className="text-xs font-bold text-orange-600 mt-1">Đủ điều kiện chốt công hoàn thành ca</div>
 
               <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-zinc-100 text-center">
                 <div className="bg-zinc-50 p-2 rounded-xl">
@@ -1581,7 +1587,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-zinc-500">Hoa hồng dự kiến tích lũy:</span>
-                  <span className="font-bold text-emerald-600">+175.000 đ</span>
+                  <span className="font-bold text-orange-600">+175.000 đ</span>
                 </div>
               </div>
             </div>
@@ -1592,7 +1598,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               onClick={handleConfirmCheckOut}
               className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 text-white font-extrabold text-sm rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 cursor-pointer"
             >
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              <CheckCircle2 className="w-5 h-5 text-orange-400" />
               <span>CHẤM CÔNG RA & CHỐT CA</span>
             </button>
           </div>
@@ -1609,7 +1615,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="bg-white rounded-2xl p-3.5 border border-zinc-200/80 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FF4B16] to-amber-500 flex items-center justify-center text-white font-black text-sm shadow-xs">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FF4B16] to-orange-500 flex items-center justify-center text-white font-black text-sm shadow-xs">
                       PH
                     </div>
                     <div>
@@ -1634,7 +1640,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                         className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-2xs"
                       />
                       <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${
-                        isCheckedIn ? 'bg-emerald-500' : 'bg-amber-500'
+                        isCheckedIn ? 'bg-orange-500' : 'bg-orange-500'
                       }`} />
                     </div>
                   </div>
@@ -1690,16 +1696,16 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   </div>
 
                   {isCheckedIn ? (
-                    <span className="inline-flex items-center bg-emerald-50 text-emerald-700 text-xs font-extrabold px-2.5 py-1 rounded-xl border border-emerald-200 shadow-2xs">
+                    <span className="inline-flex items-center bg-orange-50 text-orange-700 text-xs font-extrabold px-2.5 py-1 rounded-xl border border-orange-200 shadow-2xs">
                       <span className="relative flex h-2.5 w-2.5 mr-1.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-orange-500"></span>
                       </span>
                       <span>Đang làm việc</span>
                     </span>
                   ) : (
-                    <span className="inline-flex items-center space-x-1 bg-amber-50 text-amber-700 text-xs font-extrabold px-2.5 py-1 rounded-xl border border-amber-200">
-                      <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    <span className="inline-flex items-center space-x-1 bg-orange-50 text-orange-700 text-xs font-extrabold px-2.5 py-1 rounded-xl border border-orange-200">
+                      <Clock className="w-3.5 h-3.5 text-orange-600" />
                       <span>Chưa check-in</span>
                     </span>
                   )}
@@ -1711,17 +1717,17 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     {/* Location & Wi-Fi Pre-Check Status Chips */}
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="p-2 rounded-xl bg-zinc-50 border border-zinc-200/70 flex items-center space-x-2">
-                        <div className="p-1 rounded-lg bg-emerald-100 text-emerald-600">
+                        <div className="p-1 rounded-lg bg-orange-100 text-orange-600">
                           <MapPin className="w-3.5 h-3.5" />
                         </div>
                         <div className="min-w-0">
                           <div className="font-bold text-[11px] text-zinc-800">GPS: 15 mét</div>
-                          <div className="text-[10px] text-emerald-600 font-semibold">Hợp lệ tại cửa hàng</div>
+                          <div className="text-[10px] text-orange-600 font-semibold">Hợp lệ tại cửa hàng</div>
                         </div>
                       </div>
 
                       <div className="p-2 rounded-xl bg-zinc-50 border border-zinc-200/70 flex items-center space-x-2">
-                        <div className="p-1 rounded-lg bg-blue-100 text-orange-600">
+                        <div className="p-1 rounded-lg bg-orange-100 text-orange-600">
                           <Wifi className="w-3.5 h-3.5" />
                         </div>
                         <div className="min-w-0">
@@ -1774,39 +1780,49 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       </button>
                     </div>
 
-                    {/* Quick Activity Status Selector (4 Action Buttons) */}
+                    {/* Quick Activity Status Selector (Horizontal Scrollable Tabs) */}
                     <div>
-                      <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">
-                        Trạng thái hoạt động trong ca
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                          Trạng thái hoạt động trong ca
+                        </span>
+                        <span className="text-[10px] text-zinc-400 font-medium">Trượt ngang</span>
                       </div>
-                      <div className="grid grid-cols-4 gap-1.5 text-center">
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none snap-x">
+                        <button
+                          onClick={() => onChangeActivity('WORKING')}
+                          className="px-3 py-1.5 rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
+                        >
+                          <Activity className="w-3.5 h-3.5 text-[#FF4B16]" />
+                          <span>Đang làm việc</span>
+                        </button>
                         <button
                           onClick={() => onChangeActivity('BREAK')}
-                          className="p-2 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] transition-all flex flex-col items-center cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
-                          <Coffee className="w-4 h-4 mb-1 text-zinc-500" />
-                          <span className="text-[10px] font-bold">Nghỉ ca</span>
+                          <Coffee className="w-3.5 h-3.5 text-zinc-500" />
+                          <span>Nghỉ ca (30p)</span>
                         </button>
                         <button
                           onClick={() => onChangeActivity('OUTSIDE')}
-                          className="p-2 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] transition-all flex flex-col items-center cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
-                          <ExternalLink className="w-4 h-4 mb-1 text-zinc-500" />
-                          <span className="text-[10px] font-bold">Ra ngoài</span>
+                          <ExternalLink className="w-3.5 h-3.5 text-zinc-500" />
+                          <span>Ra ngoài (15p)</span>
                         </button>
                         <button
                           onClick={() => onChangeActivity('DELIVERY')}
-                          className="p-2 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] transition-all flex flex-col items-center cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
-                          <Truck className="w-4 h-4 mb-1 text-zinc-500" />
-                          <span className="text-[10px] font-bold">Giao hàng</span>
+                          <Truck className="w-3.5 h-3.5 text-zinc-500" />
+                          <span>Đi giao hàng</span>
                         </button>
                         <button
                           onClick={() => onChangeActivity('SUPPORT_TECH')}
-                          className="p-2 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] transition-all flex flex-col items-center cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
-                          <Wrench className="w-4 h-4 mb-1 text-zinc-500" />
-                          <span className="text-[10px] font-bold">Kỹ thuật</span>
+                          <Wrench className="w-3.5 h-3.5 text-zinc-500" />
+                          <span>Kỹ thuật & KCS</span>
                         </button>
                       </div>
                     </div>
@@ -1925,7 +1941,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       >
                         <div className="mt-0.5 shrink-0">
                           {task.completed ? (
-                            <CheckSquare className="w-4 h-4 text-emerald-600" />
+                            <CheckSquare className="w-4 h-4 text-orange-600" />
                           ) : (
                             <Square className="w-4 h-4 text-zinc-400" />
                           )}
@@ -1945,7 +1961,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
 
                 {/* Estimated Daily Commission Card */}
-                <div className="bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 rounded-2xl p-3 border border-orange-200 flex items-center justify-between">
+                <div className="bg-gradient-to-r from-orange-500/10 via-orange-500/10 to-orange-500/5 rounded-2xl p-3 border border-orange-200 flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
                     <div className="p-2 rounded-xl bg-[#FF4B16] text-white">
                       <DollarSign className="w-4 h-4" />
@@ -1984,7 +2000,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     onClick={() => setIsLeaveModalOpen(true)}
                     className="p-3 bg-white hover:bg-orange-50/60 rounded-2xl border border-zinc-200/80 shadow-2xs flex flex-col items-center justify-center transition-all cursor-pointer group active:scale-95"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
+                    <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
                       <FileText className="w-5 h-5 text-orange-600" />
                     </div>
                     <span className="text-xs font-extrabold text-zinc-800">Xin nghỉ</span>
@@ -1995,8 +2011,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     onClick={() => setActiveBottomTab('profile')}
                     className="p-3 bg-white hover:bg-orange-50/60 rounded-2xl border border-zinc-200/80 shadow-2xs flex flex-col items-center justify-center transition-all cursor-pointer group active:scale-95"
                   >
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
-                      <DollarSign className="w-5 h-5 text-emerald-600" />
+                    <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
+                      <DollarSign className="w-5 h-5 text-orange-600" />
                     </div>
                     <span className="text-xs font-extrabold text-zinc-800">Bảng lương</span>
                     <span className="text-[9px] text-zinc-400 mt-0.5">Phiếu & hoa hồng</span>
@@ -2077,12 +2093,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
 
                 {/* Ca sáng (Đã chấm công) */}
-                <div className="bg-white p-3.5 rounded-2xl border border-emerald-200/80 shadow-2xs flex items-center justify-between">
+                <div className="bg-white p-3.5 rounded-2xl border border-orange-200/80 shadow-2xs flex items-center justify-between">
                   <div>
                     <div className="font-extrabold text-sm text-zinc-900">Ca sáng (08:00 – 15:00)</div>
                     <div className="text-xs text-zinc-500 font-medium">{currentUser.branchName}</div>
                   </div>
-                  <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                  <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2.5 py-1 rounded-full">
                     Đã chấm công
                   </span>
                 </div>
@@ -2125,15 +2141,15 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="bg-zinc-50 p-2.5 rounded-xl">
                     <div className="text-[10px] text-zinc-400 font-bold uppercase">Phép còn lại</div>
-                    <div className="text-sm font-black text-emerald-600 mt-0.5">8 ngày</div>
+                    <div className="text-sm font-black text-orange-600 mt-0.5">8 ngày</div>
                   </div>
                   <div className="bg-zinc-50 p-2.5 rounded-xl">
                     <div className="text-[10px] text-zinc-400 font-bold uppercase">Đã sử dụng</div>
                     <div className="text-sm font-black text-zinc-800 mt-0.5">4 ngày</div>
                   </div>
-                  <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-100">
-                    <div className="text-[10px] text-amber-700 font-bold uppercase">Chờ duyệt</div>
-                    <div className="text-sm font-black text-amber-800 mt-0.5">1 yêu cầu</div>
+                  <div className="bg-orange-50 p-2.5 rounded-xl border border-orange-100">
+                    <div className="text-[10px] text-orange-700 font-bold uppercase">Chờ duyệt</div>
+                    <div className="text-sm font-black text-orange-800 mt-0.5">1 yêu cầu</div>
                   </div>
                 </div>
 
@@ -2146,7 +2162,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                         <span className="text-zinc-500 ml-1.5">({req.type === 'ANNUAL_LEAVE' ? 'Nghỉ phép năm' : 'Đổi ca'})</span>
                       </div>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        req.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                        req.status === 'APPROVED' ? 'bg-orange-100 text-orange-800' : 'bg-orange-100 text-orange-800'
                       }`}>
                         {req.status === 'APPROVED' ? 'Đã duyệt' : 'Chờ duyệt'}
                       </span>
@@ -2185,7 +2201,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
 
                 <div className="bg-white p-3.5 rounded-2xl border border-zinc-200/80 shadow-2xs flex space-x-3">
-                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center shrink-0">
                     <Check className="w-4 h-4" />
                   </div>
                   <div className="text-xs">
@@ -2203,7 +2219,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <div className="space-y-4">
               
               {/* FACE ID BIOMETRIC REGISTRATION CARD */}
-              <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white rounded-2xl p-4 shadow-md flex items-center justify-between">
+              <div className="bg-gradient-to-r from-orange-500 via-orange-500 to-orange-600 text-white rounded-2xl p-4 shadow-md flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="w-11 h-11 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
                     <ScanFace className="w-6 h-6 text-white" />
@@ -2212,7 +2228,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     <h3 className="font-extrabold text-sm text-white flex items-center gap-1.5">
                       <span>Sinh Trắc Học Face ID</span>
                       {staffFaceProfile.assignedFaceEmbedding && (
-                        <span className="bg-emerald-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">ĐÃ LƯU</span>
+                        <span className="bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">ĐÃ LƯU</span>
                       )}
                     </h3>
                     <p className="text-[11px] text-orange-100">
@@ -2252,7 +2268,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     {payrollSlip.netReceivable.toLocaleString()} VND
                   </div>
                   <div className="text-xs text-zinc-400 mt-1">
-                    Trạng thái: <span className="text-emerald-400 font-bold">Quản lý cửa hàng đã duyệt</span>
+                    Trạng thái: <span className="text-orange-400 font-bold">Quản lý cửa hàng đã duyệt</span>
                   </div>
                 </div>
                 <div className="absolute right-3 top-3 opacity-10">
@@ -2280,7 +2296,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       <div className="text-[10px] text-zinc-400 truncate">{item.description}</div>
                     </div>
 
-                    <div className={`font-black font-mono shrink-0 ${item.isAddition ? 'text-zinc-900' : 'text-red-600'}`}>
+                    <div className={`font-black font-mono shrink-0 ${item.isAddition ? 'text-zinc-900' : 'text-rose-600'}`}>
                       {item.isAddition ? '+' : '-'}{item.amount.toLocaleString()} đ
                     </div>
                   </button>
@@ -2305,7 +2321,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   </div>
                   <div className="bg-zinc-50 p-2.5 rounded-xl">
                     <span className="text-[10px] text-zinc-400 font-bold uppercase">Bán kèm PK</span>
-                    <div className="font-black text-emerald-600 mt-0.5">68% (Đạt)</div>
+                    <div className="font-black text-orange-600 mt-0.5">68% (Đạt)</div>
                   </div>
                   <div className="bg-zinc-50 p-2.5 rounded-xl">
                     <span className="text-[10px] text-zinc-400 font-bold uppercase">Hoa hồng chờ</span>
@@ -2353,7 +2369,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <div key={c.id} className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200/70 text-xs space-y-1">
                   <div className="flex justify-between font-bold">
                     <span className="text-[#FF4B16]">#{c.orderCode}</span>
-                    <span className="text-emerald-700">+{c.commissionAmount.toLocaleString()} đ</span>
+                    <span className="text-orange-700">+{c.commissionAmount.toLocaleString()} đ</span>
                   </div>
                   <div className="text-zinc-800 font-semibold">{c.productName}</div>
                   <div className="text-[10px] text-zinc-400 flex justify-between pt-1 border-t border-zinc-200/50">

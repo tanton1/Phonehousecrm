@@ -187,12 +187,12 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
         <div className="p-4 sm:p-5 space-y-4 max-h-[80vh] overflow-y-auto">
           
           {saveSuccess ? (
-            <div className="p-6 text-center space-y-3 bg-emerald-50 rounded-2xl border border-emerald-200">
-              <div className="w-14 h-14 bg-emerald-500 text-white rounded-full flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/30 animate-bounce">
+            <div className="p-6 text-center space-y-3 bg-orange-50 rounded-2xl border border-orange-200">
+              <div className="w-14 h-14 bg-orange-500 text-white rounded-full flex items-center justify-center mx-auto shadow-lg shadow-orange-500/30 animate-bounce">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
-              <h4 className="font-extrabold text-emerald-950 text-base">Đã Lưu Dữ Liệu Gương Mặt!</h4>
-              <p className="text-xs text-emerald-700">
+              <h4 className="font-extrabold text-orange-950 text-base">Đã Lưu Dữ Liệu Gương Mặt!</h4>
+              <p className="text-xs text-orange-700">
                 Mẫu gương mặt sinh trắc học đã được mã hóa 128-bit và liên kết với tài khoản <strong>{staffName}</strong>. Hệ thống sẵn sàng xác thực khi chấm công.
               </p>
             </div>
@@ -207,7 +207,7 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
                   autoPlay
                   playsInline
                   muted
-                  className={`w-full h-full object-cover filter contrast-105 ${
+                  style={{ transform: "scaleX(-1)" }} className={`w-full h-full object-cover filter contrast-105 ${
                     capturedPhoto ? 'hidden' : 'block'
                   }`}
                 />
@@ -251,12 +251,12 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
 
                 {/* Status Badge */}
                 <div className="absolute top-3 inset-x-3 flex justify-between items-center pointer-events-none">
-                  <span className="text-[10px] bg-black/70 text-emerald-400 font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 backdrop-blur-md flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  <span className="text-[10px] bg-black/70 text-orange-400 font-bold px-2.5 py-1 rounded-lg border border-orange-500/30 backdrop-blur-md flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-orange-400" />
                     <span>AI Biometric Sensor Active</span>
                   </span>
                   {capturedPhoto && (
-                    <span className="text-[10px] bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-lg backdrop-blur-md shadow-sm">
+                    <span className="text-[10px] bg-orange-600 text-white font-bold px-2.5 py-1 rounded-lg backdrop-blur-md shadow-sm">
                       Đã trích xuất đặc trưng AI
                     </span>
                   )}
@@ -264,8 +264,8 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
               </div>
 
               {detectionWarning && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-xs text-orange-900 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold block">Cảnh báo diện mạo:</span>
                     <span>{detectionWarning}</span>
@@ -274,8 +274,8 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
               )}
 
               {cameraError && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-xs text-orange-900 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold block">Thông báo kết nối Camera:</span>
                     <span>{cameraError} Thao tác sẽ sử dụng mẫu chụp ảnh chân thực để giả lập hoàn tất lưu hồ sơ.</span>

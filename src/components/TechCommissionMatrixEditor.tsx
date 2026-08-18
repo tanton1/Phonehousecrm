@@ -193,7 +193,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
       {/* 1. TOP HEADER & CONTROLS */}
       <div className="bg-white p-5 rounded-3xl border border-zinc-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md shadow-amber-500/20 font-black">
+          <div className="w-12 h-12 rounded-2xl bg-orange-500 text-white flex items-center justify-center shadow-md shadow-orange-500/20 font-black">
             <Wrench className="w-6 h-6" />
           </div>
           <div>
@@ -201,7 +201,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
               <h2 className="text-lg sm:text-xl font-black text-zinc-900 tracking-tight">
                 Bảng Hoa Hồng Kỹ Thuật & Cơ Chế Đền Bù
               </h2>
-              <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-200">
+              <span className="bg-orange-100 text-orange-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-orange-200">
                 {matrix.tasks.length} Hạng Mục • {matrix.models.length} Phân Nhóm Máy
               </span>
             </div>
@@ -214,7 +214,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
           {saveSuccess && (
-            <div className="flex items-center space-x-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 animate-pulse">
+            <div className="flex items-center space-x-1 text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-xl border border-orange-200 animate-pulse">
               <CheckCircle2 className="w-4 h-4" />
               <span>Đã lưu & áp dụng ngay!</span>
             </div>
@@ -224,7 +224,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
             onClick={() => setIsEditing(!isEditing)}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
               isEditing 
-                ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20' 
+                ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20' 
                 : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'
             }`}
           >
@@ -235,7 +235,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
           {isEditing && (
             <button
               onClick={handleSave}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black px-4 py-2 rounded-xl flex items-center space-x-1.5 shadow-md shadow-emerald-600/20 active:scale-95 cursor-pointer"
+              className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-black px-4 py-2 rounded-xl flex items-center space-x-1.5 shadow-md shadow-orange-600/20 active:scale-95 cursor-pointer"
             >
               <Save className="w-3.5 h-3.5" />
               <span>Lưu Ma Trận</span>
@@ -261,7 +261,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
 
           <button
             onClick={handleReset}
-            className="p-2 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors cursor-pointer"
+            className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
             title="Khôi phục về bảng chuẩn mẫu ban đầu"
           >
             <RotateCcw className="w-4 h-4" />
@@ -275,7 +275,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
           onClick={() => setActiveSubTab('MATRIX')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
             activeSubTab === 'MATRIX'
-              ? 'bg-amber-500 text-white shadow-xs font-black'
+              ? 'bg-orange-500 text-white shadow-xs font-black'
               : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
           }`}
         >
@@ -287,7 +287,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
           onClick={() => setActiveSubTab('COMPENSATION')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
             activeSubTab === 'COMPENSATION'
-              ? 'bg-red-600 text-white shadow-xs font-black'
+              ? 'bg-rose-600 text-white shadow-xs font-black'
               : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
           }`}
         >
@@ -299,7 +299,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
           onClick={() => setActiveSubTab('SIMULATOR')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
             activeSubTab === 'SIMULATOR'
-              ? 'bg-indigo-600 text-white shadow-xs font-black'
+              ? 'bg-rose-600 text-white shadow-xs font-black'
               : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200'
           }`}
         >
@@ -314,15 +314,15 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
           <div className="bg-white rounded-3xl p-5 border border-zinc-200 shadow-xs space-y-4">
             
             {/* Banner Guide */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-amber-50/80 border border-amber-200 rounded-2xl text-xs text-amber-950">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-orange-50/80 border border-orange-200 rounded-2xl text-xs text-orange-950">
               <div className="flex items-center space-x-2">
-                <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                <Info className="w-4 h-4 text-orange-600 shrink-0" />
                 <span>
                   <strong>Đơn vị hiển thị:</strong> Nghìn đồng (k). Số <strong>20</strong> = 20.000 đ, <strong>100</strong> = 100.000 đ, dấu <strong>-</strong> = Không áp dụng (0 đ).
                 </span>
               </div>
               {isEditing ? (
-                <span className="font-bold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-md text-[11px]">
+                <span className="font-bold text-orange-800 bg-orange-200/70 px-2 py-0.5 rounded-md text-[11px]">
                   ✍️ Đang mở ô nhập liệu - Sửa xong bấm "Lưu Ma Trận"
                 </span>
               ) : (
@@ -348,7 +348,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                   type="button"
                   onClick={() => setViewMode('CARD')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
-                    viewMode === 'CARD' ? 'bg-amber-500 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
+                    viewMode === 'CARD' ? 'bg-orange-500 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
                   }`}
                 >
                   📲 Dạng Thẻ (iPhone Mobile)
@@ -357,7 +357,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                   type="button"
                   onClick={() => setViewMode('TABLE')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
-                    viewMode === 'TABLE' ? 'bg-amber-500 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
+                    viewMode === 'TABLE' ? 'bg-orange-500 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
                   }`}
                 >
                   📊 Dạng Bảng Rộng
@@ -371,7 +371,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                   placeholder="Tìm tác vụ (ép kính, pin, nguồn...)"
                   value={searchTaskTerm}
                   onChange={(e) => setSearchTaskTerm(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-900 focus:bg-white focus:border-amber-500"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-1.5 text-xs text-zinc-900 focus:bg-white focus:border-orange-500"
                 />
               </div>
             </div>
@@ -388,7 +388,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                       onClick={() => setMobileSelectedModel(m.id)}
                       className={`px-3.5 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer ${
                         mobileSelectedModel === m.id
-                          ? 'bg-amber-500 text-white shadow-md shadow-amber-500/20 font-black scale-105'
+                          ? 'bg-orange-500 text-white shadow-md shadow-orange-500/20 font-black scale-105'
                           : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
                       }`}
                     >
@@ -413,13 +413,13 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                         >
                           <div className="flex justify-between items-start">
                             <div className="flex items-center space-x-2">
-                              <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
+                              <span className="w-5 h-5 rounded-full bg-orange-100 text-orange-800 text-[10px] font-mono font-bold flex items-center justify-center shrink-0">
                                 {idx + 1}
                               </span>
                               <div>
                                 <h4 className="font-bold text-zinc-900 text-xs">{task.name}</h4>
                                 <span className="text-[10px] text-zinc-500">
-                                  Dòng: <strong className="text-amber-800">{selectedGroup?.name}</strong>
+                                  Dòng: <strong className="text-orange-800">{selectedGroup?.name}</strong>
                                 </span>
                               </div>
                             </div>
@@ -427,7 +427,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                             {isEditing && (
                               <button
                                 onClick={() => handleDeleteTask(task.id)}
-                                className="p-1 text-zinc-300 hover:text-red-600 rounded-lg cursor-pointer"
+                                className="p-1 text-zinc-300 hover:text-rose-600 rounded-lg cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -451,19 +451,19 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                                   value={valK === 0 ? '' : valK}
                                   placeholder="0"
                                   onChange={(e) => handleRateChange(task.id, mobileSelectedModel, Number(e.target.value) || 0)}
-                                  className="w-16 text-center py-1 bg-amber-50 border border-amber-300 rounded-lg text-xs font-bold font-mono text-zinc-900"
+                                  className="w-16 text-center py-1 bg-orange-50 border border-orange-300 rounded-lg text-xs font-bold font-mono text-zinc-900"
                                 />
                                 <span className="text-xs font-bold text-zinc-600">k</span>
                                 <button
                                   type="button"
                                   onClick={() => handleRateChange(task.id, mobileSelectedModel, valK + 10)}
-                                  className="w-7 h-7 bg-amber-100 hover:bg-amber-200 rounded-lg text-xs font-bold text-amber-800 flex items-center justify-center cursor-pointer"
+                                  className="w-7 h-7 bg-orange-100 hover:bg-orange-200 rounded-lg text-xs font-bold text-orange-800 flex items-center justify-center cursor-pointer"
                                 >
                                   +
                                 </button>
                               </div>
                             ) : (
-                              <span className="font-mono font-black text-sm text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-xl">
+                              <span className="font-mono font-black text-sm text-orange-700 bg-orange-50 border border-orange-200 px-3 py-1 rounded-xl">
                                 {valVnd > 0 ? `${valVnd.toLocaleString('vi-VN')} đ` : 'Không áp dụng'}
                               </span>
                             )}
@@ -481,12 +481,12 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                 <table className="w-full text-center text-xs border-collapse min-w-[850px]">
                   <thead>
                     {/* Table Header: Golden Yellow Theme like the user's Excel */}
-                    <tr className="bg-[#FFF2B2] text-zinc-900 border-b border-amber-300 font-black text-[11px]">
-                      <th className="py-3 px-4 text-left border-r border-amber-200 w-48 sticky left-0 bg-[#FFF2B2] z-10">
+                    <tr className="bg-[#FFF2B2] text-zinc-900 border-b border-orange-300 font-black text-[11px]">
+                      <th className="py-3 px-4 text-left border-r border-orange-200 w-48 sticky left-0 bg-[#FFF2B2] z-10">
                         Hạng Mục Kỹ Thuật
                       </th>
                       {matrix.models.map(m => (
-                        <th key={m.id} className="py-3 px-2 border-r border-amber-200 last:border-r-0">
+                        <th key={m.id} className="py-3 px-2 border-r border-orange-200 last:border-r-0">
                           <div className="font-black">{m.name}</div>
                           <div className="text-[9px] text-zinc-500 font-normal mt-0.5 font-mono">
                             {m.keywords.slice(0, 3).join(', ')}
@@ -494,7 +494,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                         </th>
                       ))}
                       {isEditing && (
-                        <th className="py-3 px-2 text-center text-red-600 w-16">
+                        <th className="py-3 px-2 text-center text-rose-600 w-16">
                           Xóa
                         </th>
                       )}
@@ -507,12 +507,12 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                       .map((task, idx) => (
                         <tr 
                           key={task.id} 
-                          className={`hover:bg-amber-50/40 transition-colors ${idx % 2 === 1 ? 'bg-zinc-50/50' : 'bg-white'}`}
+                          className={`hover:bg-orange-50/40 transition-colors ${idx % 2 === 1 ? 'bg-zinc-50/50' : 'bg-white'}`}
                         >
                           {/* Task Name */}
                           <td className="py-2.5 px-4 text-left font-bold text-zinc-900 border-r border-zinc-200 sticky left-0 bg-inherit z-10">
                             <div className="flex items-center space-x-2">
-                              <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] flex items-center justify-center font-mono font-bold shrink-0">
+                              <span className="w-5 h-5 rounded-full bg-orange-100 text-orange-800 text-[10px] flex items-center justify-center font-mono font-bold shrink-0">
                                 {idx + 1}
                               </span>
                               <span>{task.name}</span>
@@ -534,7 +534,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                                     value={valK === 0 ? '' : valK}
                                     placeholder="-"
                                     onChange={(e) => handleRateChange(task.id, model.id, Number(e.target.value) || 0)}
-                                    className="w-16 text-center py-1 bg-amber-50/60 border border-amber-300 rounded-lg text-xs font-bold font-mono text-zinc-900 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-amber-500"
+                                    className="w-16 text-center py-1 bg-orange-50/60 border border-orange-300 rounded-lg text-xs font-bold font-mono text-zinc-900 focus:outline-hidden focus:bg-white focus:ring-2 focus:ring-orange-500"
                                   />
                                 ) : (
                                   <span className={`font-mono font-bold ${valK > 0 ? 'text-zinc-900' : 'text-zinc-300'}`}>
@@ -549,7 +549,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                             <td className="py-2 px-2 text-center">
                               <button
                                 onClick={() => handleDeleteTask(task.id)}
-                                className="p-1 text-zinc-300 hover:text-red-600 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                                className="p-1 text-zinc-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
                                 title="Xóa hạng mục"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -571,14 +571,14 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setIsEditing(!isEditing)}
-                  className="font-bold text-amber-600 hover:underline cursor-pointer"
+                  className="font-bold text-orange-600 hover:underline cursor-pointer"
                 >
                   {isEditing ? 'Đóng chế độ sửa' : 'Chỉnh sửa ma trận này'}
                 </button>
                 <span>•</span>
                 <button
                   onClick={() => setActiveSubTab('COMPENSATION')}
-                  className="font-bold text-red-600 hover:underline cursor-pointer"
+                  className="font-bold text-rose-600 hover:underline cursor-pointer"
                 >
                   Xem quy chế đền bù lỗi &rarr;
                 </button>
@@ -593,7 +593,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
         <div className="space-y-4">
           <div className="bg-white rounded-3xl p-6 border border-zinc-200 shadow-xs space-y-6">
             <div>
-              <div className="flex items-center space-x-2 text-xs font-bold text-red-600 uppercase">
+              <div className="flex items-center space-x-2 text-xs font-bold text-rose-600 uppercase">
                 <ShieldAlert className="w-4 h-4" />
                 <span>Chính Sách Hỗ Trợ Đền Bù Rủi Ro Kỹ Thuật</span>
               </div>
@@ -609,12 +609,12 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               
               {/* RULE 1: GENERAL DAMAGE */}
-              <div className="p-5 bg-gradient-to-br from-amber-50 to-orange-50/50 border border-amber-200 rounded-3xl space-y-4">
+              <div className="p-5 bg-gradient-to-br from-orange-50 to-orange-50/50 border border-orange-200 rounded-3xl space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="bg-amber-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase">
+                  <span className="bg-orange-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase">
                     Quy định 1
                   </span>
-                  <Percent className="w-4 h-4 text-amber-600" />
+                  <Percent className="w-4 h-4 text-orange-600" />
                 </div>
 
                 <div>
@@ -626,7 +626,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                   </p>
                 </div>
 
-                <div className="p-4 bg-white rounded-2xl border border-amber-200/80 space-y-3">
+                <div className="p-4 bg-white rounded-2xl border border-orange-200/80 space-y-3">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-zinc-700">Tỷ lệ Cửa Hàng hỗ trợ:</span>
                     <div className="flex items-center space-x-1">
@@ -647,32 +647,32 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                           setMatrix(updated);
                           saveLiveTechCommissionMatrix(updated);
                         }}
-                        className="w-16 text-center py-1 bg-amber-50 border border-amber-300 rounded-lg font-mono font-black text-amber-700 text-xs focus:outline-hidden"
+                        className="w-16 text-center py-1 bg-orange-50 border border-orange-300 rounded-lg font-mono font-black text-orange-700 text-xs focus:outline-hidden"
                       />
-                      <span className="font-bold text-amber-700">%</span>
+                      <span className="font-bold text-orange-700">%</span>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between text-xs pt-2 border-t border-zinc-100">
                     <span className="font-bold text-zinc-700">Tỷ lệ KTV chịu chi phí:</span>
-                    <span className="font-mono font-black text-red-600 text-sm">
+                    <span className="font-mono font-black text-rose-600 text-sm">
                       {100 - matrix.compensationPolicy.generalShopSupportPercent}%
                     </span>
                   </div>
                 </div>
 
-                <div className="text-[11px] text-amber-900 bg-amber-100/60 p-3 rounded-xl">
+                <div className="text-[11px] text-orange-900 bg-orange-100/60 p-3 rounded-xl">
                   💡 <em>Ví dụ:</em> Đền cụm Face ID 1.000.000 đ &rarr; Cửa hàng chi: <strong>{((1000000 * matrix.compensationPolicy.generalShopSupportPercent) / 100).toLocaleString()} đ</strong>, KTV trừ lương: <strong>{((1000000 * (100 - matrix.compensationPolicy.generalShopSupportPercent)) / 100).toLocaleString()} đ</strong>.
                 </div>
               </div>
 
               {/* RULE 2: SCREEN GLASS TIERED SUPPORT */}
-              <div className="p-5 bg-gradient-to-br from-red-50 to-rose-50/50 border border-red-200 rounded-3xl space-y-4">
+              <div className="p-5 bg-gradient-to-br from-rose-50 to-rose-50/50 border border-rose-200 rounded-3xl space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="bg-red-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase">
+                  <span className="bg-rose-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase">
                     Quy định 2 (Đặc thù ép kính)
                   </span>
-                  <ShieldAlert className="w-4 h-4 text-red-600" />
+                  <ShieldAlert className="w-4 h-4 text-rose-600" />
                 </div>
 
                 <div>
@@ -686,7 +686,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
 
                 <div className="space-y-2 text-xs">
                   {matrix.compensationPolicy.screenGlassTiers.map((tier, idx) => (
-                    <div key={tier.id} className="p-3 bg-white rounded-2xl border border-red-200/80 flex items-center justify-between">
+                    <div key={tier.id} className="p-3 bg-white rounded-2xl border border-rose-200/80 flex items-center justify-between">
                       <div>
                         <div className="font-bold text-zinc-900">{tier.label}</div>
                         <div className="text-[10px] text-zinc-500">
@@ -721,15 +721,15 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                                 setMatrix(updated);
                                 saveLiveTechCommissionMatrix(updated);
                               }}
-                              className="w-12 text-center py-0.5 bg-red-50 border border-red-200 rounded font-mono font-bold text-emerald-700 text-xs"
+                              className="w-12 text-center py-0.5 bg-rose-50 border border-rose-200 rounded font-mono font-bold text-orange-700 text-xs"
                             />
-                            <span className="font-bold text-emerald-700">%</span>
+                            <span className="font-bold text-orange-700">%</span>
                           </div>
                         </div>
 
                         <div className="text-right pl-2 border-l border-zinc-100">
                           <span className="text-[10px] text-zinc-400 block">KTV đền</span>
-                          <span className="font-mono font-black text-red-600">
+                          <span className="font-mono font-black text-rose-600">
                             {100 - tier.shopSupportPercent}%
                           </span>
                         </div>
@@ -738,7 +738,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                   ))}
                 </div>
 
-                <div className="text-[11px] text-red-900 bg-red-100/60 p-3 rounded-xl">
+                <div className="text-[11px] text-rose-900 bg-rose-100/60 p-3 rounded-xl">
                   ✨ <em>Khuyến khích tay nghề:</em> Ép kính chuẩn dưới 1% lỗi, KTV chỉ phải đền <strong>20%</strong> khi sự cố xảy ra!
                 </div>
               </div>
@@ -748,7 +748,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
             <div className="pt-2 flex justify-end">
               <button
                 onClick={handleSave}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-xs cursor-pointer flex items-center space-x-1.5"
+                className="bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-xs cursor-pointer flex items-center space-x-1.5"
               >
                 <Save className="w-4 h-4" />
                 <span>Lưu & Cập Nhật Quy Chế Đền Bù</span>
@@ -762,7 +762,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
       {activeSubTab === 'SIMULATOR' && (
         <div className="bg-white rounded-3xl p-6 border border-zinc-200 shadow-xs space-y-6">
           <div>
-            <div className="flex items-center space-x-2 text-xs font-bold text-indigo-600 uppercase">
+            <div className="flex items-center space-x-2 text-xs font-bold text-rose-600 uppercase">
               <Calculator className="w-4 h-4" />
               <span>Công Cụ Thử Nghiệm Tính Lương KTV</span>
             </div>
@@ -783,7 +783,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                 <select
                   value={simModel}
                   onChange={(e) => setSimModel(e.target.value)}
-                  className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl font-bold text-zinc-900 focus:outline-hidden focus:border-indigo-500"
+                  className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl font-bold text-zinc-900 focus:outline-hidden focus:border-rose-500"
                 >
                   {matrix.models.map(m => (
                     <option key={m.id} value={m.id}>{m.name}</option>
@@ -812,12 +812,12 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                         }}
                         className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
                           isChecked 
-                            ? 'bg-amber-100/80 border-amber-300 text-amber-950 font-bold' 
+                            ? 'bg-orange-100/80 border-orange-300 text-orange-950 font-bold' 
                             : 'bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-100'
                         }`}
                       >
                         <div className="truncate text-xs">{t.name}</div>
-                        <div className="text-[10px] font-mono text-amber-700 mt-0.5">
+                        <div className="text-[10px] font-mono text-orange-700 mt-0.5">
                           +{rate.toLocaleString()} đ
                         </div>
                       </button>
@@ -836,7 +836,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                     onClick={() => setSimErrorType('NONE')}
                     className={`p-2.5 rounded-xl border text-center font-bold cursor-pointer ${
                       simErrorType === 'NONE' 
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 ring-2 ring-emerald-500/20' 
+                        ? 'bg-orange-50 border-orange-300 text-orange-800 ring-2 ring-orange-500/20' 
                         : 'bg-zinc-50 border-zinc-200 text-zinc-600'
                     }`}
                   >
@@ -847,7 +847,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                     onClick={() => setSimErrorType('GENERAL')}
                     className={`p-2.5 rounded-xl border text-center font-bold cursor-pointer ${
                       simErrorType === 'GENERAL' 
-                        ? 'bg-amber-50 border-amber-300 text-amber-800 ring-2 ring-amber-500/20' 
+                        ? 'bg-orange-50 border-orange-300 text-orange-800 ring-2 ring-orange-500/20' 
                         : 'bg-zinc-50 border-zinc-200 text-zinc-600'
                     }`}
                   >
@@ -858,7 +858,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                     onClick={() => setSimErrorType('SCREEN_GLASS')}
                     className={`p-2.5 rounded-xl border text-center font-bold cursor-pointer ${
                       simErrorType === 'SCREEN_GLASS' 
-                        ? 'bg-red-50 border-red-300 text-red-800 ring-2 ring-red-500/20' 
+                        ? 'bg-rose-50 border-rose-300 text-rose-800 ring-2 ring-rose-500/20' 
                         : 'bg-zinc-50 border-zinc-200 text-zinc-600'
                     }`}
                   >
@@ -905,7 +905,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
             {/* Right Simulator Result Card (5 cols) */}
             <div className="lg:col-span-5 bg-gradient-to-b from-zinc-900 to-zinc-950 rounded-3xl p-5 text-white flex flex-col justify-between border border-zinc-800">
               <div className="space-y-4">
-                <div className="flex items-center space-x-2 text-xs font-black text-amber-400 uppercase tracking-wider pb-3 border-b border-zinc-800">
+                <div className="flex items-center space-x-2 text-xs font-black text-orange-400 uppercase tracking-wider pb-3 border-b border-zinc-800">
                   <Calculator className="w-4 h-4" />
                   <span>Kết Quả Thu Nhập Phiếu Này</span>
                 </div>
@@ -913,7 +913,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                 <div className="space-y-2.5 text-xs">
                   <div className="flex justify-between text-zinc-300">
                     <span>Tổng hoa hồng các tác vụ:</span>
-                    <span className="font-bold text-emerald-400 font-mono text-sm">
+                    <span className="font-bold text-orange-400 font-mono text-sm">
                       +{simTotalGross.toLocaleString()} đ
                     </span>
                   </div>
@@ -926,13 +926,13 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                       </div>
                       <div className="flex justify-between text-zinc-400">
                         <span>Cửa hàng hỗ trợ:</span>
-                        <span className="font-bold text-blue-400 font-mono">
+                        <span className="font-bold text-orange-400 font-mono">
                           +{simShopSupportAmount.toLocaleString()} đ
                         </span>
                       </div>
                       <div className="flex justify-between text-zinc-400">
                         <span>KTV bị khấu trừ:</span>
-                        <span className="font-bold text-red-400 font-mono">
+                        <span className="font-bold text-rose-400 font-mono">
                           -{simTechPenaltyAmount.toLocaleString()} đ
                         </span>
                       </div>
@@ -946,7 +946,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                 <span className="text-[10px] font-bold text-zinc-400 uppercase">
                   Thu nhập thực cộng vào Ví Kỹ Thuật:
                 </span>
-                <div className={`text-2xl font-black font-mono ${simNetIncome >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                <div className={`text-2xl font-black font-mono ${simNetIncome >= 0 ? 'text-orange-400' : 'text-rose-400'}`}>
                   {simNetIncome.toLocaleString()} đ
                 </div>
                 <div className="text-[10px] text-zinc-400">
@@ -979,7 +979,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                   placeholder="Ví dụ: Thay cáp sạc, Độ vỏ Titan, Sửa Face ID..."
                   value={newTaskName}
                   onChange={(e) => setNewTaskName(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl font-bold text-zinc-900 focus:outline-hidden focus:border-amber-500"
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl font-bold text-zinc-900 focus:outline-hidden focus:border-orange-500"
                 />
               </div>
 
@@ -1007,7 +1007,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
               </button>
               <button
                 onClick={handleAddTask}
-                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl cursor-pointer shadow-xs"
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs rounded-xl cursor-pointer shadow-xs"
               >
                 Thêm Vào Ma Trận
               </button>
@@ -1037,7 +1037,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
                   placeholder="Ví dụ: 16 - 16 prm, iPad Air/Pro..."
                   value={newGroupName}
                   onChange={(e) => setNewGroupName(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl font-bold text-zinc-900 focus:outline-hidden focus:border-amber-500"
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl font-bold text-zinc-900 focus:outline-hidden focus:border-orange-500"
                 />
               </div>
 
@@ -1064,7 +1064,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
               </button>
               <button
                 onClick={handleAddModelGroup}
-                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl cursor-pointer shadow-xs"
+                className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs rounded-xl cursor-pointer shadow-xs"
               >
                 Thêm Nhóm Máy
               </button>

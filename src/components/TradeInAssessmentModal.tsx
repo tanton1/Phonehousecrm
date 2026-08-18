@@ -150,7 +150,7 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl space-y-0 my-auto animate-in fade-in zoom-in duration-200 border border-zinc-100">
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-orange-500 to-amber-500 p-4 sm:p-5 text-white flex justify-between items-center">
+        <div className="bg-gradient-to-r from-orange-500 to-orange-500 p-4 sm:p-5 text-white flex justify-between items-center">
           <div className="flex items-center space-x-2.5">
             <div className="w-9 h-9 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center font-bold">
               <Sparkles className="w-5 h-5 text-white" />
@@ -254,7 +254,7 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
               <select
                 value={subsidyBonus}
                 onChange={(e) => setSubsidyBonus(Number(e.target.value))}
-                className="w-full bg-emerald-50 border border-emerald-300 rounded-xl px-2.5 py-1.5 font-black text-emerald-900 focus:border-emerald-500"
+                className="w-full bg-orange-50 border border-orange-300 rounded-xl px-2.5 py-1.5 font-black text-orange-900 focus:border-orange-500"
               >
                 <option value={0}>Không trợ giá (0đ)</option>
                 <option value={500000}>Trợ giá +500.000đ</option>
@@ -348,8 +348,8 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
                   onClick={() => t.setter(!t.state)}
                   className={`p-2 rounded-xl text-left border flex justify-between items-center transition-all cursor-pointer ${
                     t.state
-                      ? 'bg-emerald-50 text-emerald-900 border-emerald-300 font-bold'
-                      : 'bg-red-50 text-red-900 border-red-300 font-bold'
+                      ? 'bg-orange-50 text-orange-900 border-orange-300 font-bold'
+                      : 'bg-rose-50 text-rose-900 border-rose-300 font-bold'
                   }`}
                 >
                   <div className="truncate">
@@ -359,7 +359,7 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
                     <div className="text-[11px] font-bold">{t.label}</div>
                   </div>
                   {!t.state && (
-                    <span className="text-[10px] font-black font-mono text-red-600 bg-red-100 px-1.5 py-0.5 rounded-md shrink-0">
+                    <span className="text-[10px] font-black font-mono text-rose-600 bg-rose-100 px-1.5 py-0.5 rounded-md shrink-0">
                       {t.err}
                     </span>
                   )}
@@ -370,7 +370,7 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
 
           {/* REALTIME VALUATION SUMMARY BOX */}
           {assessmentResult && (
-            <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-4 rounded-3xl text-white space-y-3 shadow-lg">
+            <div className="bg-gradient-to-br from-orange-500 to-orange-600 p-4 rounded-3xl text-white space-y-3 shadow-lg">
               <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2 border-b border-white/20 pb-2.5">
                 <div>
                   <span className="text-[10px] uppercase tracking-wider font-mono text-orange-100 font-bold">
@@ -387,7 +387,7 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
                     Trừ Khấu Hao: -{assessmentResult.totalDeduction.toLocaleString('vi-VN')}đ
                   </div>
                   {assessmentResult.subsidyBonus > 0 && (
-                    <div className="text-emerald-300 font-bold">
+                    <div className="text-orange-300 font-bold">
                       + Trợ Giá Shop: +{assessmentResult.subsidyBonus.toLocaleString('vi-VN')}đ
                     </div>
                   )}
@@ -413,8 +413,8 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="text-[11px] text-emerald-100 font-bold flex items-center space-x-1">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                <div className="text-[11px] text-orange-100 font-bold flex items-center space-x-1">
+                  <CheckCircle2 className="w-4 h-4 text-orange-300" />
                   <span>Máy zin keng nguyên bản, thu giá tối đa kịch trần!</span>
                 </div>
               )}
@@ -435,7 +435,7 @@ export const TradeInAssessmentModal: React.FC<TradeInAssessmentModalProps> = ({
           <button
             type="button"
             onClick={handleConfirm}
-            className="px-6 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-black rounded-2xl text-xs shadow-md shadow-orange-500/20 cursor-pointer flex items-center space-x-2"
+            className="px-6 py-2.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-black rounded-2xl text-xs shadow-md shadow-orange-500/20 cursor-pointer flex items-center space-x-2"
           >
             <span>⚡ Áp Dụng Giá Thu Cũ ({assessmentResult?.finalValuation.toLocaleString('vi-VN')} đ)</span>
             <ArrowRight className="w-4 h-4" />

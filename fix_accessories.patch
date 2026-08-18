@@ -1,0 +1,22 @@
+--- src/components/POSSalesView.tsx
++++ src/components/POSSalesView.tsx
+@@ -158,13 +158,11 @@
+   const [customerNotes, setCustomerNotes] = useState('');
+ 
+   // Accessories & Add-ons
+-  const [accessories, setAccessories] = useState<Array<{ id: string; name: string; price: number; selected: boolean; note?: string }>>([
+-    { id: 'acc-1', name: 'Củ sạc nhanh Apple 20W / Anker 30W Type-C', price: 350000, selected: true, note: 'Bảo hành 12 tháng' },
+-    { id: 'acc-2', name: 'Kính cường lực KingKong chống nhìn trộm', price: 150000, selected: true, note: 'Dán miễn phí' },
+-    { id: 'acc-3', name: 'Ốp lưng từ tính MagSafe chống sốc', price: 180000, selected: true, note: 'Chống ố vàng' },
+-    { id: 'acc-4', name: 'Cáp sạc bọc dù Type-C to C siêu bền', price: 200000, selected: false, note: 'Độ dài 1m' },
+-    { id: 'acc-5', name: 'Tai nghe Bluetooth Air-Pro 2 Hổ Vằn', price: 450000, selected: false, note: 'Pin trâu 6h' }
+-  ]);
++  const [accessories, setAccessories] = useState<Array<{ id: string; name: string; price: number; selected: boolean; note?: string; productRef?: any }>>([]);
++
++  useEffect(() => {
++    const prodAccs = products.filter(p => p.category === 'Phụ kiện' && p.status === 'active' && p.stockQuantity > 0).map(p => ({ id: p.id, name: p.name, price: p.sellPrice, selected: false, note: `Tồn kho: ${p.stockQuantity}`, productRef: p }));
++    setAccessories(prodAccs.length > 0 ? prodAccs : []);
++  }, [products]);
+ 
+   // Warranty Package
+   const [warrantyPackage, setWarrantyPackage] = useState('Gói VIP: 12 tháng (Bao nguồn + Màn hình)');

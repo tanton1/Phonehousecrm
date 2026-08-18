@@ -181,7 +181,7 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
                           <span className="font-bold text-zinc-900 text-xs font-mono">
                             {(inv.finalAmount || inv.totalAmount).toLocaleString('vi-VN')} đ
                           </span>
-                          <span className="block text-[10px] text-emerald-600 font-bold">
+                          <span className="block text-[10px] text-orange-600 font-bold">
                             {inv.paymentMethod}
                           </span>
                         </div>
@@ -195,7 +195,7 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
               {matchedLeads.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-zinc-100">
                   <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider flex items-center space-x-1.5">
-                    <Users className="w-3.5 h-3.5 text-amber-600" />
+                    <Users className="w-3.5 h-3.5 text-orange-600" />
                     <span>Khách Hàng CRM ({matchedLeads.length})</span>
                   </span>
                   <div className="space-y-1.5">
@@ -206,13 +206,13 @@ export const QuickSearchModal: React.FC<QuickSearchModalProps> = ({
                           onSelectLead(l);
                           onClose();
                         }}
-                        className="p-3 bg-white hover:bg-amber-50/50 border border-zinc-200 hover:border-amber-300 rounded-2xl flex items-center justify-between cursor-pointer transition-all shadow-2xs"
+                        className="p-3 bg-white hover:bg-orange-50/50 border border-zinc-200 hover:border-orange-300 rounded-2xl flex items-center justify-between cursor-pointer transition-all shadow-2xs"
                       >
                         <div>
                           <div className="font-bold text-zinc-900 text-xs">{l.name} ({l.phone})</div>
                           <div className="text-[11px] text-zinc-500">Quan tâm: {l.interestedModel}</div>
                         </div>
-                        <span className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded-full font-bold">
+                        <span className="text-[10px] bg-orange-50 text-orange-800 border border-orange-200 px-2 py-0.5 rounded-full font-bold">
                           {l.status}
                         </span>
                       </div>

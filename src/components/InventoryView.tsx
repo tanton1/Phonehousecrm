@@ -11,7 +11,8 @@ import {
   StockTransferSlip,
   WarrantyTicket,
   SalesInvoice,
-  UserAccount
+  UserAccount,
+  PurchaseOrder
 } from '../types';
 import { 
   Smartphone, 
@@ -57,7 +58,7 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-import { StockInModal } from './StockInModal';
+import { UniformEntryForm } from './UniformEntryForm';
 import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal';
 import { DeviceDetailModal } from './DeviceDetailModal';
 
@@ -73,6 +74,7 @@ interface InventoryViewProps {
   users?: UserAccount[];
   onAddDevice: (device: DeviceItem) => void;
   onAddMultipleDevices?: (devices: DeviceItem[]) => void;
+  onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void;
   onUpdateDevice: (device: DeviceItem) => void;
   onDeleteDevice: (id: string) => void;
   onQuickSell: (device: DeviceItem) => void;
@@ -80,6 +82,8 @@ interface InventoryViewProps {
   onAddCashTransaction?: (tx: CashTransaction) => void;
   onUpdatePartner?: (partner: Partner) => void;
   onAddPartner?: (partner: Partner) => void;
+  catalogItems?: import('../types').MasterCatalogItem[];
+  currentUser?: UserAccount | null;
 }
 
 
@@ -95,13 +99,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   users = [],
   onAddDevice,
   onAddMultipleDevices,
+  onAddPurchaseOrder,
   onUpdateDevice,
   onDeleteDevice,
   onQuickSell,
   onOpenTransferModal,
   onAddCashTransaction,
   onUpdatePartner,
-  onAddPartner
+  onAddPartner,
+  catalogItems = [],
+  currentUser
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeries, setSelectedSeries] = useState('ALL');
@@ -343,15 +350,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     switch (status) {
       case 'in_stock':
         return (
-          <span className="bg-emerald-50 text-emerald-600 border border-emerald-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
+          <span className="bg-orange-50 text-orange-600 border border-orange-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block animate-pulse" />
             <span>Sẵn hàng</span>
           </span>
         );
       case 'reserved':
         return (
-          <span className="bg-amber-50 text-amber-600 border border-amber-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+          <span className="bg-orange-50 text-orange-600 border border-orange-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
             <span>Đã giữ cọc</span>
           </span>
         );
@@ -365,8 +372,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       case 'warranty':
       case 'repairing':
         return (
-          <span className="bg-red-50 text-red-600 border border-red-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+          <span className="bg-rose-50 text-rose-600 border border-rose-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block" />
             <span>Bảo hành</span>
           </span>
         );
@@ -404,7 +411,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             className="bg-[#F94A1F] hover:bg-[#e03d14] text-white text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Nhập máy IMEI</span>
+            <span>Nhập máy / IMEI</span>
           </button>
         </div>
       </div>
@@ -426,7 +433,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
           {/* Col 2: Model */}
           <div className="flex items-center space-x-3 pt-2 lg:pt-0 lg:pl-4">
-            <div className="w-10 h-10 rounded-full bg-blue-50 text-orange-500 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
               <Box className="w-5 h-5" />
             </div>
             <div>
@@ -437,7 +444,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
           {/* Col 3: Giá trị tồn */}
           <div className="flex items-center space-x-3 pt-2 lg:pt-0 lg:pl-4">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
               <Layers className="w-5 h-5" />
             </div>
             <div>
@@ -461,7 +468,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                  <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
                   <span>New Seal</span>
                 </span>
                 <span className="font-bold text-zinc-900 font-mono ml-2">{conditionStats.newSealCount} ({conditionStats.newSealPct}%)</span>
@@ -529,8 +536,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       const d = payload[0].payload;
                       return (
                         <div className="bg-zinc-900 text-white p-2.5 rounded-xl shadow-xl text-xs space-y-1 font-sans">
-                          <div className="font-bold text-amber-400 border-b border-zinc-700 pb-1">{d.model} ({d.totalCount} máy)</div>
-                          <div>New Seal: <strong className="text-amber-300">{d.newSeal}</strong></div>
+                          <div className="font-bold text-orange-400 border-b border-zinc-700 pb-1">{d.model} ({d.totalCount} máy)</div>
+                          <div>New Seal: <strong className="text-orange-300">{d.newSeal}</strong></div>
                           <div>Like New 99%: <strong className="text-orange-400">{d.likeNew}</strong></div>
                           {d.otherCondition > 0 && <div>Khác: <strong>{d.otherCondition}</strong></div>}
                         </div>
@@ -560,7 +567,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               placeholder="Tìm IMEI, Serial, model, màu sắc..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-zinc-100/80 border border-transparent rounded-2xl pl-9 pr-4 py-2.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500 transition-all font-medium"
+              className="w-full bg-zinc-100/80 border border-transparent rounded-2xl pl-8 pr-3 py-1.5 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500 transition-all font-medium"
             />
           </div>
 
@@ -759,7 +766,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                               title="Sao chép IMEI"
                             >
                               {copiedImei === device.imei ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                <Check className="w-3.5 h-3.5 text-orange-500" />
                               ) : (
                                 <Copy className="w-3.5 h-3.5" />
                               )}
@@ -768,10 +775,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg ${
                               device.condition === 'New Seal'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                ? 'bg-orange-50 text-orange-700 border border-orange-100'
                                 : device.condition === 'Like New 99%'
                                 ? 'bg-orange-50 text-orange-600 border border-orange-100'
-                                : 'bg-amber-50 text-amber-700 border border-amber-100'
+                                : 'bg-orange-50 text-orange-700 border border-orange-100'
                             }`}>
                               {device.condition}
                             </span>
@@ -879,7 +886,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                       onDeleteDevice(device.id);
                                       setActiveMenuDeviceId(null);
                                     }}
-                                    className="w-full px-3 py-1.5 hover:bg-red-50 text-red-600 rounded-lg flex items-center space-x-2 font-medium cursor-pointer"
+                                    className="w-full px-3 py-1.5 hover:bg-rose-50 text-rose-600 rounded-lg flex items-center space-x-2 font-medium cursor-pointer"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                     <span>Xóa máy</span>
@@ -902,19 +909,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         )}
       </div>
 
-      {/* MODAL: Nhập Hàng Mới Siêu Nâng Cấp (Batch IMEI, Tải Ảnh, NCC, Kho, Dòng Tiền) */}
-      <StockInModal
+      {/* MODAL: Nhập Hàng Mới Siêu Nâng Cấp */}
+      <UniformEntryForm 
+        currentUser={currentUser}
+        catalogItems={catalogItems}
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         branches={branches}
         warehouses={activeWarehouses}
         partners={partners}
         funds={funds}
-        onAddDevice={onAddDevice}
-        onAddMultipleDevices={onAddMultipleDevices}
-        onAddCashTransaction={onAddCashTransaction}
-        onUpdatePartner={onUpdatePartner}
-        onAddPartner={onAddPartner}
+        onAddPurchaseOrder={onAddPurchaseOrder}
       />
 
       {/* MODAL: Phân Tích Kho vs Chi Nhánh Chuyên Sâu */}

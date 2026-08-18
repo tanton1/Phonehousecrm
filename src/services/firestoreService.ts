@@ -23,7 +23,9 @@ import {
   StoreBranch,
   WarehouseInfo,
   StoreSettings,
-  SparePart
+  SparePart,
+  ChatConversation,
+  ChatMessage
 } from '../types';
 import { 
   INITIAL_DEVICES, 
@@ -82,52 +84,17 @@ export function cleanDataForFirestore<T>(data: T): T {
   return data;
 }
 
-// Auto-seed Initial Data if Firestore is completely empty
+// Auto-seed Initial Configuration if Firestore is empty (Only seeds system branches, warehouses, users, settings without demo transaction data)
 export async function seedInitialDataIfEmpty() {
   try {
-    const devicesSnap = await getDocs(collection(db, DEVICES_COL));
-    if (devicesSnap.empty) {
-      console.log('Seeding initial iPhone inventory and CRM records to Firestore...');
+    const branchesSnap = await getDocs(collection(db, BRANCHES_COL));
+    if (branchesSnap.empty) {
+      console.log('Seeding initial system branches, warehouses and settings to Firestore...');
       const batch = writeBatch(db);
-
-      INITIAL_DEVICES.forEach((d) => {
-        const ref = doc(db, DEVICES_COL, d.id);
-        batch.set(ref, cleanDataForFirestore(d));
-      });
-
-      INITIAL_LEADS.forEach((l) => {
-        const ref = doc(db, LEADS_COL, l.id);
-        batch.set(ref, cleanDataForFirestore(l));
-      });
-
-      INITIAL_TRADE_INS.forEach((t) => {
-        const ref = doc(db, TRADEINS_COL, t.id);
-        batch.set(ref, cleanDataForFirestore(t));
-      });
-
-      INITIAL_WARRANTY_TICKETS.forEach((w) => {
-        const ref = doc(db, WARRANTY_COL, w.id);
-        batch.set(ref, cleanDataForFirestore(w));
-      });
-
-      INITIAL_INVOICES.forEach((inv) => {
-        const ref = doc(db, INVOICES_COL, inv.id);
-        batch.set(ref, cleanDataForFirestore(inv));
-      });
 
       INITIAL_USERS.forEach((usr) => {
         const ref = doc(db, USERS_COL, usr.id);
         batch.set(ref, cleanDataForFirestore(usr));
-      });
-
-      INITIAL_PARTNERS.forEach((p) => {
-        const ref = doc(db, PARTNERS_COL, p.id);
-        batch.set(ref, cleanDataForFirestore(p));
-      });
-
-      INITIAL_TRANSFERS.forEach((tr) => {
-        const ref = doc(db, TRANSFERS_COL, tr.id);
-        batch.set(ref, cleanDataForFirestore(tr));
       });
 
       INITIAL_BRANCHES.forEach((br) => {
@@ -145,57 +112,50 @@ export async function seedInitialDataIfEmpty() {
         batch.set(ref, cleanDataForFirestore(f));
       });
 
-      INITIAL_CASH_TRANSACTIONS.forEach((tx) => {
-        const ref = doc(db, CASH_TRANSACTIONS_COL, tx.id);
-        batch.set(ref, cleanDataForFirestore(tx));
-      });
-
-      INITIAL_SPARE_PARTS.forEach((part) => {
-        const ref = doc(db, SPARE_PARTS_COL, part.id);
-        batch.set(ref, cleanDataForFirestore(part));
+      REPAIR_SERVICES_PRICELIST.forEach((r) => {
+        const ref = doc(db, REPAIR_SERVICES_COL, r.id);
+        batch.set(ref, cleanDataForFirestore(r));
       });
 
       const settingsRef = doc(db, SETTINGS_COL, 'main');
       batch.set(settingsRef, cleanDataForFirestore(INITIAL_STORE_SETTINGS));
 
       await batch.commit();
-      console.log('✅ Initial data seeded to Firestore successfully!');
-    } else {
-      // Check if funds need seeding
-      const fundsSnap = await getDocs(collection(db, FUNDS_COL));
-      if (fundsSnap.empty) {
-        const fundBatch = writeBatch(db);
-        INITIAL_FUNDS.forEach((f) => {
-          const ref = doc(db, FUNDS_COL, f.id);
-          fundBatch.set(ref, cleanDataForFirestore(f));
-        });
-        await fundBatch.commit();
-      }
-
-      // Check if spare parts need seeding
-      const partsSnap = await getDocs(collection(db, SPARE_PARTS_COL));
-      if (partsSnap.empty) {
-        const partsBatch = writeBatch(db);
-        INITIAL_SPARE_PARTS.forEach((p) => {
-          const ref = doc(db, SPARE_PARTS_COL, p.id);
-          partsBatch.set(ref, cleanDataForFirestore(p));
-        });
-        await partsBatch.commit();
-      }
-
-      // Check if repair services need seeding
-      const repairSnap = await getDocs(collection(db, REPAIR_SERVICES_COL));
-      if (repairSnap.empty) {
-        const repairBatch = writeBatch(db);
-        REPAIR_SERVICES_PRICELIST.forEach((r) => {
-          const ref = doc(db, REPAIR_SERVICES_COL, r.id);
-          repairBatch.set(ref, cleanDataForFirestore(r));
-        });
-        await repairBatch.commit();
-      }
+      console.log('✅ Initial system configuration saved to Firestore!');
     }
   } catch (error) {
     console.warn('Initial seeding note (will use local fallback if offline):', error);
+  }
+}
+
+// Function to wipe all transaction & demo collections in Firestore
+export async function clearAllFirestoreDemoData(): Promise<void> {
+  const collectionsToWipe = [
+    DEVICES_COL,
+    LEADS_COL,
+    TRADEINS_COL,
+    WARRANTY_COL,
+    INVOICES_COL,
+    PARTNERS_COL,
+    TRANSFERS_COL,
+    PRODUCTS_COL,
+    CASH_TRANSACTIONS_COL,
+    SPARE_PARTS_COL
+  ];
+
+  for (const colName of collectionsToWipe) {
+    try {
+      const snap = await getDocs(collection(db, colName));
+      if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      }
+    } catch (e) {
+      console.warn(`Could not clear collection ${colName}:`, e);
+    }
   }
 }
 
@@ -835,6 +795,47 @@ export async function deleteWarehouseFromFirestore(id: string) {
 }
 
 // ----------------- STORE SETTINGS (CÀI ĐẶT DOANH NGHIỆP) -----------------
+export function subscribeToChatConversations(onData: (convos: ChatConversation[]) => void) {
+  const q = collection(db, 'chat_conversations');
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const convos: ChatConversation[] = [];
+      snapshot.forEach((docSnap) => {
+        convos.push({ id: docSnap.id, ...docSnap.data() } as ChatConversation);
+      });
+      // Sort by newest updatedAt
+      convos.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      onData(convos);
+    },
+    (error) => handleFirestoreError(error, OperationType.LIST, 'chat_conversations')
+  );
+}
+
+export async function sendMessageToChat(conversationId: string, message: ChatMessage) {
+  const convRef = doc(db, 'chat_conversations', conversationId);
+  try {
+    const docSnap = await getDocs(collection(db, 'chat_conversations'));
+    const convoDoc = docSnap.docs.find(d => d.id === conversationId);
+    if (convoDoc) {
+      const convoData = convoDoc.data() as ChatConversation;
+      const updatedMessages = [...(convoData.messages || []), message];
+      await setDoc(convRef, {
+        messages: updatedMessages,
+        lastMessage: {
+          content: message.content,
+          sender: message.sender,
+          timestamp: message.timestamp,
+          unread: false
+        },
+        updatedAt: message.timestamp
+      }, { merge: true });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'chat_conversations');
+  }
+}
+
 export function subscribeToStoreSettings(onData: (settings: StoreSettings | null) => void) {
   const docRef = doc(db, SETTINGS_COL, 'main');
   return onSnapshot(docRef, (snapshot) => {
@@ -948,5 +949,104 @@ export async function deleteRepairServiceFromFirestore(id: string) {
     await deleteDoc(docRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function processCheckoutTransaction(params: {
+  invoice: SalesInvoice;
+  devicesToSell: DeviceItem[];
+  accessoriesToSell: { product: ProductItem; quantity: number }[];
+  cashTx: CashTransaction | null;
+  tradeInDevice: DeviceItem | null;
+  customerPartner: Partner | null;
+  financeCompanyPartner: Partner | null;
+}) {
+  const batch = writeBatch(db);
+
+  try {
+    // 1. Check & Mark Devices as Sold
+    for (const d of params.devicesToSell) {
+      const devRef = doc(db, 'devices', d.id);
+      batch.update(devRef, {
+        status: 'sold',
+        soldDate: new Date().toISOString(),
+        customerName: params.invoice.customerName,
+        customerPhone: params.invoice.customerPhone
+      });
+    }
+
+    // 2. Decrease Accessory Stock
+    for (const acc of params.accessoriesToSell) {
+      const prodRef = doc(db, 'products', acc.product.id);
+      // Decrease stock
+      const newStock = Math.max(0, acc.product.stockQuantity - acc.quantity);
+      batch.update(prodRef, {
+        stockQuantity: newStock
+      });
+    }
+
+    // 3. Create SalesInvoice
+    const invRef = doc(db, 'invoices', params.invoice.id);
+    batch.set(invRef, params.invoice);
+
+    // 4. Create CashTransaction (if any)
+    if (params.cashTx) {
+      const txRef = doc(db, 'cash_transactions', params.cashTx.id);
+      batch.set(txRef, params.cashTx);
+    }
+
+    // 5. Create Trade-In Device (if any)
+    if (params.tradeInDevice) {
+      const trdRef = doc(db, 'devices', params.tradeInDevice.id);
+      batch.set(trdRef, params.tradeInDevice);
+    }
+
+    // 6. Partner/Debt Accounting
+    const debtIncrease = (params.invoice.installmentDisbursementStatus === 'PENDING' && params.invoice.installmentExpectedAmount) 
+      ? params.invoice.installmentExpectedAmount 
+      : 0;
+
+    // Handle installment debt specifically for Finance Company
+    if (debtIncrease > 0) {
+      if (params.financeCompanyPartner) {
+        const fcRef = doc(db, 'partners', params.financeCompanyPartner.id);
+        const newTx = {
+          id: `TX-${Date.now().toString().slice(-6)}`,
+          date: new Date().toISOString().split('T')[0],
+          type: 'DEBT_INCREASE' as const,
+          amount: debtIncrease,
+          note: `Mua trả góp đơn ${params.invoice.invoiceCode} - ${params.invoice.customerName}`,
+          referenceId: params.invoice.id
+        };
+        batch.update(fcRef, {
+          outstandingDebt: (params.financeCompanyPartner.outstandingDebt || 0) + debtIncrease,
+          debtTransactions: [newTx, ...(params.financeCompanyPartner.debtTransactions || [])]
+        });
+      }
+      
+      // Update customer partner without adding debt (only totalSpent)
+      if (params.customerPartner) {
+        const custRef = doc(db, 'partners', params.customerPartner.id);
+        batch.update(custRef, {
+          type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
+          totalSpent: (params.customerPartner.totalSpent || 0) + params.invoice.finalAmount
+        });
+      }
+    } else {
+      // Normal full payment, update customer partner totalSpent & any direct debt if applicable (though usually none for normal checkout unless debt is checked)
+      if (params.customerPartner) {
+        const custRef = doc(db, 'partners', params.customerPartner.id);
+        batch.update(custRef, {
+          type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
+          totalSpent: (params.customerPartner.totalSpent || 0) + params.invoice.finalAmount
+        });
+      }
+    }
+
+    await batch.commit();
+    return true;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'checkout_transaction');
+    throw error;
   }
 }

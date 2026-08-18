@@ -69,7 +69,8 @@ import {
   Store,
   Warehouse,
   PackageCheck,
-  ScanFace
+  ScanFace,
+  ClipboardCheck
 } from 'lucide-react';
 
 interface MoreHubViewProps {
@@ -242,7 +243,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       label: 'Kho iPhone IMEI 15 Số',
       subtitle: 'Pin %, Lần sạc, LL/A, VN/A',
       icon: Smartphone,
-      color: 'text-amber-500',
+      color: 'text-orange-500',
       badge: `${devices.length} máy`
     },
     {
@@ -266,7 +267,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       label: 'Kho Linh Kiện & Phụ Kiện',
       subtitle: 'Màn hình, Pin zin, Ốp sạc',
       icon: Package,
-      color: 'text-amber-600',
+      color: 'text-orange-600',
       badge: 'Linh phụ kiện'
     },
     {
@@ -290,8 +291,16 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       label: 'Khách Hàng (CRM Leads)',
       subtitle: 'Phân loại VIP, K-Point, Phễu',
       icon: Users,
-      color: 'text-amber-600',
+      color: 'text-orange-600',
       badge: 'CRM VIP'
+    },
+    {
+      id: 'omnichannel-chat',
+      label: 'Chat Đa Kênh Hợp Nhất (Omnichannel)',
+      subtitle: 'FB Messenger, Zalo OA, TikTok Shop, Web Widget',
+      icon: MessageSquare,
+      color: 'text-[#FF4B16]',
+      badge: 'Realtime Sync'
     },
     {
       id: 'tradein',
@@ -306,7 +315,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       label: 'Bảo Hành & Sửa Chữa',
       subtitle: 'Tra cứu IMEI, Linh kiện zin',
       icon: Wrench,
-      color: 'text-amber-500',
+      color: 'text-orange-500',
       badge: 'IMEI Care'
     },
     {
@@ -322,7 +331,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       label: 'Đối Tác & Nhà Cung Cấp',
       subtitle: 'Nguồn hàng sỉ, Đại lý phụ kiện',
       icon: Building2,
-      color: 'text-amber-500',
+      color: 'text-orange-500',
       badge: `${partners.length} đối tác`
     },
     {
@@ -348,6 +357,14 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       icon: TrendingUp,
       color: 'text-orange-500',
       badge: 'KPI Cá Nhân'
+    },
+    {
+      id: 'sop-management',
+      label: 'Quy Trình Chuẩn SOP & Bàn Giao Ca',
+      subtitle: 'Thiết lập SOP, giám sát checklist & bàn giao ca',
+      icon: ClipboardCheck,
+      color: 'text-orange-600',
+      badge: 'SOP & Ca'
     },
     {
       id: 'checkin-portal',
@@ -378,13 +395,13 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       label: 'Kiến Trúc Chuỗi ERPNext',
       subtitle: 'Quản trị chuỗi bán lẻ chuẩn QT',
       icon: BookOpen,
-      color: 'text-amber-600',
+      color: 'text-orange-600',
       badge: 'ERP Pro'
     }
   ];
 
   return (
-    <div className="w-full min-h-screen bg-gradient-to-b from-orange-50/40 via-amber-50/20 to-white pb-24 sm:pb-12 text-zinc-900 animate-fadeIn">
+    <div className="w-full min-h-screen bg-gradient-to-b from-orange-50/40 via-orange-50/20 to-white pb-24 sm:pb-12 text-zinc-900 animate-fadeIn">
       
       {/* Top Status Bar */}
       <div className="w-full py-1.5 flex items-center justify-between px-2 sm:px-4">
@@ -407,10 +424,10 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       <div className="w-full space-y-3 sm:space-y-4">
         
         {/* ================= STORE BRAND HEADER ================= */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-orange-500 via-amber-500 to-orange-600 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 text-white shadow-md shadow-orange-500/15 border border-orange-400/30">
+        <div className="relative overflow-hidden bg-gradient-to-br from-orange-500 via-orange-500 to-orange-600 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 text-white shadow-md shadow-orange-500/15 border border-orange-400/30">
           <div className="relative z-10 flex items-center justify-between gap-2">
             <div className="flex items-center space-x-3">
-              <div className="w-11 h-11 sm:w-13 sm:h-13 rounded-xl sm:rounded-2xl bg-white text-orange-600 flex items-center justify-center font-bold text-xl sm:text-2xl shadow-sm border border-amber-200 shrink-0">
+              <div className="w-11 h-11 sm:w-13 sm:h-13 rounded-xl sm:rounded-2xl bg-white text-orange-600 flex items-center justify-center font-bold text-xl sm:text-2xl shadow-sm border border-orange-200 shrink-0">
                 <span>PH</span>
               </div>
               <div className="min-w-0">
@@ -423,7 +440,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-orange-100 font-medium truncate">{storeInfo.branch}</p>
-                <p className="text-[10px] sm:text-[11px] text-amber-100/90 truncate">{storeInfo.address}</p>
+                <p className="text-[10px] sm:text-[11px] text-orange-100/90 truncate">{storeInfo.address}</p>
               </div>
             </div>
 
@@ -441,10 +458,10 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             className="mt-3 pt-2.5 border-t border-white/20 flex items-center justify-between text-[11px] sm:text-xs font-medium text-white/90 hover:text-white cursor-pointer group"
           >
             <div className="flex items-center space-x-1.5 truncate">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0"></span>
-              <span className="truncate">Hotline: <strong className="text-amber-200">{storeInfo.phone}</strong> • MST: {storeInfo.taxCode}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-300 shrink-0"></span>
+              <span className="truncate">Hotline: <strong className="text-orange-200">{storeInfo.phone}</strong> • MST: {storeInfo.taxCode}</span>
             </div>
-            <span className="flex items-center text-amber-200 shrink-0 group-hover:translate-x-1 transition-transform ml-2">
+            <span className="flex items-center text-orange-200 shrink-0 group-hover:translate-x-1 transition-transform ml-2">
               Quản lý Cửa Hàng & Kho <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
             </span>
           </div>
@@ -465,16 +482,16 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
             </button>
             <button onClick={() => onSelectTab('invoices')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <FileText className="w-5 h-5 text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+              <FileText className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Hóa Đơn & Bill</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Chi tiết & In K80</span>
               </div>
             </button>
             <button onClick={() => onSelectTab('tradein')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <RefreshCw className="w-5 h-5 text-emerald-600 group-hover:scale-110 transition-all shrink-0" />
+              <RefreshCw className="w-5 h-5 text-orange-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-emerald-600 truncate">Thu Cũ Đổi Mới</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Thu Cũ Đổi Mới</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Định giá máy cũ</span>
               </div>
             </button>
@@ -500,16 +517,16 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
         {/* ================= 2. KHO HÀNG & VẬN HÀNH ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
-            <Package className="w-5 h-5 text-amber-500 shrink-0" />
+            <Package className="w-5 h-5 text-orange-500 shrink-0" />
             <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Kho Hàng & Vận Hành</h2>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             {/* MASTER CATALOG ITEM (Highlighted) */}
             <button 
               onClick={() => onSelectTab('master-catalog')} 
-              className="col-span-2 flex items-center space-x-3 p-3 rounded-2xl bg-gradient-to-r from-orange-500/10 via-amber-500/10 to-orange-500/5 hover:from-orange-500/20 hover:to-amber-500/20 border border-orange-200 hover:border-orange-400 transition-all text-left cursor-pointer group shadow-2xs"
+              className="col-span-2 flex items-center space-x-3 p-3 rounded-2xl bg-gradient-to-r from-orange-500/10 via-orange-500/10 to-orange-500/5 hover:from-orange-500/20 hover:to-orange-500/20 border border-orange-200 hover:border-orange-400 transition-all text-left cursor-pointer group shadow-2xs"
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-white shadow-xs group-hover:scale-105 transition-transform shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-500 flex items-center justify-center text-white shadow-xs group-hover:scale-105 transition-transform shrink-0">
                 <Database className="w-5 h-5" />
               </div>
               <div className="min-w-0 flex-1">
@@ -517,7 +534,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                   <span className="text-xs sm:text-sm font-black text-zinc-900 block group-hover:text-orange-600 truncate">
                     Danh Mục Hàng Hóa Gốc (Master Catalog)
                   </span>
-                  <span className="px-1.5 py-0.2 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[9px] font-extrabold rounded-md uppercase tracking-wider shrink-0">
+                  <span className="px-1.5 py-0.2 bg-gradient-to-r from-orange-500 to-orange-500 text-white text-[9px] font-extrabold rounded-md uppercase tracking-wider shrink-0">
                     Mã Gốc SKU
                   </span>
                 </div>
@@ -529,7 +546,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             </button>
 
             <button onClick={() => onSelectTab('inventory')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <Smartphone className="w-5 h-5 text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+              <Smartphone className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Kho IMEI Thiết Bị</span>
                 <span className="text-[10px] text-zinc-500 truncate block">iPhone, iPad, Mac</span>
@@ -543,7 +560,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
             </button>
             <button onClick={() => onSelectTab('purchase-orders')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <PackageCheck className="w-5 h-5 text-emerald-600 group-hover:scale-110 transition-all shrink-0" />
+              <PackageCheck className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Nhập Hàng NCC</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Tạo Phiếu nhập kho</span>
@@ -583,7 +600,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
             </button>
             <button onClick={() => onSelectTab('partners')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <Building2 className="w-5 h-5 text-amber-600 group-hover:scale-110 transition-all shrink-0" />
+              <Building2 className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Đối Tác & NCC</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Sổ nợ nhà cung cấp</span>
@@ -600,12 +617,12 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
         {/* ================= 4. KẾ TOÁN & TÀI CHÍNH ================= */}
         <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-orange-100/80">
           <div className="flex items-center space-x-2 mb-3">
-            <Wallet className="w-5 h-5 text-emerald-500 shrink-0" />
+            <Wallet className="w-5 h-5 text-orange-500 shrink-0" />
             <h2 className="text-sm sm:text-base font-semibold text-zinc-900">Kế Toán & Tài Chính</h2>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:gap-3">
             <button onClick={() => onSelectTab('dashboard')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <TrendingUp className="w-5 h-5 text-emerald-600 group-hover:scale-110 transition-all shrink-0" />
+              <TrendingUp className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
                 <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Báo Cáo & Lợi Nhuận</span>
                 <span className="text-[10px] text-zinc-500 truncate block">Biểu đồ tổng quan</span>
@@ -642,15 +659,22 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             <button onClick={() => onSelectTab('hr-attendance')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
               <Clock className="w-5 h-5 text-[#FF4B16] group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Hub Nhân Sự & Lương</span>
-                <span className="text-[10px] text-zinc-500 truncate block">Bảng công, Xếp ca, Lương KTV</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Hub Nhân Sự & Tiền Lương</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Vận hành ca, tính lương, duyệt 5 cấp</span>
               </div>
             </button>
-            <button onClick={() => onSelectTab('employee-dashboard')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
-              <Award className="w-5 h-5 text-amber-500 group-hover:scale-110 transition-all shrink-0" />
+            <button onClick={() => onSelectTab('sop-management')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <ClipboardCheck className="w-5 h-5 text-orange-500 group-hover:scale-110 transition-all shrink-0" />
               <div className="min-w-0">
-                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">KPI Cá Nhân (Nhân viên)</span>
-                <span className="text-[10px] text-zinc-500 truncate block">Theo dõi target cá nhân</span>
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Quy Trình SOP & Ca Trực</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Checklist 3 ca, chốt két & an toàn</span>
+              </div>
+            </button>
+            <button onClick={() => onSelectTab('checkin-portal')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
+              <ScanFace className="w-5 h-5 text-orange-600 group-hover:scale-110 transition-all shrink-0" />
+              <div className="min-w-0">
+                <span className="text-xs sm:text-sm font-bold text-zinc-900 block group-hover:text-orange-600 truncate">Cổng Điểm Danh Face ID</span>
+                <span className="text-[10px] text-zinc-500 truncate block">Kiosk nhận diện 4 bước tự động</span>
               </div>
             </button>
             <button onClick={() => onSelectTab('users')} className="flex items-center space-x-3 p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
@@ -670,7 +694,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           </div>
           <div className="relative z-10 flex items-center justify-between">
             <div>
-              <div className="flex items-center space-x-2 text-emerald-400 mb-1">
+              <div className="flex items-center space-x-2 text-orange-400 mb-1">
                 <Sparkles className="w-4 h-4" />
                 <span className="text-[10px] font-bold uppercase tracking-widest">Trí Tuệ Nhân Tạo</span>
               </div>
@@ -683,7 +707,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               onClick={onOpenAICopilot}
               className="px-4 py-2 bg-white text-zinc-900 font-bold text-xs rounded-xl shadow-lg hover:scale-105 transition-transform cursor-pointer flex items-center space-x-1.5"
             >
-              <Zap className="w-3.5 h-3.5 text-amber-500" />
+              <Zap className="w-3.5 h-3.5 text-orange-500" />
               <span>Mở AI</span>
             </button>
           </div>
@@ -708,7 +732,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             </button>
             <button onClick={() => onSelectTab('erpnext-plan')} className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-orange-50/70 border border-transparent hover:border-orange-100 transition-all text-left cursor-pointer group bg-orange-50/30">
               <div className="flex items-center space-x-3 min-w-0">
-                <BookOpen className="w-5 h-5 text-amber-600 group-hover:text-orange-700 shrink-0 transition-colors" />
+                <BookOpen className="w-5 h-5 text-orange-600 group-hover:text-orange-700 shrink-0 transition-colors" />
                 <div className="min-w-0">
                   <span className="text-xs sm:text-sm font-bold text-zinc-900 group-hover:text-orange-600 truncate block">Kiến Trúc ERPNext Chuỗi Bán Lẻ</span>
                   <span className="text-[10px] sm:text-xs text-zinc-500 truncate block">Sẵn sàng Scale lên Enterprise</span>
@@ -724,12 +748,12 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               </div>
               <ChevronRight className="w-3 h-3 text-zinc-300 shrink-0" />
             </button>
-            <button onClick={onLogout} className="w-full mt-2 flex items-center justify-between p-2.5 rounded-xl hover:bg-red-50 text-red-600 transition-all text-left cursor-pointer group border border-red-100">
+            <button onClick={onLogout} className="w-full mt-2 flex items-center justify-between p-2.5 rounded-xl hover:bg-rose-50 text-rose-600 transition-all text-left cursor-pointer group border border-rose-100">
               <div className="flex items-center space-x-3 min-w-0">
-                <LogOut className="w-5 h-5 text-red-500 shrink-0 transition-colors" />
+                <LogOut className="w-5 h-5 text-rose-500 shrink-0 transition-colors" />
                 <span className="text-xs sm:text-sm font-bold truncate">Đăng xuất ({currentUser?.fullName || 'Tài khoản'})</span>
               </div>
-              <ChevronRight className="w-4 h-4 text-red-400 shrink-0" />
+              <ChevronRight className="w-4 h-4 text-rose-400 shrink-0" />
             </button>
           </div>
         </div>
@@ -745,7 +769,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       {isEditingStoreInfo && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4">
           <div className="bg-white w-full max-w-lg rounded-2xl sm:rounded-3xl shadow-2xl border border-orange-200 overflow-hidden animate-scaleIn max-h-[90vh] flex flex-col">
-            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white flex items-center justify-between shrink-0">
+            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-orange-500 via-orange-500 to-orange-600 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
                 <Building2 className="w-5 h-5 text-white" />
                 <h3 className="text-sm sm:text-base font-semibold">Cài Đặt Cửa Hàng & In Bill</h3>
@@ -832,7 +856,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                 onClick={() => {
                   setIsEditingStoreInfo(false);
                 }}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold shadow-md shadow-orange-500/20 hover:opacity-95 cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-500 text-white font-semibold shadow-md shadow-orange-500/20 hover:opacity-95 cursor-pointer"
               >
                 Lưu Thay Đổi
               </button>
@@ -847,7 +871,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           <div className="bg-white w-full max-w-2xl rounded-2xl sm:rounded-3xl shadow-2xl border border-orange-200 overflow-hidden animate-scaleIn max-h-[90vh] flex flex-col">
             
             {/* Submodal Header */}
-            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 text-white flex items-center justify-between shrink-0">
+            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-orange-500 via-orange-500 to-orange-600 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2 min-w-0">
                 <span className="text-white shrink-0">
                   {activeSubModal === 'preorders' && <CalendarClock className="w-5 h-5" />}
@@ -903,7 +927,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <span className="font-semibold text-zinc-700">Danh sách khách đặt trước ({preorders.length}):</span>
                     <button 
                       onClick={() => alert('Đã mở form nhận cọc Pre-order mới!')}
-                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-orange-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" /> Thêm Cọc
                     </button>
@@ -912,13 +936,13 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <div key={po.id} className="p-3 rounded-xl border border-orange-100 bg-orange-50/30 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-orange-700">{po.id} • {po.customer}</span>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-orange-100 text-orange-800">
                           {po.status}
                         </span>
                       </div>
                       <div className="text-zinc-800 font-medium">{po.model}</div>
                       <div className="flex flex-wrap items-center justify-between text-xs text-zinc-600 gap-1 pt-1 border-t border-orange-100">
-                        <span>Cọc: <strong className="text-emerald-600">{po.deposit.toLocaleString()} đ</strong> / {po.totalPrice.toLocaleString()} đ</span>
+                        <span>Cọc: <strong className="text-orange-600">{po.deposit.toLocaleString()} đ</strong> / {po.totalPrice.toLocaleString()} đ</span>
                         <span>Hẹn: <strong>{po.expectedDate}</strong></span>
                       </div>
                       {po.note && <div className="text-[11px] text-zinc-500 italic">Ghi chú: {po.note}</div>}
@@ -934,7 +958,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <span className="font-semibold text-zinc-700">Phiếu sửa chữa đang xử lý ({repairs.length}):</span>
                     <button 
                       onClick={() => alert('Đã mở form tiếp nhận sửa chữa mới!')}
-                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-orange-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" /> Nhận Máy
                     </button>
@@ -944,15 +968,15 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-orange-700">{rp.id} • {rp.customer} ({rp.phone})</span>
                         <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
-                          rp.status.includes('xong') ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800'
+                          rp.status.includes('xong') ? 'bg-orange-100 text-orange-800' : 'bg-orange-100 text-orange-800'
                         }`}>
                           {rp.status}
                         </span>
                       </div>
                       <div className="font-semibold text-zinc-800">{rp.device}</div>
-                      <div className="text-zinc-600">Lỗi: <span className="text-red-600 font-medium">{rp.issue}</span></div>
+                      <div className="text-zinc-600">Lỗi: <span className="text-rose-600 font-medium">{rp.issue}</span></div>
                       <div className="flex flex-wrap items-center justify-between text-xs text-zinc-600 pt-1 border-t border-orange-100">
-                        <span>Chi phí ước tính: <strong className="text-emerald-600">{rp.estimatedCost.toLocaleString()} đ</strong></span>
+                        <span>Chi phí ước tính: <strong className="text-orange-600">{rp.estimatedCost.toLocaleString()} đ</strong></span>
                         <span>Phụ trách: <strong>{rp.technician}</strong></span>
                       </div>
                     </div>
@@ -967,7 +991,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <span className="font-semibold text-zinc-700">Đợt kiểm kê gần nhất:</span>
                     <button 
                       onClick={() => alert('Bắt đầu quét barcode kiểm đếm kho!')}
-                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-orange-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
                     >
                       <CheckSquare className="w-3.5 h-3.5" /> Tạo Phiếu Kiểm
                     </button>
@@ -977,7 +1001,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-orange-700">{au.id} • {au.date}</span>
                         <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
-                          au.diff === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                          au.diff === 0 ? 'bg-orange-100 text-orange-800' : 'bg-rose-100 text-rose-800'
                         }`}>
                           {au.status}
                         </span>
@@ -999,7 +1023,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <span className="font-semibold text-zinc-700">Vận đơn bưu cục đang kết nối:</span>
                     <button 
                       onClick={() => alert('Đã mở form tạo vận đơn GHN/GHTK!')}
-                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-orange-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" /> Bắn Đơn Bưu Cục
                     </button>
@@ -1015,7 +1039,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                       <div className="font-medium text-zinc-800">{sh.customer} ({sh.phone})</div>
                       <div className="text-zinc-600">Sản phẩm: {sh.item}</div>
                       <div className="flex items-center justify-between text-xs text-zinc-600 pt-1 border-t border-orange-100">
-                        <span>Thu hộ COD: <strong className="text-emerald-600">{sh.cod.toLocaleString()} đ</strong></span>
+                        <span>Thu hộ COD: <strong className="text-orange-600">{sh.cod.toLocaleString()} đ</strong></span>
                         <span>Cước vận chuyển: <strong>{sh.fee.toLocaleString()} đ</strong></span>
                       </div>
                     </div>
@@ -1030,7 +1054,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <span className="font-semibold text-zinc-700">Bảng lương tháng hiện tại:</span>
                     <button 
                       onClick={() => alert('Đã xuất file Excel bảng lương!')}
-                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
+                      className="px-2.5 py-1 bg-gradient-to-r from-orange-500 to-orange-500 text-white rounded-lg font-medium text-xs flex items-center gap-1 shadow-2xs cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" /> Xuất Bảng Lương
                     </button>
@@ -1039,15 +1063,15 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     <div key={idx} className="p-3 rounded-xl border border-orange-100 bg-orange-50/30 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-orange-700">{st.name}</span>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-orange-100 text-orange-800">
                           {st.role}
                         </span>
                       </div>
                       <div className="grid grid-cols-2 gap-1 text-xs text-zinc-700">
                         <div>Ngày công: <strong>{st.workDays} ngày</strong></div>
                         <div>Cây máy bán ra: <strong className="text-orange-600">{st.salesCount} máy</strong></div>
-                        <div>Hoa hồng bán: <strong className="text-emerald-600">{st.commission.toLocaleString()} đ</strong></div>
-                        <div>Tổng thực nhận: <strong className="text-emerald-700 font-semibold">{st.salary.toLocaleString()} đ</strong></div>
+                        <div>Hoa hồng bán: <strong className="text-orange-600">{st.commission.toLocaleString()} đ</strong></div>
+                        <div>Tổng thực nhận: <strong className="text-orange-700 font-semibold">{st.salary.toLocaleString()} đ</strong></div>
                       </div>
                     </div>
                   ))}
@@ -1065,7 +1089,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                   <div className="p-3 rounded-xl bg-orange-50 border border-orange-200 text-left space-y-2 text-xs">
                     <div className="flex justify-between">
                       <span className="text-zinc-600">Trạng thái loa:</span>
-                      <strong className="text-emerald-600">● Đang kết nối WiFi Quầy Thu Ngân</strong>
+                      <strong className="text-orange-600">● Đang kết nối WiFi Quầy Thu Ngân</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-zinc-600">Mẫu câu phát:</span>
@@ -1073,12 +1097,12 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                     </div>
                     <div className="flex justify-between">
                       <span className="text-zinc-600">Độ trễ phản hồi:</span>
-                      <strong className="text-emerald-600">&lt; 0.8 giây</strong>
+                      <strong className="text-orange-600">&lt; 0.8 giây</strong>
                     </div>
                   </div>
                   <button 
                     onClick={() => alert('Đã phát âm thanh thử nghiệm ra loa!')}
-                    className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold rounded-xl shadow-md cursor-pointer"
+                    className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-orange-500 text-white font-semibold rounded-xl shadow-md cursor-pointer"
                   >
                     Phát Thử Giọng Đọc Mẫu Ra Loa
                   </button>
@@ -1091,17 +1115,17 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                   <div className="p-3 rounded-xl border border-orange-100 bg-orange-50/40 space-y-1">
                     <span className="font-semibold text-orange-700">1. Máy in hóa đơn nhiệt K80 LAN / USB</span>
                     <p className="text-xs text-zinc-600">In bill tức thì sau khi bấm hoàn tất đơn hàng, tự động cắt giấy, không dùng mực.</p>
-                    <div className="text-xs text-emerald-600 font-medium">Trạng thái: Sẵn sàng kết nối</div>
+                    <div className="text-xs text-orange-600 font-medium">Trạng thái: Sẵn sàng kết nối</div>
                   </div>
                   <div className="p-3 rounded-xl border border-orange-100 bg-orange-50/40 space-y-1">
                     <span className="font-semibold text-orange-700">2. Máy quét Barcode 2D Datamatrix</span>
                     <p className="text-xs text-zinc-600">Quét cực nhạy mã IMEI vỏ hộp iPhone, tem bảo hành, căn cước công dân của khách.</p>
-                    <div className="text-xs text-emerald-600 font-medium">Trạng thái: Hoạt động tốt</div>
+                    <div className="text-xs text-orange-600 font-medium">Trạng thái: Hoạt động tốt</div>
                   </div>
                   <div className="p-3 rounded-xl border border-orange-100 bg-orange-50/40 space-y-1">
                     <span className="font-semibold text-orange-700">3. Két thu ngân tự động bung RJ11</span>
                     <p className="text-xs text-zinc-600">Tự động mở ngăn kéo khi ấn in hóa đơn POS hoặc bấm phím tắt F12.</p>
-                    <div className="text-xs text-emerald-600 font-medium">Trạng thái: Đã kết nối máy in K80</div>
+                    <div className="text-xs text-orange-600 font-medium">Trạng thái: Đã kết nối máy in K80</div>
                   </div>
                 </div>
               )}
@@ -1116,7 +1140,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                   </p>
                   <button
                     onClick={() => setActiveSubModal(null)}
-                    className="px-5 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white font-semibold rounded-xl shadow-md cursor-pointer"
+                    className="px-5 py-2 bg-gradient-to-r from-orange-500 to-orange-500 text-white font-semibold rounded-xl shadow-md cursor-pointer"
                   >
                     Đóng
                   </button>

@@ -73,9 +73,9 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({ isOpen, onClose 
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-end sm:items-center justify-center sm:p-4">
       <div className="bg-white border border-orange-200 rounded-t-3xl sm:rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col h-[85vh] sm:h-[650px] max-h-[90vh]">
         {/* Header */}
-        <div className="bg-gradient-to-r from-orange-50 via-amber-50/60 to-white px-5 py-4 border-b border-orange-100 flex justify-between items-center shrink-0">
+        <div className="bg-gradient-to-r from-orange-50 via-orange-50/60 to-white px-5 py-4 border-b border-orange-100 flex justify-between items-center shrink-0">
           <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-orange-500 to-amber-500 flex items-center justify-center shadow-md shadow-orange-500/20">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-orange-500 to-orange-500 flex items-center justify-center shadow-md shadow-orange-500/20">
               <Sparkles className="w-4 h-4 text-white animate-pulse" />
             </div>
             <div>
@@ -107,7 +107,7 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({ isOpen, onClose 
               <div
                 className={`max-w-[82%] sm:max-w-[78%] rounded-2xl p-3.5 text-xs leading-relaxed ${
                   m.sender === 'user'
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white font-medium shadow-md shadow-orange-500/10'
+                    ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white font-medium shadow-md shadow-orange-500/10'
                     : 'bg-white border border-zinc-200 text-zinc-800 shadow-2xs'
                 }`}
               >
@@ -169,7 +169,7 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({ isOpen, onClose 
           <button
             type="submit"
             disabled={!inputQuery.trim() || isLoading}
-            className="p-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:opacity-50 text-white font-bold rounded-xl transition-all shadow-md shadow-orange-500/20 active:scale-95"
+            className="p-2.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 disabled:opacity-50 text-white font-bold rounded-xl transition-all shadow-md shadow-orange-500/20 active:scale-95"
           >
             <Send className="w-4 h-4" />
           </button>

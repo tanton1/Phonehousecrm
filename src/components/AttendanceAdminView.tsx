@@ -77,6 +77,7 @@ interface AttendanceAdminViewProps {
   onUpdatePolicy?: (updatedPolicy: SalaryPolicy) => void;
   invoices?: SalesInvoice[];
   warrantyTickets?: WarrantyTicket[];
+  hideHeaderAndTabs?: boolean;
 }
 
 export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
@@ -95,7 +96,8 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   onUpdateShift,
   onUpdatePolicy,
   invoices = [],
-  warrantyTickets = []
+  warrantyTickets = [],
+  hideHeaderAndTabs = false
 }) => {
   
   // Real-time synced commissions across all tickets and invoices
@@ -258,71 +260,75 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   return (
     <div className="space-y-6">
       
-      {/* TOP HEADER & ADMIN SUB-NAV */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2 text-xs font-bold text-zinc-400 uppercase tracking-wider">
-            <Building2 className="w-3.5 h-3.5 text-[#FF4B16]" />
-            <span>Quản trị Nhân sự & Tiền lương PhoneHouse</span>
+      {/* TOP HEADER & ADMIN SUB-NAV (Renderose only when standalone) */}
+      {!hideHeaderAndTabs && (
+        <>
+          <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center space-x-2 text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                <Building2 className="w-3.5 h-3.5 text-[#FF4B16]" />
+                <span>Quản trị Nhân sự & Tiền lương PhoneHouse</span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-black text-zinc-900 mt-0.5">
+                Quản Lý Chấm Công, Ca Làm & Tính Lương
+              </h1>
+            </div>
+
+            {/* Global Branch & Month Selectors */}
+            <div className="flex items-center space-x-2">
+              <select 
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+                className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800"
+              >
+                <option value="ALL">Tất cả chi nhánh</option>
+                {branches.map(br => (
+                  <option key={br.id} value={br.id}>{br.name}</option>
+                ))}
+              </select>
+
+              <select 
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800"
+              >
+                <option value="2026-08">Kỳ lương 08/2026</option>
+                <option value="2026-07">Kỳ lương 07/2026</option>
+              </select>
+            </div>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-zinc-900 mt-0.5">
-            Quản Lý Chấm Công, Ca Làm & Tính Lương
-          </h1>
-        </div>
 
-        {/* Global Branch & Month Selectors */}
-        <div className="flex items-center space-x-2">
-          <select 
-            value={selectedBranch}
-            onChange={(e) => setSelectedBranch(e.target.value)}
-            className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800"
-          >
-            <option value="ALL">Tất cả chi nhánh</option>
-            {branches.map(br => (
-              <option key={br.id} value={br.id}>{br.name}</option>
-            ))}
-          </select>
-
-          <select 
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800"
-          >
-            <option value="2026-08">Kỳ lương 08/2026</option>
-            <option value="2026-07">Kỳ lương 07/2026</option>
-          </select>
-        </div>
-      </div>
-
-      {/* ADMIN NAVIGATION TABS */}
-      <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 border-b border-zinc-200 text-xs font-bold">
-        {[
-          { id: 'OVERVIEW', label: 'Tổng Quan Chấm Công', icon: Clock },
-          { id: 'SHIFTS', label: 'Ma Trận Xếp Ca Tuần', icon: Calendar },
-          { id: 'TIMESHEET', label: 'Bảng Công Tháng', icon: FileText },
-          { id: 'PAYROLL', label: 'Bảng Lương & Hoa Hồng', icon: DollarSign },
-          { id: 'TECH_COMMISSION', label: 'Hoa hồng Kỹ thuật', icon: Monitor },
-          { id: 'APPROVAL', label: 'Quy Trình Duyệt Lương', icon: CheckCheck },
-          { id: 'POLICIES', label: 'Cấu Hình Chính Sách Lương', icon: Sliders },
-        ].map(tab => {
-          const Icon = tab.icon;
-          const isActive = adminTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setAdminTab(tab.id as any)}
-              className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
-                isActive 
-                  ? 'bg-[#FF4B16] text-white shadow-xs font-extrabold' 
-                  : 'bg-white text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 border border-zinc-200/60'
-              }`}
-            >
-              <Icon className="w-4 h-4" />
-              <span>{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
+          {/* ADMIN NAVIGATION TABS */}
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 border-b border-zinc-200 text-xs font-bold">
+            {[
+              { id: 'OVERVIEW', label: 'Tổng Quan Chấm Công', icon: Clock },
+              { id: 'SHIFTS', label: 'Ma Trận Xếp Ca Tuần', icon: Calendar },
+              { id: 'TIMESHEET', label: 'Bảng Công Tháng', icon: FileText },
+              { id: 'PAYROLL', label: 'Bảng Lương & Hoa Hồng', icon: DollarSign },
+              { id: 'TECH_COMMISSION', label: 'Hoa hồng Kỹ thuật', icon: Monitor },
+              { id: 'APPROVAL', label: 'Quy Trình Duyệt Lương', icon: CheckCheck },
+              { id: 'POLICIES', label: 'Cấu Hình Chính Sách Lương', icon: Sliders },
+            ].map(tab => {
+              const Icon = tab.icon;
+              const isActive = adminTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setAdminTab(tab.id as any)}
+                  className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
+                    isActive 
+                      ? 'bg-[#FF4B16] text-white shadow-xs font-extrabold' 
+                      : 'bg-white text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 border border-zinc-200/60'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* ======================================================== */}
       {/* SECTION 1: TỔNG QUAN CHẤM CÔNG HÔM NAY (SCREEN 16) */}
@@ -333,11 +339,11 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
               <div className="text-xs font-bold text-zinc-400 uppercase">Đã vào ca</div>
-              <div className="text-2xl sm:text-3xl font-black text-emerald-600 mt-1">
+              <div className="text-2xl sm:text-3xl font-black text-orange-600 mt-1">
                 {activeCount} / {staffList.length}
               </div>
               <div className="text-[11px] text-zinc-500 mt-1 flex items-center space-x-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                <CheckCircle2 className="w-3.5 h-3.5 text-orange-500" />
                 <span>80% quân số đúng giờ</span>
               </div>
             </div>
@@ -359,7 +365,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 {absentCount > 0 ? absentCount : 0}
               </div>
               <div className="text-[11px] text-zinc-500 mt-1 flex items-center space-x-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
                 <span>1 có phép, 0 không phép</span>
               </div>
             </div>
@@ -414,14 +420,14 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                               Đi trễ {rec.lateMinutes}m
                             </span>
                           ) : (
-                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                               Đúng giờ
                             </span>
                           )}
                         </td>
                         <td className="py-3 px-3">
                           <span className="inline-flex items-center space-x-1 text-zinc-600">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />
                             <span>GPS Khớp</span>
                           </span>
                         </td>
@@ -451,7 +457,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               {/* CẢNH BÁO PANEL */}
               <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs">
                 <h3 className="text-xs font-black text-zinc-900 uppercase tracking-wider mb-3 flex items-center space-x-1.5">
-                  <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  <AlertTriangle className="w-4 h-4 text-orange-500" />
                   <span>Cảnh báo chấm công</span>
                 </h3>
 
@@ -462,7 +468,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   <div className="p-2.5 rounded-xl bg-zinc-50 border border-zinc-200 text-zinc-800 font-medium">
                     📍 <strong>0 trường hợp</strong> rời khỏi vùng GPS cho phép
                   </div>
-                  <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-100 text-blue-900 font-medium">
+                  <div className="p-2.5 rounded-xl bg-orange-50 border border-orange-100 text-orange-900 font-medium">
                     🛵 <strong>1 nhân viên</strong> đang ra ngoài giao máy iPhone cho khách
                   </div>
                 </div>
@@ -486,7 +492,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     <div className="text-[10px] text-zinc-700 mt-1 font-bold">6 / 10</div>
                   </div>
                   <div className="bg-zinc-50 p-2.5 rounded-xl">
-                    <div className="text-base font-black text-emerald-600">53%</div>
+                    <div className="text-base font-black text-orange-600">53%</div>
                     <div className="text-[10px] text-zinc-400 font-bold mt-0.5">Tư vấn</div>
                     <div className="text-[10px] text-zinc-700 mt-1 font-bold">8 / 15</div>
                   </div>
@@ -521,9 +527,9 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
               <button 
                 onClick={() => alert('AI Auto-scheduler: Đã tối ưu hóa chia ca cân bằng 26 công/người!')}
-                className="px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
+                className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
               >
-                <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                <Sparkles className="w-3.5 h-3.5 text-rose-600" />
                 <span>Xếp tự động AI</span>
               </button>
 
@@ -566,8 +572,8 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       
                       let badgeStyle = 'bg-zinc-100 text-zinc-500';
                       if (shiftName === 'Ca sáng') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
-                      if (shiftName === 'Ca chiều') badgeStyle = 'bg-blue-100 text-blue-900 border border-blue-200 font-bold';
-                      if (shiftName === 'Ca tối') badgeStyle = 'bg-purple-100 text-purple-900 border border-purple-200 font-bold';
+                      if (shiftName === 'Ca chiều') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
+                      if (shiftName === 'Ca tối') badgeStyle = 'bg-rose-100 text-rose-900 border border-rose-200 font-bold';
 
                       return (
                         <td key={dKey} className="py-2.5 px-2 border border-zinc-200">
@@ -637,17 +643,17 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       <div className="text-[10px] text-zinc-400">{slip.roleTitle}</div>
                     </td>
                     <td className="py-3 px-3 text-center font-semibold text-zinc-700">{slip.standardWorkDays}</td>
-                    <td className="py-3 px-3 text-center font-bold text-emerald-600">{slip.actualWorkDays}</td>
+                    <td className="py-3 px-3 text-center font-bold text-orange-600">{slip.actualWorkDays}</td>
                     <td className="py-3 px-3 text-center font-mono font-bold text-orange-600">
                       {slip.lateMinutesTotal > 0 ? `${slip.lateMinutesTotal}m` : '0'}
                     </td>
-                    <td className="py-3 px-3 text-center font-mono font-bold text-purple-600">
+                    <td className="py-3 px-3 text-center font-mono font-bold text-rose-600">
                       {slip.otHoursTotal}h
                     </td>
                     <td className="py-3 px-3 text-center text-zinc-600">0.5</td>
                     <td className="py-3 px-3 text-center text-zinc-600">0</td>
                     <td className="py-3 px-3 text-center">
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      <span className="bg-orange-100 text-orange-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                         Đủ công
                       </span>
                     </td>
@@ -705,16 +711,16 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   </div>
                 </div>
                 <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
-                  <div className="text-[10px] font-bold text-emerald-600 uppercase flex items-center gap-1">
+                  <div className="text-[10px] font-bold text-orange-600 uppercase flex items-center gap-1">
                     <Smartphone className="w-3 h-3" /> Ví Doanh Thu (Bán Máy)
                   </div>
-                  <div className="text-lg sm:text-xl font-black text-emerald-600 mt-1 font-mono">
+                  <div className="text-lg sm:text-xl font-black text-orange-600 mt-1 font-mono">
                     +{totalSalesComm.toLocaleString()} đ
                   </div>
                 </div>
                 <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
-                  <div className="text-[10px] font-bold text-purple-600 uppercase">Tổng Hoa Hồng KPI</div>
-                  <div className="text-lg sm:text-xl font-black text-purple-600 mt-1 font-mono">
+                  <div className="text-[10px] font-bold text-rose-600 uppercase">Tổng Hoa Hồng KPI</div>
+                  <div className="text-lg sm:text-xl font-black text-rose-600 mt-1 font-mono">
                     +{(totalTechComm + totalSalesComm).toLocaleString()} đ
                   </div>
                 </div>
@@ -735,7 +741,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <div>
                 <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
                   <span>Bảng chi tiết lương & Ví Kép tháng {selectedMonth}</span>
-                  <span className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-indigo-200">
+                  <span className="bg-rose-50 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-200">
                     Dual Wallet Ready
                   </span>
                 </h3>
@@ -764,7 +770,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     <th className="py-3 px-3 text-right">Lương cứng</th>
                     <th className="py-3 px-3 text-right">Phụ cấp</th>
                     <th className="py-3 px-3 text-right text-orange-600">Ví Kỹ Thuật</th>
-                    <th className="py-3 px-3 text-right text-emerald-600">Ví Doanh Thu</th>
+                    <th className="py-3 px-3 text-right text-orange-600">Ví Doanh Thu</th>
                     <th className="py-3 px-3 text-right">Tổng Hoa Hồng</th>
                     <th className="py-3 px-3 text-right">Thực lĩnh</th>
                     <th className="py-3 px-3 text-center">Trạng thái</th>
@@ -788,27 +794,27 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                             {wallet.techWallet.completedTicketCount} ca KCS/Sửa
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-right font-bold text-emerald-600 font-mono">
+                        <td className="py-3 px-3 text-right font-bold text-orange-600 font-mono">
                           +{wallet.salesWallet.totalCommission.toLocaleString()} đ
                           <div className="text-[9px] text-zinc-400 font-normal font-sans">
                             {wallet.salesWallet.completedOrderCount} đơn POS
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-right font-black text-purple-600 font-mono">
+                        <td className="py-3 px-3 text-right font-black text-rose-600 font-mono">
                           +{slip.totalCommission.toLocaleString()} đ
                         </td>
                         <td className="py-3 px-3 text-right font-black text-[#FF4B16] text-sm font-mono">
                           {slip.netPay.toLocaleString()} đ
                         </td>
                         <td className="py-3 px-3 text-center">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-50 text-orange-800 border border-orange-200">
                             {slip.status === 'DRAFT' ? 'Chờ CHT duyệt' : slip.status}
                           </span>
                         </td>
                         <td className="py-3 px-3 text-center">
                           <button
                             onClick={() => setSelectedSlipDetail({ slip, wallet })}
-                            className="px-2.5 py-1 bg-zinc-100 hover:bg-indigo-50 hover:text-indigo-600 text-zinc-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                            className="px-2.5 py-1 bg-zinc-100 hover:bg-rose-50 hover:text-rose-600 text-zinc-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
                           >
                             Xem Sổ Ví &rarr;
                           </button>
@@ -835,7 +841,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <button
                 onClick={() => setCommissionViewMode('MATRIX_CONFIG')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  commissionViewMode === 'MATRIX_CONFIG' ? 'bg-amber-500 text-white shadow-2xs font-black' : 'text-zinc-600 hover:text-zinc-900'
+                  commissionViewMode === 'MATRIX_CONFIG' ? 'bg-orange-500 text-white shadow-2xs font-black' : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
                 📋 Ma Trận Đơn Giá & Quy Chế KTV
@@ -843,7 +849,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <button
                 onClick={() => setCommissionViewMode('TECH_WALLET')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  commissionViewMode === 'TECH_WALLET' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
+                  commissionViewMode === 'TECH_WALLET' ? 'bg-rose-600 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
                 🛠️ Ví Hoa Hồng Kỹ Thuật (Thực tế)
@@ -851,7 +857,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <button
                 onClick={() => setCommissionViewMode('SALES_WALLET')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  commissionViewMode === 'SALES_WALLET' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
+                  commissionViewMode === 'SALES_WALLET' ? 'bg-orange-600 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
                 📱 Ví Doanh Số Bán Hàng (POS)
@@ -897,14 +903,14 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 </div>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
-                <div className="text-[10px] font-bold text-amber-600 uppercase">Sửa Chữa & Thay Linh Kiện</div>
-                <div className="text-lg sm:text-xl font-black text-amber-600 mt-1 font-mono">
+                <div className="text-[10px] font-bold text-orange-600 uppercase">Sửa Chữa & Thay Linh Kiện</div>
+                <div className="text-lg sm:text-xl font-black text-orange-600 mt-1 font-mono">
                   {allSyncedCommissions.filter(c => c.type === 'TECH_REPAIR' || c.type === 'TECH_WARRANTY').length} ca
                 </div>
               </div>
-              <div className="bg-indigo-950 text-white p-4 rounded-2xl shadow-md">
-                <div className="text-[10px] font-bold text-indigo-300 uppercase">Tổng Quỹ Ví Kỹ Thuật</div>
-                <div className="text-lg sm:text-xl font-black text-amber-400 mt-1 font-mono">
+              <div className="bg-rose-950 text-white p-4 rounded-2xl shadow-md">
+                <div className="text-[10px] font-bold text-rose-300 uppercase">Tổng Quỹ Ví Kỹ Thuật</div>
+                <div className="text-lg sm:text-xl font-black text-orange-400 mt-1 font-mono">
                   {allSyncedCommissions.filter(c => c.walletCategory === 'TECH_WALLET').reduce((sum, c) => sum + c.commissionAmount, 0).toLocaleString()} đ
                 </div>
               </div>
@@ -920,8 +926,8 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 </div>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
-                <div className="text-[10px] font-bold text-emerald-600 uppercase">Đơn Hàng Máy iPhone/iPad</div>
-                <div className="text-lg sm:text-xl font-black text-emerald-600 mt-1 font-mono">
+                <div className="text-[10px] font-bold text-orange-600 uppercase">Đơn Hàng Máy iPhone/iPad</div>
+                <div className="text-lg sm:text-xl font-black text-orange-600 mt-1 font-mono">
                   {allSyncedCommissions.filter(c => c.type === 'SALES_PHONE').length} máy
                 </div>
               </div>
@@ -931,9 +937,9 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   {allSyncedCommissions.filter(c => c.type === 'SALES_ACCESSORY' || c.type === 'CARE_PACKAGE').length} món
                 </div>
               </div>
-              <div className="bg-emerald-950 text-white p-4 rounded-2xl shadow-md">
-                <div className="text-[10px] font-bold text-emerald-300 uppercase">Tổng Quỹ Ví Doanh Thu</div>
-                <div className="text-lg sm:text-xl font-black text-emerald-300 mt-1 font-mono">
+              <div className="bg-orange-950 text-white p-4 rounded-2xl shadow-md">
+                <div className="text-[10px] font-bold text-orange-300 uppercase">Tổng Quỹ Ví Doanh Thu</div>
+                <div className="text-lg sm:text-xl font-black text-orange-300 mt-1 font-mono">
                   {allSyncedCommissions.filter(c => c.walletCategory === 'SALES_WALLET').reduce((sum, c) => sum + c.commissionAmount, 0).toLocaleString()} đ
                 </div>
               </div>
@@ -946,7 +952,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider">
                 Bảng Kê Chi Tiết Thu Nhập Theo Nhân Sự Tháng {selectedMonth}
               </h3>
-              <span className="text-xs font-bold text-emerald-600">✓ Tự động liên kết Realtime</span>
+              <span className="text-xs font-bold text-orange-600">✓ Tự động liên kết Realtime</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -980,11 +986,11 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                           <div className="text-[10px] text-zinc-400 font-mono">+{tech.kcsAmount.toLocaleString()} đ</div>
                         </td>
                         <td className="py-3 px-3 text-center">
-                          <div className="font-semibold text-amber-600">{tech.repairCount + tech.warrantyCount} ca</div>
+                          <div className="font-semibold text-orange-600">{tech.repairCount + tech.warrantyCount} ca</div>
                           <div className="text-[10px] text-zinc-400 font-mono">+{(tech.repairAmount + tech.warrantyAmount).toLocaleString()} đ</div>
                         </td>
                         <td className="py-3 px-3 text-center">
-                          <div className="font-semibold text-emerald-600">{sales.deviceOrderCount || 0} máy</div>
+                          <div className="font-semibold text-orange-600">{sales.deviceOrderCount || 0} máy</div>
                           <div className="text-[10px] text-zinc-400 font-mono">+{(sales.deviceAmount ?? sales.deviceCommission ?? 0).toLocaleString()} đ</div>
                         </td>
                         <td className="py-3 px-3 text-center">
@@ -994,10 +1000,10 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                         <td className="py-3 px-3 text-right font-mono font-bold text-orange-600">
                           {tech.totalCommission.toLocaleString()} đ
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-emerald-600">
+                        <td className="py-3 px-3 text-right font-mono font-bold text-orange-600">
                           {sales.totalCommission.toLocaleString()} đ
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-black text-purple-600 text-sm">
+                        <td className="py-3 px-3 text-right font-mono font-black text-rose-600 text-sm">
                           {wallet.totalGrossCommission.toLocaleString()} đ
                         </td>
                       </tr>
@@ -1020,7 +1026,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <div>
                 <h3 className="font-black text-base text-zinc-900 flex items-center gap-2">
                   <span>Sổ Chi Tiết Ví Thu Nhập & Lương</span>
-                  <span className="bg-indigo-100 text-indigo-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  <span className="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
                     {selectedSlipDetail.slip.periodMonth}
                   </span>
                 </h3>
@@ -1039,16 +1045,16 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
             {/* 2 WALLETS SUMMARY BOXES */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Tech Wallet Box */}
-              <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-2">
+              <div className="p-4 bg-orange-50/70 border border-orange-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-orange-900 flex items-center gap-1.5">
                     <Wrench className="w-4 h-4 text-orange-600" /> Ví Kỹ Thuật & KCS
                   </span>
-                  <span className="text-sm font-black font-mono text-blue-700">
+                  <span className="text-sm font-black font-mono text-orange-700">
                     +{selectedSlipDetail.wallet.techWallet.totalCommission.toLocaleString()} đ
                   </span>
                 </div>
-                <div className="text-[11px] text-blue-950 space-y-1">
+                <div className="text-[11px] text-orange-950 space-y-1">
                   <div className="flex justify-between">
                     <span>KCS Máy Nhập:</span>
                     <strong>{selectedSlipDetail.wallet.techWallet.kcsCount} máy ({selectedSlipDetail.wallet.techWallet.kcsAmount.toLocaleString()} đ)</strong>
@@ -1065,16 +1071,16 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               </div>
 
               {/* Sales Wallet Box */}
-              <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-2">
+              <div className="p-4 bg-orange-50/70 border border-orange-200 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
-                    <Smartphone className="w-4 h-4 text-emerald-600" /> Ví Doanh Thu Bán Hàng
+                  <span className="text-xs font-bold text-orange-900 flex items-center gap-1.5">
+                    <Smartphone className="w-4 h-4 text-orange-600" /> Ví Doanh Thu Bán Hàng
                   </span>
-                  <span className="text-sm font-black font-mono text-emerald-700">
+                  <span className="text-sm font-black font-mono text-orange-700">
                     +{selectedSlipDetail.wallet.salesWallet.totalCommission.toLocaleString()} đ
                   </span>
                 </div>
-                <div className="text-[11px] text-emerald-950 space-y-1">
+                <div className="text-[11px] text-orange-950 space-y-1">
                   <div className="flex justify-between">
                     <span>Hoa hồng bán máy:</span>
                     <strong>{selectedSlipDetail.wallet.salesWallet.deviceOrderCount || 0} máy ({(selectedSlipDetail.wallet.salesWallet.deviceAmount ?? selectedSlipDetail.wallet.salesWallet.deviceCommission ?? 0).toLocaleString()} đ)</strong>
@@ -1105,7 +1111,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 </div>
                 <div>
                   <span className="text-zinc-400">Tổng Hoa Hồng:</span>
-                  <div className="font-bold font-mono text-emerald-400">+{selectedSlipDetail.wallet.totalGrossCommission.toLocaleString()} đ</div>
+                  <div className="font-bold font-mono text-orange-400">+{selectedSlipDetail.wallet.totalGrossCommission.toLocaleString()} đ</div>
                 </div>
                 <div>
                   <span className="text-zinc-400">Thực Lĩnh:</span>
@@ -1126,12 +1132,12 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       <div>
                         <div className="font-bold text-zinc-900">{tx.productName}</div>
                         <div className="text-[10px] text-zinc-500">
-                          {tx.orderCode} • {tx.occurredAt} • <span className="font-mono text-indigo-600">{tx.walletCategory}</span>
+                          {tx.orderCode} • {tx.occurredAt} • <span className="font-mono text-rose-600">{tx.walletCategory}</span>
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-black text-emerald-600 font-mono">+{tx.commissionAmount.toLocaleString()} đ</div>
-                        <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded">
+                        <div className="font-black text-orange-600 font-mono">+{tx.commissionAmount.toLocaleString()} đ</div>
+                        <span className="text-[9px] font-bold text-orange-800 bg-orange-100 px-1.5 py-0.2 rounded">
                           {tx.status}
                         </span>
                       </div>
@@ -1179,14 +1185,14 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <div 
                 key={s.step} 
                 className={`p-4 rounded-2xl border transition-all ${
-                  s.status === 'COMPLETED' ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' :
+                  s.status === 'COMPLETED' ? 'bg-orange-50/70 border-orange-200 text-orange-950' :
                   s.status === 'IN_PROGRESS' ? 'bg-orange-50/70 border-orange-200 text-orange-950 shadow-xs ring-2 ring-[#FF4B16]/20' :
                   'bg-zinc-50 border-zinc-200 text-zinc-400'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
-                    s.status === 'COMPLETED' ? 'bg-emerald-600 text-white' :
+                    s.status === 'COMPLETED' ? 'bg-orange-600 text-white' :
                     s.status === 'IN_PROGRESS' ? 'bg-[#FF4B16] text-white' :
                     'bg-zinc-200 text-zinc-600'
                   }`}>
@@ -1252,7 +1258,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   </div>
                   <div className="flex justify-between py-1 border-b border-zinc-100">
                     <span className="text-zinc-500">Chuyên cần:</span>
-                    <span className="font-bold text-emerald-600">+{pol.attendanceBonus.toLocaleString()} đ</span>
+                    <span className="font-bold text-orange-600">+{pol.attendanceBonus.toLocaleString()} đ</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-zinc-100">
                     <span className="text-zinc-500">Hoa hồng bán máy:</span>
@@ -1265,7 +1271,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   {pol.techPointRateVnd > 0 && (
                     <div className="flex justify-between py-1 border-b border-zinc-100">
                       <span className="text-zinc-500">Giá trị Point kỹ thuật:</span>
-                      <span className="font-bold text-purple-600">{pol.techPointRateVnd.toLocaleString()} đ / điểm</span>
+                      <span className="font-bold text-rose-600">{pol.techPointRateVnd.toLocaleString()} đ / điểm</span>
                     </div>
                   )}
                   {pol.onlineSaleSplitPercent > 0 && (
@@ -1323,7 +1329,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs space-y-1">
                   <div className="flex justify-between font-bold">
                     <span className="text-zinc-900">16/05/2026 (Hôm nay)</span>
-                    <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px]">Đúng giờ</span>
+                    <span className="text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full text-[10px]">Đúng giờ</span>
                   </div>
                   <div className="text-zinc-600 font-mono">07:58:12 &rarr; Đang trong ca (08h05 công)</div>
                   <div className="text-[10px] text-zinc-400">GPS: 136 Cầu Giấy (Cách 14m) • Wi-Fi: PH_HAICHAU_5G</div>
@@ -1333,7 +1339,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 text-xs space-y-1">
                   <div className="flex justify-between font-bold">
                     <span className="text-zinc-900">15/05/2026</span>
-                    <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full text-[10px]">Đúng giờ</span>
+                    <span className="text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full text-[10px]">Đúng giờ</span>
                   </div>
                   <div className="text-zinc-600 font-mono">07:55:00 &rarr; 17:03:00 (8h08 công)</div>
                   <div className="text-[10px] text-zinc-400">Đã chốt 3 đơn iPhone 15 Pro Max</div>
@@ -1391,19 +1397,19 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-zinc-100">
                   <span className="text-zinc-500">Thưởng chuyên cần:</span>
-                  <span className="font-bold text-emerald-600">+{selectedPayrollSlip.attendanceBonus.toLocaleString()} đ</span>
+                  <span className="font-bold text-orange-600">+{selectedPayrollSlip.attendanceBonus.toLocaleString()} đ</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-zinc-100">
                   <span className="text-zinc-500">Hoa hồng bán máy:</span>
-                  <span className="font-bold text-emerald-600">+{selectedPayrollSlip.deviceCommissionTotal.toLocaleString()} đ</span>
+                  <span className="font-bold text-orange-600">+{selectedPayrollSlip.deviceCommissionTotal.toLocaleString()} đ</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-zinc-100">
                   <span className="text-zinc-500">Hoa hồng phụ kiện:</span>
-                  <span className="font-bold text-emerald-600">+{selectedPayrollSlip.accessoryCommissionTotal.toLocaleString()} đ</span>
+                  <span className="font-bold text-orange-600">+{selectedPayrollSlip.accessoryCommissionTotal.toLocaleString()} đ</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-zinc-100">
                   <span className="text-zinc-500">Thưởng KPI vượt bậc:</span>
-                  <span className="font-bold text-purple-600">+{selectedPayrollSlip.kpiBonus.toLocaleString()} đ</span>
+                  <span className="font-bold text-rose-600">+{selectedPayrollSlip.kpiBonus.toLocaleString()} đ</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-zinc-100">
                   <span className="text-zinc-500">Tăng ca OT ({selectedPayrollSlip.otHoursTotal} giờ):</span>
@@ -1411,11 +1417,11 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-zinc-100">
                   <span className="text-zinc-500">Điều chỉnh đơn hoàn:</span>
-                  <span className="font-bold text-red-600">-{selectedPayrollSlip.returnDeductions.toLocaleString()} đ</span>
+                  <span className="font-bold text-rose-600">-{selectedPayrollSlip.returnDeductions.toLocaleString()} đ</span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-zinc-100">
                   <span className="text-zinc-500">Tạm ứng giữa tháng:</span>
-                  <span className="font-bold text-red-600">-{selectedPayrollSlip.advanceSalaryDeductions.toLocaleString()} đ</span>
+                  <span className="font-bold text-rose-600">-{selectedPayrollSlip.advanceSalaryDeductions.toLocaleString()} đ</span>
                 </div>
               </div>
             </div>
@@ -1533,7 +1539,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       type="number"
                       value={policyForm.attendanceBonus}
                       onChange={(e) => setPolicyForm({ ...policyForm, attendanceBonus: Number(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-emerald-700 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-orange-700 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
                     />
                   </div>
                 </div>
@@ -1582,7 +1588,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       type="number"
                       value={policyForm.techPointRateVnd}
                       onChange={(e) => setPolicyForm({ ...policyForm, techPointRateVnd: Number(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-purple-700 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-rose-700 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
                     />
                   </div>
                   <div>
@@ -1649,7 +1655,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     </div>
                     <div className="flex justify-between py-1 border-b border-zinc-800 text-zinc-300">
                       <span>Thưởng chuyên cần:</span>
-                      <span className="font-bold text-emerald-400 font-mono">
+                      <span className="font-bold text-orange-400 font-mono">
                         +{policyForm.attendanceBonus.toLocaleString()} đ
                       </span>
                     </div>
@@ -1661,21 +1667,21 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     </div>
                     <div className="flex justify-between py-1 border-b border-zinc-800 text-zinc-300">
                       <span>HH Phụ kiện ({policyForm.accessoryProfitPercent}% của 5M):</span>
-                      <span className="font-bold text-blue-400 font-mono">
+                      <span className="font-bold text-orange-400 font-mono">
                         +{Math.round(5000000 * (policyForm.accessoryProfitPercent / 100)).toLocaleString()} đ
                       </span>
                     </div>
                     {policyForm.techPointRateVnd > 0 && (
                       <div className="flex justify-between py-1 border-b border-zinc-800 text-zinc-300">
                         <span>HH Kỹ thuật (20 điểm):</span>
-                        <span className="font-bold text-purple-400 font-mono">
+                        <span className="font-bold text-rose-400 font-mono">
                           +{Math.round(20 * policyForm.techPointRateVnd).toLocaleString()} đ
                         </span>
                       </div>
                     )}
                     <div className="flex justify-between py-1 border-b border-zinc-800 text-zinc-300">
                       <span>Lương OT (6 giờ):</span>
-                      <span className="font-bold text-amber-400 font-mono">
+                      <span className="font-bold text-orange-400 font-mono">
                         +{Math.round(6 * policyForm.overtimeHourlyRate).toLocaleString()} đ
                       </span>
                     </div>

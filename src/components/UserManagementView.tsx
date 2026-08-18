@@ -257,15 +257,15 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   const getRoleBadge = (role: UserRole) => {
     switch (role) {
       case 'ADMIN':
-        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-red-50 text-red-700 border border-red-200 flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> Quản Trị Viên</span>;
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> Quản Trị Viên</span>;
       case 'MANAGER':
-        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Quản Lý Cửa Hàng</span>;
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Quản Lý Cửa Hàng</span>;
       case 'SALES':
         return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1"><BadgePercent className="w-3 h-3" /> Nhân Viên Bán Hàng</span>;
       case 'TECHNICIAN':
-        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1"><Smartphone className="w-3 h-3" /> Kỹ Thuật Viên</span>;
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1"><Smartphone className="w-3 h-3" /> Kỹ Thuật Viên</span>;
       case 'ACCOUNTANT':
-        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1"><Layers className="w-3 h-3" /> Kế Toán</span>;
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1"><Layers className="w-3 h-3" /> Kế Toán</span>;
       default:
         return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-zinc-100 text-zinc-700">{role}</span>;
     }
@@ -274,12 +274,12 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Banner: Admin Pre-configured Credentials Highlight Card */}
-      <div className="bg-gradient-to-r from-orange-600 via-amber-600 to-orange-500 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
+      <div className="bg-gradient-to-r from-orange-600 via-orange-600 to-orange-500 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
         <div className="absolute right-0 top-0 w-80 h-80 bg-white/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="inline-flex items-center space-x-2 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold">
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-200" />
+              <ShieldAlert className="w-3.5 h-3.5 text-orange-200" />
               <span>Tài Khoản Root Admin Cấp Cao Đã Thiết Lập</span>
             </div>
             <h2 className="text-xl md:text-2xl font-bold tracking-tight">
@@ -300,7 +300,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                   className="p-1 hover:bg-white/20 rounded transition-colors"
                   title="Sao chép email"
                 >
-                  {copiedField === 'admin-email' ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedField === 'admin-email' ? <Check className="w-3.5 h-3.5 text-orange-300" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </div>
@@ -308,20 +308,20 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             <div className="flex items-center justify-between gap-4">
               <span className="text-orange-100">Mật khẩu:</span>
               <div className="flex items-center space-x-1.5 font-mono font-bold">
-                <span className="text-amber-200">Tan889603$</span>
+                <span className="text-orange-200">Tan889603$</span>
                 <button 
                   onClick={() => handleCopy('Tan889603$', 'admin-pass')}
                   className="p-1 hover:bg-white/20 rounded transition-colors"
                   title="Sao chép mật khẩu"
                 >
-                  {copiedField === 'admin-pass' ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedField === 'admin-pass' ? <Check className="w-3.5 h-3.5 text-orange-300" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
               </div>
             </div>
 
             <div className="flex items-center justify-between gap-4 pt-1 border-t border-white/15">
               <span className="text-orange-100">Quyền hạn:</span>
-              <span className="bg-amber-400/30 text-amber-100 px-2 py-0.5 rounded font-bold">
+              <span className="bg-orange-400/30 text-orange-100 px-2 py-0.5 rounded font-bold">
                 ROOT_ADMIN (Toàn quyền)
               </span>
             </div>
@@ -372,7 +372,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         {activeTab === 'users' && (
           <button
             onClick={handleOpenAdd}
-            className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center justify-center space-x-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer"
+            className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center justify-center space-x-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer"
           >
             <UserPlus className="w-3.5 h-3.5" />
             <span>Tạo Tài Khoản Mới</span>
@@ -392,7 +392,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="Tìm theo tên nhân viên, email, số điện thoại..."
-                className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-zinc-200 rounded-xl focus:outline-hidden focus:border-orange-500 transition-colors"
+                className="w-full pl-8 pr-3 py-1.5 text-[11px] bg-white border border-zinc-200 rounded-xl focus:outline-hidden focus:border-orange-500 transition-colors"
               />
             </div>
             <div>
@@ -460,12 +460,12 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="text-zinc-400">Trạng thái:</span>
                       {user.active ? (
-                        <span className="text-emerald-700 flex items-center gap-1 font-bold">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Hoạt động
+                        <span className="text-orange-700 flex items-center gap-1 font-bold">
+                          <CheckCircle2 className="w-3 h-3 text-orange-500" /> Hoạt động
                         </span>
                       ) : (
-                        <span className="text-red-600 flex items-center gap-1 font-bold">
-                          <XCircle className="w-3 h-3 text-red-500" /> Tạm khóa
+                        <span className="text-rose-600 flex items-center gap-1 font-bold">
+                          <XCircle className="w-3 h-3 text-rose-500" /> Tạm khóa
                         </span>
                       )}
                     </div>
@@ -516,7 +516,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       onClick={() => setFaceModalUser(user)}
                       className={`text-[10px] font-extrabold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
                         user.assignedFaceEmbedding
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                          ? 'bg-orange-50 text-orange-700 border-orange-300 hover:bg-orange-100'
                           : 'bg-orange-50 text-[#FF4B16] border-orange-300 hover:bg-orange-100'
                       }`}
                       title="Đăng ký hoặc cập nhật dữ liệu gương mặt sinh trắc học"
@@ -540,7 +540,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                             onDeleteUser(user.id);
                           }
                         }}
-                        className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                         title="Xóa tài khoản"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -572,17 +572,17 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
               <thead>
                 <tr className="bg-zinc-50 border-y border-zinc-200 text-zinc-600 font-bold">
                   <th className="py-3 px-3">Quyền Hạn / Chức Năng</th>
-                  <th className="py-3 px-2 text-center text-red-700 bg-red-50/50">Admin</th>
-                  <th className="py-3 px-2 text-center text-purple-700 bg-purple-50/50">Manager</th>
+                  <th className="py-3 px-2 text-center text-rose-700 bg-rose-50/50">Admin</th>
+                  <th className="py-3 px-2 text-center text-rose-700 bg-rose-50/50">Manager</th>
                   <th className="py-3 px-2 text-center text-orange-700 bg-orange-50/50">Sales</th>
-                  <th className="py-3 px-2 text-center text-blue-700 bg-blue-50/50">Technician</th>
-                  <th className="py-3 px-2 text-center text-emerald-700 bg-emerald-50/50">Accountant</th>
+                  <th className="py-3 px-2 text-center text-orange-700 bg-orange-50/50">Technician</th>
+                  <th className="py-3 px-2 text-center text-orange-700 bg-orange-50/50">Accountant</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 text-zinc-700">
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Quản lý tài khoản & Phân quyền user</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
@@ -590,58 +590,58 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 </tr>
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Xem Giá Nhập Gốc (Giá Vốn Kho IMEI)</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center text-red-400"><XCircle className="w-3.5 h-3.5 mx-auto text-red-400" /></td>
-                  <td className="py-3 px-2 text-center text-red-400"><XCircle className="w-3.5 h-3.5 mx-auto text-red-400" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center text-rose-400"><XCircle className="w-3.5 h-3.5 mx-auto text-rose-400" /></td>
+                  <td className="py-3 px-2 text-center text-rose-400"><XCircle className="w-3.5 h-3.5 mx-auto text-rose-400" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                 </tr>
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Xem Báo Cáo Doanh Thu & Lợi Nhuận Gộp</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center text-red-400"><XCircle className="w-3.5 h-3.5 mx-auto text-red-400" /></td>
-                  <td className="py-3 px-2 text-center text-red-400"><XCircle className="w-3.5 h-3.5 mx-auto text-red-400" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center text-rose-400"><XCircle className="w-3.5 h-3.5 mx-auto text-rose-400" /></td>
+                  <td className="py-3 px-2 text-center text-rose-400"><XCircle className="w-3.5 h-3.5 mx-auto text-rose-400" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                 </tr>
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Nhập Kho IMEI Mới & Cập Nhật Tình Trạng</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                 </tr>
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Tạo Đơn Bán POS & In Hóa Đơn K80</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                 </tr>
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Quản Lý Phễu Khách Hàng CRM (Zalo/TikTok)</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                 </tr>
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Duyệt Giá Thẩm Định Thu Cũ Đổi Mới</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                   <td className="py-3 px-2 text-center text-zinc-300">(Chỉ định giá tạm)</td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                 </tr>
                 <tr className="hover:bg-zinc-50">
                   <td className="py-3 px-3 font-semibold text-zinc-800">Tiếp Nhận Bảo Hành & Chẩn Đoán AI</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
-                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-emerald-600 font-bold" /></td>
+                  <td className="py-3 px-2 text-center"><Check className="w-4 h-4 mx-auto text-orange-600 font-bold" /></td>
                   <td className="py-3 px-2 text-center text-zinc-300">—</td>
                 </tr>
               </tbody>
@@ -699,9 +699,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
             {loginStatus && (
               <div className={`p-3 rounded-xl text-xs font-medium ${
-                loginStatus.startsWith('✅') ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
-                loginStatus.startsWith('❌') ? 'bg-red-50 text-red-800 border border-red-200' :
-                'bg-blue-50 text-blue-800 border border-blue-200'
+                loginStatus.startsWith('✅') ? 'bg-orange-50 text-orange-800 border border-orange-200' :
+                loginStatus.startsWith('❌') ? 'bg-rose-50 text-rose-800 border border-rose-200' :
+                'bg-orange-50 text-orange-800 border border-orange-200'
               }`}>
                 {loginStatus}
               </div>
@@ -718,15 +718,15 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
             <ul className="space-y-2.5 text-xs text-zinc-300">
               <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                 <span><strong>Ẩn Giá Nhập:</strong> Nhân viên bán hàng chỉ thấy giá niêm yết bán lẻ và mức chiết khấu cho phép, bảo mật tuyệt đối biên lợi nhuận của cửa hàng.</span>
               </li>
               <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                 <span><strong>Chống Gian Lận Thu Cũ:</strong> Mức giá thu máy cũ trên 15 triệu bắt buộc phải có tài khoản Cửa Hàng Trưởng (Manager) hoặc Admin duyệt.</span>
               </li>
               <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
                 <span><strong>Đồng Bộ Đám Mây:</strong> Toàn bộ thao tác tạo tài khoản và phân cấp được đồng bộ ngay tức khắc lên Firebase Cloud Firestore.</span>
               </li>
             </ul>
@@ -762,7 +762,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             <form onSubmit={handleSubmitUser} className="space-y-4 mt-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-zinc-700 mb-1">Họ và Tên <span className="text-red-500">*</span></label>
+                  <label className="block font-bold text-zinc-700 mb-1">Họ và Tên <span className="text-rose-500">*</span></label>
                   <input
                     type="text"
                     required
@@ -785,7 +785,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-bold text-zinc-700 mb-1">Email Đăng Nhập <span className="text-red-500">*</span></label>
+                <label className="block font-bold text-zinc-700 mb-1">Email Đăng Nhập <span className="text-rose-500">*</span></label>
                 <input
                   type="email"
                   required
@@ -919,7 +919,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
               {submitMessage && (
                 <div className={`p-3 rounded-xl text-xs font-bold ${
-                  submitMessage.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                  submitMessage.type === 'success' ? 'bg-orange-50 text-orange-800 border border-orange-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
                 }`}>
                   {submitMessage.text}
                 </div>

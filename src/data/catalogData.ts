@@ -23,7 +23,7 @@ export const INITIAL_CATALOG_SUBCATEGORIES: CatalogSubCategory[] = [
   { id: 'SUB_PART_MAIN', parentCategory: 'PART', name: 'Mainboard & IC Phần Cứng', code: 'MAIN', description: 'Main zin, IC sạc, IC Wifi, IC Nguồn' },
 
   // 3. Cấp con của Phụ Kiện (ACCESSORY)
-  { id: 'SUB_ACC_CHG', parentCategory: 'ACCESSORY', name: 'Củ Sạc Nhanh 20W - 67W', code: 'CU_SAC', description: 'Củ sạc Apple Type-C, Anker, Baseus, Ugreen' },
+  { id: 'SUB_ACC_CHG', parentCategory: 'ACCESSORY', name: 'Củ Sạc Nhanh 20W - 67W', code: 'CU_SAC', description: 'Củ sạc Apple Type-C, Anker, Baseus, Uorange' },
   { id: 'SUB_ACC_CBL', parentCategory: 'ACCESSORY', name: 'Cáp Sạc & Dây Chuyển Đổi', code: 'CAP_SAC', description: 'Cáp C-to-C bọc dù, C-to-Lightning, Hub OTG' },
   { id: 'SUB_ACC_AIR', parentCategory: 'ACCESSORY', name: 'Tai Nghe AirPods & Bluetooth', code: 'TAI_NGHE', description: 'AirPods Pro 2, AirPods 3/4, AirPods Max' },
   { id: 'SUB_ACC_CASE', parentCategory: 'ACCESSORY', name: 'Ốp Lưng MagSafe & Chống Sốc', code: 'OP_LUNG', description: 'Ốp từ tính MagSafe, UAG, Torras, Youngkit' },

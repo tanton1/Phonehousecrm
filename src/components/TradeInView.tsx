@@ -340,11 +340,11 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                   className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all ${
                     func.state
                       ? 'bg-orange-50 border-orange-200 text-orange-700'
-                      : 'bg-red-50 border-red-200 text-red-700'
+                      : 'bg-rose-50 border-rose-200 text-rose-700'
                   }`}
                 >
                   <span>{func.label}</span>
-                  {func.state ? <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" /> : <XCircle className="w-3.5 h-3.5 text-red-500" />}
+                  {func.state ? <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" /> : <XCircle className="w-3.5 h-3.5 text-rose-500" />}
                 </button>
               ))}
             </div>
@@ -386,7 +386,7 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
         <div className="space-y-4">
           <div className="bg-white border border-orange-200 rounded-3xl p-5 shadow-sm space-y-4 relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full shadow-xs">
+              <span className="bg-gradient-to-r from-orange-500 to-orange-500 text-white text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full shadow-xs">
                 AI Thẩm Định Giá
               </span>
               <span className="text-xs text-zinc-500">Độ tin cậy 96%</span>
@@ -395,7 +395,7 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
             <button
               onClick={handleRunAIValuation}
               disabled={isValuating}
-              className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-2 shadow-md shadow-orange-500/20 active:scale-95 transition-all"
+              className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-bold rounded-xl text-xs flex items-center justify-center space-x-2 shadow-md shadow-orange-500/20 active:scale-95 transition-all"
             >
               <Sparkles className="w-4 h-4 text-white" />
               <span>{isValuating ? 'Đang thẩm định...' : 'Tính Giá Thu & Bù Tiền Lên Đời'}</span>
@@ -415,7 +415,7 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                 </div>
 
                 {/* Diff to Pay */}
-                <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-3.5 rounded-2xl border border-orange-200 space-y-1">
+                <div className="bg-gradient-to-r from-orange-50 to-orange-50 p-3.5 rounded-2xl border border-orange-200 space-y-1">
                   <div className="flex justify-between text-xs text-zinc-700">
                     <span>Giá máy mới ({targetNewModel}):</span>
                     <strong className="text-zinc-900 font-mono">{targetNewModelPrice.toLocaleString('vi-VN')}đ</strong>
@@ -480,7 +480,7 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                     {t.status !== 'completed' && (
                       <button
                         onClick={() => handleConvertOldPhoneToInventory(t)}
-                        className="px-2 py-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-[10px] font-bold rounded-lg shadow-xs"
+                        className="px-2 py-1 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-[10px] font-bold rounded-lg shadow-xs"
                       >
                         Nhập Kho Bán
                       </button>
