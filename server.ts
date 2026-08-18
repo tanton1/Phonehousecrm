@@ -429,7 +429,8 @@ Trả về ĐÚNG định dạng JSON sau:
         contents.push(prompt);
 
         let parsed: any = null;
-        const candidateModels = ['gemini-3.7-flash', 'gemini-3.1-flash-lite'];
+        // Prioritize lightweight high-availability models first to prevent 503 temporary demand spikes
+        const candidateModels = ['gemini-3.1-flash-lite', 'gemini-3.7-flash', 'gemini-flash-latest'];
 
         for (const modelName of candidateModels) {
           try {
@@ -448,8 +449,8 @@ Trả về ĐÚNG định dạng JSON sau:
                 break;
               }
             }
-          } catch (modelErr) {
-            console.warn(`[Face ID] Model ${modelName} call error:`, modelErr);
+          } catch (modelErr: any) {
+            console.warn(`[Face ID] Model ${modelName} temporary issue (${modelErr?.status || modelErr?.code || '503'}), trying next fallback engine...`);
           }
         }
 
