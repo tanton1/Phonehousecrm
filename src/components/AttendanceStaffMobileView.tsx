@@ -12,6 +12,7 @@ import {
 import { INITIAL_BRANCHES } from '../data/initialData';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
 import { compareFaceVectors, extractFaceFeatureVectorFromCanvas, detectFacePresenceInCanvas } from '../utils/faceMatchingEngine';
+import { submitServerCheckIn, submitServerCheckOut } from '../features/attendance/api/attendanceApi';
 import { 
   CheckCircle2, 
   Clock, 
@@ -622,7 +623,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     runAutoScanSimulation();
   };
 
-  const handleConfirmCheckIn = () => {
+  const handleConfirmCheckIn = async () => {
     if (attendanceRecord?.checkInTime) {
       alert(`Bạn đã điểm danh vào ca hôm nay lúc ${attendanceRecord.checkInTime}.`);
       return;
@@ -635,6 +636,25 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     setRecordedCheckInDate(dateStr);
     setCheckInStartTimestamp(Date.now());
 
+    try {
+      await submitServerCheckIn({
+        staffId: currentUser.id,
+        staffName: currentUser.displayName,
+        role: currentUser.role,
+        branchId: targetBranch?.id || currentUser.branchId || 'CN01',
+        branchName: targetBranch?.name || 'Chi nhánh PhoneHouse',
+        userCoords: userCoords ? { latitude: userCoords.lat, longitude: userCoords.lng } : undefined,
+        storeCoords: targetBranch ? { latitude: targetBranch.gpsLatitude || targetBranch.latitude || 0, longitude: targetBranch.gpsLongitude || targetBranch.longitude || 0 } : undefined,
+        allowedRadiusMeters: targetBranch?.allowedGpsRadiusMeters || 150,
+        faceVerified: faceStatus === 'SUCCESS',
+        faceConfidence: faceConfidence || 0,
+        networkVerified: wifiStatus === 'SUCCESS',
+        qrScanned: qrStatus === 'SUCCESS'
+      });
+    } catch (e: any) {
+      console.warn('Server Check-in sync note:', e?.message || e);
+    }
+
     onCheckIn({
       time: timeStr,
       gpsVerified: gpsStatus === 'SUCCESS',
@@ -646,7 +666,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     localStorage.setItem(`phonehouse_is_checked_in_${currentUser.id}`, 'true');
   };
 
-  const handleConfirmCheckOut = () => {
+  const handleConfirmCheckOut = async () => {
+    try {
+      await submitServerCheckOut(currentUser.id, targetBranch?.id || currentUser.branchId || 'CN01');
+    } catch (e) {
+      console.warn('Server Check-out sync note:', e);
+    }
     onCheckOut();
     localStorage.removeItem(`phonehouse_is_checked_in_${currentUser.id}`);
     setShiftStatusOverride('AUTO'); // reset demo state

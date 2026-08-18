@@ -112,40 +112,10 @@ import { createPOSCheckoutRouter } from './server/routes/posCheckout';
 app.use('/api/pos', createPOSCheckoutRouter(serverDb));
 
 // -------------------------------------------------------------
-// 2. ATTENDANCE REAL NETWORK/IP VERIFICATION ENDPOINT
+// 2. ATTENDANCE VERIFICATION & CHECK-IN ROUTER
 // -------------------------------------------------------------
-app.post('/api/attendance/network-check', (req, res) => {
-  const forwarded = req.headers['x-forwarded-for'];
-  let ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress || '127.0.0.1';
-  if (ip.startsWith('::ffff:')) {
-    ip = ip.replace('::ffff:', '');
-  }
-
-  const { branchId } = req.body || {};
-  const isLocal = ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.');
-  // Store authorized public IP subnet or local development
-  const isAllowed = isLocal || ip.startsWith('113.161.') || ip.startsWith('14.232.') || ip.startsWith('171.244.');
-
-  const now = new Date();
-  const serverTimeIso = now.toISOString();
-  const serverTimeFormatted = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
-  const serverDateFormatted = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
-
-  res.json({
-    success: true,
-    data: {
-      clientIp: ip,
-      isAllowed,
-      branchId,
-      verifiedAt: serverTimeIso,
-      serverTimeIso,
-      serverTimeFormatted,
-      serverDateFormatted,
-      serverTimestamp: now.getTime(),
-      networkSignature: isLocal ? 'STORE_INTRANET_LAN' : (isAllowed ? 'STORE_PUBLIC_GATEWAY' : 'CELLULAR_CARRIER_IP')
-    }
-  });
-});
+import { createAttendanceRouter } from './server/routes/attendance';
+app.use('/api/attendance', createAttendanceRouter(serverDb));
 
 // Secure Server-side Telegram Bot Alert Endpoint (Protects bot token from client exposure)
 app.post('/api/telegram/send-alert', async (req, res) => {
