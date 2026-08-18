@@ -154,18 +154,18 @@ service cloud.firestore {
 
     match /transfers/{transferId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
+      allow create, update: if isAdmin() || isManager();
       allow delete: if isAdmin();
     }
 
     match /products/{productId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isAdmin() || isManager();
     }
 
     match /spareParts/{partId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow write: if isAdmin() || isManager() || getUserRole() == 'TECH';
     }
 
     match /repairServices/{serviceId} {
@@ -203,12 +203,13 @@ service cloud.firestore {
 
     match /shiftHandover/{handoverId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin() || isManager();
     }
 
     match /purchaseOrders/{orderId} {
       allow read: if isAuthenticated();
-      allow create, update: if isAuthenticated();
+      allow create, update: if isAdmin() || isManager();
       allow delete: if isAdmin();
     }
 

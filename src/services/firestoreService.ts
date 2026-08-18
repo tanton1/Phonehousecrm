@@ -1030,6 +1030,45 @@ export async function processCheckoutTransaction(params: {
   financeCompanyPartner: Partner | null;
   fundToUpdate?: FundAccount | null;
 }) {
+  // 1. Primary Execution: Server-side Atomic runTransaction() (handles concurrency & fund privilege safely)
+  try {
+    const response = await fetch('/api/pos/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        invoice: cleanDataForFirestore(params.invoice),
+        devicesToSell: params.devicesToSell,
+        accessoriesToSell: params.accessoriesToSell,
+        cashTx: params.cashTx ? cleanDataForFirestore(params.cashTx) : null,
+        tradeInDevice: params.tradeInDevice ? cleanDataForFirestore(params.tradeInDevice) : null,
+        customerPartner: params.customerPartner ? cleanDataForFirestore(params.customerPartner) : null,
+        financeCompanyPartner: params.financeCompanyPartner ? cleanDataForFirestore(params.financeCompanyPartner) : null,
+        fundToUpdate: params.fundToUpdate ? cleanDataForFirestore(params.fundToUpdate) : null
+      })
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success) {
+        return result.data;
+      } else {
+        throw new Error(result.error || 'Giao dịch thanh toán bị từ chối');
+      }
+    } else {
+      const errBody = await response.json().catch(() => ({}));
+      throw new Error(errBody.error || `HTTP ${response.status}: Lỗi máy chủ thanh toán`);
+    }
+  } catch (apiError: any) {
+    // If it's a strict business rule failure (DEVICE_ALREADY_SOLD, INSUFFICIENT_STOCK), rethrow immediately
+    const errText = apiError?.message || '';
+    if (errText.includes('DEVICE_ALREADY_SOLD') || errText.includes('INSUFFICIENT_STOCK') || errText.includes('DEVICE_NOT_FOUND')) {
+      throw apiError;
+    }
+
+    console.warn('Backend checkout endpoint unavailable, falling back to local writeBatch:', apiError);
+  }
+
+  // 2. Client-side fallback (for offline or local testing)
   const batch = writeBatch(db);
 
   try {

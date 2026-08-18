@@ -451,25 +451,17 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       }]
     };
 
-    // 1. Mark selected devices as sold in inventory
-    selectedDevices.forEach(d => {
-      onUpdateDeviceStatus(d.imei, 'sold', customerName, customerPhone);
-    });
-
-    // 2. Reduce accessory stock
+    // 1. Prepare Accessories to sell payload
     const accessoriesToSell: { product: ProductItem; quantity: number }[] = [];
     selectedAccessoriesList.forEach(acc => {
       if (acc.productRef) {
-        const newStock = Math.max(0, acc.productRef.stockQuantity - 1);
-        const updated = { ...acc.productRef, stockQuantity: newStock };
         accessoriesToSell.push({ product: acc.productRef, quantity: 1 });
-        if (onUpdateProduct) onUpdateProduct(updated);
       }
     });
 
-    // 3. AUTO-INGEST TRADE-IN DEVICE TO INVENTORY
+    // 2. Prepare Trade-in Device payload (if any)
     let tradeInDevice: DeviceItem | null = null;
-    if (tradeInDiscount > 0 && onAddDevice) {
+    if (tradeInDiscount > 0) {
       tradeInDevice = {
         id: `DEV-TRD-${Date.now().toString().slice(-5)}`,
         imei: tradeInImei,
@@ -493,10 +485,9 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
         screenStatus: 'Zin Màn Keng',
         notes: `Tự động nhập kho từ đơn hàng POS ${newInvoice.id}. Khách: ${customerName} (${customerPhone}). Giá thu: ${tradeInDiscount.toLocaleString('vi-VN')}đ`
       };
-      onAddDevice(tradeInDevice);
     }
 
-    // 4. Single Atomic Writer: Execute atomic transaction to Firestore
+    // 3. Single Atomic Writer: Execute atomic transaction (NO PRE-WRITES)
     const customerPartner = partners.find(p => p.phone === customerPhone) || null;
     const financeCompanyPartner = paymentMethod === 'Trả góp' ? (partners.find(p => p.name.toLowerCase().includes(installmentCompany.toLowerCase()) || p.supplierCategory === 'FINANCE_PARTNER') || null) : null;
     const fundToUpdate = fund;
@@ -523,7 +514,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   };
 
   return (
-    <div className="w-full max-w-xl mx-auto space-y-3 sm:space-y-4 pb-32">
+    <div className="w-full max-w-5xl mx-auto space-y-3 sm:space-y-4 pb-32">
       {/* 0. Top Bar Quick Actions */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center space-x-2">
@@ -574,7 +565,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           </button>
           <button type="button" onClick={handleCheckout} disabled={selectedDevices.length === 0} className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-3 py-1 rounded-lg flex items-center gap-1.5 font-mono font-bold shadow-xs transition-transform active:scale-95 disabled:opacity-40 cursor-pointer">
             <kbd className="bg-black/30 text-white px-1.5 rounded text-[10px] font-bold">F9</kbd>
-            <span>Thanh Toán K80</span>
+            <span>Thanh Toán (F9)</span>
           </button>
         </div>
       </div>
@@ -921,8 +912,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
         </div>
       </div>
 
-      {/* 5. STICKY BOTTOM DARK SUMMARY BAR */}
-      <div className="fixed bottom-14 sm:bottom-4 left-0 right-0 z-40 px-3 sm:px-4 max-w-xl mx-auto">
+      {/* 5. Sticky Floating Quick Action Bar */}
+      <div className="fixed bottom-14 sm:bottom-4 left-0 right-0 z-40 px-3 sm:px-4 max-w-5xl mx-auto">
         <div className="bg-zinc-900 text-white rounded-3xl p-3.5 sm:p-4 shadow-2xl border border-zinc-800 backdrop-blur-md">
           {/* Collapsible Order Breakdown Details */}
           {showDetailsDropdown && (

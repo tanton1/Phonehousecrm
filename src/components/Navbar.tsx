@@ -120,27 +120,84 @@ export const Navbar: React.FC<NavbarProps> = ({
     onOpenLoginModal();
   };
 
-  const navItems = [
-    { id: 'dashboard', label: 'Tổng Quan', icon: Layers },
-    { id: 'pos', label: 'Bán Hàng POS', icon: ShoppingCart },
-    { id: 'inventory', label: 'Kho IMEI', icon: Smartphone, badge: stockCount },
-    { id: 'purchase-orders', label: 'Nhập Hàng (NCC)', icon: PackageCheck },
-    { id: 'transfers', label: 'Chuyển Kho', icon: ArrowLeftRight, badge: transferCount },
-    { id: 'master-catalog', label: 'Danh Mục Hàng Hóa', icon: Database },
-    { id: 'products', label: 'Linh Phụ Kiện', icon: Package },
-    { id: 'invoices', label: 'Hóa Đơn', icon: FileText },
-    { id: 'cashbook', label: 'Sổ Quỹ Thu Chi', icon: Wallet },
-    { id: 'partners', label: 'Đối Tác & NCC', icon: Building2 },
-    { id: 'crm', label: 'Khách Hàng (CRM)', icon: Users, badge: leadCount },
-    { id: 'omnichannel-chat', label: 'Chat Đa Kênh', icon: MessageSquare, badge: 'SYNC' },
-    { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: RefreshCw },
-    { id: 'warranty', label: 'Bảo Hành & Sửa', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
-    { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
-    { id: 'sop-management', label: 'Quy Trình SOP & Ca', icon: ClipboardCheck },
-    { id: 'users', label: 'Phân Quyền User', icon: ShieldCheck, badge: userCount },
-    { id: 'more', label: 'Nhiều Hơn (More)', icon: Menu },
-    { id: 'erpnext-plan', label: 'Kiến Trúc ERPNext', icon: BookOpen },
+  const navClusters = [
+    {
+      id: 'dashboard',
+      label: 'Tổng Quan',
+      icon: Layers,
+      defaultTab: 'dashboard',
+      matchIds: ['dashboard']
+    },
+    {
+      id: 'sales_group',
+      label: 'Bán Hàng',
+      icon: ShoppingCart,
+      defaultTab: 'pos',
+      matchIds: ['pos', 'invoices', 'tradein', 'crm', 'omnichannel-chat'],
+      badge: (leadCount > 0) ? leadCount : undefined,
+      subItems: [
+        { id: 'pos', label: 'Bán Hàng POS', icon: ShoppingCart },
+        { id: 'invoices', label: 'Hóa Đơn Bán Lẻ', icon: FileText },
+        { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: RefreshCw },
+        { id: 'crm', label: 'Khách Hàng (CRM)', icon: Users, badge: leadCount },
+        { id: 'omnichannel-chat', label: 'Chat Đa Kênh', icon: MessageSquare, badge: 'SYNC' }
+      ]
+    },
+    {
+      id: 'inventory_group',
+      label: 'Hàng Hóa',
+      icon: Smartphone,
+      defaultTab: 'inventory',
+      matchIds: ['inventory', 'products', 'purchase-orders', 'transfers', 'master-catalog'],
+      badge: (stockCount > 0) ? stockCount : undefined,
+      subItems: [
+        { id: 'inventory', label: 'Kho IMEI', icon: Smartphone, badge: stockCount },
+        { id: 'products', label: 'Linh Phụ Kiện', icon: Package },
+        { id: 'purchase-orders', label: 'Nhập Hàng (NCC)', icon: PackageCheck },
+        { id: 'transfers', label: 'Chuyển Kho', icon: ArrowLeftRight, badge: transferCount },
+        { id: 'master-catalog', label: 'Danh Mục Hàng Hóa', icon: Database }
+      ]
+    },
+    {
+      id: 'technical_group',
+      label: 'Kỹ Thuật',
+      icon: Wrench,
+      defaultTab: 'warranty',
+      matchIds: ['warranty', 'tech-workspace'],
+      badge: (warrantyCount > 0) ? warrantyCount : undefined,
+      subItems: [
+        { id: 'warranty', label: 'Bảo Hành & Sửa Chữa', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
+        { id: 'tech-workspace', label: 'Bàn Kỹ Thuật', icon: Sparkles }
+      ]
+    },
+    {
+      id: 'finance_group',
+      label: 'Tài Chính',
+      icon: Wallet,
+      defaultTab: 'cashbook',
+      matchIds: ['cashbook', 'partners', 'installments'],
+      subItems: [
+        { id: 'cashbook', label: 'Sổ Quỹ Thu Chi', icon: Wallet },
+        { id: 'partners', label: 'Đối Tác & NCC', icon: Building2 },
+        { id: 'installments', label: 'Đối Soát Trả Góp', icon: DollarSign }
+      ]
+    },
+    {
+      id: 'hr_system_group',
+      label: 'Nhân Sự & Hệ Thống',
+      icon: ShieldCheck,
+      defaultTab: 'hr-attendance',
+      matchIds: ['hr-attendance', 'sop-management', 'users', 'store-settings'],
+      subItems: [
+        { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
+        { id: 'sop-management', label: 'Quy Trình SOP & Ca', icon: ClipboardCheck },
+        { id: 'users', label: 'Phân Quyền User', icon: ShieldCheck, badge: userCount },
+        { id: 'store-settings', label: 'Cài Đặt Chi Nhánh', icon: Settings }
+      ]
+    }
   ];
+
+  const [hoveredCluster, setHoveredCluster] = useState<string | null>(null);
 
   return (
     <>
@@ -268,36 +325,98 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Desktop Navigation Sub-Bar */}
-        <div className="hidden md:block bg-zinc-50/80 border-t border-zinc-200/80 px-4 sm:px-6 lg:px-8">
-          <div className="max-w-7xl mx-auto flex items-center space-x-1 overflow-x-auto scrollbar-none py-1.5">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white shadow-sm shadow-orange-500/20'
-                      : 'text-zinc-600 hover:text-orange-600 hover:bg-white'
-                  }`}
-                >
-                  <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
-                  <span>{item.label}</span>
-                  {item.badge !== undefined && (
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                        isActive ? 'bg-white text-orange-600' : 'bg-zinc-200 text-zinc-700'
+        {/* Desktop Navigation Sub-Bar with 6 Category Clusters */}
+        <div className="hidden md:block bg-zinc-50/90 border-t border-zinc-200/80 px-4 sm:px-6 lg:px-8 relative">
+          <div className="max-w-7xl mx-auto flex items-center justify-between py-1.5">
+            <div className="flex items-center space-x-1">
+              {navClusters.map((cluster) => {
+                const Icon = cluster.icon;
+                const isClusterActive = cluster.matchIds.includes(activeTab);
+                const hasSub = cluster.subItems && cluster.subItems.length > 0;
+                const isHovered = hoveredCluster === cluster.id;
+
+                return (
+                  <div 
+                    key={cluster.id} 
+                    className="relative"
+                    onMouseEnter={() => hasSub && setHoveredCluster(cluster.id)}
+                    onMouseLeave={() => setHoveredCluster(null)}
+                  >
+                    <button
+                      onClick={() => {
+                        if (cluster.defaultTab) {
+                          setActiveTab(cluster.defaultTab);
+                        }
+                      }}
+                      className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                        isClusterActive
+                          ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white shadow-sm shadow-orange-500/20'
+                          : 'text-zinc-600 hover:text-orange-600 hover:bg-white'
                       }`}
                     >
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+                      <Icon className={`w-3.5 h-3.5 ${isClusterActive ? 'text-white' : 'text-zinc-400'}`} />
+                      <span>{cluster.label}</span>
+                      {cluster.badge !== undefined && (
+                        <span
+                          className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                            isClusterActive ? 'bg-white text-orange-600' : 'bg-zinc-200 text-zinc-700'
+                          }`}
+                        >
+                          {cluster.badge}
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Cluster Sub-Menu Dropdown */}
+                    {hasSub && isHovered && (
+                      <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-2xl shadow-xl border border-orange-100 p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                        {cluster.subItems?.map((sub) => {
+                          const SubIcon = sub.icon;
+                          const isSubActive = activeTab === sub.id;
+                          return (
+                            <button
+                              key={sub.id}
+                              onClick={() => {
+                                setActiveTab(sub.id);
+                                setHoveredCluster(null);
+                              }}
+                              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-colors cursor-pointer ${
+                                isSubActive
+                                  ? 'bg-orange-50 text-orange-600 font-bold'
+                                  : 'text-zinc-700 hover:bg-zinc-50 hover:text-zinc-900'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2.5">
+                                <SubIcon className={`w-3.5 h-3.5 ${isSubActive ? 'text-orange-500' : 'text-zinc-400'}`} />
+                                <span>{sub.label}</span>
+                              </div>
+                              {sub.badge !== undefined && (
+                                <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-orange-100 text-orange-600">
+                                  {sub.badge}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* App Launcher Button */}
+            <button
+              onClick={() => setActiveTab('more')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                activeTab === 'more'
+                  ? 'text-orange-600 bg-orange-50 border-orange-300'
+                  : 'text-zinc-500 hover:text-orange-600 hover:bg-white border-transparent hover:border-zinc-200'
+              }`}
+            >
+              <Menu className="w-3.5 h-3.5" />
+              <span>Tất Cả Phân Hệ ▦</span>
+            </button>
           </div>
         </div>
       </header>

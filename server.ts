@@ -3,11 +3,18 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore, doc, runTransaction, increment } from 'firebase/firestore';
+import firebaseConfig from './firebase-applet-config.json';
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Initialize Server-side Firebase Firestore connection for atomic transaction processing
+const serverFirebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const serverDb = getFirestore(serverFirebaseApp, firebaseConfig.firestoreDatabaseId);
 
 app.use(express.json({ limit: '15mb' }));
 
@@ -95,6 +102,188 @@ app.get('/api/database/info', (req, res) => {
     realtimeSync: true,
     authProvider: 'Google Identity / Firebase Auth',
     connected: true
+  });
+});
+
+// -------------------------------------------------------------
+// 1. ATOMIC POS CHECKOUT TRANSACTION (SERVER-SIDE SINGLE WRITER)
+// -------------------------------------------------------------
+app.post('/api/pos/checkout', async (req, res) => {
+  try {
+    const {
+      invoice,
+      devicesToSell = [],
+      accessoriesToSell = [],
+      cashTx,
+      tradeInDevice,
+      customerPartner,
+      financeCompanyPartner,
+      fundToUpdate
+    } = req.body;
+
+    if (!invoice || !invoice.id) {
+      return res.status(400).json({ success: false, error: 'Thiếu thông tin hóa đơn bán hàng (invoice).' });
+    }
+
+    const result = await runTransaction(serverDb, async (transaction) => {
+      // 1. Idempotency Check: If invoice already exists, return existing
+      const invRef = doc(serverDb, 'invoices', invoice.id);
+      const existingInvSnap = await transaction.get(invRef);
+      if (existingInvSnap.exists()) {
+        return { alreadyProcessed: true, invoiceId: invoice.id };
+      }
+
+      // 2. Concurrency Check: Verify each device is currently 'in_stock'
+      for (const dev of devicesToSell) {
+        if (!dev.id) continue;
+        const devRef = doc(serverDb, 'devices', dev.id);
+        const devSnap = await transaction.get(devRef);
+        if (!devSnap.exists()) {
+          throw new Error(`DEVICE_NOT_FOUND: Không tìm thấy máy ${dev.model} (IMEI: ${dev.imei || dev.id}).`);
+        }
+        const devData = devSnap.data();
+        if (devData.status !== 'in_stock') {
+          throw new Error(`DEVICE_ALREADY_SOLD: Cây máy ${dev.model} (IMEI: ${dev.imei}) đã được bán hoặc chuyển trạng thái (${devData.status}).`);
+        }
+      }
+
+      // 3. Concurrency Check: Verify accessory inventory stock
+      for (const acc of accessoriesToSell) {
+        if (acc.product && acc.product.id) {
+          const prodRef = doc(serverDb, 'products', acc.product.id);
+          const prodSnap = await transaction.get(prodRef);
+          if (prodSnap.exists()) {
+            const prodData = prodSnap.data();
+            const currentStock = prodData.stockQuantity || 0;
+            if (currentStock < (acc.quantity || 1)) {
+              throw new Error(`INSUFFICIENT_STOCK: Phụ kiện "${acc.product.name}" chỉ còn tồn ${currentStock} cái (yêu cầu ${acc.quantity}).`);
+            }
+          }
+        }
+      }
+
+      // 4. Mark devices as sold
+      for (const dev of devicesToSell) {
+        if (!dev.id) continue;
+        const devRef = doc(serverDb, 'devices', dev.id);
+        transaction.update(devRef, {
+          status: 'sold',
+          soldDate: new Date().toISOString(),
+          customerName: invoice.customerName || null,
+          customerPhone: invoice.customerPhone || null,
+          soldInvoiceId: invoice.id
+        });
+      }
+
+      // 5. Deduct accessory stock
+      for (const acc of accessoriesToSell) {
+        if (acc.product && acc.product.id) {
+          const prodRef = doc(serverDb, 'products', acc.product.id);
+          transaction.update(prodRef, {
+            stockQuantity: increment(-(acc.quantity || 1))
+          });
+        }
+      }
+
+      // 6. Set Invoice
+      transaction.set(invRef, invoice);
+
+      // 7. Set Cash Transaction & Increment Fund Balance
+      if (cashTx && cashTx.id) {
+        const txRef = doc(serverDb, 'cashTransactions', cashTx.id);
+        transaction.set(txRef, cashTx);
+
+        if (fundToUpdate && fundToUpdate.id && cashTx.amount > 0) {
+          const fundRef = doc(serverDb, 'funds', fundToUpdate.id);
+          transaction.update(fundRef, {
+            currentBalance: increment(cashTx.amount),
+            totalIncome: increment(cashTx.amount)
+          });
+        }
+      }
+
+      // 8. Auto-ingest Trade-In Device (if any)
+      if (tradeInDevice && tradeInDevice.id) {
+        const trdRef = doc(serverDb, 'devices', tradeInDevice.id);
+        transaction.set(trdRef, tradeInDevice);
+      }
+
+      // 9. Partner Accounting: Installment Receivable vs Customer TotalSpent
+      const debtIncrease = (invoice.installmentDisbursementStatus === 'PENDING' && invoice.installmentExpectedAmount) 
+        ? invoice.installmentExpectedAmount 
+        : 0;
+
+      if (debtIncrease > 0 && financeCompanyPartner && financeCompanyPartner.id) {
+        const fcRef = doc(serverDb, 'partners', financeCompanyPartner.id);
+        const newDebtTx = {
+          id: `TX-${Date.now().toString().slice(-6)}`,
+          date: new Date().toISOString().split('T')[0],
+          type: 'DEBT_INCREASE',
+          amount: debtIncrease,
+          note: `Mua trả góp đơn ${invoice.invoiceCode || invoice.id} - ${invoice.customerName}`,
+          referenceId: invoice.id
+        };
+        transaction.update(fcRef, {
+          outstandingDebt: increment(debtIncrease)
+        });
+      }
+
+      if (customerPartner && customerPartner.id) {
+        const custRef = doc(serverDb, 'partners', customerPartner.id);
+        transaction.update(custRef, {
+          type: customerPartner.type === 'SUPPLIER' ? 'BOTH' : customerPartner.type,
+          totalSpent: increment(invoice.finalAmount || 0)
+        });
+      } else if (invoice.customerPhone) {
+        const newPartnerId = `PARTNER-${Date.now()}`;
+        const newCustRef = doc(serverDb, 'partners', newPartnerId);
+        transaction.set(newCustRef, {
+          id: newPartnerId,
+          type: 'CUSTOMER',
+          name: invoice.customerName || 'Khách Hàng',
+          phone: invoice.customerPhone,
+          outstandingDebt: 0,
+          totalSpent: invoice.finalAmount || 0,
+          debtTransactions: [],
+          branchId: invoice.branchId || '',
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      return { success: true, invoiceId: invoice.id };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('POS Checkout Transaction Error:', error);
+    res.status(400).json({ success: false, error: error?.message || 'Lỗi xử lý giao dịch thanh toán' });
+  }
+});
+
+// -------------------------------------------------------------
+// 2. ATTENDANCE REAL NETWORK/IP VERIFICATION ENDPOINT
+// -------------------------------------------------------------
+app.post('/api/attendance/network-check', (req, res) => {
+  const forwarded = req.headers['x-forwarded-for'];
+  let ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress || '127.0.0.1';
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.replace('::ffff:', '');
+  }
+
+  const { branchId } = req.body || {};
+  const isLocal = ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.');
+  // Store authorized public IP subnet or local development
+  const isAllowed = isLocal || ip.startsWith('113.161.') || ip.startsWith('14.232.') || ip.startsWith('171.244.');
+
+  res.json({
+    success: true,
+    data: {
+      clientIp: ip,
+      isAllowed,
+      branchId,
+      verifiedAt: new Date().toISOString(),
+      networkSignature: isLocal ? 'STORE_INTRANET_LAN' : (isAllowed ? 'STORE_PUBLIC_GATEWAY' : 'CELLULAR_CARRIER_IP')
+    }
   });
 });
 

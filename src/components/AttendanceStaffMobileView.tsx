@@ -367,11 +367,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       }
 
       if (!isVerified) {
-        // High-precision local biometric vector comparison fallback
-        const localResult = compareFaceVectors(liveVector, staffFaceProfile.faceFeatureVector, currentUser.name);
-        setFaceStatus(localResult.isMatched ? 'SUCCESS' : 'ERROR');
-        setFaceConfidence(localResult.matchScore);
-        setFaceFeedbackMsg(localResult.statusText);
+        setFaceStatus('ERROR');
+        setFaceConfidence(0);
+        setFaceFeedbackMsg('Máy chủ AI xác thực bảo mật không phản hồi. Vui lòng kiểm tra mạng và quét lại.');
       }
     } catch (err: any) {
       console.error('Execute face scan error:', err);
@@ -479,12 +477,26 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
     fetchRealGPSLocation();
 
-    if (navigator.onLine) {
-      setWifiStatus('SUCCESS');
-      setCurrentWifiSSID(targetWifiSSID);
-    } else {
-      setWifiStatus('ERROR');
-    }
+    // Real Server Network / Public IP verification
+    fetch('/api/attendance/network-check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branchId: targetBranch?.id })
+    })
+      .then(res => res.json())
+      .then(json => {
+        if (json.success && json.data?.isAllowed) {
+          setWifiStatus('SUCCESS');
+          setCurrentWifiSSID(`Mạng cửa hàng (${json.data.networkSignature || 'Hợp lệ'})`);
+        } else {
+          setWifiStatus('ERROR');
+          setCurrentWifiSSID(json.data?.clientIp ? `Mạng ngoài: ${json.data.clientIp}` : 'Mạng chưa được cấp phép');
+        }
+      })
+      .catch(() => {
+        setWifiStatus('ERROR');
+        setCurrentWifiSSID('Không kết nối được cổng kiểm tra mạng');
+      });
 
     setTimeout(() => {
       executeRealFaceScan();
@@ -501,13 +513,25 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       fetchRealGPSLocation();
     } else if (step === 'WIFI') {
       setWifiStatus('PENDING');
-      setTimeout(() => {
-        if (currentWifiSSID === targetWifiSSID) {
-          setWifiStatus('SUCCESS');
-        } else {
+      fetch('/api/attendance/network-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branchId: targetBranch?.id })
+      })
+        .then(res => res.json())
+        .then(json => {
+          if (json.success && json.data?.isAllowed) {
+            setWifiStatus('SUCCESS');
+            setCurrentWifiSSID(`Mạng cửa hàng (${json.data.networkSignature || 'Hợp lệ'})`);
+          } else {
+            setWifiStatus('ERROR');
+            setCurrentWifiSSID(json.data?.clientIp ? `Mạng ngoài: ${json.data.clientIp}` : 'Mạng chưa được cấp phép');
+          }
+        })
+        .catch(() => {
           setWifiStatus('ERROR');
-        }
-      }, 700);
+          setCurrentWifiSSID('Không kết nối được cổng kiểm tra mạng');
+        });
     } else if (step === 'FACE') {
       executeRealFaceScan();
     } else if (step === 'QR') {
