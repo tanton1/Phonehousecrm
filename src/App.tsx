@@ -339,10 +339,10 @@ export default function App() {
     setAttendanceRecords(prev => {
       const today = new Date().toISOString().split('T')[0];
       const existing = prev.find(a => a.staffId === currentUser.id && a.date === today);
-      if (existing) {
-        return prev.map(a => a.id === existing.id ? { ...a, checkInTime: time, status: 'ON_TIME' } : a);
-      } else {
-        // Create new record
+      if (existing && existing.checkInTime) {
+        alert(`Bạn đã chấm công vào ca hôm nay lúc ${existing.checkInTime}. Không thể chấm công lại.`);
+        return prev;
+      }
         return [...prev, {
           id: `ATT_${Date.now()}`,
           staffId: currentUser.id,
@@ -361,7 +361,6 @@ export default function App() {
           netWorkMinutes: 0,
           verification: { method: 'WIFI_IP', verified: true }
         }];
-      }
     });
   };
 
@@ -823,10 +822,38 @@ export default function App() {
       });
     }
 
-    // 3. Exact Refund Fund Routing (Refund to original payment fund)
-    const fundToDeduct = (invoice.paymentFundId ? funds.find(f => f.id === invoice.paymentFundId) : null) || 
-                         funds.find(f => (invoice.branchId ? f.branchId === invoice.branchId : true) && f.type === (invoice.paymentMethod === 'Tiền mặt' ? 'CASH' : 'BANK')) ||
-                         funds.find(f => f.type === (invoice.paymentMethod === 'Tiền mặt' ? 'CASH' : 'BANK')) || null;
+    // 3. Exact Refund Fund Routing
+    let fundToDeduct: FundAccount | null = null;
+    if (invoice.paymentFundId) {
+      fundToDeduct = funds.find(f => f.id === invoice.paymentFundId) || null;
+      if (!fundToDeduct) {
+        alert(`Lỗi kế toán: Không tìm thấy Quỹ gốc (Mã: ${invoice.paymentFundId}) của đơn hàng để hoàn tiền. Vui lòng kiểm tra cấu hình Quỹ.`);
+        return;
+      }
+    } else {
+      // Legacy invoice without paymentFundId: Prompt Admin to explicitly select refund fund
+      const candidateFunds = funds.filter(f => !invoice.branchId || f.branchId === invoice.branchId || f.branchId === 'ALL');
+      if (candidateFunds.length === 0) {
+        alert('Không tìm thấy Quỹ nào khả dụng để hoàn tiền.');
+        return;
+      }
+      const fundOptions = candidateFunds.map((f, idx) => `${idx + 1}. ${f.name} (Số dư: ${f.currentBalance.toLocaleString('vi-VN')}đ)`).join('\n');
+      const choice = window.prompt(
+        `Cảnh báo: Hóa đơn cũ (${invoice.invoiceCode || invoice.id}) không có mã Quỹ gốc.\nAdmin vui lòng nhập số thứ tự Quỹ hoàn tiền:\n${fundOptions}`,
+        '1'
+      );
+      if (!choice) {
+        alert('Đã hủy thao tác hoàn tiền.');
+        return;
+      }
+      const selectedIndex = parseInt(choice.trim(), 10) - 1;
+      if (isNaN(selectedIndex) || selectedIndex < 0 || selectedIndex >= candidateFunds.length) {
+        alert('Lựa chọn Quỹ không hợp lệ. Hủy thao tác hoàn tiền.');
+        return;
+      }
+      fundToDeduct = candidateFunds[selectedIndex];
+    }
+
     const refundAmount = invoice.paidAmount || invoice.finalAmount || 0;
     
     let refundTx: CashTransaction | null = null;

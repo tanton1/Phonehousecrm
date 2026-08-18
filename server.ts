@@ -275,13 +275,22 @@ app.post('/api/attendance/network-check', (req, res) => {
   // Store authorized public IP subnet or local development
   const isAllowed = isLocal || ip.startsWith('113.161.') || ip.startsWith('14.232.') || ip.startsWith('171.244.');
 
+  const now = new Date();
+  const serverTimeIso = now.toISOString();
+  const serverTimeFormatted = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+  const serverDateFormatted = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+
   res.json({
     success: true,
     data: {
       clientIp: ip,
       isAllowed,
       branchId,
-      verifiedAt: new Date().toISOString(),
+      verifiedAt: serverTimeIso,
+      serverTimeIso,
+      serverTimeFormatted,
+      serverDateFormatted,
+      serverTimestamp: now.getTime(),
       networkSignature: isLocal ? 'STORE_INTRANET_LAN' : (isAllowed ? 'STORE_PUBLIC_GATEWAY' : 'CELLULAR_CARRIER_IP')
     }
   });

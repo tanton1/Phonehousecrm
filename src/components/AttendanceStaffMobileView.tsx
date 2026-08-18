@@ -135,6 +135,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   // Device coordinates & Error messages
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsErrorMsg, setGpsErrorMsg] = useState<string | null>(null);
+  const [serverVerifiedTime, setServerVerifiedTime] = useState<string | null>(null);
+  const [serverVerifiedDate, setServerVerifiedDate] = useState<string | null>(null);
 
   // Haversine formula to compute exact distance in meters between two lat/lng points
   const calculateDistanceInMeters = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -488,6 +490,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         if (json.success && json.data?.isAllowed) {
           setWifiStatus('SUCCESS');
           setCurrentWifiSSID(`Mạng cửa hàng (${json.data.networkSignature || 'Hợp lệ'})`);
+          if (json.data.serverTimeFormatted) {
+            setServerVerifiedTime(json.data.serverTimeFormatted);
+            setServerVerifiedDate(json.data.serverDateFormatted);
+          }
         } else {
           setWifiStatus('ERROR');
           setCurrentWifiSSID(json.data?.clientIp ? `Mạng ngoài: ${json.data.clientIp}` : 'Mạng chưa được cấp phép');
@@ -523,6 +529,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           if (json.success && json.data?.isAllowed) {
             setWifiStatus('SUCCESS');
             setCurrentWifiSSID(`Mạng cửa hàng (${json.data.networkSignature || 'Hợp lệ'})`);
+            if (json.data.serverTimeFormatted) {
+              setServerVerifiedTime(json.data.serverTimeFormatted);
+              setServerVerifiedDate(json.data.serverDateFormatted);
+            }
           } else {
             setWifiStatus('ERROR');
             setCurrentWifiSSID(json.data?.clientIp ? `Mạng ngoài: ${json.data.clientIp}` : 'Mạng chưa được cấp phép');
@@ -557,7 +567,11 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   });
 
   // Demo switch to preview both states: 'CHECKED_IN' or 'NOT_CHECKED_IN' or use real attendanceRecord.status
-  const [shiftStatusOverride, setShiftStatusOverride] = useState<'AUTO' | 'NOT_CHECKED_IN' | 'IN_PROGRESS'>('AUTO');
+  const [shiftStatusOverride, setShiftStatusOverride] = useState<'AUTO' | 'NOT_CHECKED_IN' | 'CHECKED_IN'>('AUTO');
+  
+  // Real Attendance status calculation
+  const isActuallyCheckedIn = attendanceRecord && attendanceRecord.checkInTime && !attendanceRecord.checkOutTime;
+  const isShiftCheckedIn = shiftStatusOverride === 'CHECKED_IN' ? true : (shiftStatusOverride === 'NOT_CHECKED_IN' ? false : isActuallyCheckedIn);
 
   // Live timer for in-shift
   const [secondsInShift, setSecondsInShift] = useState<number>(0);
@@ -609,9 +623,13 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   };
 
   const handleConfirmCheckIn = () => {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const dateStr = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
+    if (attendanceRecord?.checkInTime) {
+      alert(`Bạn đã điểm danh vào ca hôm nay lúc ${attendanceRecord.checkInTime}.`);
+      return;
+    }
+
+    const timeStr = serverVerifiedTime || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+    const dateStr = serverVerifiedDate || new Date().toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
 
     setRecordedCheckInTime(timeStr);
     setRecordedCheckInDate(dateStr);

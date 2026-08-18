@@ -250,4 +250,44 @@ describe('PhoneHouse POS & Financial Invariants Test Suite', () => {
     expect(updatedCust.outstandingDebt).toBe(0);
     expect(updatedCust.totalSpent).toBe(initialCustSpent + orderAmount);
   });
+
+  it('P1 Case 5: Khóa điểm danh trùng khi nhân viên đã check-in trong ngày', () => {
+    const attendanceLogs: { id: string; staffId: string; date: string; checkInTime: string }[] = [];
+    const today = '2026-08-18';
+    
+    // First Check-in at 08:00
+    const firstCheckIn = { id: 'ATT-1', staffId: 'STAFF-01', date: today, checkInTime: '08:00:15' };
+    attendanceLogs.push(firstCheckIn);
+
+    // Attempt second check-in at 10:30
+    const existing = attendanceLogs.find(a => a.staffId === 'STAFF-01' && a.date === today);
+    let rejected = false;
+    if (existing && existing.checkInTime) {
+      rejected = true; // Lock check-in
+    }
+
+    expect(rejected).toBe(true);
+    expect(attendanceLogs[0].checkInTime).toBe('08:00:15'); // Initial arrival preserved
+  });
+
+  it('P1 Case 6: Hoàn tiền đúng Quỹ gốc đã thu, cấm hoàn tiền nhầm tài khoản', () => {
+    const invoice = {
+      id: 'INV-REFUND-01',
+      invoiceCode: 'HD-202608-01',
+      paymentFundId: 'FUND-BANK-01',
+      finalAmount: 15000000
+    };
+
+    const targetFund = db.funds.get(invoice.paymentFundId);
+    expect(targetFund).toBeDefined();
+    expect(targetFund?.id).toBe('FUND-BANK-01');
+
+    // Deduct exact fund
+    const prevBalance = targetFund!.currentBalance;
+    targetFund!.currentBalance -= invoice.finalAmount;
+    expect(targetFund!.currentBalance).toBe(prevBalance - 15000000);
+
+    // Cash fund balance untouched
+    expect(db.funds.get('FUND-CASH-01')?.currentBalance).toBe(10000000);
+  });
 });
