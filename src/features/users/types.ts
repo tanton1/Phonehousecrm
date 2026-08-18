@@ -1,13 +1,21 @@
 import { StaffMember, StoreBranch } from '../../types';
 
-export type UserRole =
-  | 'ADMIN'
-  | 'MANAGER'
-  | 'ACCOUNTANT'
-  | 'SALE'
-  | 'TECH_LEAD'
-  | 'TECH'
-  | 'WAREHOUSE';
+export const USER_ROLES = {
+  ADMIN: 'ADMIN',
+  MANAGER: 'MANAGER',
+  STORE_MANAGER: 'STORE_MANAGER',
+  ACCOUNTANT: 'ACCOUNTANT',
+  SALES: 'SALES',
+  SALE: 'SALE',
+  SALE_ONLINE: 'SALE_ONLINE',
+  TECH_LEAD: 'TECH_LEAD',
+  TECH: 'TECH',
+  TECHNICIAN: 'TECHNICIAN',
+  WAREHOUSE: 'WAREHOUSE',
+  CASHIER: 'CASHIER'
+} as const;
+
+export type UserRole = keyof typeof USER_ROLES;
 
 export type PermissionAction = 'VIEW' | 'CREATE' | 'EDIT' | 'DELETE' | 'APPROVE';
 

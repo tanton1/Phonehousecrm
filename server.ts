@@ -64,14 +64,9 @@ function safeParseJson<T = any>(text: string, fallback: T): T {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
+    version: '2.6.0-enterprise',
     appName: 'PhoneHouse CRM & ERP',
-    mode: 'Hybrid / Offline-First Realtime Engine',
-    database: 'Firebase Cloud Firestore Enterprise',
-    databaseId: 'ai-studio-iphoneshopcrmbui-b0e785b1-25cf-4fc4-b7b5-9795da0731f7',
-    projectId: 'gen-lang-client-0344640799',
-    timestamp: new Date().toISOString(),
-    hasGeminiKey: !!process.env.GEMINI_API_KEY,
-    offlineEngineReady: true
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -230,20 +225,13 @@ Số tiền phải được định dạng theo tiền tệ Việt Nam (ví dụ
     }
   }
 
-  // Fallback Rule-Based Synthesis
+  // Fallback Rule-Based Synthesis (No fake data!)
   const defaultHtml = `
-<b>📊 BÁO CÁO NHANH HỆ THỐNG PHONEHOUSE</b>
-📅 <i>Thời gian: ${new Date().toLocaleString('vi-VN')}</i>
-
-❓ <b>Nội dung yêu cầu:</b> <i>"${userPrompt || 'Báo cáo nhanh'}"</i>
-
-💰 <b>Doanh thu hôm nay:</b> <code>128.500.000 đ</code> (5 hóa đơn POS)
-📱 <b>Tồn kho sẵn hàng:</b> <b>42 cây máy</b> (16 Pro Max: 8 cây, 15 Pro Max: 12 cây)
-💼 <b>Số dư khả dụng các quỹ:</b> <code>485.200.000 đ</code> (Tiền mặt: 85.2M, VietQR: 400M)
-🔧 <b>Bảo hành & Kỹ thuật:</b> <b>6 phiếu</b> (4 máy đã sửa xong QC, 2 máy đang ép kính)
-👥 <b>Chấm công nhân sự:</b> <b>18/18 nhân viên</b> có mặt đúng giờ
-
-✨ <i>Trợ lý AI luôn sẵn sàng cập nhật số liệu theo thời gian thực.</i>
+<b>⚠️ THÔNG BÁO TỪ TRỢ LÝ HỆ THỐNG PHONEHOUSE</b><br/>
+📅 <i>Thời gian: ${new Date().toLocaleString('vi-VN')}</i><br/><br/>
+❓ <b>Yêu cầu:</b> <i>"${userPrompt || 'Tra cứu số liệu'}"</i><br/><br/>
+⚠️ <i>Hiện không thể kết nối tới mô hình AI hoặc chưa có dữ liệu ngữ cảnh thời gian thực để tổng hợp báo cáo tự động một cách chính xác 100%.</i><br/><br/>
+💡 <b>Khuyến nghị:</b> Ban Giám Đốc vui lòng tra cứu trực tiếp số liệu tại phân hệ <b>Sổ Quỹ Thu Chi</b> hoặc <b>Báo Cáo POS</b> để đảm bảo tính chuẩn xác tài chính.
 `.trim();
 
   res.json({

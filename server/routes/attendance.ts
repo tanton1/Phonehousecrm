@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Firestore } from 'firebase/firestore';
 import { processServerCheckIn, processServerCheckOut } from '../services/attendanceService';
+import { authenticateFirebase } from '../middleware/authenticateFirebase';
 
 export function createAttendanceRouter(db: Firestore | null): Router {
   const router = Router();
@@ -13,9 +14,11 @@ export function createAttendanceRouter(db: Firestore | null): Router {
       ip = ip.replace('::ffff:', '');
     }
 
-    const { branchId } = req.body || {};
-    const isLocal = ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.');
-    const isAllowed = isLocal || ip.startsWith('113.161.') || ip.startsWith('14.232.') || ip.startsWith('171.244.');
+    const { branchId, branchAllowedIps = [] } = req.body || {};
+    const isLocal = ip === '127.0.0.1' || ip === '::1';
+
+    // Strict IP matching: check if client IP matches registered branch static IPs, or fallback to dev local
+    const isAllowed = isLocal || (Array.isArray(branchAllowedIps) && branchAllowedIps.includes(ip)) || ip.startsWith('113.161.45.');
 
     const now = new Date();
     const serverTimeIso = now.toISOString();
@@ -49,10 +52,16 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     });
   });
 
-  // 2. Authoritative Check-In Endpoint
-  router.post('/check-in', async (req: Request, res: Response) => {
+  // 2. Authoritative Check-In Endpoint (Requires Firebase Auth Token)
+  router.post('/check-in', authenticateFirebase, async (req: Request, res: Response) => {
     try {
-      const result = await processServerCheckIn(db, req.body);
+      // Force user identity from verified Token
+      const bodyWithAuth = {
+        ...req.body,
+        staffId: req.user?.uid || req.body.staffId,
+        staffUid: req.user?.uid
+      };
+      const result = await processServerCheckIn(db, bodyWithAuth);
       return res.json({ success: true, data: result });
     } catch (error: any) {
       console.error('[Attendance CheckIn Error]:', error);
@@ -64,10 +73,15 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     }
   });
 
-  // 3. Authoritative Check-Out Endpoint
-  router.post('/check-out', async (req: Request, res: Response) => {
+  // 3. Authoritative Check-Out Endpoint (Requires Firebase Auth Token)
+  router.post('/check-out', authenticateFirebase, async (req: Request, res: Response) => {
     try {
-      const result = await processServerCheckOut(db, req.body);
+      const bodyWithAuth = {
+        ...req.body,
+        staffId: req.user?.uid || req.body.staffId,
+        staffUid: req.user?.uid
+      };
+      const result = await processServerCheckOut(db, bodyWithAuth);
       return res.json({ success: true, data: result });
     } catch (error: any) {
       console.error('[Attendance CheckOut Error]:', error);
