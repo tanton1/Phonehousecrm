@@ -1633,10 +1633,20 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
             {/* Action Checkout Button */}
             <button
               onClick={handleCheckout}
-              className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white font-black text-sm rounded-xl flex items-center justify-center space-x-2 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
+              disabled={isProcessingCheckout}
+              className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 disabled:opacity-50 text-white font-black text-sm rounded-xl flex items-center justify-center space-x-2 shadow-md shadow-orange-500/25 active:scale-95 transition-all cursor-pointer"
             >
-              <Receipt className="w-4 h-4" />
-              <span>Xác Nhận & Xuất Hóa Đơn (K80)</span>
+              {isProcessingCheckout ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Đang xử lý giao dịch & khóa kho...</span>
+                </>
+              ) : (
+                <>
+                  <Receipt className="w-4 h-4" />
+                  <span>Xác Nhận & Xuất Hóa Đơn (F9)</span>
+                </>
+              )}
             </button>
           </div>
         </div>

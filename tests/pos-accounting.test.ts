@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { validateCheckoutPayload } from '../server/validation/checkoutSchema';
 
 // Simulating the transactional business logic and invariant state rules
 interface SimulatedDevice {
@@ -289,5 +290,25 @@ describe('PhoneHouse POS & Financial Invariants Test Suite', () => {
 
     // Cash fund balance untouched
     expect(db.funds.get('FUND-CASH-01')?.currentBalance).toBe(10000000);
+  });
+
+  it('Case 7: Kiểm tra tính hợp lệ của Checkout Payload Schema', () => {
+    // Missing body
+    expect(validateCheckoutPayload(null).isValid).toBe(false);
+
+    // Missing invoice ID
+    expect(validateCheckoutPayload({ invoice: {} }).isValid).toBe(false);
+
+    // Valid minimal payload
+    const valid = validateCheckoutPayload({
+      invoice: {
+        id: 'INV-TEST-001',
+        finalAmount: 12000000,
+        totalAmount: 12000000,
+        paymentMethod: 'Tiền mặt'
+      }
+    });
+    expect(valid.isValid).toBe(true);
+    expect(valid.data?.invoice.finalAmount).toBe(12000000);
   });
 });
