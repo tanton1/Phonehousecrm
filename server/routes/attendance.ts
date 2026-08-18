@@ -1,24 +1,36 @@
 import { Router, Request, Response } from 'express';
-import { Firestore } from 'firebase/firestore';
+import { Firestore } from 'firebase-admin/firestore';
 import { processServerCheckIn, processServerCheckOut } from '../services/attendanceService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 
 export function createAttendanceRouter(db: Firestore | null): Router {
   const router = Router();
 
-  // 1. Network & IP Verification Endpoint
-  router.post('/network-check', (req: Request, res: Response) => {
+  // 1. Network & IP Verification Endpoint (DB Authoritative IP Check)
+  router.post('/network-check', async (req: Request, res: Response) => {
     const forwarded = req.headers['x-forwarded-for'];
     let ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress || '127.0.0.1';
     if (ip.startsWith('::ffff:')) {
       ip = ip.replace('::ffff:', '');
     }
 
-    const { branchId, branchAllowedIps = [] } = req.body || {};
+    const { branchId } = req.body || {};
     const isLocal = ip === '127.0.0.1' || ip === '::1';
 
-    // Strict IP matching: check if client IP matches registered branch static IPs, or fallback to dev local
-    const isAllowed = isLocal || (Array.isArray(branchAllowedIps) && branchAllowedIps.includes(ip)) || ip.startsWith('113.161.45.');
+    let isAllowed = isLocal;
+
+    // Read authoritative allowedPublicIps from Firestore Branch document
+    if (db && branchId && !isLocal) {
+      try {
+        const branchSnap = await db.collection('branches').doc(branchId).get();
+        if (branchSnap.exists) {
+          const allowedIps: string[] = branchSnap.data()?.allowedPublicIps || [];
+          isAllowed = allowedIps.includes(ip);
+        }
+      } catch (err) {
+        console.warn('[Network Check] Failed to read branch IP allowlist:', err);
+      }
+    }
 
     const now = new Date();
     const serverTimeIso = now.toISOString();

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Firestore } from 'firebase/firestore';
+import { Firestore } from 'firebase-admin/firestore';
 import { validateCheckoutPayload } from '../validation/checkoutSchema';
 import { executeAtomicCheckout } from '../services/checkoutService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';

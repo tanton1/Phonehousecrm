@@ -40,9 +40,7 @@ describe('Sprint 2: Attendance Verification & Geofence Test Suite', () => {
       staffId: 'STAFF-007',
       staffName: 'Lê Văn B',
       branchId: 'CN01',
-      userCoords: { latitude: 16.06785, longitude: 108.22085 },
-      storeCoords: storeLocation,
-      allowedRadiusMeters: 100,
+      userCoords: { latitude: 16.0678, longitude: 108.2208 },
       faceVerified: false, // AI Face offline
       networkVerified: true,
       qrScanned: true

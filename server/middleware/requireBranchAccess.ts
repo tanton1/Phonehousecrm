@@ -11,8 +11,9 @@ export function requireBranchAccess() {
     }
 
     const userRole = (user.role || '').toUpperCase();
-    // ADMIN and MANAGER can access all branches
-    if (userRole === 'ADMIN' || userRole === 'MANAGER') {
+
+    // Only ADMIN or REGIONAL_MANAGER can access all branches
+    if (userRole === 'ADMIN' || userRole === 'REGIONAL_MANAGER') {
       return next();
     }
 
@@ -21,7 +22,7 @@ export function requireBranchAccess() {
       return res.status(403).json({
         success: false,
         error: 'BRANCH_ACCESS_DENIED',
-        message: `Nhân viên chi nhánh "${user.branchId}" không thể thao tác trên chi nhánh "${targetBranchId}".`
+        message: `Tài khoản vai trò "${userRole}" thuộc chi nhánh "${user.branchId}" không có quyền thao tác trên chi nhánh "${targetBranchId}".`
       });
     }
 

@@ -3,18 +3,12 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, runTransaction, increment } from 'firebase/firestore';
-import firebaseConfig from './firebase-applet-config.json';
+import { adminDb } from './server/firebaseAdmin';
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
-
-// Initialize Server-side Firebase Firestore connection for atomic transaction processing
-const serverFirebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const serverDb = getFirestore(serverFirebaseApp, firebaseConfig.firestoreDatabaseId);
 
 app.use(express.json({ limit: '15mb' }));
 
@@ -104,13 +98,13 @@ app.get('/api/database/info', (req, res) => {
 // 1. ATOMIC POS CHECKOUT TRANSACTION ROUTER
 // -------------------------------------------------------------
 import { createPOSCheckoutRouter } from './server/routes/posCheckout';
-app.use('/api/pos', createPOSCheckoutRouter(serverDb));
+app.use('/api/pos', createPOSCheckoutRouter(adminDb));
 
 // -------------------------------------------------------------
 // 2. ATTENDANCE VERIFICATION & CHECK-IN ROUTER
 // -------------------------------------------------------------
 import { createAttendanceRouter } from './server/routes/attendance';
-app.use('/api/attendance', createAttendanceRouter(serverDb));
+app.use('/api/attendance', createAttendanceRouter(adminDb));
 
 // Secure Server-side Telegram Bot Alert Endpoint (Protects bot token from client exposure)
 app.post('/api/telegram/send-alert', async (req, res) => {
