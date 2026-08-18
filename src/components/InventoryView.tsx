@@ -47,7 +47,11 @@ import {
   Image as ImageIcon,
   History,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  LayoutGrid,
+  Table2,
+  Battery,
+  Zap
 } from 'lucide-react';
 import {
   BarChart,
@@ -127,6 +131,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [copiedImei, setCopiedImei] = useState<string | null>(null);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [quickFilter, setQuickFilter] = useState<'ALL' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
 
   // In stock devices
   const inStockDevices = useMemo(() => {
@@ -250,9 +256,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         (selectedWarehouseFilter === 'KHO_XSTORE' && (d.warehouse?.includes('XSTORE') || d.warehouse?.includes('Đống Đa'))) ||
         (selectedWarehouseFilter === 'KHO_TONG' && (d.warehouse?.includes('TONG') || d.warehouse?.includes('Tổng')));
 
+      if (quickFilter === 'HIGH_BATTERY' && (d.batteryHealth || 0) < 90) return false;
+      if (quickFilter === 'LIKE_NEW' && !d.condition.includes('99%')) return false;
+      if (quickFilter === 'NEW_ARRIVALS' && !d.condition.includes('New Seal')) return false;
+
       return matchesSearch && matchesSeries && matchesStatus && matchesCondition && matchesChartModel && matchesWarehouse;
     });
-  }, [devices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, selectedWarehouseFilter]);
+  }, [devices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, selectedWarehouseFilter, quickFilter]);
 
   const groupedDevices = useMemo(() => {
     const groups: Record<string, {
@@ -558,7 +568,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* 3. Search & Category Filters Bar */}
       <div className="space-y-2">
         
-        {/* Search Input Box */}
+        {/* Search Input Box & View Switcher */}
         <div className="flex items-center space-x-2">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -569,6 +579,30 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-zinc-100/80 border border-transparent rounded-2xl pl-8 pr-3 py-1.5 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500 transition-all font-medium"
             />
+          </div>
+
+          {/* View Switcher (Table vs Cards) */}
+          <div className="flex items-center bg-zinc-100/80 p-1 rounded-2xl border border-zinc-200/50">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`p-1.5 rounded-xl transition-all ${
+                viewMode === 'table' ? 'bg-white text-[#F94A1F] shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+              }`}
+              title="Xem dạng Bảng"
+            >
+              <Table2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              className={`p-1.5 rounded-xl transition-all ${
+                viewMode === 'cards' ? 'bg-white text-[#F94A1F] shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+              }`}
+              title="Xem dạng Thẻ Ảnh"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
           </div>
 
           <button
@@ -582,6 +616,29 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           >
             <SlidersHorizontal className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Quick Filter Chips (1 Chạm) */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
+          {[
+            { id: 'ALL', label: 'Tất Cả', icon: null },
+            { id: 'HIGH_BATTERY', label: '🔋 Pin Trâu (≥90%)', icon: null },
+            { id: 'LIKE_NEW', label: '✨ Like New 99%', icon: null },
+            { id: 'NEW_ARRIVALS', label: '🔥 New Seal', icon: null }
+          ].map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              onClick={() => setQuickFilter(chip.id as any)}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                quickFilter === chip.id
+                  ? 'bg-orange-500 text-white shadow-xs'
+                  : 'bg-white hover:bg-orange-50 text-zinc-600 border border-zinc-200/80'
+              }`}
+            >
+              {chip.label}
+            </button>
+          ))}
         </div>
 
         {/* Filter Drawer if Toggled */}
@@ -699,14 +756,99 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       </div>
 
-      {/* 4. List of Grouped Device Cards */}
-      <div className="space-y-3">
-        {groupedDevices.length === 0 ? (
-          <div className="p-8 text-center bg-white rounded-3xl border border-zinc-100 text-zinc-500 text-xs">
-            Không tìm thấy cây máy nào khớp điều kiện tìm kiếm.
-          </div>
-        ) : (
-          groupedDevices.map((group) => {
+      {/* 4. List of Devices: Card Grid View OR Grouped Table View */}
+      {viewMode === 'cards' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {filteredDevices.length === 0 ? (
+            <div className="col-span-full p-8 text-center bg-white rounded-3xl border border-zinc-100 text-zinc-500 text-xs">
+              Không tìm thấy cây máy nào khớp điều kiện tìm kiếm.
+            </div>
+          ) : (
+            filteredDevices.map((device) => {
+              const battery = device.batteryHealth || 100;
+              const batteryColor = battery >= 90 ? 'text-green-600 bg-green-50 border-green-200' : battery >= 80 ? 'text-amber-600 bg-amber-50 border-amber-200' : 'text-rose-600 bg-rose-50 border-rose-200';
+              
+              return (
+                <div 
+                  key={device.id}
+                  className="bg-white rounded-3xl p-4 border border-zinc-100 shadow-2xs hover:border-orange-300 hover:shadow-md transition-all flex flex-col justify-between space-y-3 relative group"
+                >
+                  <div className="flex items-start space-x-3">
+                    <DeviceImageThumbnail model={device.model} color={device.color} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 truncate">
+                          {device.warehouse || 'Kho Tổng'}
+                        </span>
+                        {getStatusBadge(device.status)}
+                      </div>
+                      <h4 className="font-extrabold text-zinc-900 text-sm tracking-tight truncate group-hover:text-[#F94A1F] transition-colors mt-0.5">
+                        {device.model}
+                      </h4>
+                      <p className="text-xs text-zinc-500 font-medium">
+                        {device.storage} • {device.color}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Device Specs Chips */}
+                  <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                    <span className={`px-2 py-0.5 rounded-lg border flex items-center gap-1 ${batteryColor}`}>
+                      <Battery className="w-3 h-3" />
+                      <span>Pin {battery}%</span>
+                    </span>
+                    <span className="bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-lg border border-zinc-200 font-mono">
+                      IMEI: *{device.imei.slice(-6)}
+                    </span>
+                    <span className="bg-orange-50 text-orange-700 px-2 py-0.5 rounded-lg border border-orange-200">
+                      {device.condition}
+                    </span>
+                  </div>
+
+                  {/* Price & Quick Actions */}
+                  <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] text-zinc-400 font-bold uppercase">Giá Niêm Yết:</div>
+                      <div className="text-sm font-black text-[#F94A1F] font-mono">
+                        {(device.sellPrice || 0).toLocaleString('vi-VN')} đ
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-1">
+                      {device.status === 'in_stock' && (
+                        <button
+                          type="button"
+                          onClick={() => onQuickSell(device)}
+                          className="px-3 py-1.5 bg-[#F94A1F] hover:bg-[#e03d14] text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                          title="Bán ngay trên POS"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>Bán</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDeviceForDetail(device)}
+                        className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
+                        title="Xem chi tiết"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {groupedDevices.length === 0 ? (
+            <div className="p-8 text-center bg-white rounded-3xl border border-zinc-100 text-zinc-500 text-xs">
+              Không tìm thấy cây máy nào khớp điều kiện tìm kiếm.
+            </div>
+          ) : (
+            groupedDevices.map((group) => {
             const isExpanded = expandedGroups.includes(group.id);
             const priceRange = group.minPrice === group.maxPrice 
               ? `${group.minPrice.toLocaleString('vi-VN')} đ`
@@ -905,9 +1047,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
             );
           })
-
         )}
       </div>
+      )}
 
       {/* MODAL: Nhập Hàng Mới Siêu Nâng Cấp */}
       <UniformEntryForm 

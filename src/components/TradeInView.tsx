@@ -192,17 +192,16 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Left 2 Cols: Checklist thẩm định */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Customer & Device Basic info */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Column 1: Thông Tin Khách & Dòng Máy */}
+        <div className="space-y-4">
           <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3.5">
             <h3 className="font-black text-zinc-900 text-sm flex items-center space-x-2">
               <Smartphone className="w-4 h-4 text-orange-600" />
-              <span>1. Thông Tin Khách Hàng & Dòng Máy Cũ Cần Thu</span>
+              <span>1. Khách Hàng & Máy Thu Cũ</span>
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">Tên Khách Hàng</label>
                 <input
@@ -230,6 +229,9 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                   onChange={(e) => setOldModel(e.target.value)}
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500 font-bold"
                 >
+                  <option value="iPhone 16 Pro Max">iPhone 16 Pro Max</option>
+                  <option value="iPhone 16 Pro">iPhone 16 Pro</option>
+                  <option value="iPhone 16">iPhone 16</option>
                   <option value="iPhone 15 Pro Max">iPhone 15 Pro Max</option>
                   <option value="iPhone 15 Pro">iPhone 15 Pro</option>
                   <option value="iPhone 15">iPhone 15</option>
@@ -246,13 +248,13 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Dung Lượng & Màu Sắc</label>
-                <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Dung Lượng</label>
                   <select
                     value={storage}
                     onChange={(e) => setStorage(e.target.value)}
-                    className="bg-zinc-50 border border-zinc-200 rounded-xl px-2 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-2 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
                   >
                     <option value="64GB">64GB</option>
                     <option value="128GB">128GB</option>
@@ -260,106 +262,30 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                     <option value="512GB">512GB</option>
                     <option value="1TB">1TB</option>
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Màu Sắc</label>
                   <input
                     type="text"
                     value={color}
                     onChange={(e) => setColor(e.target.value)}
-                    className="bg-zinc-50 border border-zinc-200 rounded-xl px-2 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                    className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-2 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
                   />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 12-Point Hardware Checklist */}
-          <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3.5">
-            <h3 className="font-black text-zinc-900 text-sm flex items-center space-x-2">
-              <ShieldCheck className="w-4 h-4 text-orange-600" />
-              <span>2. Thẩm Định Tình Trạng Phần Cứng & Ngoại Quan</span>
-            </h3>
-
-            {/* Battery slider */}
-            <div className="p-3 bg-orange-50/50 rounded-2xl border border-orange-100 space-y-2">
-              <div className="flex justify-between items-center text-xs">
-                <span className="font-bold text-zinc-700">Tình Trạng Pin (% Battery Health):</span>
-                <span className="font-mono text-base font-black text-orange-600">{batteryPercent}%</span>
-              </div>
-              <input
-                type="range"
-                min="50"
-                max="100"
-                value={batteryPercent}
-                onChange={(e) => setBatteryPercent(Number(e.target.value))}
-                className="w-full accent-orange-500 cursor-pointer h-2 bg-zinc-200 rounded-lg"
-              />
-            </div>
-
-            {/* Screen & Body */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Màn Hình & Cảm Ứng</label>
-                <select
-                  value={screenCondition}
-                  onChange={(e) => setScreenCondition(e.target.value as any)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                >
-                  <option value="Màn Zin Đẹp">Màn Zin Keng Đẹp (Không trầy)</option>
-                  <option value="Màn Trầy Xước">Màn Zin Trầy Xước (Trừ theo đời máy)</option>
-                  <option value="Màn Đã Ép Kính">Màn Đã Ép Kính (Trừ theo đời máy)</option>
-                  <option value="Màn Lô / Mực / Sọc">Màn Lô / Sọc Mực (Trừ thay màn theo đời máy)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Khung Vỏ & Lưng Kính</label>
-                <select
-                  value={bodyCondition}
-                  onChange={(e) => setBodyCondition(e.target.value as any)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
-                >
-                  <option value="Keng Không Vết Xước">Keng Không Vết Xước (99.9%)</option>
-                  <option value="Trầy Nhẹ Lông Mèo">Trầy Nhẹ Lông Mèo (99%)</option>
-                  <option value="Cấn Móp Góc">Cấn Móp Góc / Tróc Sơn (Trừ theo đời máy)</option>
-                  <option value="Cong Vỏ">Cong Vỏ / Vỡ Lưng (Trừ theo đời máy)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* 4 Essential Functional Toggles */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-              {[
-                { label: 'Face ID', state: faceIdWorking, set: setFaceIdWorking },
-                { label: 'True Tone', state: truetoneWorking, set: setTruetoneWorking },
-                { label: 'Camera 0.5x-5x', state: cameraWorking, set: setCameraWorking },
-                { label: 'iCloud Sạch', state: icloudUnlocked, set: setIcloudUnlocked },
-              ].map((func, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => func.set(!func.state)}
-                  className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all ${
-                    func.state
-                      ? 'bg-orange-50 border-orange-200 text-orange-700'
-                      : 'bg-rose-50 border-rose-200 text-rose-700'
-                  }`}
-                >
-                  <span>{func.label}</span>
-                  {func.state ? <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" /> : <XCircle className="w-3.5 h-3.5 text-rose-500" />}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Target Model to Upgrade */}
-          <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3.5">
+          <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3">
             <h3 className="font-black text-zinc-900 text-sm flex items-center space-x-2">
               <Zap className="w-4 h-4 text-orange-600" />
-              <span>3. Khách Lên Đời Cây Máy Nào?</span>
+              <span>2. Khách Muốn Lên Đời Gì?</span>
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-1">Dòng Máy Lên Đời</label>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Dòng Máy Mới</label>
                 <input
                   type="text"
                   value={targetNewModel}
@@ -378,6 +304,87 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
                   className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 font-mono font-bold focus:outline-none focus:bg-white focus:border-orange-500"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Column 2: 12-Step Hardware Checklist */}
+        <div className="space-y-4">
+          <div className="bg-white border border-orange-100 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3.5">
+            <h3 className="font-black text-zinc-900 text-sm flex items-center space-x-2">
+              <ShieldCheck className="w-4 h-4 text-orange-600" />
+              <span>3. Thẩm Định 12 Bước Phần Cứng</span>
+            </h3>
+
+            {/* Battery slider */}
+            <div className="p-3 bg-orange-50/50 rounded-2xl border border-orange-100 space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-zinc-700">Tình Trạng Pin (% Health):</span>
+                <span className="font-mono text-base font-black text-orange-600">{batteryPercent}%</span>
+              </div>
+              <input
+                type="range"
+                min="50"
+                max="100"
+                value={batteryPercent}
+                onChange={(e) => setBatteryPercent(Number(e.target.value))}
+                className="w-full accent-orange-500 cursor-pointer h-2 bg-zinc-200 rounded-lg"
+              />
+            </div>
+
+            {/* Screen & Body */}
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Màn Hình & Cảm Ứng</label>
+                <select
+                  value={screenCondition}
+                  onChange={(e) => setScreenCondition(e.target.value as any)}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                >
+                  <option value="Màn Zin Đẹp">Màn Zin Keng Đẹp (Không trầy)</option>
+                  <option value="Màn Trầy Xước">Màn Zin Trầy Xước</option>
+                  <option value="Màn Đã Ép Kính">Màn Đã Ép Kính</option>
+                  <option value="Màn Lô / Mực / Sọc">Màn Lô / Sọc Mực</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Khung Vỏ & Lưng Kính</label>
+                <select
+                  value={bodyCondition}
+                  onChange={(e) => setBodyCondition(e.target.value as any)}
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs text-zinc-900 focus:outline-none focus:bg-white focus:border-orange-500"
+                >
+                  <option value="Keng Không Vết Xước">Keng Không Vết Xước (99.9%)</option>
+                  <option value="Trầy Nhẹ Lông Mèo">Trầy Nhẹ Lông Mèo (99%)</option>
+                  <option value="Cấn Móp Góc">Cấn Móp Góc / Tróc Sơn</option>
+                  <option value="Cong Vỏ">Cong Vỏ / Vỡ Lưng</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 4 Essential Functional Toggles */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              {[
+                { label: 'Face ID', state: faceIdWorking, set: setFaceIdWorking },
+                { label: 'True Tone', state: truetoneWorking, set: setTruetoneWorking },
+                { label: 'Camera 0.5x-5x', state: cameraWorking, set: setCameraWorking },
+                { label: 'iCloud Sạch', state: icloudUnlocked, set: setIcloudUnlocked },
+              ].map((func, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => func.set(!func.state)}
+                  className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
+                    func.state
+                      ? 'bg-orange-50 border-orange-200 text-orange-700'
+                      : 'bg-rose-50 border-rose-200 text-rose-700'
+                  }`}
+                >
+                  <span>{func.label}</span>
+                  {func.state ? <CheckCircle2 className="w-3.5 h-3.5 text-orange-600" /> : <XCircle className="w-3.5 h-3.5 text-rose-500" />}
+                </button>
+              ))}
             </div>
           </div>
         </div>

@@ -246,6 +246,45 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   const monthlyPaymentAmount = installmentTenor > 0 ? Math.round(remainingLoan / installmentTenor) : 0;
   const cashChange = Math.max(0, cashGiven - finalAmount);
 
+  // Keyboard Shortcuts Hook (F2, F4, F8, F9, Escape)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement?.tagName || '').toLowerCase();
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+        if (e.key === 'Escape') {
+          (document.activeElement as HTMLElement)?.blur();
+        }
+        return;
+      }
+
+      if (e.key === 'F2') {
+        e.preventDefault();
+        setShowDevicePickerModal(true);
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        setShowCustomerModal(true);
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        setShowDiscountModal(true);
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        if (selectedDevices.length > 0) {
+          handleCheckout();
+        }
+      } else if (e.key === 'Escape') {
+        setShowDevicePickerModal(false);
+        setShowScannerModal(false);
+        setShowCustomerModal(false);
+        setShowAccessoriesModal(false);
+        setShowDiscountModal(false);
+        setShowPaymentModal(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedDevices, customerName, customerPhone, finalAmount]);
+
   // Handlers
   const resetForm = () => {
     setSelectedDevices([]);
@@ -504,6 +543,32 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
               <span className="sm:hidden">Tất cả</span>
             </button>
           )}
+        </div>
+      </div>
+
+      {/* ⚡ KEYBOARD SHORTCUTS BAR (F2 - F9) */}
+      <div className="bg-zinc-900 text-white rounded-2xl p-2.5 px-4 shadow-sm flex items-center justify-between overflow-x-auto text-[11px] gap-2">
+        <div className="flex items-center space-x-1.5 font-bold text-orange-400 shrink-0">
+          <Zap className="w-3.5 h-3.5 animate-pulse" />
+          <span>Phím Tắt Thu Ngân:</span>
+        </div>
+        <div className="flex items-center space-x-2 shrink-0">
+          <button type="button" onClick={() => setShowDevicePickerModal(true)} className="bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg flex items-center gap-1 font-mono transition-colors cursor-pointer">
+            <kbd className="bg-orange-500 text-white px-1.5 rounded text-[10px] font-bold">F2</kbd>
+            <span>Chọn IMEI</span>
+          </button>
+          <button type="button" onClick={() => setShowCustomerModal(true)} className="bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg flex items-center gap-1 font-mono transition-colors cursor-pointer">
+            <kbd className="bg-orange-500 text-white px-1.5 rounded text-[10px] font-bold">F4</kbd>
+            <span>Khách Hàng</span>
+          </button>
+          <button type="button" onClick={() => setShowDiscountModal(true)} className="bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg flex items-center gap-1 font-mono transition-colors cursor-pointer">
+            <kbd className="bg-orange-500 text-white px-1.5 rounded text-[10px] font-bold">F8</kbd>
+            <span>Voucher</span>
+          </button>
+          <button type="button" onClick={handleCheckout} disabled={selectedDevices.length === 0} className="bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white px-3 py-1 rounded-lg flex items-center gap-1.5 font-mono font-bold shadow-xs transition-transform active:scale-95 disabled:opacity-40 cursor-pointer">
+            <kbd className="bg-black/30 text-white px-1.5 rounded text-[10px] font-bold">F9</kbd>
+            <span>Thanh Toán K80</span>
+          </button>
         </div>
       </div>
 
@@ -1827,6 +1892,42 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
           }
         }}
       />
+
+      {/* 🚀 STICKY FLOATING QUICK ACTION BAR (WHEN ITEMS IN CART) */}
+      {selectedDevices.length > 0 && (
+        <div className="sticky bottom-0 z-30 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800 p-3.5 px-4 sm:px-6 text-white shadow-2xl rounded-2xl mt-4 flex items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-orange-500 text-white flex items-center justify-center font-black text-sm shadow-md shadow-orange-500/30">
+              {selectedDevices.length}
+            </div>
+            <div>
+              <div className="text-[10px] text-zinc-400 uppercase tracking-wider font-bold">Tổng Thanh Toán POS:</div>
+              <div className="text-base sm:text-lg font-black text-orange-400 font-mono">
+                {finalAmount.toLocaleString('vi-VN')} đ
+              </div>
+            </div>
+            <div className="hidden sm:flex items-center space-x-1.5 pl-3 border-l border-zinc-800 text-xs text-zinc-300">
+              <span>Phương thức:</span>
+              <span className="font-bold text-white bg-white/10 px-2 py-0.5 rounded-lg">{paymentMethod}</span>
+              {customerName && (
+                <span className="text-zinc-400">• Khách: <b className="text-white">{customerName}</b></span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={handleCheckout}
+              disabled={isProcessingCheckout}
+              className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-black text-xs sm:text-sm rounded-xl flex items-center space-x-2 shadow-lg shadow-orange-500/30 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Receipt className="w-4 h-4" />
+              <span>Xác Nhận & Xuất Hóa Đơn (F9)</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
