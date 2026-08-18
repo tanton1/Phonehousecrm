@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { sendTelegramAlert } from './telegram';
-import { useAuth } from './AuthContext'; // Might not exist, we'll check
 
 // Tọa độ chi nhánh giả lập (Ví dụ: Cầu Giấy)
 const STORE_LATITUDE = 21.033333;

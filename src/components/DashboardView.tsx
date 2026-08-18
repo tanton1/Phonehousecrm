@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Wallet, ArrowLeftRight, 
+import { 
   DeviceItem, 
   Lead, 
   TradeInAppraisal, 

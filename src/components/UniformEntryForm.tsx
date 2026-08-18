@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { useForm, useFieldArray, useWatch, Controller } from 'react-hook-form';
 import { 
   Search, Check, Box, X, Store, Hash, DollarSign, Plus, Trash2, MapPin, ChevronDown
 } from 'lucide-react';
@@ -63,9 +63,22 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     name: "items"
   });
 
-  const watchItems = watch("items");
-  const watchPaymentMethod = watch("paymentMethod");
-  const watchAmountPaid = watch("amountPaid");
+  const watchItems = useWatch({ control, name: "items" }) || [];
+  const watchPaymentMethod = useWatch({ control, name: "paymentMethod" });
+  const watchAmountPaid = useWatch({ control, name: "amountPaid" });
+  const watchBranchId = useWatch({ control, name: "branchId" });
+  const [selectedFundId, setSelectedFundId] = useState<string>('');
+  
+  useEffect(() => {
+    const matchingFunds = funds.filter(f => f.type === watchPaymentMethod && (!f.branchId || f.branchId === watchBranchId));
+    if (matchingFunds.length > 0) {
+      if (!matchingFunds.find(f => f.id === selectedFundId)) {
+        setSelectedFundId(matchingFunds[0].id);
+      }
+    } else {
+      setSelectedFundId('');
+    }
+  }, [watchPaymentMethod, watchBranchId, funds]);
 
   const [openDropdownIndex, setOpenDropdownIndex] = useState<number | null>(null);
 
@@ -86,25 +99,39 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
   // Calculate totals
   const totalAmount = useMemo(() => {
+    if (!Array.isArray(watchItems)) return 0;
     return watchItems.reduce((sum, item) => {
-      const quantity = (item.imeisInput || '').split(/[\n,]+/).map(i => i.trim()).filter(i => i.length >= 5).length;
-      return sum + (quantity * (item.buyPrice || 0));
+      if (!item) return sum;
+      const quantity = (item.imeisInput || '').split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0).length;
+      const price = Number(item.buyPrice) || 0;
+      return sum + (quantity * price);
     }, 0);
   }, [watchItems]);
 
   const totalQuantity = useMemo(() => {
+    if (!Array.isArray(watchItems)) return 0;
     return watchItems.reduce((sum, item) => {
-      return sum + (item.imeisInput || '').split(/[\n,]+/).map(i => i.trim()).filter(i => i.length >= 5).length;
+      if (!item) return sum;
+      const quantity = (item.imeisInput || '').split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0).length;
+      return sum + quantity;
     }, 0);
   }, [watchItems]);
 
+  const [isCustomPaid, setIsCustomPaid] = useState(false);
+
+  // Auto update amountPaid when totalAmount or paymentMethod changes unless user customizes it
   useEffect(() => {
     if (watchPaymentMethod === 'DEBT') {
       setValue('amountPaid', 0);
-    } else if (watchPaymentMethod === 'BANK' || watchPaymentMethod === 'CASH') {
+      setIsCustomPaid(false);
+    } else if (!isCustomPaid && (watchPaymentMethod === 'BANK' || watchPaymentMethod === 'CASH')) {
       setValue('amountPaid', totalAmount);
     }
-  }, [watchPaymentMethod, totalAmount, setValue]);
+  }, [watchPaymentMethod, totalAmount, isCustomPaid, setValue]);
+
+  const rawAmountPaid = Number(watchAmountPaid) || 0;
+  const actualPaidAmount = watchPaymentMethod === 'DEBT' ? 0 : Math.min(rawAmountPaid, totalAmount);
+  const remainingDebtAmount = Math.max(0, totalAmount - actualPaidAmount);
 
   const onSubmit = (data: FormValues) => {
     if (totalQuantity === 0) {
@@ -122,14 +149,14 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     const targetWarehouseId = targetBranch?.warehouseId || warehouses[0]?.id || 'KHO_TONG';
     const targetWarehouseName = warehouses.find(w => w.id === targetWarehouseId)?.name || 'Kho Tổng';
 
-    const debtAmount = totalAmount - data.amountPaid;
+    const debtAmount = remainingDebtAmount;
 
     if (onAddPurchaseOrder) {
-      const fund = funds.find(f => f.type === data.paymentMethod) || funds[0];
+      const fund = funds.find(f => f.id === selectedFundId) || funds.find(f => f.type === data.paymentMethod) || funds[0];
       
       const orderItems = data.items.map((item, idx) => {
         const catalogItem = catalogItems.find(c => c.id === item.catalogItemId);
-        const imeis = item.imeisInput.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length >= 5);
+        const imeis = item.imeisInput.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
         return {
           id: `POI-${Date.now()}-${idx}`,
           type: 'device' as const,
@@ -140,9 +167,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           region: '', 
           imeiList: imeis,
           quantity: imeis.length,
-          importPrice: item.buyPrice,
+          importPrice: Number(item.buyPrice) || 0,
           expectedSellPrice: item.buyPrice * 1.1, 
-          totalAmount: imeis.length * item.buyPrice
+          totalAmount: imeis.length * (Number(item.buyPrice) || 0)
         };
       }).filter(item => item.quantity > 0);
 
@@ -157,12 +184,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         orderDate: new Date().toISOString().split('T')[0],
         creatorName: currentUser ? currentUser.displayName : 'Hệ thống',
         status: 'COMPLETED',
-        paymentStatus: data.amountPaid >= totalAmount ? 'PAID' : (data.amountPaid > 0 ? 'PARTIAL' : 'UNPAID'),
-        paidAmount: data.amountPaid,
+        paymentStatus: actualPaidAmount >= totalAmount ? 'PAID' : (actualPaidAmount > 0 ? 'PARTIAL' : 'UNPAID'),
+        paidAmount: actualPaidAmount,
         debtAmount: debtAmount,
         subTotal: totalAmount,
         totalAmount: totalAmount,
         fundId: fund?.id,
+        paymentMethod: data.paymentMethod === 'BANK' ? 'Chuyển khoản VietQR' : data.paymentMethod === 'CASH' ? 'Tiền mặt tại két' : 'Ghi nhận công nợ NCC',
         items: orderItems,
         totalQuantity: totalQuantity
       };
@@ -265,7 +293,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 const selectedId = watchItems[index]?.catalogItemId;
                 const selectedItem = catalogItems.find(c => c.id === selectedId);
                 const currentImeis = watchItems[index]?.imeisInput || '';
-                const parsed = currentImeis.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length >= 5);
+                const parsed = currentImeis.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
                 const itemQty = parsed.length;
                 const itemPrice = watchItems[index]?.buyPrice || 0;
 
@@ -298,8 +326,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                             {...register(`items.${index}.searchQuery` as const)}
                             onFocus={() => setOpenDropdownIndex(index)}
                             onChange={(e) => {
-                              setValue(`items.${index}.searchQuery` as const, e.target.value);
-                              setValue(`items.${index}.catalogItemId` as const, '');
+                              setValue(`items.${index}.searchQuery` as const, e.target.value, { shouldValidate: true, shouldDirty: true });
+                              setValue(`items.${index}.catalogItemId` as const, '', { shouldValidate: true, shouldDirty: true });
                               setOpenDropdownIndex(index);
                             }}
                             placeholder="Gõ mã SKU hoặc Tên..." 
@@ -315,6 +343,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                                   onClick={() => {
                                     setValue(`items.${index}.catalogItemId` as const, item.id, { shouldValidate: true });
                                     setValue(`items.${index}.searchQuery` as const, item.name);
+                                    setValue(`items.${index}.buyPrice` as const, item.defaultImportPrice || 0, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
                                     setOpenDropdownIndex(null);
                                   }}
                                   className="w-full text-left px-4 py-3 hover:bg-orange-50 text-sm font-medium transition-colors border-b border-zinc-100 last:border-0 flex justify-between items-center"
@@ -336,8 +365,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                               <span className="text-xs font-mono text-orange-600">SKU: {selectedItem.sku}</span>
                             </div>
                             <button type="button" onClick={() => {
-                              setValue(`items.${index}.catalogItemId` as const, '');
-                              setValue(`items.${index}.searchQuery` as const, '');
+                              setValue(`items.${index}.catalogItemId` as const, '', { shouldValidate: true, shouldDirty: true });
+                              setValue(`items.${index}.searchQuery` as const, '', { shouldValidate: true, shouldDirty: true });
                             }} className="p-1.5 hover:bg-orange-100 rounded-full transition-colors shrink-0">
                               <X className="w-4 h-4 text-orange-600" />
                             </button>
@@ -420,16 +449,28 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-400 mb-4 uppercase tracking-wider">Tổng Kết Lô Hàng</h3>
+                  <h3 className="text-sm font-bold text-zinc-400 mb-4 uppercase tracking-wider">Tổng Kết Lô Hàng Real-Time</h3>
                   <div className="space-y-3">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center text-sm">
                       <span className="text-zinc-300">Tổng số lượng máy:</span>
-                      <span className="text-xl font-bold bg-white/10 px-3 py-1 rounded-lg">{totalQuantity}</span>
+                      <span className="text-lg font-bold bg-white/10 px-3 py-1 rounded-lg">{totalQuantity} máy</span>
                     </div>
                     <div className="flex justify-between items-center pt-2 border-t border-white/10">
-                      <span className="text-zinc-300 font-medium">TỔNG CẦN THANH TOÁN:</span>
-                      <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-300">
+                      <span className="text-zinc-300 font-medium text-xs">TỔNG GIÁ TRỊ LÔ HÀNG:</span>
+                      <span className="text-xl font-black text-orange-400">
                         {totalAmount.toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-zinc-300 font-medium text-xs">SỐ TIỀN TRẢ NGAY:</span>
+                      <span className="text-lg font-bold text-emerald-400">
+                        {actualPaidAmount.toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t border-white/10">
+                      <span className="text-zinc-300 font-medium text-xs">CÒN NỢ NHÀ CUNG CẤP:</span>
+                      <span className={`text-xl font-black ${remainingDebtAmount > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        {remainingDebtAmount.toLocaleString('vi-VN')} đ
                       </span>
                     </div>
                   </div>
@@ -442,8 +483,17 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                       <button
                         type="button"
                         key={m}
-                        onClick={() => setValue('paymentMethod', m)}
-                        className={`py-2.5 rounded-xl text-xs font-bold border transition-all ${
+                        onClick={() => {
+                          setValue('paymentMethod', m);
+                          if (m === 'DEBT') {
+                            setIsCustomPaid(false);
+                            setValue('amountPaid', 0);
+                          } else {
+                            setIsCustomPaid(false);
+                            setValue('amountPaid', totalAmount);
+                          }
+                        }}
+                        className={`py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
                           watchPaymentMethod === m ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white border-transparent shadow-lg shadow-orange-500/20' : 'bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10'
                         }`}
                       >
@@ -452,12 +502,69 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                     ))}
                   </div>
 
+                  
                   {watchPaymentMethod !== 'DEBT' && (
                     <div className="pt-2 animate-in fade-in slide-in-from-top-2">
-                      <label className="block text-xs font-bold text-zinc-400 mb-1.5">Số Tiền Trả Ngay (VNĐ)</label>
+                      <label className="block text-xs font-bold text-zinc-400 mb-1.5">Tài khoản thanh toán (Phiếu Chi)</label>
+                      <select
+                        value={selectedFundId}
+                        onChange={(e) => setSelectedFundId(e.target.value)}
+                        className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-sm font-medium text-white focus:border-orange-400 focus:bg-white/20 transition-all outline-none"
+                      >
+                        {funds
+                          .filter(f => f.type === watchPaymentMethod)
+                          .sort((a, b) => {
+                             const aWeight = a.branchId === watchBranchId ? 0 : (!a.branchId || a.isCompanyFund) ? 1 : 2;
+                             const bWeight = b.branchId === watchBranchId ? 0 : (!b.branchId || b.isCompanyFund) ? 1 : 2;
+                             return aWeight - bWeight;
+                          })
+                          .map(f => {
+                            const isSameBranch = f.branchId === watchBranchId;
+                            const isCompany = f.isCompanyFund || !f.branchId;
+                            const prefix = isSameBranch ? '[Chi nhánh này] ' : isCompany ? '[Quỹ Công ty] ' : '[Chi nhánh khác] ';
+                            return (
+                              <option key={f.id} value={f.id} className="text-zinc-900">
+                                {prefix} {f.name} {f.accountNumber ? ` - ${f.accountNumber}` : ''}
+                              </option>
+                            );
+                        })}
+                      </select>
+                    </div>
+                  )}
+
+                  {watchPaymentMethod !== 'DEBT' && (
+                    <div className="pt-2 animate-in fade-in slide-in-from-top-2 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-xs font-bold text-zinc-400">Số Tiền Trả Ngay (VNĐ)</label>
+                        <div className="flex space-x-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setValue('amountPaid', totalAmount);
+                              setIsCustomPaid(false);
+                            }}
+                            className="px-2 py-0.5 bg-orange-500/20 text-orange-300 hover:bg-orange-500/40 rounded text-[11px] font-bold border border-orange-500/30 cursor-pointer"
+                          >
+                            Trả 100%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setValue('amountPaid', Math.round(totalAmount / 2));
+                              setIsCustomPaid(true);
+                            }}
+                            className="px-2 py-0.5 bg-white/10 text-zinc-300 hover:bg-white/20 rounded text-[11px] font-medium border border-white/20 cursor-pointer"
+                          >
+                            Trả 50%
+                          </button>
+                        </div>
+                      </div>
                       <input 
                         type="number" 
-                        {...register("amountPaid", { valueAsNumber: true })}
+                        {...register("amountPaid", { 
+                          valueAsNumber: true,
+                          onChange: () => setIsCustomPaid(true)
+                        })}
                         className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-base font-bold text-white focus:border-orange-400 focus:bg-white/20 transition-all outline-none"
                       />
                     </div>

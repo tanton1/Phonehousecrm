@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useGeofenceTracker } from '../lib/useGeofenceTracker';
-import { User } from '../types';
+import { UserAccount } from '../types';
 import { INITIAL_TODAY_ATTENDANCE_LIST } from '../data/attendanceData';
 
 interface Props {
-  currentUser: User | null;
+  currentUser: UserAccount | null;
 }
 
 export function GeofenceBackgroundTracker({ currentUser }: Props) {
@@ -38,7 +38,7 @@ export function GeofenceBackgroundTracker({ currentUser }: Props) {
   }, [currentUser]);
 
   // Hook will start watching GPS if isWorking is true
-  const { distance, isOutOfBounds } = useGeofenceTracker(currentUser?.name || 'Nhân viên', isWorking);
+  const { distance, isOutOfBounds } = useGeofenceTracker(currentUser?.displayName || 'Nhân viên', isWorking);
 
   return null; // Invisible component
 }

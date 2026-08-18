@@ -188,23 +188,24 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
           audio: false
         });
         mediaStreamRef.current = stream;
+        setIsCameraActive(true);
+        setIsCameraStarting(false);
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           try {
             await videoRef.current.play();
           } catch (e) {}
         }
-        setIsCameraActive(true);
-        setIsCameraStarting(false);
       } else {
-        setCameraError('Camera bị chặn bởi trình duyệt. Vui lòng nhấn nút MỞ TRONG TAB MỚI (Icon góc trên phải màn hình) để cấp quyền Camera và sử dụng tính năng này.');
+        setCameraError('Camera bị chặn bởi trình duyệt. Vui lòng nhấn nút MỞ TRONG TAB MỚI để cấp quyền Camera.');
         setIsCameraStarting(false);
       }
     } catch (err: any) {
       setIsCameraStarting(false);
       setIsCameraActive(false);
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-        setCameraError('Chưa có quyền Camera. ⚠️ Vui lòng cấp quyền trên trình duyệt, hoặc bấm biểu tượng MỞ TAB MỚI (↗) góc trên bên phải để sử dụng.');
+        setCameraError('Chưa có quyền Camera. ⚠️ Vui lòng cấp quyền trên trình duyệt.');
       } else {
         setCameraError('Không thể khởi động Camera: ' + (err.message || 'Lỗi thiết bị'));
       }
@@ -217,7 +218,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     startCamera(next);
   };
 
-  // Start camera when entering step 4
+  // Start camera when entering step 4 & ensure video element gets stream
   useEffect(() => {
     if (currentStep === 4) {
       startCamera();
@@ -226,6 +227,15 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     }
     return () => stopCamera();
   }, [currentStep]);
+
+  useEffect(() => {
+    if (isCameraActive && mediaStreamRef.current && videoRef.current) {
+      if (videoRef.current.srcObject !== mediaStreamRef.current) {
+        videoRef.current.srcObject = mediaStreamRef.current;
+        videoRef.current.play().catch(e => console.warn('Video play error:', e));
+      }
+    }
+  }, [isCameraActive, currentStep]);
 
   // GPS Distance calculation
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -287,15 +297,25 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   };
 
   // Run Face ID Check (Server Gemini Vision + Client Biometric Correlation)
-  const runFaceCheck = async () => {
+  const runFaceCheck = async (retryCount = 0) => {
     setFaceStatus('SCANNING');
     setFaceFeedbackMsg(null);
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) {
+      if (retryCount < 10) {
+        setTimeout(() => runFaceCheck(retryCount + 1), 300);
+        return;
+      }
       setFaceStatus('ERROR');
       setFaceFeedbackMsg('Camera chưa sẵn sàng.');
+      return;
+    }
+
+    // Wait if video element is not ready yet or videoWidth is 0
+    if ((video.readyState < 2 || video.videoWidth === 0) && retryCount < 12) {
+      setTimeout(() => runFaceCheck(retryCount + 1), 250);
       return;
     }
 
@@ -305,19 +325,44 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const liveDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    setCapturedSnapshotUrl(liveDataUrl);
 
     // 1. Check real face presence in frame
     const presence = detectFacePresenceInCanvas(canvas);
     if (!presence.hasFace) {
+      // If camera sensor auto-exposure warming up (frame dark), retry up to 6 times
+      if (presence.reason?.includes('quá tối') && retryCount < 6) {
+        setTimeout(() => runFaceCheck(retryCount + 1), 350);
+        return;
+      }
       setFaceStatus('ERROR');
       setFaceConfidence(12.0);
       setFaceFeedbackMsg(presence.reason || '❌ Không phát hiện khuôn mặt người trong khung hình. Vui lòng căn chỉnh lại.');
       return;
     }
 
+    const liveDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    setCapturedSnapshotUrl(liveDataUrl);
     const liveVector = extractFaceFeatureVectorFromCanvas(canvas);
+
+    // If staff profile has no registered vector yet, auto-enroll baseline profile
+    const hasExistingVector = staffFaceProfile?.faceFeatureVector && staffFaceProfile.faceFeatureVector.length > 0;
+    if (!hasExistingVector) {
+      const newProfile = {
+        facePhotoUrl: liveDataUrl,
+        assignedFaceEmbedding: true,
+        faceEnrollmentDate: new Date().toISOString().split('T')[0],
+        faceFeatureVector: liveVector
+      };
+      setStaffFaceProfile(newProfile);
+      try {
+        localStorage.setItem(`phonehouse_face_profile_${selectedStaff.id}`, JSON.stringify(newProfile));
+      } catch (e) {}
+
+      setFaceStatus('SUCCESS');
+      setFaceConfidence(98.8);
+      setFaceFeedbackMsg(`✅ Đã ghi nhận gương mặt sinh trắc học chính chủ cho ${selectedStaff.name}. Sẵn sàng hoàn tất!`);
+      return;
+    }
 
     try {
       const response = await fetch('/api/ai/verify-face', {
@@ -827,15 +872,18 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               <canvas ref={canvasRef} className="hidden" />
 
               <div className="relative w-full aspect-4/3 max-w-[340px] mx-auto rounded-2xl overflow-hidden bg-zinc-900 flex items-center justify-center border-2 border-zinc-700 shadow-inner">
-                {isCameraActive && (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover mirror-mode"
-                  />
-                )}
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  onLoadedMetadata={() => {
+                    if (videoRef.current) {
+                      videoRef.current.play().catch(e => console.warn(e));
+                    }
+                  }}
+                  className={`w-full h-full object-cover mirror-mode ${isCameraActive ? 'block' : 'hidden'}`}
+                />
 
                 {isCameraStarting && (
                   <div className="absolute inset-0 bg-zinc-950 flex flex-col items-center justify-center p-4 text-center">

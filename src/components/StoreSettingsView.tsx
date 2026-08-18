@@ -26,15 +26,17 @@ import {
   Layers,
   Database,
   Bell,
-  Send
+  Send,
+  Wallet
 } from 'lucide-react';
-import { StoreBranch, WarehouseInfo, StoreSettings, WarehouseId } from '../types';
+import { StoreBranch, WarehouseInfo, StoreSettings, WarehouseId, FundAccount } from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 
 interface StoreSettingsViewProps {
   branches: StoreBranch[];
   warehouses: WarehouseInfo[];
   settings: StoreSettings;
+  funds?: FundAccount[];
   onAddBranch: (branch: StoreBranch) => void;
   onUpdateBranch: (branch: StoreBranch) => void;
   onDeleteBranch: (branchId: string) => void;
@@ -42,6 +44,7 @@ interface StoreSettingsViewProps {
   onUpdateWarehouse: (warehouse: WarehouseInfo) => void;
   onDeleteWarehouse: (warehouseId: string) => void;
   onSaveSettings: (settings: StoreSettings) => void;
+  onNavigateToCashbook?: (branchId?: string) => void;
   isFirebaseConnected?: boolean;
 }
 
@@ -49,6 +52,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   branches,
   warehouses,
   settings,
+  funds = [],
   onAddBranch,
   onUpdateBranch,
   onDeleteBranch,
@@ -56,6 +60,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   onUpdateWarehouse,
   onDeleteWarehouse,
   onSaveSettings,
+  onNavigateToCashbook,
   isFirebaseConnected = true
 }) => {
   const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty'>('branches');
@@ -541,16 +546,50 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Bank info */}
-                    {branch.bankAccount?.accountNumber && (
-                      <div className="flex items-center justify-between text-xs bg-orange-50/70 border border-orange-100 rounded-xl px-3 py-2 text-orange-900">
-                        <div className="flex items-center space-x-2">
-                          <CreditCard className="w-4 h-4 text-orange-600" />
-                          <span>TK Ngân Hàng: <strong>{branch.bankAccount.bankName} - {branch.bankAccount.accountNumber}</strong></span>
+                    {/* Bank & Cash Fund Info */}
+                    {(() => {
+                      const cashFund = funds.find(f => f.branchId === branch.id && f.type === 'CASH');
+                      const bankFund = funds.find(f => f.branchId === branch.id && f.type === 'BANK');
+                      const formatCurrency = (amt: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amt);
+                      
+                      return (
+                        <div className="space-y-2 bg-gradient-to-br from-orange-50/80 to-amber-50/50 border border-orange-200/80 rounded-2xl p-3 text-xs text-orange-950 mt-2">
+                          <div className="flex items-center justify-between pb-1.5 border-b border-orange-200/60">
+                            <span className="font-extrabold text-orange-900 flex items-center space-x-1.5">
+                              <Wallet className="w-3.5 h-3.5 text-orange-600" />
+                              <span>Sổ Quỹ & Tài Khoản Liên Kết</span>
+                            </span>
+                            {onNavigateToCashbook && (
+                              <button
+                                onClick={() => onNavigateToCashbook(branch.id)}
+                                className="text-[11px] text-orange-700 hover:text-orange-900 font-bold flex items-center space-x-1 hover:underline cursor-pointer"
+                              >
+                                <span>Xem Sổ Quỹ Shop</span>
+                                <ChevronRight className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                            <div className="bg-white/80 p-2 rounded-xl border border-orange-100">
+                              <div className="text-zinc-500 text-[10px]">Quỹ tiền mặt tại quầy</div>
+                              <div className="font-bold text-emerald-700 text-xs">
+                                {cashFund ? formatCurrency(cashFund.currentBalance) : '0 ₫ (Chưa tạo)'}
+                              </div>
+                            </div>
+                            <div className="bg-white/80 p-2 rounded-xl border border-orange-100">
+                              <div className="text-zinc-500 text-[10px]">
+                                {branch.bankAccount?.bankName ? `TK ${branch.bankAccount.bankName}` : 'TK Ngân Hàng VietQR'}
+                              </div>
+                              <div className="font-bold text-orange-700 text-xs truncate" title={branch.bankAccount?.accountNumber || ''}>
+                                {branch.bankAccount?.accountNumber ? `${branch.bankAccount.accountNumber}` : 'Chưa cấu hình STK'}
+                                {bankFund ? ` (${formatCurrency(bankFund.currentBalance)})` : ''}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <span className="text-[10px] text-orange-600 font-bold">{branch.bankAccount.accountHolder}</span>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* GPS & Wi-Fi Chấm Công Info Badge */}
                     <div className="space-y-1.5 bg-orange-50/70 border border-orange-200/80 rounded-xl p-3 text-orange-950 mt-2 text-xs">
@@ -1056,10 +1095,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     e.preventDefault();
                     showToast('Đã gửi tin nhắn kiểm tra thành công tới Bot Telegram!');
                     // Call API here in real life
-                    fetch('https://api.telegram.org/bot' + (import.meta.env.VITE_TELEGRAM_BOT_TOKEN || '') + '/sendMessage', {
+                    fetch('https://api.telegram.org/bot' + ((import.meta as any).env?.VITE_TELEGRAM_BOT_TOKEN || '') + '/sendMessage', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ chat_id: import.meta.env.VITE_TELEGRAM_CHAT_ID || '1451935454', text: '🔔 Tin nhắn kiểm tra từ hệ thống PhoneHouse CRM!' })
+                      body: JSON.stringify({ chat_id: (import.meta as any).env?.VITE_TELEGRAM_CHAT_ID || '1451935454', text: '🔔 Tin nhắn kiểm tra từ hệ thống PhoneHouse CRM!' })
                     }).catch(err => console.error(err));
                   }}
                   className="mt-3 px-4 py-2 bg-white border border-green-300 text-green-700 rounded-lg text-xs font-bold hover:bg-green-50 transition-all cursor-pointer"

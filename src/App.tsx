@@ -27,6 +27,7 @@ import {
   SalesInvoice, 
   UserAccount, 
   Partner, 
+  PartnerDebtTransaction,
   FundAccount, 
   CashTransaction,
   ProductItem,
@@ -783,7 +784,7 @@ export default function App() {
     addCashTransactionToFirestore(newTx);
 
     // 1. Update matching fund balance
-    const fundToUpdate = funds.find(f => f.name === newTx.fundName);
+    const fundToUpdate = funds.find(f => (newTx.fundId && f.id === newTx.fundId) || f.name === newTx.fundName || f.id === newTx.fundType || f.type === newTx.fundType);
     if (fundToUpdate) {
        const balanceDelta = newTx.type === 'RECEIPT' ? newTx.amount : -newTx.amount;
        const updatedFund = {
@@ -792,24 +793,8 @@ export default function App() {
           totalIncome: newTx.type === 'RECEIPT' ? (fundToUpdate.totalIncome || 0) + newTx.amount : fundToUpdate.totalIncome,
           totalExpense: newTx.type === 'PAYMENT' ? (fundToUpdate.totalExpense || 0) + newTx.amount : fundToUpdate.totalExpense
        };
-       setFunds(funds.map(f => f.id === updatedFund.id ? updatedFund : f));
+       setFunds(prevFunds => prevFunds.map(f => f.id === updatedFund.id ? updatedFund : f));
        updateFundInFirestore(updatedFund);
-    }
-
-    // 2. If it's paying debt or collecting debt from a partner, auto-deduct outstandingDebt
-    if (newTx.partnerId) {
-      setPartners(prevPartners =>
-        prevPartners.map(p => {
-          if (p.id === newTx.partnerId) {
-            const debtDelta = newTx.amount;
-            const newDebt = Math.max(0, (p.outstandingDebt || 0) - debtDelta);
-            const updated = { ...p, outstandingDebt: newDebt };
-            updatePartnerInFirestore(updated);
-            return updated;
-          }
-          return p;
-        })
-      );
     }
   };
 
@@ -900,55 +885,76 @@ export default function App() {
   const handleAddPurchaseOrder = (order: PurchaseOrder, autoCreateDevices: boolean) => {
     setPurchaseOrders(prev => [order, ...prev]);
 
-    // 1. Nếu có công nợ nợ NCC -> Tăng số dư nợ của đối tác NCC
-    if (order.debtAmount > 0) {
-      const supplier = partners.find(p => p.id === order.supplierId);
-      if (supplier) {
-        const newTx = {
-          id: `TX-DEBT-${Date.now().toString().slice(-6)}`,
-          date: order.orderDate,
-          type: 'DEBT_INCREASE' as const,
-          amount: order.debtAmount,
-          note: `Nhập hàng phiếu ${order.code}`,
-          referenceId: order.id
-        };
-        handleUpdatePartner({
-          ...supplier,
-          outstandingDebt: (supplier.outstandingDebt || 0) + order.debtAmount,
-          debtTransactions: [newTx, ...(supplier.debtTransactions || [])]
-        });
-      }
+    // 1. Ghi nhận Lịch sử Giao dịch & Công nợ của Nhà Cung Cấp (NCC)
+    const supplier = partners.find(p => p.id === order.supplierId || (p.name && order.supplierName && p.name.trim().toLowerCase() === order.supplierName.trim().toLowerCase()));
+    
+    const buyTx: PartnerDebtTransaction = {
+      id: `TX-BUY-${Date.now().toString().slice(-6)}`,
+      date: order.orderDate,
+      type: 'DEBT_INCREASE',
+      amount: order.totalAmount,
+      note: `Nhập hàng phiếu ${order.code}`,
+      referenceId: order.code || order.id
+    };
+
+    const newTxs: PartnerDebtTransaction[] = [buyTx];
+
+    if (order.paidAmount > 0) {
+      const payTx: PartnerDebtTransaction = {
+        id: `TX-PAY-${Date.now().toString().slice(-6)}`,
+        date: order.orderDate,
+        type: 'PAYMENT',
+        amount: order.paidAmount,
+        note: `Thanh toán ngay phiếu nhập ${order.code}`,
+        referenceId: order.code || order.id
+      };
+      newTxs.unshift(payTx);
     }
 
-    // 2. Nếu có thanh toán tiền ngay cho NCC -> Trừ quỹ & sinh phiếu chi Sổ Quỹ
-    if (order.paidAmount > 0 && order.fundId) {
-      const targetFund = funds.find(f => f.id === order.fundId);
-      if (targetFund) {
-        const updatedFunds = funds.map(f => {
-          if (f.id === order.fundId) {
-            return { ...f, currentBalance: f.currentBalance - order.paidAmount };
-          }
-          return f;
-        });
-        setFunds(updatedFunds);
-        updatedFunds.forEach(f => updateFundInFirestore(f));
+    if (supplier) {
+      const updatedDebt = Math.max(0, (supplier.outstandingDebt || 0) + order.totalAmount - order.paidAmount);
+      handleUpdatePartner({
+        ...supplier,
+        outstandingDebt: updatedDebt,
+        debtTransactions: [...newTxs, ...(supplier.debtTransactions || [])]
+      });
+    } else if (order.supplierName) {
+      // Tự tạo NCC mới nếu chưa có trong danh sách
+      const newSupplier: Partner = {
+        id: order.supplierId || `SUP-${Date.now()}`,
+        name: order.supplierName,
+        phone: order.supplierPhone || '',
+        type: 'SUPPLIER',
+        outstandingDebt: Math.max(0, order.totalAmount - order.paidAmount),
+        debtTransactions: newTxs,
+        createdAt: order.orderDate || new Date().toISOString().split('T')[0]
+      };
+      handleAddPartner(newSupplier);
+    }
 
+    // 2. Nếu có thanh toán tiền ngay cho NCC -> Sinh Phiếu Chi ở Sổ Quỹ
+    if (order.paidAmount > 0) {
+      const targetFund = funds.find(f => f.id === order.fundId) || funds.find(f => f.type === order.paymentMethod) || funds[0];
+      if (targetFund) {
         const cashTx: CashTransaction = {
           id: `CTX-${Date.now()}`,
           code: `PC-${Date.now().toString().slice(-6)}`,
-          date: order.orderDate,
+          date: order.orderDate || new Date().toISOString().split('T')[0],
           type: 'PAYMENT',
           category: 'INVENTORY_PURCHASE',
           categoryName: 'Chi nhập hàng iPhone mới / Like New',
           amount: order.paidAmount,
+          fundId: targetFund.id,
           fundType: targetFund.type,
           fundName: targetFund.name,
-          partnerId: order.supplierId,
+          partnerId: supplier?.id || order.supplierId,
           partnerName: order.supplierName,
           partnerType: 'SUPPLIER',
+          partnerPhone: order.supplierPhone,
           referenceCode: order.code,
-          notes: `Thanh toán phiếu nhập ${order.code} - ${order.supplierName}`,
-          creator: order.creatorName,
+          notes: `Thanh toán phiếu nhập ${order.code} - NCC ${order.supplierName}`,
+          creator: order.creatorName || (currentUser ? currentUser.displayName : 'Hệ thống'),
+          branchId: activeBranchId || currentUser?.branchId,
           status: 'COMPLETED'
         };
         handleAddCashTransaction(cashTx);
@@ -1063,21 +1069,11 @@ export default function App() {
   };
 
   const handlePaySupplierDebt = (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => {
-    const targetFund = funds.find(f => f.id === fundId);
-    const supplier = partners.find(p => p.id === supplierId);
+    const targetFund = funds.find(f => f.id === fundId || f.name === fundId) || funds[0];
+    const supplier = partners.find(p => p.id === supplierId || (p.name && p.type === 'SUPPLIER'));
 
-    // 1. Trừ quỹ
+    // 1. Thêm CashTransaction ở Sổ Quỹ (handleAddCashTransaction sẽ tự trừ quỹ)
     if (targetFund) {
-      const updatedFunds = funds.map(f => {
-        if (f.id === fundId) {
-          return { ...f, currentBalance: f.currentBalance - amount };
-        }
-        return f;
-      });
-      setFunds(updatedFunds);
-      updatedFunds.forEach(f => updateFundInFirestore(f));
-
-      // 2. Thêm CashTransaction
       const cashTx: CashTransaction = {
         id: `CTX-PAY-${Date.now()}`,
         code: `PC-${Date.now().toString().slice(-6)}`,
@@ -1086,27 +1082,29 @@ export default function App() {
         category: 'SUPPLIER_DEBT_PAY',
         categoryName: 'Chi thanh toán nợ Nhà Cung Cấp',
         amount,
+        fundId: targetFund.id,
         fundType: targetFund.type,
         fundName: targetFund.name,
-        partnerId: supplierId,
+        partnerId: supplier?.id || supplierId,
         partnerName: supplier?.name || 'Nhà Cung Cấp',
         partnerType: 'SUPPLIER',
         referenceCode: orderId,
         notes: note || `Thanh toán nợ NCC ${supplier?.name || ''}`,
         creator: currentUser ? currentUser.displayName : 'Admin PhoneHouse',
+        branchId: activeBranchId || currentUser?.branchId,
         status: 'COMPLETED'
       };
       handleAddCashTransaction(cashTx);
     }
 
-    // 3. Giảm công nợ NCC
+    // 2. Giảm công nợ NCC & ghi lịch sử
     if (supplier) {
-      const newTx = {
+      const newTx: PartnerDebtTransaction = {
         id: `TX-DEBT-PAY-${Date.now().toString().slice(-6)}`,
         date: new Date().toISOString().split('T')[0],
-        type: 'DEBT_DECREASE' as const,
+        type: 'PAYMENT',
         amount,
-        note: note || `Trả nợ phiếu nhập hàng`,
+        note: note || `Trả nợ phiếu nhập hàng ${orderId}`,
         referenceId: orderId
       };
       handleUpdatePartner({

@@ -207,6 +207,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
   // Payment Method
   const [paymentMethod, setPaymentMethod] = useState<SalesInvoice['paymentMethod']>('Chuyển khoản QR');
+  const [selectedFundId, setSelectedFundId] = useState<string>('');
   const [cashGiven, setCashGiven] = useState<number>(0);
   const [installmentCompany, setInstallmentCompany] = useState('Home Credit (CCCD gắn chip)');
   const [installmentTenor, setInstallmentTenor] = useState(6);
@@ -302,7 +303,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
     let cashTx: import('../types').CashTransaction | null = null;
     if (receiptAmount > 0) {
-      const fund = funds.find(f => f.type === fundTypeToUse) || funds[0];
+      const fund = funds.find(f => f.id === selectedFundId) || funds.find(f => f.type === fundTypeToUse) || funds[0];
       if (fund) {
         cashTx = {
           id: `TX-${Date.now()}`,
@@ -1372,6 +1373,44 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
             </div>
 
             {/* Dynamic Payment Details */}
+            {/* Fund Selector */}
+            {paymentMethod !== 'Trả góp' && (
+              <div className="mt-3 p-3 bg-zinc-50 border border-zinc-200 rounded-xl space-y-2 animate-in fade-in zoom-in duration-200">
+                <label className="block text-xs font-bold text-zinc-600">
+                  Tài khoản nhận tiền (Chuẩn kế toán)
+                </label>
+                <select
+                  value={selectedFundId}
+                  onChange={(e) => setSelectedFundId(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-zinc-200 rounded-lg text-sm font-medium text-zinc-900 focus:outline-none focus:border-orange-500"
+                >
+                  {funds
+                    .filter(f => {
+                       const t = paymentMethod === 'Chuyển khoản QR' ? 'BANK' : paymentMethod === 'Tiền mặt' ? 'CASH' : paymentMethod === 'Quẹt thẻ POS' ? 'POS_CARD' : 'CASH';
+                       return f.type === t;
+                    })
+                    .sort((a, b) => {
+                       const aWeight = a.branchId === currentBranch.id ? 0 : (!a.branchId || a.isCompanyFund) ? 1 : 2;
+                       const bWeight = b.branchId === currentBranch.id ? 0 : (!b.branchId || b.isCompanyFund) ? 1 : 2;
+                       return aWeight - bWeight;
+                    })
+                    .map(f => {
+                      const isSameBranch = f.branchId === currentBranch.id;
+                      const isCompany = f.isCompanyFund || !f.branchId;
+                      const prefix = isSameBranch ? '[Chi nhánh này] ' : isCompany ? '[Quỹ Công ty] ' : '[Chi nhánh khác] ';
+                      return (
+                        <option key={f.id} value={f.id}>
+                          {prefix} {f.name} {f.accountNumber ? ` - ${f.accountNumber}` : ''}
+                        </option>
+                      );
+                  })}
+                </select>
+                <p className="text-[10px] text-zinc-500">
+                  Chỉ định chính xác tài khoản ngân hàng hoặc két tiền mặt để lập Phiếu Thu.
+                </p>
+              </div>
+            )}
+
             {paymentMethod === 'Chuyển khoản QR' && (
               <div className="p-3.5 bg-orange-50/60 rounded-2xl border border-orange-200 text-center space-y-2">
                 <span className="text-[11px] text-zinc-700 font-bold block">Quét VietQR Tự Động Điền Số Tiền & Nội Dung</span>

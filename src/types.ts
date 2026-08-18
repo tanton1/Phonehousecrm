@@ -686,6 +686,7 @@ export type CashPaymentCategory =
 export interface CashTransaction {
   id: string;
   branchId?: string;
+  fundId?: string;
   code: string; // PT-20250215-01 / PC-20250215-01
   type: CashTransactionType;
   category: CashReceiptCategory | CashPaymentCategory;
@@ -708,6 +709,7 @@ export interface CashTransaction {
 export interface FundAccount {
   id: string;
   branchId?: string;
+  isCompanyFund?: boolean;
   name: string;
   type: PaymentFundType;
   accountNumber?: string;
