@@ -16,6 +16,8 @@ export interface AppHeaderProps {
   currentUser: StaffMember | null;
   currentBranch: StoreBranch;
   branches: StoreBranch[];
+  selectedBranchId?: string;
+  onSelectBranchId?: (branchId: string) => void;
   onSelectBranch: (branch: StoreBranch) => void;
   onLogout: () => void;
   onOpenQuickSearch?: () => void;
@@ -25,6 +27,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   currentUser,
   currentBranch,
   branches,
+  selectedBranchId = 'ALL',
+  onSelectBranchId,
   onSelectBranch,
   onLogout,
   onOpenQuickSearch
@@ -33,6 +37,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
 
   const userName = currentUser?.name || currentUser?.displayName || 'Nhân viên';
+  const isMultiBranchUser = !currentUser || currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER' || (currentUser.assignedBranchIds && currentUser.assignedBranchIds.length > 1);
+
   const availableBranches = branches.filter(b => {
     if (!currentUser || currentUser.role === 'ADMIN') return true;
     if (currentUser.assignedBranchIds && currentUser.assignedBranchIds.length > 0) {
@@ -41,41 +47,76 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     return !currentUser.branchId || currentUser.branchId === b.id;
   });
 
+  const selectedBranchObj = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
+  const displayBranchName = selectedBranchId === 'ALL'
+    ? 'Toàn Hệ Thống'
+    : (selectedBranchObj?.name || currentBranch?.name || 'Toàn Hệ Thống');
+
   return (
     <header className="h-14 bg-white border-b border-zinc-200/80 px-3 sm:px-5 flex items-center justify-between sticky top-0 z-20 shrink-0">
       {/* 1. Branch Selector */}
       <div className="relative">
         <button
           onClick={() => {
-            if (availableBranches.length > 1) {
+            if (availableBranches.length > 1 || isMultiBranchUser) {
               setIsBranchMenuOpen(prev => !prev);
             }
           }}
           className={`flex items-center space-x-1.5 sm:space-x-2 px-2.5 py-1.5 rounded-xl border border-zinc-200/80 hover:bg-zinc-50 hover:border-zinc-300 transition-all text-xs font-semibold text-zinc-800 shadow-2xs active:scale-95 ${
-            availableBranches.length > 1 ? 'cursor-pointer' : 'cursor-default'
+            availableBranches.length > 1 || isMultiBranchUser ? 'cursor-pointer' : 'cursor-default'
           }`}
         >
           <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#ff4b16] shrink-0" />
-          <span className="truncate max-w-[100px] xs:max-w-[130px] sm:max-w-[200px]">{currentBranch?.name || 'Chi nhánh'}</span>
-          {availableBranches.length > 1 && (
-            <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-zinc-400 shrink-0" />
+          <span className="truncate max-w-[110px] xs:max-w-[140px] sm:max-w-[220px]">{displayBranchName}</span>
+          {(availableBranches.length > 1 || isMultiBranchUser) && (
+            <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-zinc-400 shrink-0 transition-transform ${isBranchMenuOpen ? 'rotate-180' : ''}`} />
           )}
         </button>
 
-        {isBranchMenuOpen && availableBranches.length > 1 && (
+        {isBranchMenuOpen && (availableBranches.length > 1 || isMultiBranchUser) && (
           <div className="absolute left-0 top-full mt-1.5 w-64 bg-white border border-zinc-200 rounded-2xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
-            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-100">
-              Chọn Chi Nhánh Hoạt Động
+            <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-100 flex items-center justify-between">
+              <span>Chọn Chi Nhánh Hoạt Động</span>
+              {selectedBranchId && selectedBranchId !== 'ALL' && (
+                <span className="text-[9px] text-[#ff4b16] font-normal">Đang lọc</span>
+              )}
             </div>
+
+            {isMultiBranchUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onSelectBranchId) {
+                    onSelectBranchId('ALL');
+                  }
+                  setIsBranchMenuOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-orange-50/60 transition-colors cursor-pointer border-b border-zinc-100 ${
+                  selectedBranchId === 'ALL' ? 'font-bold text-[#ff4b16] bg-orange-50/80' : 'text-zinc-700'
+                }`}
+              >
+                <div className="flex items-center space-x-2 truncate">
+                  <span className="w-2 h-2 rounded-full bg-[#ff4b16]" />
+                  <span className="truncate font-semibold">Toàn Hệ Thống</span>
+                </div>
+                <span className="text-[10px] font-mono text-zinc-400">Tất cả</span>
+              </button>
+            )}
+
             {availableBranches.map(b => (
               <button
                 key={b.id}
+                type="button"
                 onClick={() => {
-                  onSelectBranch(b);
+                  if (onSelectBranchId) {
+                    onSelectBranchId(b.id);
+                  } else {
+                    onSelectBranch(b);
+                  }
                   setIsBranchMenuOpen(false);
                 }}
                 className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-orange-50/60 transition-colors cursor-pointer ${
-                  currentBranch?.id === b.id ? 'font-bold text-[#ff4b16] bg-orange-50/80' : 'text-zinc-700'
+                  selectedBranchId === b.id ? 'font-bold text-[#ff4b16] bg-orange-50/80' : 'text-zinc-700'
                 }`}
               >
                 <div className="flex items-center space-x-2 truncate">

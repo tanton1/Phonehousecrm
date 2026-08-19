@@ -409,6 +409,12 @@ export default function App() {
     : (currentUser?.branchId || (currentUser as any)?.branch);
 
   const resolvedCurrentBranch = useMemo<StoreBranch>(() => {
+    // 1. Prioritize explicitly selected branch if not 'ALL'
+    if (selectedBranchId && selectedBranchId !== 'ALL' && branches && branches.length > 0) {
+      const found = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
+      if (found) return found;
+    }
+    // 2. If 'ALL' or not found, fallback to currentUser assigned branch
     const userBranch = currentUser?.branchId || (currentUser as any)?.branch;
     if (userBranch && branches && branches.length > 0) {
       const found = branches.find(b => 
@@ -420,17 +426,13 @@ export default function App() {
       );
       if (found) return found;
     }
-    if (selectedBranchId && selectedBranchId !== 'ALL' && branches && branches.length > 0) {
-      const found = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
-      if (found) return found;
-    }
     if (branches && branches.length > 0) {
       return branches[0];
     }
     return {
-      id: '',
-      code: '',
-      name: (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chi Nhánh Showroom',
+      id: 'ALL',
+      code: 'ALL',
+      name: 'Toàn Hệ Thống',
       address: '',
       phone: '',
       email: '',
@@ -1559,6 +1561,8 @@ export default function App() {
         } : null}
         currentBranch={resolvedCurrentBranch}
         branches={branches}
+        selectedBranchId={selectedBranchId}
+        onSelectBranchId={(id) => setSelectedBranchId(id)}
         onSelectBranch={(b) => setSelectedBranchId(b.id)}
         onLogout={() => {
           setCurrentUser(null);

@@ -10,6 +10,8 @@ export interface AppShellProps {
   currentUser: StaffMember | null;
   currentBranch: StoreBranch;
   branches: StoreBranch[];
+  selectedBranchId?: string;
+  onSelectBranchId?: (branchId: string) => void;
   onSelectBranch: (branch: StoreBranch) => void;
   onLogout: () => void;
   onOpenQuickSearch?: () => void;
@@ -22,6 +24,8 @@ export const AppShell: React.FC<AppShellProps> = ({
   currentUser,
   currentBranch,
   branches,
+  selectedBranchId,
+  onSelectBranchId,
   onSelectBranch,
   onLogout,
   onOpenQuickSearch,
@@ -46,6 +50,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           currentUser={currentUser}
           currentBranch={currentBranch}
           branches={branches}
+          selectedBranchId={selectedBranchId}
+          onSelectBranchId={onSelectBranchId}
           onSelectBranch={onSelectBranch}
           onLogout={onLogout}
           onOpenQuickSearch={onOpenQuickSearch}
