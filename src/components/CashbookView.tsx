@@ -22,6 +22,7 @@ const formatCompact = (amount: number) => {
 interface CashbookViewProps {
   currentUser?: UserAccount | null;
   branches?: StoreBranch[];
+  selectedBranchId?: string;
   transactions: CashTransaction[];
   funds: FundAccount[];
   partners: Partner[];
@@ -34,17 +35,112 @@ interface CashbookViewProps {
 export const CashbookView: React.FC<CashbookViewProps> = ({
   currentUser,
   branches = [], 
-  transactions, funds, partners, onAddTransaction, onUpdateFunds, onTransferFunds, onAddPartner 
+  selectedBranchId = 'ALL',
+  transactions = [], 
+  funds = [], 
+  partners = [], 
+  onAddTransaction, 
+  onUpdateFunds, 
+  onTransferFunds, 
+  onAddPartner 
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<'TRANSACTIONS' | 'ACCOUNTS' | 'REPORTS'>('TRANSACTIONS');
   const [selectedFundFilter, setSelectedFundFilter] = useState<string>('ALL');
   const [showBalance, setShowBalance] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'RECEIPT' | 'PAYMENT' | 'RETAIL'>('ALL');
   
   // Date filter state
   const [dateFilterMode, setDateFilterMode] = useState<'ALL' | 'TODAY' | 'YESTERDAY' | '7DAYS' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('THIS_MONTH');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+
+  // Dynamic Branch-scoped Funds
+  const displayFunds = useMemo(() => {
+    if (!selectedBranchId || selectedBranchId === 'ALL') return funds;
+    return funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === selectedBranchId);
+  }, [funds, selectedBranchId]);
+
+  // Filtered Transactions
+  const filteredTransactions = useMemo(() => {
+    let result = [...transactions];
+
+    // 1. Fund Filter
+    if (selectedFundFilter !== 'ALL') {
+      result = result.filter(t => t.fundId === selectedFundFilter || (t.fundName && t.fundName.includes(selectedFundFilter)));
+    }
+
+    // 2. Type/Category Filter
+    if (activeFilter === 'RECEIPT') result = result.filter(t => t.type === 'RECEIPT');
+    else if (activeFilter === 'PAYMENT') result = result.filter(t => t.type === 'PAYMENT');
+    else if (activeFilter === 'RETAIL') result = result.filter(t => t.category === 'SALES_REVENUE');
+
+    // 3. Date Filter
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (dateFilterMode === 'TODAY') {
+      result = result.filter(t => (t.date || '').startsWith(todayStr));
+    } else if (dateFilterMode === 'YESTERDAY') {
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      result = result.filter(t => (t.date || '').startsWith(yesterday));
+    } else if (dateFilterMode === '7DAYS') {
+      const past7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      result = result.filter(t => (t.date || '').slice(0, 10) >= past7);
+    } else if (dateFilterMode === 'THIS_MONTH') {
+      const thisMonth = todayStr.slice(0, 7);
+      result = result.filter(t => (t.date || '').startsWith(thisMonth));
+    } else if (dateFilterMode === 'LAST_MONTH') {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 1);
+      const lastMonth = d.toISOString().slice(0, 7);
+      result = result.filter(t => (t.date || '').startsWith(lastMonth));
+    } else if (dateFilterMode === 'CUSTOM') {
+      if (customStartDate) result = result.filter(t => (t.date || '').slice(0, 10) >= customStartDate);
+      if (customEndDate) result = result.filter(t => (t.date || '').slice(0, 10) <= customEndDate);
+    }
+
+    // 4. Search Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(t => 
+        (t.code || '').toLowerCase().includes(q) ||
+        (t.partnerName || '').toLowerCase().includes(q) ||
+        (t.notes || '').toLowerCase().includes(q) ||
+        (t.categoryName || '').toLowerCase().includes(q) ||
+        (t.referenceCode || '').toLowerCase().includes(q)
+      );
+    }
+
+    // 5. Sort newest first (ngày gần nhất lên đầu)
+    return result.sort((a, b) => {
+      const timeA = new Date(a.date).getTime() || 0;
+      const timeB = new Date(b.date).getTime() || 0;
+      return timeB - timeA;
+    });
+  }, [transactions, selectedFundFilter, activeFilter, dateFilterMode, customStartDate, customEndDate, searchQuery]);
+
+  // Accurate Stats calculated from filteredTransactions and displayFunds
+  const currentBalance = useMemo(() => displayFunds.reduce((sum, f) => sum + (f.currentBalance || 0), 0), [displayFunds]);
+  const totalIn = useMemo(() => filteredTransactions.filter(t => t.type === 'RECEIPT').reduce((s, t) => s + t.amount, 0), [filteredTransactions]);
+  const totalOut = useMemo(() => filteredTransactions.filter(t => t.type === 'PAYMENT').reduce((s, t) => s + t.amount, 0), [filteredTransactions]);
+  const netFlow = totalIn - totalOut;
+
+  // Dynamic Date Filter Label
+  const dateFilterPeriodLabel = useMemo(() => {
+    const now = new Date();
+    if (dateFilterMode === 'TODAY') return 'Hôm nay (' + now.toLocaleDateString('vi-VN') + ')';
+    if (dateFilterMode === 'YESTERDAY') {
+      const y = new Date(Date.now() - 86400000);
+      return 'Hôm qua (' + y.toLocaleDateString('vi-VN') + ')';
+    }
+    if (dateFilterMode === '7DAYS') return '7 ngày gần nhất';
+    if (dateFilterMode === 'THIS_MONTH') return `Tháng ${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+    if (dateFilterMode === 'LAST_MONTH') {
+      const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return `Tháng ${String(lm.getMonth() + 1).padStart(2, '0')}/${lm.getFullYear()}`;
+    }
+    if (dateFilterMode === 'CUSTOM') return `${customStartDate || '...'} đến ${customEndDate || '...'}`;
+    return 'Toàn bộ thời gian';
+  }, [dateFilterMode, customStartDate, customEndDate]);
 
   // Sheet & Modal states
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false);
@@ -113,14 +209,6 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     branchId: '',
     isPLAccounted: true // Mặc định có hạch toán vào Kết quả kinh doanh
   });
-
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'RECEIPT' | 'PAYMENT' | 'RETAIL'>('ALL');
-
-  // Stats
-  const currentBalance = funds.reduce((sum, f) => sum + f.currentBalance, 0);
-  const totalIn = transactions.filter(t => t.type === 'RECEIPT').reduce((s, t) => s + t.amount, 0);
-  const totalOut = transactions.filter(t => t.type === 'PAYMENT').reduce((s, t) => s + t.amount, 0);
-  const netFlow = totalIn - totalOut;
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -355,7 +443,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       partnerPhone: formData.partnerPhone || undefined,
       referenceCode: formData.referenceCode || undefined,
       creator: currentUser?.displayName || formData.creator || 'Nhân viên kế toán',
-      branchId: formData.branchId || branches[0]?.id || 'CN01',
+      branchId: formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : currentUser?.branchId) || branches[0]?.id || 'CN01',
       notes: formData.notes || (formData.type === 'RECEIPT' ? 'Thu tiền theo chứng từ' : 'Chi tiền theo hóa đơn'),
       isPLAccounted: formData.isPLAccounted !== false,
       status: 'COMPLETED'
@@ -365,62 +453,6 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     setIsCreateModalOpen(false);
     setSelectedTx(newTx);
   };
-
-  const filteredTransactions = useMemo(() => {
-    let result = [...transactions];
-
-    // 1. Fund Filter
-    if (selectedFundFilter !== 'ALL') {
-      result = result.filter(t => t.fundId === selectedFundFilter || t.fundName.includes(selectedFundFilter));
-    }
-
-    // 2. Type/Category Filter
-    if (activeFilter === 'RECEIPT') result = result.filter(t => t.type === 'RECEIPT');
-    else if (activeFilter === 'PAYMENT') result = result.filter(t => t.type === 'PAYMENT');
-    else if (activeFilter === 'RETAIL') result = result.filter(t => t.category === 'SALES_REVENUE');
-
-    // 3. Date Filter
-    const todayStr = new Date().toISOString().split('T')[0];
-    if (dateFilterMode === 'TODAY') {
-      result = result.filter(t => (t.date || '').startsWith(todayStr));
-    } else if (dateFilterMode === 'YESTERDAY') {
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-      result = result.filter(t => (t.date || '').startsWith(yesterday));
-    } else if (dateFilterMode === '7DAYS') {
-      const past7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
-      result = result.filter(t => (t.date || '').slice(0, 10) >= past7);
-    } else if (dateFilterMode === 'THIS_MONTH') {
-      const thisMonth = todayStr.slice(0, 7);
-      result = result.filter(t => (t.date || '').startsWith(thisMonth));
-    } else if (dateFilterMode === 'LAST_MONTH') {
-      const d = new Date();
-      d.setMonth(d.getMonth() - 1);
-      const lastMonth = d.toISOString().slice(0, 7);
-      result = result.filter(t => (t.date || '').startsWith(lastMonth));
-    } else if (dateFilterMode === 'CUSTOM') {
-      if (customStartDate) result = result.filter(t => (t.date || '').slice(0, 10) >= customStartDate);
-      if (customEndDate) result = result.filter(t => (t.date || '').slice(0, 10) <= customEndDate);
-    }
-
-    // 4. Search Filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(t => 
-        (t.code || '').toLowerCase().includes(q) ||
-        (t.partnerName || '').toLowerCase().includes(q) ||
-        (t.notes || '').toLowerCase().includes(q) ||
-        (t.categoryName || '').toLowerCase().includes(q) ||
-        (t.referenceCode || '').toLowerCase().includes(q)
-      );
-    }
-
-    // 5. Sort newest first (ngày gần nhất lên đầu)
-    return result.sort((a, b) => {
-      const timeA = new Date(a.date).getTime() || 0;
-      const timeB = new Date(b.date).getTime() || 0;
-      return timeB - timeA;
-    });
-  }, [transactions, selectedFundFilter, activeFilter, dateFilterMode, customStartDate, customEndDate, searchQuery]);
 
   return (
     <div className="flex flex-col min-h-screen max-w-[1600px] mx-auto p-2 sm:p-4 space-y-4 text-zinc-900 font-sans">
@@ -539,7 +571,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 <div className="flex items-center space-x-2">
                   <span className="text-xs font-bold text-zinc-500">Kỳ hạch toán:</span>
                   <span className="text-xs font-mono font-bold px-2.5 py-1 bg-zinc-100 text-zinc-800 rounded-lg border border-zinc-200">
-                    Tháng 08/2026
+                    {dateFilterPeriodLabel}
                   </span>
                 </div>
               </div>

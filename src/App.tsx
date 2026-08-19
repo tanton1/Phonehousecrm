@@ -1639,6 +1639,8 @@ export default function App() {
             partners={partners}
             warehouses={warehouses}
             funds={funds}
+            branches={branches}
+            selectedBranchId={selectedBranchId}
             currentUser={currentUser}
             catalogItems={catalogItems}
             onAddPurchaseOrder={handleAddPurchaseOrder}
@@ -1981,6 +1983,7 @@ export default function App() {
           <CashbookView
             currentUser={currentUser}
             branches={branches}
+            selectedBranchId={selectedBranchId}
             transactions={filteredCashTransactions}
             funds={funds}
             partners={partners}

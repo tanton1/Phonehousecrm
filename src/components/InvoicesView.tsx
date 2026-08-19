@@ -61,34 +61,58 @@ type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string; dot: string; icon: any }> = {
   completed: {
     label: 'Hoàn thành',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200',
-    dot: 'bg-orange-500',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200',
+    dot: 'bg-emerald-500',
+    icon: CheckCircle2
+  },
+  COMPLETED: {
+    label: 'Hoàn thành',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200',
+    dot: 'bg-emerald-500',
     icon: CheckCircle2
   },
   pending: {
     label: 'Chờ xử lý',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200',
-    dot: 'bg-orange-500',
+    bg: 'bg-amber-50',
+    text: 'text-amber-700',
+    border: 'border-amber-200',
+    dot: 'bg-amber-500',
+    icon: Clock
+  },
+  PENDING: {
+    label: 'Chờ xử lý',
+    bg: 'bg-amber-50',
+    text: 'text-amber-700',
+    border: 'border-amber-200',
+    dot: 'bg-amber-500',
     icon: Clock
   },
   delivering: {
     label: 'Đang giao hàng',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200',
-    dot: 'bg-orange-500',
+    bg: 'bg-blue-50',
+    text: 'text-blue-700',
+    border: 'border-blue-200',
+    dot: 'bg-blue-500',
+    icon: Truck
+  },
+  DELIVERING: {
+    label: 'Đang giao hàng',
+    bg: 'bg-blue-50',
+    text: 'text-blue-700',
+    border: 'border-blue-200',
+    dot: 'bg-blue-500',
     icon: Truck
   },
   installment_approved: {
     label: 'Trả góp đã duyệt',
-    bg: 'bg-rose-50',
-    text: 'text-rose-700',
-    border: 'border-rose-200',
-    dot: 'bg-rose-500',
+    bg: 'bg-teal-50',
+    text: 'text-teal-700',
+    border: 'border-teal-200',
+    dot: 'bg-teal-500',
     icon: CreditCard
   },
   cancelled: {
@@ -99,12 +123,28 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
     dot: 'bg-rose-500',
     icon: AlertCircle
   },
+  CANCELLED: {
+    label: 'Đã hủy đơn',
+    bg: 'bg-rose-50',
+    text: 'text-rose-700',
+    border: 'border-rose-200',
+    dot: 'bg-rose-500',
+    icon: AlertCircle
+  },
   refunded: {
     label: 'Đã hoàn tiền',
-    bg: 'bg-zinc-100',
-    text: 'text-zinc-700',
-    border: 'border-zinc-300',
-    dot: 'bg-zinc-500',
+    bg: 'bg-purple-50',
+    text: 'text-purple-700',
+    border: 'border-purple-200',
+    dot: 'bg-purple-500',
+    icon: RotateCcw
+  },
+  REFUNDED: {
+    label: 'Đã hoàn tiền',
+    bg: 'bg-purple-50',
+    text: 'text-purple-700',
+    border: 'border-purple-200',
+    dot: 'bg-purple-500',
     icon: RotateCcw
   }
 };
@@ -112,6 +152,8 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
 export const InvoicesView: React.FC<InvoicesViewProps> = ({
   invoices,
   devices,
+  currentUser,
+  branches = [],
   onNavigateToPOS,
   onUpdateInvoice,
   onDeleteInvoice,
@@ -153,9 +195,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   // Quick Status Change directly on UI -> Persists to Firestore
   const handleQuickChangeStatus = (newStatus: string) => {
     if (!selectedInvoice) return;
+    if (['cancelled', 'CANCELLED', 'refunded', 'REFUNDED'].includes(newStatus)) {
+      alert('Không thể hủy hoặc hoàn tiền đơn hàng bằng thao tác nhanh. Vui lòng sử dụng tính năng "Hủy đơn hàng" để xử lý trả hàng và hoàn tiền đúng quy trình.');
+      return;
+    }
     const updatedInvoice: SalesInvoice = {
       ...selectedInvoice,
-      status: newStatus, history: [ ...(selectedInvoice.history || []), { time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16), action: `Chuyển trạng thái: ${STATUS_CONFIG[newStatus]?.label || newStatus}`, user: "Admin (Current User)" } ]
+      status: newStatus,
+      history: [ 
+        ...(selectedInvoice.history || []), 
+        { time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16), action: `Chuyển trạng thái: ${STATUS_CONFIG[newStatus]?.label || newStatus}`, user: currentUser?.displayName || "Admin" } 
+      ]
     };
     setSelectedInvoice(updatedInvoice);
     if (onUpdateInvoice) {
@@ -178,23 +228,20 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         inv.items?.some((it: any) => it.imei?.includes(query)) ||
         inv.detailedItems?.some(it => it.imei?.includes(query));
       const modelMatch = inv.items?.some((it: any) => (it.model || it.name)?.toLowerCase().includes(query)) ||
-        inv.detailedItems?.some(it => it.name.toLowerCase().includes(query)) ||
-        inv.accessories?.some(a => a.name.toLowerCase().includes(query));
+        inv.detailedItems?.some(it => it.model?.toLowerCase().includes(query));
 
-      const matchesSearch = !query || 
-        code.includes(query) || 
-        name.includes(query) || 
-        phone.includes(query) || 
-        imeiMatch || 
-        modelMatch;
-
-      if (!matchesSearch) return false;
+      if (query && !code.includes(query) && !name.includes(query) && !phone.includes(query) && !imeiMatch && !modelMatch) {
+        return false;
+      }
 
       // 2. Status Filter
       if (statusFilter !== 'all') {
-        const invStatus = inv.status || 'completed';
+        const invStatus = (inv.status || '').toLowerCase();
+        if (statusFilter === 'completed' && invStatus !== 'completed') return false;
+        if (statusFilter === 'pending' && invStatus !== 'pending') return false;
+        if (statusFilter === 'delivering' && invStatus !== 'delivering') return false;
+        if (statusFilter === 'cancelled' && invStatus !== 'cancelled') return false;
         if (statusFilter === 'installment' && !inv.paymentMethod.includes('Trả góp')) return false;
-        if (statusFilter !== 'installment' && invStatus !== statusFilter) return false;
       }
 
       // 3. Time Filter
@@ -231,10 +278,26 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     });
   }, [invoices, searchQuery, timeFilter, statusFilter]);
 
-  // Aggregate totals
-  const totalRevenue = useMemo(() => {
-    return filteredInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+  // Aggregate totals: Exclude cancelled / refunded from Net Revenue
+  const netRevenue = useMemo(() => {
+    return filteredInvoices
+      .filter(inv => {
+        const s = (inv.status || '').toLowerCase();
+        return s !== 'cancelled' && s !== 'refunded';
+      })
+      .reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
   }, [filteredInvoices]);
+
+  const cancelledRevenue = useMemo(() => {
+    return filteredInvoices
+      .filter(inv => {
+        const s = (inv.status || '').toLowerCase();
+        return s === 'cancelled' || s === 'refunded';
+      })
+      .reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+  }, [filteredInvoices]);
+
+  const totalRevenue = netRevenue;
 
   // Group invoices by date string
   const groupedInvoices = useMemo(() => {
@@ -471,7 +534,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <div className="px-3 py-1 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-100">
                         Chuyển Trạng Thái Đơn:
                       </div>
-                      {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
+                      {Object.entries(STATUS_CONFIG)
+                        .filter(([key]) => !['cancelled', 'CANCELLED', 'refunded', 'REFUNDED'].includes(key) && key === key.toLowerCase())
+                        .map(([key, cfg]) => {
                         const Icon = cfg.icon;
                         const isSelected = key === statusKey;
                         return (
@@ -697,17 +762,44 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </span>
           </div>
 
-          <div className="flex justify-between items-center py-1 text-zinc-600 font-normal">
-            <span className="flex items-center gap-1.5">
-              <span>Phương thức thanh toán</span>
-              <span className="text-[10px] bg-orange-100/80 text-[#ff4b16] px-2 py-0.5 rounded-full font-bold border border-orange-200">
-                {selectedInvoice.paymentMethod}
+          {/* Split Payment Allocation Breakdown */}
+          {selectedInvoice.splitPayments && selectedInvoice.splitPayments.length > 0 ? (
+            <div className="mt-3 p-3 bg-zinc-50 rounded-xl border border-zinc-200 text-xs space-y-2">
+              <div className="font-bold text-zinc-800 flex items-center justify-between pb-1.5 border-b border-zinc-200">
+                <span className="flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-zinc-600" />
+                  <span>Phân bổ thanh toán</span>
+                </span>
+                <span className="text-[10px] font-mono font-bold bg-zinc-200 text-zinc-700 px-2 py-0.5 rounded-full">
+                  {selectedInvoice.splitPayments.length} nguồn
+                </span>
+              </div>
+              <div className="space-y-1.5 pt-1">
+                {selectedInvoice.splitPayments.map((sp: any, spIdx: number) => (
+                  <div key={spIdx} className="flex justify-between items-center text-xs">
+                    <span className="text-zinc-600 font-medium">
+                      {sp.fundName || (sp.method === 'CASH' ? 'Tiền mặt tại két' : sp.method === 'BANK' ? 'Chuyển khoản VietQR' : sp.method === 'CREDIT' ? 'Công nợ ghi sổ' : 'Trả góp')}
+                    </span>
+                    <span className="font-mono font-bold text-zinc-900">
+                      {Number(sp.amount || 0).toLocaleString('vi-VN')}đ
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-between items-center py-1 text-zinc-600 font-normal">
+              <span className="flex items-center gap-1.5">
+                <span>Phương thức thanh toán:</span>
+                <span className="text-[10px] bg-zinc-100 text-zinc-800 px-2 py-0.5 rounded-full font-bold border border-zinc-200">
+                  {selectedInvoice.paymentMethod || 'Tiền mặt / Chuyển khoản'}
+                </span>
               </span>
-            </span>
-            <span className="font-bold text-zinc-900 font-mono">
-              {(selectedInvoice.paidAmount ?? selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ
-            </span>
-          </div>
+              <span className="font-bold text-zinc-900 font-mono">
+                {(selectedInvoice.paidAmount ?? selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ
+              </span>
+            </div>
+          )}
 
           {/* Warranty Package Info */}
           {selectedInvoice.warrantyPackage && (

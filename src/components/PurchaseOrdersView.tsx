@@ -9,7 +9,8 @@ import {
   FundAccount,
   UserAccount,
   WarehouseId,
-  MasterCatalogItem
+  MasterCatalogItem,
+  StoreBranch
 } from '../types';
 import { ActivityLog } from './ActivityLog';
 import { UniformEntryForm } from './UniformEntryForm';
@@ -62,6 +63,8 @@ interface PurchaseOrdersViewProps {
   partners: Partner[];
   warehouses: WarehouseInfo[];
   funds: FundAccount[];
+  branches?: StoreBranch[];
+  selectedBranchId?: string;
   currentUser?: UserAccount | null;
   onAddPurchaseOrder: (order: PurchaseOrder, autoCreateDevices: boolean) => void;
   onUpdatePurchaseOrder: (order: PurchaseOrder) => void;
@@ -79,26 +82,26 @@ type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
 const STATUS_CONFIG: Record<PurchaseOrderStatus, { label: string; bg: string; text: string; border: string; dot: string; icon: any }> = {
   COMPLETED: {
     label: 'Đã nhập kho',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200',
-    dot: 'bg-orange-500',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200',
+    dot: 'bg-emerald-500',
     icon: CheckCircle2
   },
   QC_CHECKING: {
     label: 'Kiểm định KCS',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200',
-    dot: 'bg-orange-500',
+    bg: 'bg-amber-50',
+    text: 'text-amber-700',
+    border: 'border-amber-200',
+    dot: 'bg-amber-500',
     icon: ShieldCheck
   },
   DRAFT: {
     label: 'Bản nháp',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200',
-    dot: 'bg-orange-500',
+    bg: 'bg-zinc-100',
+    text: 'text-zinc-700',
+    border: 'border-zinc-200',
+    dot: 'bg-zinc-400',
     icon: Clock
   },
   CANCELLED: {
@@ -137,6 +140,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   partners,
   warehouses,
   funds,
+  branches = [],
+  selectedBranchId = 'ALL',
   currentUser,
   onAddPurchaseOrder,
   onUpdatePurchaseOrder,
@@ -1565,6 +1570,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         partners={partners}
+        branches={branches}
         warehouses={warehouses}
         funds={funds}
         onAddDevice={() => {}} // Not used in batch

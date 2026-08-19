@@ -207,9 +207,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       return;
     }
 
-    const targetBranch = branches.find(b => b.id === data.branchId) || branches[0];
-    const targetWarehouseId = targetBranch?.warehouseId || warehouses[0]?.id || 'KHO_TONG';
-    const targetWarehouseName = warehouses.find(w => w.id === targetWarehouseId)?.name || 'Kho Tổng';
+    const targetBranch = branches.find(b => b.id === data.branchId) || (branches.length > 0 ? branches[0] : null);
+    const targetWarehouseId = targetBranch?.warehouseId || (warehouses.length > 0 ? warehouses[0]?.id : 'KHO_TONG');
+    const targetWarehouseName = warehouses.find(w => w.id === targetWarehouseId)?.name || targetBranch?.name || 'Kho Tổng';
 
     const debtAmount = remainingDebtAmount;
 
@@ -236,12 +236,20 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         };
       }).filter(item => item.quantity > 0);
 
+      if (orderItems.length === 0) {
+        alert('Vui lòng nhập ít nhất 1 sản phẩm kèm mã IMEI hợp lệ trước khi lưu phiếu nhập!');
+        return;
+      }
+
+      const totalValidQuantity = orderItems.reduce((s, it) => s + it.quantity, 0);
+
       const purchaseOrder: PurchaseOrder = {
         id: `PO-${Date.now()}`,
         code: `PN-${Date.now().toString().slice(-6)}`,
         supplierId: supplier.id,
         supplierName: supplier.name,
         supplierPhone: supplier.phone,
+        branchId: targetBranch?.id || data.branchId || 'CN01',
         warehouseId: targetWarehouseId,
         warehouseName: targetWarehouseName,
         orderDate: new Date().toISOString().split('T')[0],
@@ -255,7 +263,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         fundId: fund?.id,
         paymentMethod: data.paymentMethod === 'BANK' ? 'Chuyển khoản VietQR' : data.paymentMethod === 'CASH' ? 'Tiền mặt tại két' : 'Ghi nhận công nợ NCC',
         items: orderItems,
-        totalQuantity: totalQuantity
+        totalQuantity: totalValidQuantity
       };
       
       onAddPurchaseOrder(purchaseOrder, true);

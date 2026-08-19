@@ -250,6 +250,8 @@ export interface PurchaseOrder {
   supplierPhone?: string;
   supplierAddress?: string;
   supplierTaxCode?: string;
+  branchId?: string;
+  branchName?: string;
   warehouseId: WarehouseId | string;
   warehouseName: string;
   orderDate: string; // YYYY-MM-DD
