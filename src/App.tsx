@@ -39,13 +39,6 @@ import {
   SparePart,
   PurchaseOrder
 } from './types';
-import { AppShell } from './app/AppShell';
-import { DashboardPage } from './features/dashboard/DashboardPage';
-import { POSCockpitView } from './features/pos/components/POSCockpitView';
-import { LeadKanbanBoard } from './features/crm/components/LeadKanbanBoard';
-import { RepairKanbanBoard } from './features/warranty/components/RepairKanbanBoard';
-import { TradeInCockpitView } from './features/tradein/components/TradeInCockpitView';
-import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { PurchaseOrdersView } from './components/PurchaseOrdersView';
@@ -1454,440 +1447,471 @@ export default function App() {
 
       {workspaceMode === 'TECH' && (
         <TechWorkspaceView
-          tasks={filteredWarrantyTickets}
-          currentUser={currentUser}
-          devices={filteredDevices}
-          branches={branches}
-          onCheckIn={handleCheckIn}
-          onCheckOut={handleCheckOut}
-          onOpenCheckIn={() => setIsCheckInModalOpen(true)}
+  tasks={filteredWarrantyTickets}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  onCheckIn={handleCheckIn}
+  onCheckOut={handleCheckOut}
+  onOpenCheckIn={() => setIsCheckInModalOpen(true)}
           attendanceRecord={currentAttendance}
           attendanceRecords={attendanceRecords}
         />
       )}
 
       {workspaceMode === 'ADMIN' && (
-        <AppShell
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          currentUser={currentUser ? {
-            id: currentUser.id,
-            uid: currentUser.id,
-            name: currentUser.displayName,
-            email: currentUser.email,
-            role: currentUser.role,
-            branchId: currentUser.branchId || 'CN01',
-            assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
-            isActive: currentUser.active
-          } : null}
-          currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
-          branches={branches}
-          onSelectBranch={(b) => setSelectedBranchId(b.id)}
-          onLogout={() => {
-            setCurrentUser(null);
-            localStorage.removeItem('phonehouse_active_user');
-            setActiveTab('login');
-          }}
-          onOpenQuickSearch={() => setIsQuickSearchOpen(true)}
-        >
-          <GeofenceBackgroundTracker currentUser={currentUser} />
-
-          {activeTab === 'login' && (
-            <PhoneHouseLoginPage
-              users={users}
-              currentUser={currentUser}
-              onLoginSuccess={(loggedUser) => {
-                setCurrentUser(loggedUser);
-                localStorage.setItem('phonehouse_active_user', JSON.stringify(loggedUser));
-                setActiveTab('dashboard');
-              }}
+        <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans selection:bg-orange-500 selection:text-white">
+      <GeofenceBackgroundTracker currentUser={currentUser} />
+          {/* Top Navigation Bar */}
+      <Navbar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenQuickSearch={() => setIsQuickSearchOpen(true)}
+        onOpenNewDeviceModal={() => setActiveTab('inventory')}
+        onOpenNewLeadModal={() => setActiveTab('crm')}
+        onOpenPOSModal={() => {
+          setPosPreSelectedDevice(null);
+          setActiveTab('pos');
+        }}
+        onOpenAICopilot={() => setIsAICopilotOpen(true)}
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        currentUser={currentUser}
+            onLogout={() => {
+          setCurrentUser(null);
+          localStorage.removeItem('phonehouse_active_user');
+          setIsLoginModalOpen(true);
+        }}
+        stockCount={filteredDevices.filter(d => d.status === 'in_stock').length}
+        leadCount={filteredLeads.filter(l => l.status !== 'won' && l.status !== 'lost').length}
+        warrantyCount={filteredWarrantyTickets.filter(w => w.status !== 'delivered').length}
+        transferCount={filteredTransfers.length}
+        userCount={filteredUsers.length}
+        isFirebaseSyncing={isFirebaseConnected}
+        selectedBranchId={selectedBranchId}
+        onBranchChange={setSelectedBranchId}
+        branches={branches}
             />
-          )}
 
-          {activeTab === 'dashboard' && (
-            <DashboardView
-              devices={filteredDevices}
-              leads={filteredLeads}
+      {/* Main Content View Area */}
+      <main className="flex-1 w-full max-w-7xl mx-auto px-1 sm:px-4 lg:px-8 pt-2 sm:pt-6 pb-20 md:pb-8">
+
+        
+
+        {activeTab === 'login' && (
+          <PhoneHouseLoginPage
+  users={users}
+  currentUser={currentUser}
+  onLoginSuccess={(loggedUser) => {
+              setCurrentUser(loggedUser);
+              localStorage.setItem('phonehouse_active_user', JSON.stringify(loggedUser));
+              setActiveTab('dashboard');
+            }}
+          />
+        )}
+
+        {activeTab === 'dashboard' && (
+          <DashboardView
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  leads={filteredLeads}
+  tradeIns={filteredTradeIns}
+  warrantyTickets={filteredWarrantyTickets}
+  invoices={filteredInvoices}
+  onNavigate={(tab) => setActiveTab(tab)}
+            onOpenPOS={() => {
+              setPosPreSelectedDevice(null);
+              setActiveTab('pos');
+            }}
+            onOpenTradeIn={() => setActiveTab('tradein')}
+            onOpenNewDevice={() => setActiveTab('inventory')}
+          />
+        )}
+
+        {activeTab === 'purchase-orders' && (
+          <PurchaseOrdersView
+  purchaseOrders={filteredPurchaseOrders}
+  partners={partners}
+  warehouses={warehouses}
+  funds={funds}
+  currentUser={currentUser}
+  catalogItems={catalogItems}
+  onAddPurchaseOrder={handleAddPurchaseOrder}
+  onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
+  onDeletePurchaseOrder={handleDeletePurchaseOrder}
+  onPaySupplierDebt={handlePaySupplierDebt}
+/>
+        )}
+
+        {activeTab === 'inventory' && (
+          <InventoryView
+            catalogItems={catalogItems}
+            currentUser={currentUser}
+            devices={filteredDevices}
+            branches={branches}
+            warehouses={warehouses}
+            partners={partners}
+            funds={funds}
+            transfers={transfers}
+            warrantyTickets={warrantyTickets}
+            invoices={invoices}
+            users={filteredUsers}
+            onAddDevice={handleAddDevice}
+            onAddMultipleDevices={handleAddMultipleDevices}
+            onAddPurchaseOrder={handleAddPurchaseOrder}
+            onUpdateDevice={handleUpdateDevice}
+            onDeleteDevice={handleDeleteDevice}
+            onQuickSell={handleQuickSell}
+            onOpenTransferModal={() => setActiveTab('transfers')}
+            onAddCashTransaction={handleAddCashTransaction}
+            onUpdatePartner={handleUpdatePartner}
+            onAddPartner={handleAddPartner}
+          />
+        )}
+
+        {activeTab === 'transfers' && (
+          <WarehouseTransfersView
+  transfers={filteredTransfers}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  products={products}
+  warehouses={warehouses}
+  users={filteredUsers}
+  onAddTransfer={handleAddTransfer}
+  onUpdateTransfer={handleUpdateTransfer}
+  onUpdateDevicesWarehouse={handleUpdateDevicesWarehouse}
+  onAddWarrantyTicket={handleAddWarrantyTicket}
+/>
+        )}
+
+        
+        {activeTab === 'master-catalog' && (
+          <MasterCatalogView
+            items={catalogItems}
+            onAddItem={handleAddCatalogItem}
+            onUpdateItem={handleUpdateCatalogItem}
+            onDeleteItem={handleDeleteCatalogItem}
+          />
+        )}
+
+        {activeTab === 'products' && (
+          <ProductsView
+            products={products}
+            onAddProduct={(p) => {
+              setProducts([...products, p]);
+              addProductToFirestore(p);
+            }}
+            onUpdateProduct={handleUpdateProduct}
+            onDeleteProduct={(id) => {
+              setProducts(products.filter(p => p.id !== id));
+              deleteProductFromFirestore(id);
+            }}
+          />
+        )}
+
+        {activeTab === 'crm' && (
+          <CRMLeadsView
+            currentUser={currentUser}
+            branches={branches}
+            leads={filteredLeads}
+            devices={filteredDevices}
+            onAddLead={handleAddLead}
+            onUpdateLead={handleUpdateLead}
+            onConvertLeadToSale={handleConvertLeadToSale}
+            onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
+          />
+        )}
+
+        {activeTab === 'omnichannel-chat' && (
+          <OmnichannelChatView
+            currentUser={currentUser}
+            devices={filteredDevices}
+            branches={branches}
+            leads={filteredLeads}
+            invoices={filteredInvoices}
+            onConvertChatToPOS={(device, customer) => {
+              setPosPreSelectedDevice(device);
+              setActiveTab('pos');
+            }}
+            onConvertChatToLead={(newLead) => {
+              handleAddLead(newLead);
+              setActiveTab('crm');
+            }}
+            onConvertChatToTradeIn={(customerName, phone, oldModel) => {
+              setActiveTab('tradein');
+            }}
+          />
+        )}
+
+        {activeTab === 'tradein' && (
+          <TradeInView
+            currentUser={currentUser}
+            branches={branches}
+            tradeIns={filteredTradeIns}
+            devices={filteredDevices}
+            onAddTradeIn={handleAddTradeIn}
+            onUpdateTradeIn={handleUpdateTradeIn}
+            onImportToInventory={handleAddDevice}
+          />
+        )}
+
+        {activeTab === 'warranty' && (
+          <WarrantyServiceView
+            currentUser={currentUser}
+            branches={branches}
+            warrantyTickets={filteredWarrantyTickets}
+            devices={filteredDevices}
+            funds={funds}
+            users={users}
+            spareParts={spareParts}
+            onUpdateSparePart={(updatedPart) => updateSparePartInFirestore(updatedPart)}
+            onAddTicket={handleAddWarrantyTicket}
+            onUpdateTicket={handleUpdateWarrantyTicket}
+            onAddTransaction={handleAddCashTransaction}
+            onOpenCheckIn={() => setActiveTab('checkin-portal')}
+          />
+        )}
+
+        {activeTab === 'pos' && (
+          <POSSalesView
+            currentUser={currentUser}
+            devices={filteredDevices}
+            branches={branches}
+            invoices={filteredInvoices}
+            leads={filteredLeads}
+            warehouses={warehouses}
+            storeSettings={storeSettings}
+            products={products}
+            partners={partners}
+            onCreateInvoice={handleCreateInvoice}
+            onUpdateDeviceStatus={handleUpdateDeviceStatus}
+            preSelectedDevice={posPreSelectedDevice}
+            onNavigateToInvoices={() => setActiveTab('invoices')}
+            funds={funds}
+            onAddTransaction={handleAddCashTransaction}
+            onAddTradeIn={handleAddTradeIn}
+            onAddDevice={handleAddDevice}
+            onOpenCheckIn={() => setActiveTab('checkin-portal')}
+            onUpdateProduct={handleUpdateProduct}
+          />
+        )}
+
+        {activeTab === 'invoices' && (
+          <InvoicesView
+  currentUser={currentUser}
+  branches={branches}
+  invoices={filteredInvoices}
+  devices={filteredDevices}
+  onNavigateToPOS={() => {
+              setPosPreSelectedDevice(null);
+              setActiveTab('pos');
+            }
+}
+            onUpdateInvoice={handleUpdateInvoice}
+            onCancelInvoice={handleCancelInvoice}
+            onDeleteInvoice={handleDeleteInvoice}
+          />
+        )}
+
+        {activeTab === 'installments' && (
+          <InstallmentReconciliationView
+  currentUser={currentUser}
+  branches={branches}
+  invoices={filteredInvoices}
+  funds={funds}
+  partners={partners}
+  onUpdateInvoice={handleUpdateInvoice}
+  onAddTransaction={handleAddCashTransaction}
+  onUpdateFunds={(updatedFunds) => {
+              setFunds(updatedFunds);
+              updatedFunds.forEach(f => updateFundInFirestore(f));
+            }
+}
+            onUpdatePartner={handleUpdatePartner}
+          />
+        )}
+
+        {activeTab === 'cashbook' && (
+          <CashbookView
+  currentUser={currentUser}
+  branches={branches}
+  transactions={filteredCashTransactions}
+  funds={funds}
+  partners={partners}
+  onAddTransaction={handleAddCashTransaction}
+  onUpdateFunds={(updatedFunds) => {
+              setFunds(updatedFunds);
+              updatedFunds.forEach(f => updateFundInFirestore(f));
+            }
+}
+            onTransferFunds={handleTransferFunds}
+          />
+        )}
+
+        {activeTab === 'partners' && (
+          <PartnersView
+            partners={filteredPartners}
+            devices={filteredDevices}
+            onAddPartner={handleAddPartner}
+            onUpdatePartner={handleUpdatePartner}
+            onDeletePartner={handleDeletePartner}
+            funds={funds}
+            onAddTransaction={handleAddCashTransaction}
+            onAutoPayDebt={handleAutoPayDebt}
+          />
+        )}
+
+        {activeTab === 'store-settings' && (
+          <StoreSettingsView
+            branches={branches}
+            warehouses={warehouses}
+            settings={storeSettings}
+            funds={funds}
+            invoices={invoices}
+            devices={devices}
+            warrantyTickets={warrantyTickets}
+            attendanceRecords={attendanceRecords}
+            staffMembers={users as any}
+            onAddBranch={handleAddBranch}
+            onUpdateBranch={handleUpdateBranch}
+            onDeleteBranch={handleDeleteBranch}
+            onAddWarehouse={handleAddWarehouse}
+            onUpdateWarehouse={handleUpdateWarehouse}
+            onDeleteWarehouse={handleDeleteWarehouse}
+            onSaveSettings={handleSaveStoreSettings}
+          />
+        )}
+
+        {activeTab === 'more' && (
+          <MoreHubView
+  currentUser={currentUser}
+  onSelectTab={(tabId) => setActiveTab(tabId)}
+            onOpenPOSModal={() => setActiveTab('pos')}
+            onOpenNewDeviceModal={() => setActiveTab('inventory')}
+            onOpenAICopilot={() => setIsAICopilotOpen(true)}
+            onOpenLoginModal={() => setIsLoginModalOpen(true)}
+            onLogout={() => {
+              setCurrentUser(null);
+              setIsLoginModalOpen(true);
+            }}
+            partners={filteredPartners}
+              branches={branches}
+              invoices={filteredInvoices}
+            devices={filteredDevices}
+          />
+        )}
+
+        {activeTab === 'users' && (
+          <UserManagementView
+  users={filteredUsers}
+  branches={branches}
+  onAddUser={handleAddUser}
+  onUpdateUser={handleUpdateUser}
+  onDeleteUser={handleDeleteUser}
+/>
+        )}
+
+        {activeTab === 'sop-management' && (
+          <SOPManagementView
+            branches={branches}
+            staffMembers={filteredUsers.map(u => ({
+              id: u.id,
+              name: u.displayName,
+              role: u.role,
+              roleTitle: u.role === 'ADMIN' ? 'Ban Giám Đốc' : u.role === 'MANAGER' ? 'Cửa Hàng Trưởng' : u.role === 'TECHNICIAN' ? 'Kỹ Thuật Viên' : 'Chuyên Viên Bán Hàng',
+              branchId: u.branchId || 'BRANCH_01',
+              branchName: branches.find(b => b.id === u.branchId)?.name || 'Chi nhánh Hải Châu',
+              avatar: u.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+              phone: u.phone || '0905000111',
+              email: u.email || 'staff@phonehouse.vn',
+              allowedWifiSSID: 'PhoneHouse_Internal_5G'
+            }))}
+          />
+        )}
+
+        {activeTab === 'checkin-portal' && (
+          <StandaloneCheckInView
+            currentUser={currentUser}
+            branches={branches}
+            attendanceRecords={attendanceRecords}
+            onCheckInSuccess={(record) => {
+              setAttendanceRecords(prev => [record, ...prev.filter(r => r.id !== record.id)]);
+              addAttendanceRecordToFirestore(record);
+            }}
+            onNavigateToHR={() => setActiveTab('hr-attendance')}
+          />
+        )}
+
+        {activeTab === 'hr-attendance' && (
+          <HRHubView 
+            attendanceRecords={attendanceRecords} 
+            currentUser={currentUser}
+            branches={branches}
+            invoices={filteredInvoices}
+            warrantyTickets={warrantyTickets}
+            onNavigateToCheckIn={() => setActiveTab('checkin-portal')}
+          />
+        )}
+
+        {(activeTab === 'employee-dashboard' || activeTab === 'employee-kpi') && (
+          <EmployeeDashboardView
+  currentUser={currentUser}
+  branches={branches}
+  invoices={filteredInvoices}
+  warrantyTickets={filteredWarrantyTickets}
+  users={filteredUsers}
+  devices={filteredDevices}
+  onNavigate={(tab) => setActiveTab(tab)}
+            onOpenPOS={() => {
+              setPosPreSelectedDevice(null);
+              setActiveTab('pos');
+            }}
+            onOpenNewWarranty={() => setActiveTab('warranty')}
+            onOpenCheckIn={() => setActiveTab('checkin-portal')}
+          />
+        )}
+
+        {activeTab === 'tech-workspace' && (
+          <TechWorkspaceView
+  tasks={filteredWarrantyTickets}
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  onOpenCheckIn={() => setActiveTab('checkin-portal')}
+          />
+        )}
+
+        {activeTab === 'sales-workspace' && (
+          <SalesWorkspaceView
+  currentUser={currentUser}
+  devices={filteredDevices}
+  branches={branches}
+  invoices={filteredInvoices}
+  leads={filteredLeads}
+  warehouses={warehouses}
+  storeSettings={storeSettings}
+  onCreateInvoice={handleCreateInvoice}
+  onUpdateDeviceStatus={handleUpdateDeviceStatus}
+  preSelectedDevice={posPreSelectedDevice}
+  onNavigateToInvoices={() => setActiveTab('invoices')}
+            funds={funds}
+            onAddTransaction={handleAddCashTransaction}
+            onOpenNewDeviceModal={() => setActiveTab('inventory')}
+            onOpenCheckIn={() => setActiveTab('checkin-portal')}
+            onAddLead={handleAddLead}
+            onUpdateLead={handleUpdateLead}
+            onConvertLeadToSale={handleConvertLeadToSale}
               tradeIns={filteredTradeIns}
-              warrantyTickets={filteredWarrantyTickets}
-              invoices={filteredInvoices}
-              onNavigate={(tab) => setActiveTab(tab)}
-              onOpenPOS={() => {
-                setPosPreSelectedDevice(null);
-                setActiveTab('pos');
-              }}
-              onOpenTradeIn={() => setActiveTab('tradein')}
-              onOpenNewDevice={() => setActiveTab('inventory')}
-            />
-          )}
+            onAddTradeIn={handleAddTradeIn}
+            onUpdateTradeIn={handleUpdateTradeIn}
+            onAddDevice={handleAddDevice}
+          />
+        )}
 
-          {activeTab === 'purchase-orders' && (
-            <PurchaseOrdersView
-              purchaseOrders={filteredPurchaseOrders}
-              partners={partners}
-              warehouses={warehouses}
-              funds={funds}
-              currentUser={currentUser}
-              catalogItems={catalogItems}
-              onAddPurchaseOrder={handleAddPurchaseOrder}
-              onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
-              onDeletePurchaseOrder={handleDeletePurchaseOrder}
-              onPaySupplierDebt={handlePaySupplierDebt}
-            />
-          )}
-
-          {activeTab === 'inventory' && (
-            <InventoryView
-              catalogItems={catalogItems}
-              currentUser={currentUser}
-              devices={filteredDevices}
-              branches={branches}
-              warehouses={warehouses}
-              partners={partners}
-              funds={funds}
-              transfers={transfers}
-              warrantyTickets={warrantyTickets}
-              invoices={invoices}
-              users={filteredUsers}
-              onAddDevice={handleAddDevice}
-              onAddMultipleDevices={handleAddMultipleDevices}
-              onAddPurchaseOrder={handleAddPurchaseOrder}
-              onUpdateDevice={handleUpdateDevice}
-              onDeleteDevice={handleDeleteDevice}
-              onQuickSell={handleQuickSell}
-              onOpenTransferModal={() => setActiveTab('transfers')}
-              onAddCashTransaction={handleAddCashTransaction}
-              onUpdatePartner={handleUpdatePartner}
-              onAddPartner={handleAddPartner}
-            />
-          )}
-
-          {activeTab === 'transfers' && (
-            <WarehouseTransfersView
-              transfers={filteredTransfers}
-              currentUser={currentUser}
-              devices={filteredDevices}
-              products={products}
-              warehouses={warehouses}
-              users={filteredUsers}
-              onAddTransfer={handleAddTransfer}
-              onUpdateTransfer={handleUpdateTransfer}
-              onUpdateDevicesWarehouse={handleUpdateDevicesWarehouse}
-              onAddWarrantyTicket={handleAddWarrantyTicket}
-            />
-          )}
-
-          {activeTab === 'master-catalog' && (
-            <MasterCatalogView
-              items={catalogItems}
-              onAddItem={handleAddCatalogItem}
-              onUpdateItem={handleUpdateCatalogItem}
-              onDeleteItem={handleDeleteCatalogItem}
-            />
-          )}
-
-          {activeTab === 'products' && (
-            <ProductsView
-              products={products}
-              onAddProduct={(p) => {
-                setProducts([...products, p]);
-                addProductToFirestore(p);
-              }}
-              onUpdateProduct={handleUpdateProduct}
-              onDeleteProduct={(id) => {
-                setProducts(products.filter(p => p.id !== id));
-                deleteProductFromFirestore(id);
-              }}
-            />
-          )}
-
-          {activeTab === 'crm' && (
-            <LeadKanbanBoard
-              leads={filteredLeads}
-              onSelectLead={(lead) => {
-                // Select lead
-              }}
-              onUpdateLeadStatus={async (leadId, newStatus) => {
-                const lead = leads.find(l => l.id === leadId);
-                if (lead) {
-                  await handleUpdateLead({ ...lead, status: newStatus });
-                }
-              }}
-              onOpenCreateModal={() => {
-                // Open create lead
-              }}
-            />
-          )}
-
-          {activeTab === 'omnichannel-chat' && (
-            <OmnichannelChatView
-              currentUser={currentUser}
-              devices={filteredDevices}
-              branches={branches}
-              leads={filteredLeads}
-              invoices={filteredInvoices}
-              onConvertChatToPOS={(device, customer) => {
-                setPosPreSelectedDevice(device);
-                setActiveTab('pos');
-              }}
-              onConvertChatToLead={(newLead) => {
-                handleAddLead(newLead);
-                setActiveTab('crm');
-              }}
-              onConvertChatToTradeIn={(customerName, phone, oldModel) => {
-                setActiveTab('tradein');
-              }}
-            />
-          )}
-
-          {activeTab === 'tradein' && (
-            <TradeInCockpitView
-              devices={filteredDevices}
-              currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
-              currentUser={currentUser ? {
-                id: currentUser.id,
-                uid: currentUser.id,
-                name: currentUser.displayName,
-                email: currentUser.email,
-                role: currentUser.role,
-                branchId: currentUser.branchId || 'CN01',
-                assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
-                isActive: currentUser.active
-              } : null}
-              onCompleteTradeInToPOS={(appraisal, targetDevice) => {
-                handleAddTradeIn(appraisal);
-                setActiveTab('pos');
-              }}
-            />
-          )}
-
-          {activeTab === 'warranty' && (
-            <RepairKanbanBoard
-              tickets={filteredWarrantyTickets}
-              branches={branches}
-              selectedBranchId={selectedBranchId}
-              onSelectTicket={(ticket) => {
-                // Select ticket
-              }}
-              onUpdateTicketStatus={async (ticketId, newStatus) => {
-                const t = warrantyTickets.find(w => w.id === ticketId);
-                if (t) {
-                  await handleUpdateWarrantyTicket({ ...t, status: newStatus });
-                }
-              }}
-              onOpenCreateModal={() => {
-                // Open create ticket
-              }}
-            />
-          )}
-
-          {activeTab === 'pos' && (
-            <POSCockpitView
-              devices={filteredDevices}
-              products={products}
-              funds={funds}
-              partners={partners}
-              currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
-              currentUser={currentUser ? {
-                id: currentUser.id,
-                uid: currentUser.id,
-                name: currentUser.displayName,
-                email: currentUser.email,
-                role: currentUser.role,
-                branchId: currentUser.branchId || 'CN01',
-                assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
-                isActive: currentUser.active
-              } : null}
-              onNavigateToInvoices={() => setActiveTab('invoices')}
-            />
-          )}
-
-          {activeTab === 'invoices' && (
-            <InvoicesView
-              currentUser={currentUser}
-              branches={branches}
-              invoices={filteredInvoices}
-              devices={filteredDevices}
-              onNavigateToPOS={() => {
-                setPosPreSelectedDevice(null);
-                setActiveTab('pos');
-              }}
-              onUpdateInvoice={handleUpdateInvoice}
-              onCancelInvoice={handleCancelInvoice}
-              onDeleteInvoice={handleDeleteInvoice}
-            />
-          )}
-
-          {activeTab === 'installments' && (
-            <InstallmentReconciliationView
-              currentUser={currentUser}
-              branches={branches}
-              invoices={filteredInvoices}
-              funds={funds}
-              partners={partners}
-              onUpdateInvoice={handleUpdateInvoice}
-              onAddTransaction={handleAddCashTransaction}
-              onUpdateFunds={(updatedFunds) => {
-                setFunds(updatedFunds);
-                updatedFunds.forEach(f => updateFundInFirestore(f));
-              }}
-              onUpdatePartner={handleUpdatePartner}
-            />
-          )}
-
-          {(activeTab === 'funds' || activeTab === 'cashbook') && (
-            <CashLedgerTable
-              transactions={filteredCashTransactions}
-              funds={funds}
-              branches={branches}
-              selectedBranchId={selectedBranchId}
-              onOpenCreateModal={(type) => {
-                // Open create transaction modal
-              }}
-            />
-          )}
-
-          {activeTab === 'partners' && (
-            <PartnersView
-              partners={partners}
-              branches={branches}
-              onAddPartner={handleAddPartner}
-              onUpdatePartner={handleUpdatePartner}
-              onDeletePartner={handleDeletePartner}
-              onAddTransaction={handleAddCashTransaction}
-              funds={funds}
-            />
-          )}
-
-          {activeTab === 'store-settings' && (
-            <StoreSettingsView
-              branches={branches}
-              warehouses={warehouses}
-              settings={storeSettings}
-              funds={funds}
-              invoices={invoices}
-              devices={devices}
-              warrantyTickets={warrantyTickets}
-              attendanceRecords={attendanceRecords}
-              staffMembers={users as any}
-              onAddBranch={handleAddBranch}
-              onUpdateBranch={handleUpdateBranch}
-              onDeleteBranch={handleDeleteBranch}
-              onAddWarehouse={handleAddWarehouse}
-              onUpdateWarehouse={handleUpdateWarehouse}
-              onDeleteWarehouse={handleDeleteWarehouse}
-              onSaveSettings={handleSaveStoreSettings}
-            />
-          )}
-
-          {activeTab === 'more' && (
-            <MoreHubView
-              currentUser={currentUser}
-              onSelectTab={(tabId) => setActiveTab(tabId)}
-              onOpenPOSModal={() => {
-                setPosPreSelectedDevice(null);
-                setActiveTab('pos');
-              }}
-              onOpenNewDeviceModal={() => setActiveTab('inventory')}
-              onOpenAICopilot={() => setIsAICopilotOpen(true)}
-              onOpenLoginModal={() => setIsLoginModalOpen(true)}
-              onLogout={() => {
-                setCurrentUser(null);
-                localStorage.removeItem('phonehouse_active_user');
-                setActiveTab('login');
-              }}
-              partners={partners}
-              invoices={filteredInvoices}
-              devices={filteredDevices}
-            />
-          )}
-
-          {activeTab === 'users' && (
-            <UserManagementView
-              users={users}
-              branches={branches}
-              currentUserEmail={currentUser?.email}
-              onAddUser={handleAddUser}
-              onUpdateUser={handleUpdateUser}
-              onDeleteUser={handleDeleteUser}
-            />
-          )}
-
-          {activeTab === 'sop-management' && (
-            <SOPManagementView
-              currentUser={currentUser}
-              branches={branches}
-            />
-          )}
-
-          {activeTab === 'checkin-portal' && (
-            <StandaloneCheckInView
-              currentUser={currentUser}
-              branches={branches}
-              attendanceRecords={attendanceRecords}
-              onCheckInSuccess={(record) => {
-                handleCheckIn(record.checkInTime);
-              }}
-              onClose={() => setActiveTab('dashboard')}
-              onNavigateToHR={() => setActiveTab('hr-attendance')}
-            />
-          )}
-
-          {activeTab === 'hr-attendance' && (
-            <HRHubView
-              currentUser={currentUser}
-              users={users}
-              branches={branches}
-              attendanceRecords={attendanceRecords}
-            />
-          )}
-
-          {(activeTab === 'employee-dashboard' || activeTab === 'employee-kpi') && (
-            <EmployeeDashboardView
-              currentUser={currentUser}
-              leads={filteredLeads}
-              invoices={filteredInvoices}
-              devices={filteredDevices}
-              warrantyTickets={filteredWarrantyTickets}
-              attendanceRecord={currentAttendance}
-              onCheckIn={handleCheckIn}
-              onCheckOut={handleCheckOut}
-            />
-          )}
-
-          {activeTab === 'tech-workspace' && (
-            <TechWorkspaceView
-              currentUser={currentUser}
-              tickets={filteredWarrantyTickets}
-              spareParts={spareParts}
-              devices={filteredDevices}
-              onUpdateTicket={handleUpdateWarrantyTicket}
-              onUpdateSparePart={(part) => updateSparePartInFirestore(part)}
-              onCheckIn={handleCheckIn}
-              onCheckOut={handleCheckOut}
-              attendanceRecord={currentAttendance}
-            />
-          )}
-
-          {activeTab === 'sales-workspace' && (
-            <SalesWorkspaceView
-              currentUser={currentUser}
-              leads={filteredLeads}
-              devices={filteredDevices}
-              invoices={filteredInvoices}
-              onAddLead={handleAddLead}
-              onUpdateLead={handleUpdateLead}
-              onOpenPOS={() => {
-                setPosPreSelectedDevice(null);
-                setActiveTab('pos');
-              }}
-              onCheckIn={handleCheckIn}
-              onCheckOut={handleCheckOut}
-              attendanceRecord={currentAttendance}
-            />
-          )}
-        </AppShell>
-      )}
+        {activeTab === 'erpnext-plan' && (
+          <ERPNextPlanView />
+        )}
+      </main>
 
       {/* Floating AI Copilot Button */}
       <button
@@ -1942,10 +1966,10 @@ export default function App() {
               ✕
             </button>
             <PhoneHouseLoginPage
-              users={users}
-              currentUser={currentUser}
-              isModal={true}
-              onClose={() => setIsLoginModalOpen(false)}
+  users={users}
+  currentUser={currentUser}
+  isModal={true}
+  onClose={() => setIsLoginModalOpen(false)}
               onLoginSuccess={(loggedUser) => {
                 setCurrentUser(loggedUser);
                 localStorage.setItem('phonehouse_active_user', JSON.stringify(loggedUser));
@@ -1956,7 +1980,41 @@ export default function App() {
         </div>
       )}
 
-
+      {/* Desktop Footer */}
+      <footer className="hidden md:block border-t border-orange-100 bg-white py-4 text-center text-xs text-zinc-500 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span className="font-medium text-zinc-600">iStore Pro CRM & ERP • Kế thừa Frappe Framework & Cloud Firestore Enterprise</span>
+          <div className="flex items-center space-x-3 text-zinc-500">
+            <span className="font-semibold text-orange-600 flex items-center space-x-1">
+              <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+              <span>Firestore Connected</span>
+            </span>
+            <span>•</span>
+            <button 
+              onClick={() => setActiveTab('partners')} 
+              className="text-orange-600 hover:text-orange-700 hover:underline font-bold cursor-pointer"
+            >
+              Đối Tác & NCC
+            </button>
+            <span>•</span>
+            <button 
+              onClick={() => setActiveTab('users')} 
+              className="text-orange-600 hover:text-orange-700 hover:underline font-bold cursor-pointer"
+            >
+              Phân Quyền User
+            </button>
+            <span>•</span>
+            <button 
+              onClick={() => setActiveTab('erpnext-plan')} 
+              className="text-orange-600 hover:text-orange-700 hover:underline font-bold cursor-pointer"
+            >
+              Xem Bản Vẽ ERPNext & Docker
+            </button>
+          </div>
+        </div>
+      </footer>
+    </div>
+      )}
 
       {/* GLOBAL FACE ID CHECK-IN MODAL (Accessible across all roles) */}
       {isCheckInModalOpen && (
