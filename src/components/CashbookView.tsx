@@ -98,6 +98,17 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   const totalOut = transactions.filter(t => t.type === 'PAYMENT').reduce((s, t) => s + t.amount, 0);
   const netFlow = totalIn - totalOut;
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F4') {
+        e.preventDefault();
+        handleOpenCreateModal('RECEIPT');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleOpenCreateModal = (type: CashTransactionType) => {
     setIsCreateSheetOpen(false);
     setModalType(type);
@@ -290,11 +301,18 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       return;
     }
 
+    const selectedFund = funds.find(f => f.name === formData.fundName) || funds.find(f => f.type === formData.fundType) || funds[0] || null;
+
+    if (formData.type === 'PAYMENT' && selectedFund && selectedFund.currentBalance < amountNum) {
+      const confirmed = window.confirm(
+        `⚠️ Cảnh báo số dư:\nSố dư hiện tại của quỹ "${selectedFund.name}" là ${formatCurrency(selectedFund.currentBalance)}, nhỏ hơn số tiền muốn chi (${formatCurrency(amountNum)}).\n\nBạn có chắc chắn muốn xuất chi (ghi âm quỹ) không?`
+      );
+      if (!confirmed) return;
+    }
+
     const now = new Date();
     const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
     const randomCode = `${formData.type === 'RECEIPT' ? 'PT' : 'PC'}-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`;
-
-    const selectedFund = funds.find(f => f.name === formData.fundName) || funds.find(f => f.type === formData.fundType) || null;
 
     const newTx: CashTransaction = {
       id: `TX-${Date.now()}`,
@@ -303,22 +321,24 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       category: formData.category,
       categoryName: formData.categoryName,
       amount: amountNum,
-      fundId: selectedFund?.id || '',
-      fundType: formData.fundType,
-      fundName: formData.fundName,
+      fundId: selectedFund?.id || 'FUND-01',
+      fundType: selectedFund?.type || formData.fundType,
+      fundName: selectedFund?.name || formData.fundName,
       date: dateStr,
       partnerId: formData.partnerId || undefined,
-      partnerName: formData.partnerName || (formData.type === 'RECEIPT' ? 'Khách lẻ vãng lai' : 'Nhà cung cấp'),
+      partnerName: formData.partnerName || (formData.type === 'RECEIPT' ? 'Khách lẻ vãng lai' : 'Nhà cung cấp / Đối tác'),
       partnerType: formData.partnerType,
       partnerPhone: formData.partnerPhone || undefined,
       referenceCode: formData.referenceCode || undefined,
-      creator: formData.creator,
+      creator: currentUser?.displayName || formData.creator || 'Nhân viên kế toán',
+      branchId: formData.branchId || branches[0]?.id || 'CN01',
       notes: formData.notes || (formData.type === 'RECEIPT' ? 'Thu tiền theo chứng từ' : 'Chi tiền theo hóa đơn'),
       status: 'COMPLETED'
     };
 
     onAddTransaction(newTx);
     setIsCreateModalOpen(false);
+    setSelectedTx(newTx);
   };
 
   const filteredTransactions = transactions.filter(t => {
@@ -329,193 +349,276 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   });
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#F6F7F9] -mx-1 sm:-mx-4 lg:-mx-8 -mt-2 sm:-mt-6 pb-20 md:pb-8 text-zinc-900 font-sans">
+    <div className="flex flex-col min-h-screen max-w-[1600px] mx-auto p-2 sm:p-4 space-y-4 text-zinc-900 font-sans">
       
-      {/* 1. Header mới */}
-      
-      {/* 1. Standard Header */}
-      <div className="bg-white px-4 py-4 sm:py-6 flex items-center justify-between border-b border-zinc-100">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-zinc-900 tracking-tight">Sổ Quỹ Tiền Mặt</h1>
-          <p className="text-xs sm:text-sm text-zinc-500 font-medium mt-1">Quản lý dòng tiền, thu chi và đối soát</p>
+      {/* 1. Header Bar with Permanent Action Buttons */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-zinc-200/80 shadow-2xs">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-2xl bg-[#ff4b16] text-white flex items-center justify-center shadow-sm font-bold shrink-0">
+            <Wallet className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-lg sm:text-xl font-black text-zinc-900 tracking-tight">Sổ Quỹ Tiền Mặt & Tài Chính</h1>
+              <span className="px-2.5 py-0.5 text-[10px] font-bold bg-orange-50 text-[#ff4b16] border border-orange-200/60 rounded-full">
+                PhoneHouse CRM
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 font-medium mt-0.5">
+              Quản lý dòng tiền thu chi, tài khoản ngân hàng VietQR và đối soát ca
+            </p>
+          </div>
+        </div>
+
+        {/* Top 4 Prominent Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => handleOpenCreateModal('RECEIPT')}
+            className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
+          >
+            <ArrowDownLeft className="w-4 h-4" />
+            <span>+ Lập Phiếu Thu (F4)</span>
+          </button>
+
+          <button
+            onClick={() => handleOpenCreateModal('PAYMENT')}
+            className="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm shadow-rose-600/20 transition-all cursor-pointer"
+          >
+            <ArrowUpRight className="w-4 h-4" />
+            <span>- Lập Phiếu Chi</span>
+          </button>
+
+          <button
+            onClick={handleOpenTransferModal}
+            className="flex-1 sm:flex-none bg-orange-50 hover:bg-orange-100 text-[#ff4b16] border border-orange-200 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+          >
+            <ArrowRightLeft className="w-4 h-4" />
+            <span>Chuyển Quỹ</span>
+          </button>
+
+          <button
+            onClick={handleOpenReconcileModal}
+            className="flex-1 sm:flex-none bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+          >
+            <CheckCircle2 className="w-4 h-4 text-zinc-600" />
+            <span>Đối Soát Ca</span>
+          </button>
         </div>
       </div>
 
-
-      {/* Tabs */}
-      <div className="bg-white border-b border-[#EAECF0] px-4 sticky top-16 sm:top-[72px] z-20">
-        <div className="flex justify-around sm:justify-start sm:space-x-8">
-          {['Giao dịch', 'Tài khoản', 'Báo cáo'].map(tab => {
-            const id = tab === 'Giao dịch' ? 'TRANSACTIONS' : tab === 'Tài khoản' ? 'ACCOUNTS' : 'REPORTS';
-            const isActive = activeMainTab === id;
+      {/* 2. Sticky Tab Navigation Bar */}
+      <div className="bg-white/95 backdrop-blur-md border border-zinc-200/80 rounded-2xl p-1.5 shadow-2xs sticky top-0 z-20 flex items-center justify-between">
+        <div className="flex space-x-1 sm:space-x-2">
+          {[
+            { id: 'TRANSACTIONS', label: 'Sổ Quỹ Thu Chi', count: transactions.length },
+            { id: 'ACCOUNTS', label: 'Tài Khoản Quỹ & Két', count: funds.length },
+            { id: 'REPORTS', label: 'Báo Cáo Dòng Tiền' }
+          ].map(tab => {
+            const isActive = activeMainTab === tab.id;
             return (
               <button
-                key={id}
-                onClick={() => setActiveMainTab(id as any)}
-                className={`py-3.5 px-2 text-sm font-bold border-b-2 transition-colors ${
-                  isActive ? 'border-[#FF5A1F] text-[#FF5A1F]' : 'border-transparent text-zinc-500 hover:text-zinc-800'
+                key={tab.id}
+                onClick={() => setActiveMainTab(tab.id as any)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                  isActive
+                    ? 'bg-[#ff4b16] text-white shadow-xs'
+                    : 'text-zinc-600 hover:bg-zinc-100'
                 }`}
               >
-                {tab}
+                <span>{tab.label}</span>
+                {tab.count !== undefined && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-zinc-100 text-zinc-600'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
               </button>
-            )
+            );
           })}
+        </div>
+
+        <div className="hidden sm:flex items-center space-x-2 text-xs font-bold text-zinc-500 pr-2">
+          <span>Tổng số dư:</span>
+          <span className="font-mono font-black text-zinc-900">
+            {showBalance ? formatCurrency(currentBalance) : '***.***.*** đ'}
+          </span>
+          <button onClick={() => setShowBalance(!showBalance)} className="p-1 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 cursor-pointer">
+            {showBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
         </div>
       </div>
 
-      <div className="flex-1 p-4 max-w-3xl mx-auto w-full space-y-5">
+      <div className="space-y-4">
         
         {activeMainTab === 'TRANSACTIONS' && (
           <>
-            {/* 2. Một card tài chính chính */}
-            <div className="bg-white rounded-3xl p-5 border border-[#EAECF0] shadow-sm">
-              <div className="flex items-center justify-between mb-4">
+            {/* 3. Financial Summary Card */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                 <div className="flex items-center space-x-2 text-zinc-500 font-bold text-xs uppercase tracking-wider">
-                  <span>Số dư hiện tại</span>
-                  <button onClick={() => setShowBalance(!showBalance)} className="p-1 hover:bg-zinc-100 rounded-full">
+                  <span>Số dư tổng các quỹ hiện tại</span>
+                  <button onClick={() => setShowBalance(!showBalance)} className="p-1 hover:bg-zinc-100 rounded-full cursor-pointer">
                     {showBalance ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
                   </button>
                 </div>
-                <button className="flex items-center space-x-1 bg-zinc-50 border border-zinc-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-700 hover:bg-zinc-100">
-                  <Calendar className="w-3.5 h-3.5" />
-                  <span>Tháng này</span>
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-zinc-500">Kỳ hạch toán:</span>
+                  <span className="text-xs font-mono font-bold px-2.5 py-1 bg-zinc-100 text-zinc-800 rounded-lg border border-zinc-200">
+                    Tháng 08/2026
+                  </span>
+                </div>
               </div>
 
-              <div className="text-[32px] sm:text-4xl font-black text-[#171717] mb-6">
+              <div className="text-2xl sm:text-3xl font-black text-zinc-900 mb-5 font-mono">
                 {showBalance ? formatCurrency(currentBalance) : '***.***.*** đ'}
               </div>
 
-              <div className="grid grid-cols-3 gap-4 pb-4 border-b border-[#EAECF0]">
-                <div>
-                  <p className="text-xs text-zinc-500 font-semibold mb-1">Thu vào</p>
-                  <p className="text-sm sm:text-base font-bold text-[#EA580C]">+{showBalance ? formatCompact(totalIn) : '***'}đ</p>
-                  <div className="w-6 h-6 rounded-md bg-[#EA580C]/10 text-[#EA580C] flex items-center justify-center mt-2">
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-zinc-500 font-semibold mb-1">Chi ra</p>
-                  <p className="text-sm sm:text-base font-bold text-[#E23C55]">-{showBalance ? formatCompact(totalOut) : '***'}đ</p>
-                  <div className="w-6 h-6 rounded-md bg-[#E23C55]/10 text-[#E23C55] flex items-center justify-center mt-2">
-                    <ArrowDownLeft className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-zinc-500 font-semibold mb-1">Chênh lệch kỳ</p>
-                  <p className={`text-sm sm:text-base font-bold ${netFlow >= 0 ? 'text-[#EA580C]' : 'text-[#E23C55]'}`}>
-                    {showBalance ? (netFlow > 0 ? '+' : '') + formatCompact(netFlow) : '***'}đ
-                  </p>
-                  <div className="h-8 mt-1.5 opacity-60">
-                    <svg viewBox="0 0 100 30" className="w-full h-full preserve-aspect-ratio-none">
-                      <path d="M0 20 L20 25 L40 10 L60 15 L80 5 L100 10" fill="none" stroke={netFlow >= 0 ? '#EA580C' : '#E23C55'} strokeWidth="2" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-
-              <button onClick={() => setActiveMainTab('REPORTS')} className="w-full pt-4 flex items-center justify-center text-sm font-semibold text-zinc-600 hover:text-zinc-900 space-x-1">
-                <span>Xem báo cáo chi tiết</span>
-                <ChevronDown className="w-4 h-4 -rotate-90" />
-              </button>
-            </div>
-
-            {/* 4. Tài khoản (Horizontal list) */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Tài khoản tiền ({funds.length})</h3>
-                <button onClick={() => setActiveMainTab('ACCOUNTS')} className="text-[#FF5A1F] text-xs font-bold hover:underline">Xem tất cả ›</button>
-              </div>
-              <div className="flex space-x-3 overflow-x-auto custom-scrollbar pb-2 snap-x">
-                <div onClick={() => setSelectedFundFilter('ALL')} className={`cursor-pointer border rounded-2xl p-3 sm:p-4 min-w-[160px] sm:min-w-[180px] shrink-0 snap-center flex flex-col justify-between transition-colors ${selectedFundFilter === 'ALL' ? 'bg-orange-50 border-orange-200 shadow-sm' : 'bg-white border-[#EAECF0] hover:bg-zinc-50'}`}>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-zinc-100">
+                <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl flex items-center justify-between">
                   <div>
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-zinc-100 text-zinc-600">
-                        <Wallet className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-[#171717] truncate">Tất cả tài khoản</p>
-                        <p className="text-[10px] text-zinc-500 truncate">Tổng số dư</p>
-                      </div>
-                    </div>
-                    <p className="text-sm font-black text-[#171717]">{showBalance ? formatCurrency(funds.reduce((sum, f) => sum + f.currentBalance, 0)) : '***.*** đ'}</p>
+                    <p className="text-[11px] text-emerald-700 font-bold mb-0.5">Tổng Thu Vào (+)</p>
+                    <p className="text-base font-black font-mono text-emerald-800">
+                      +{showBalance ? formatCurrency(totalIn) : '***'}
+                    </p>
                   </div>
-                  <div className="flex items-center space-x-1.5 mt-3">
-                    <div className="w-2 h-2 rounded-full bg-[#EA580C]" />
-                    <span className="text-[10px] font-medium text-zinc-500">Hoạt động tốt</span>
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <ArrowDownLeft className="w-4 h-4" />
                   </div>
                 </div>
 
-                {funds.map((fund, idx) => (
-                  <div key={idx} onClick={() => setSelectedFundFilter(fund.id)} className={`cursor-pointer border rounded-2xl p-3 sm:p-4 min-w-[160px] sm:min-w-[180px] shrink-0 snap-center flex flex-col justify-between transition-colors ${selectedFundFilter === fund.id ? 'bg-orange-50 border-orange-200 shadow-sm' : 'bg-white border-[#EAECF0] hover:bg-zinc-50'}`}>
-                    <div>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                          fund.type === 'CASH' ? 'bg-orange-50 text-[#FF5A1F]' : 
-                          fund.type === 'BANK' ? 'bg-orange-50 text-orange-600' : 'bg-zinc-100 text-zinc-600'
-                        }`}>
-                          {fund.type === 'CASH' ? <Wallet className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-[#171717] truncate">{(fund.name || 'Quỹ').split('-')[0]?.trim() || fund.name}</p>
-                          {fund.type === 'BANK' && <p className="text-[10px] text-zinc-500 font-mono">**** {(fund.name || '').slice(-4)}</p>}
-                          {fund.type === 'CASH' && <p className="text-[10px] text-zinc-500 truncate">Két trung tâm</p>}
-                        </div>
-                      </div>
-                      <p className="text-sm font-black text-[#171717]">{showBalance ? formatCurrency(fund.currentBalance) : '***.*** đ'}</p>
-                    </div>
-                    <div className="flex items-center space-x-1.5 mt-3">
-                      <div className={`w-2 h-2 rounded-full ${idx === 2 ? 'bg-orange-500' : 'bg-[#EA580C]'}`} />
-                      <span className="text-[10px] font-medium text-zinc-500">{idx === 2 ? 'Chờ đối soát' : 'Đã đối soát'}</span>
-                    </div>
+                <div className="p-3 bg-rose-50/70 border border-rose-100 rounded-xl flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] text-rose-700 font-bold mb-0.5">Tổng Chi Ra (-)</p>
+                    <p className="text-base font-black font-mono text-rose-800">
+                      -{showBalance ? formatCurrency(totalOut) : '***'}
+                    </p>
                   </div>
-                ))}
+                  <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center">
+                    <ArrowUpRight className="w-4 h-4" />
+                  </div>
+                </div>
+
+                <div className="p-3 bg-orange-50/70 border border-orange-100 rounded-xl flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] text-orange-700 font-bold mb-0.5">Dòng Tiền Thuần (Net)</p>
+                    <p className={`text-base font-black font-mono ${netFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {showBalance ? (netFlow > 0 ? '+' : '') + formatCurrency(netFlow) : '***'}
+                    </p>
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-orange-100 text-[#ff4b16] flex items-center justify-center">
+                    <Wallet className="w-4 h-4" />
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* 5. Bộ lọc */}
-            <div className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input 
-                    type="text" 
-                    placeholder="Tìm tên, mã phiếu, nội dung..." 
-                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-[#EAECF0] rounded-lg text-[11px] focus:outline-none focus:border-[#FF5A1F]"
-                  />
-                </div>
-                <button onClick={() => setIsFilterSheetOpen(true)} className="flex items-center space-x-1.5 px-4 py-2.5 bg-white border border-[#EAECF0] hover:bg-zinc-50 rounded-xl text-sm font-semibold text-[#171717]">
-                  <Filter className="w-4 h-4" />
-                  <span className="hidden sm:inline">Bộ lọc</span>
+            {/* 4. Horizontal Fund Quick-Filter Bar */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-zinc-600 uppercase tracking-wider">Tài khoản & Két tiền ({funds.length})</h3>
+                <button onClick={() => setActiveMainTab('ACCOUNTS')} className="text-[#ff4b16] text-xs font-bold hover:underline cursor-pointer">
+                  Quản lý quỹ & tài khoản ›
                 </button>
               </div>
-              <div className="flex space-x-2 overflow-x-auto pb-1 custom-scrollbar">
-                {[
-                  { id: 'ALL', label: `Tất cả (${transactions.length})` },
-                  { id: 'RECEIPT', label: `Thu (${transactions.filter(t=>t.type==='RECEIPT').length})`, icon: ArrowDownLeft, color: 'text-[#EA580C]' },
-                  { id: 'PAYMENT', label: `Chi (${transactions.filter(t=>t.type==='PAYMENT').length})`, icon: ArrowUpRight, color: 'text-[#E23C55]' },
-                  { id: 'RETAIL', label: 'Bán lẻ' },
-                ].map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => setActiveFilter(f.id as any)}
-                    className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
-                      activeFilter === f.id 
-                        ? 'bg-[#171717] text-white' 
-                        : 'bg-white border border-[#EAECF0] text-zinc-600 hover:bg-zinc-50'
-                    }`}
-                  >
-                    {f.icon && <f.icon className={`w-3.5 h-3.5 ${activeFilter === f.id ? 'text-white' : f.color}`} />}
-                    <span>{f.label}</span>
-                  </button>
-                ))}
+              <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-200">
+                <div
+                  onClick={() => setSelectedFundFilter('ALL')}
+                  className={`cursor-pointer border rounded-2xl p-3 min-w-[170px] shrink-0 flex flex-col justify-between transition-all ${
+                    selectedFundFilter === 'ALL'
+                      ? 'bg-orange-50 border-[#ff4b16] shadow-2xs ring-1 ring-[#ff4b16]'
+                      : 'bg-white border-zinc-200/80 hover:bg-zinc-50'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2 mb-2">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-zinc-100 text-zinc-700 font-bold">
+                      <Wallet className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-zinc-900 truncate">Tất cả tài khoản</p>
+                      <p className="text-[10px] text-zinc-400 truncate">Tổng số dư</p>
+                    </div>
+                  </div>
+                  <p className="text-xs font-black font-mono text-zinc-900">
+                    {showBalance ? formatCurrency(funds.reduce((sum, f) => sum + (f.currentBalance || 0), 0)) : '***.*** đ'}
+                  </p>
+                </div>
+
+                {funds.map((fund) => {
+                  const isSelected = selectedFundFilter === fund.id;
+                  const balance = fund.currentBalance ?? (fund as any).balance ?? 0;
+                  return (
+                    <div
+                      key={fund.id}
+                      onClick={() => setSelectedFundFilter(fund.id)}
+                      className={`cursor-pointer border rounded-2xl p-3 min-w-[180px] shrink-0 flex flex-col justify-between transition-all ${
+                        isSelected
+                          ? 'bg-orange-50 border-[#ff4b16] shadow-2xs ring-1 ring-[#ff4b16]'
+                          : 'bg-white border-zinc-200/80 hover:bg-zinc-50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2 mb-2">
+                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold ${
+                          fund.type === 'CASH' ? 'bg-orange-100 text-[#ff4b16]' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {fund.type === 'CASH' ? <Wallet className="w-3.5 h-3.5" /> : <Building2 className="w-3.5 h-3.5" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-zinc-900 truncate">{fund.name}</p>
+                          <p className="text-[10px] text-zinc-400 truncate">
+                            {fund.type === 'CASH' ? 'Két tiền mặt' : fund.bankName || 'Ngân hàng'}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xs font-black font-mono text-zinc-900">
+                        {showBalance ? formatCurrency(balance) : '***.*** đ'}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            {/* 6. Danh sách chứng từ */}
-            <div className="space-y-3 pb-24">
-              <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Hôm nay</h3>
+            {/* 5. Filter & Search Bar */}
+            <div className="bg-white p-3.5 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Tìm theo mã phiếu (PT/PC), đối tác, nội dung thu chi..."
+                    className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-1.5">
+                  {[
+                    { id: 'ALL', label: `Tất cả (${transactions.length})` },
+                    { id: 'RECEIPT', label: `Thu (+${transactions.filter(t => t.type === 'RECEIPT').length})`, color: 'text-emerald-700' },
+                    { id: 'PAYMENT', label: `Chi (-${transactions.filter(t => t.type === 'PAYMENT').length})`, color: 'text-rose-700' },
+                    { id: 'RETAIL', label: 'Bán lẻ POS' }
+                  ].map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setActiveFilter(f.id as any)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeFilter === f.id
+                          ? 'bg-zinc-900 text-white shadow-2xs'
+                          : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                      }`}
+                    >
+                      <span>{f.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 6. Transaction Items List */}
+            <div className="space-y-2 pb-12">
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-600 px-1">
+                <span>Nhật ký thu chi gần đây ({filteredTransactions.length} chứng từ)</span>
+              </div>
               <div className="space-y-2">
                 {filteredTransactions.map(tx => (
                   <div 
@@ -524,43 +627,51 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       setSelectedTx(tx);
                       setIsPrintModalOpen(true);
                     }}
-                    className="bg-white border border-[#EAECF0] rounded-2xl p-3 sm:p-4 flex items-center justify-between hover:shadow-md cursor-pointer transition-shadow"
+                    className="bg-white border border-zinc-200/80 rounded-2xl p-3 sm:p-4 flex items-center justify-between hover:shadow-md cursor-pointer transition-all hover:border-orange-200 group"
                   >
-                    <div className="flex items-center space-x-3 sm:space-x-4 min-w-0 flex-1">
-                      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-zinc-100 flex items-center justify-center text-sm font-black text-zinc-500 shrink-0 uppercase">
-                        {(tx.partnerName || 'Khách').split(' ').filter(Boolean).map(n=>n[0]).slice(0,2).join('') || 'PH'}
+                    <div className="flex items-center space-x-3 min-w-0 flex-1">
+                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                        tx.type === 'RECEIPT' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                      }`}>
+                        {tx.type === 'RECEIPT' ? <ArrowDownLeft className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-bold text-[#171717] text-sm truncate">{tx.partnerName || 'Khách vãng lai / Đối tác'}</p>
-                        <div className="flex items-center space-x-2 mt-0.5">
-                          <span className="text-[10px] font-mono text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded-md">{tx.code}</span>
-                          <span className="text-[11px] text-zinc-500 flex items-center"><Clock className="w-3 h-3 mr-0.5"/> {(tx.date || '').split(' ')[1] || tx.date}</span>
+                        <div className="flex items-center space-x-2">
+                          <p className="font-bold text-zinc-900 text-xs truncate">
+                            {tx.partnerName || 'Khách vãng lai / Đối tác'}
+                          </p>
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-600 border border-zinc-200">
+                            {tx.code}
+                          </span>
                         </div>
-                        <p className="text-[11px] text-zinc-600 mt-1 truncate">{tx.notes || tx.categoryName}</p>
-                        <p className="text-[10px] text-zinc-400 flex items-center mt-1">
-                          {tx.fundType === 'CASH' ? <Wallet className="w-3 h-3 mr-1" /> : <Building2 className="w-3 h-3 mr-1" />}
-                          {(tx.fundName || '').split('-')[0]?.trim() || tx.fundName || 'Quỹ tiền'}
+                        <p className="text-[11px] text-zinc-600 mt-0.5 truncate font-medium">
+                          {tx.notes || tx.categoryName}
                         </p>
+                        <div className="flex items-center space-x-3 text-[10px] text-zinc-400 mt-1 font-mono">
+                          <span className="flex items-center">
+                            <Clock className="w-3 h-3 mr-1" />
+                            {tx.date}
+                          </span>
+                          <span>•</span>
+                          <span className="flex items-center">
+                            {tx.fundType === 'CASH' ? <Wallet className="w-3 h-3 mr-1" /> : <Building2 className="w-3 h-3 mr-1" />}
+                            {tx.fundName || 'Quỹ tiền'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-2 shrink-0 ml-3">
-                      <p className={`font-black text-sm sm:text-base ${tx.type === 'RECEIPT' ? 'text-[#EA580C]' : 'text-[#E23C55]'}`}>
+                    <div className="flex items-center space-x-3 shrink-0 ml-3">
+                      <p className={`font-black font-mono text-sm sm:text-base ${
+                        tx.type === 'RECEIPT' ? 'text-emerald-700' : 'text-rose-700'
+                      }`}>
                         {tx.type === 'RECEIPT' ? '+' : '-'}{formatCurrency(tx.amount)}
                       </p>
-                      <ChevronRight className="w-4 h-4 text-zinc-400" />
+                      <ChevronRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-600 group-hover:translate-x-0.5 transition-all" />
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-
-            {/* 3. Floating Action Button */}
-            <button 
-              onClick={() => setIsCreateSheetOpen(true)}
-              className="fixed bottom-24 md:bottom-10 right-4 md:right-10 w-14 h-14 bg-[#FF5A1F] hover:bg-[#FF8A1F] text-white rounded-full flex items-center justify-center shadow-lg shadow-orange-500/30 z-30 transition-transform active:scale-95"
-            >
-              <Plus className="w-6 h-6" />
-            </button>
           </>
         )}
 
@@ -894,44 +1005,65 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   >
                     {modalType === 'RECEIPT' ? (
                       <>
-                        <option value="SALES_REVENUE">Thu tiền bán lẻ iPhone, Phụ kiện</option>
-                        <option value="WHOLESALE_REVENUE">Thu tiền bán buôn (sỉ)</option>
-                        <option value="REPAIR_SERVICE">Thu dịch vụ sửa chữa, bảo hành</option>
-                        <option value="DEBT_COLLECTION">Thu nợ khách hàng / trả góp</option>
-                        <option value="CAPITAL_INJECTION">Chủ đầu tư nạp vốn</option>
-                        <option value="OTHER_RECEIPT">Thu nhập khác</option>
+                        <option value="SALES_REVENUE">Thu tiền bán lẻ iPhone, Phụ kiện (POS)</option>
+                        <option value="CUSTOMER_DEBT_COLLECT">Thu nợ khách hàng / Giải ngân trả góp</option>
+                        <option value="TRADEIN_DIFF_COLLECT">Thu tiền chênh lệch Trade-in thu cũ đổi mới</option>
+                        <option value="DEPOSIT">Thu tiền đặt cọc giữ máy</option>
+                        <option value="REPAIR_SERVICE">Thu phí dịch vụ sửa chữa / Thay linh kiện</option>
+                        <option value="CAPITAL_INVEST">Chủ đầu tư nạp vốn / Bổ sung quỹ</option>
+                        <option value="SUPPLIER_REFUND">Nhà cung cấp hoàn tiền hàng</option>
+                        <option value="OTHER_INCOME">Thu nhập khác</option>
                       </>
                     ) : (
                       <>
-                        <option value="INVENTORY_PURCHASE">Chi nhập hàng (iPhone, Phụ kiện)</option>
-                        <option value="SUPPLIER_PAYMENT">Chi trả nợ Nhà Cung Cấp</option>
-                        <option value="SALARY">Chi trả lương, thưởng nhân viên</option>
-                        <option value="RENT">Chi tiền thuê mặt bằng, điện nước</option>
-                        <option value="MARKETING">Chi phí Marketing, Ads</option>
-                        <option value="SHIPPING">Chi phí vận chuyển, hỏa tốc</option>
-                        <option value="OTHER_EXPENSE">Chi phí khác</option>
+                        <option value="INVENTORY_PURCHASE">Chi nhập hàng iPhone / Phụ kiện từ NCC</option>
+                        <option value="SUPPLIER_DEBT_PAY">Chi thanh toán nợ Nhà Cung Cấp</option>
+                        <option value="TRADEIN_BUYBACK">Chi tiền mua lại máy cũ khách Trade-in</option>
+                        <option value="STORE_RENT">Chi tiền thuê mặt bằng showroom</option>
+                        <option value="SALARY_BONUS">Chi lương, thưởng, hoa hồng nhân viên</option>
+                        <option value="MARKETING_ADS">Chi phí Marketing, quảng cáo Ads</option>
+                        <option value="UTILITIES">Chi tiền điện, nước, internet cửa hàng</option>
+                        <option value="WARRANTY_PARTS">Chi mua linh kiện kỹ thuật sửa chữa</option>
+                        <option value="CUSTOMER_REFUND">Chi hoàn tiền đổi trả cho khách</option>
+                        <option value="OTHER_EXPENSE">Chi phí hoạt động khác</option>
                       </>
                     )}
                   </select>
                 </div>
 
-                {/* Tài khoản quỹ */}
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Tài khoản quỹ</label>
-                  <select
-                    value={formData.fundName}
-                    onChange={(e) => {
-                      const fund = funds.find(f => f.name === e.target.value);
-                      if (fund) {
-                        setFormData(prev => ({ ...prev, fundName: fund.name, fundType: fund.type }));
-                      }
-                    }}
-                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
-                  >
-                    {funds.map((f, i) => (
-                      <option key={i} value={f.name}>{f.name} (Dư: {formatCurrency(f.currentBalance)})</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Tài khoản quỹ */}
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">Tài khoản quỹ *</label>
+                    <select
+                      value={formData.fundName}
+                      onChange={(e) => {
+                        const fund = funds.find(f => f.name === e.target.value);
+                        if (fund) {
+                          setFormData(prev => ({ ...prev, fundName: fund.name, fundType: fund.type }));
+                        }
+                      }}
+                      className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
+                    >
+                      {funds.map((f, i) => (
+                        <option key={i} value={f.name}>{f.name} (Dư: {formatCurrency(f.currentBalance)})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Chi nhánh */}
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">Chi nhánh thực hiện</label>
+                    <select
+                      value={formData.branchId || branches[0]?.id || 'CN01'}
+                      onChange={(e) => setFormData(prev => ({ ...prev, branchId: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
+                    >
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
