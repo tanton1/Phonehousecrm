@@ -69,17 +69,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   // Resolve current branch dynamically based on logged-in user's assigned branch
   const currentBranch = useMemo(() => {
     const userBranch = currentUser?.branchId || (currentUser as any)?.branch;
-    if (userBranch) {
+    if (userBranch && branches && branches.length > 0) {
       const found = branches.find(b => 
         b.id === userBranch || 
         b.code === userBranch || 
         b.warehouseId === userBranch ||
-        b.name.toLowerCase().includes(userBranch.toLowerCase()) ||
+        (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase())) ||
         (b.systemType && b.systemType.toLowerCase() === userBranch.toLowerCase())
       );
       if (found) return found;
     }
-    if (selectedBranchId && selectedBranchId !== 'ALL') {
+    if (selectedBranchId && selectedBranchId !== 'ALL' && branches && branches.length > 0) {
       const found = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
       if (found) return found;
     }
@@ -88,8 +88,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
     return null;
   }, [branches, currentUser, selectedBranchId]);
-
-  const currentBranchName = currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chi Nhánh Showroom';
 
   const userRoleUpper = (currentUser?.role || (currentUser as any)?.roleLevel || '').toUpperCase();
 
@@ -105,7 +103,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         partners={partners}
         branches={branches}
         users={users}
-        currentBranch={currentBranch}
+        currentBranch={currentBranch || undefined}
         currentUser={currentUser}
         onNavigateTab={onNavigateTab}
       />
@@ -118,7 +116,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       <TechHomeView
         warrantyTickets={warrantyTickets}
         devices={devices}
-        currentBranch={currentBranch}
+        currentBranch={currentBranch || undefined}
         currentUser={currentUser}
         onNavigateTab={onNavigateTab}
       />
@@ -132,12 +130,53 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         invoices={invoices}
         funds={funds}
         partners={partners}
-        currentBranch={currentBranch}
+        currentBranch={currentBranch || undefined}
         currentUser={currentUser}
         onNavigateTab={onNavigateTab}
       />
     );
   }
+
+  // 4. Default: Admin Executive Dashboard
+  return (
+    <AdminExecutiveDashboardView
+      invoices={invoices}
+      devices={devices}
+      leads={leads}
+      warrantyTickets={warrantyTickets}
+      funds={funds}
+      partners={partners}
+      branches={branches}
+      users={users}
+      selectedBranchId={selectedBranchId}
+      currentUser={currentUser}
+      currentBranch={currentBranch}
+      onNavigateTab={onNavigateTab}
+      onOpenAICopilot={onOpenAICopilot}
+    />
+  );
+};
+
+export interface AdminExecutiveDashboardViewProps extends DashboardPageProps {
+  currentBranch: StoreBranch | null;
+}
+
+export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewProps> = ({
+  invoices = [],
+  devices = [],
+  leads = [],
+  warrantyTickets = [],
+  funds = [],
+  partners = [],
+  branches = [],
+  users = [],
+  selectedBranchId,
+  currentUser,
+  currentBranch,
+  onNavigateTab,
+  onOpenAICopilot
+}) => {
+  const currentBranchName = currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chi Nhánh Showroom';
 
   // 4. Shared State for Filters & Action Tabs
   type DateFilterType = 'today' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
