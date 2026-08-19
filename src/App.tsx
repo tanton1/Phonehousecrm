@@ -1535,6 +1535,7 @@ export default function App() {
             devices={filteredDevices}
             warrantyTickets={filteredWarrantyTickets}
             funds={funds}
+            cashTransactions={filteredCashTransactions}
             branches={branches}
             selectedBranchId={selectedBranchId}
             currentUser={currentUser ? {
@@ -1854,6 +1855,7 @@ export default function App() {
             initialCustomer={posCustomerContext}
             tradeInAppraisal={posTradeInContext}
             onNavigateToInvoices={() => setActiveTab('invoices')}
+            onAddPartner={handleAddPartner}
             onCheckoutSuccess={handlePOSCheckoutSuccess}
           />
         )}
@@ -1899,6 +1901,7 @@ export default function App() {
             funds={funds}
             partners={partners}
             onAddTransaction={handleAddCashTransaction}
+            onAddPartner={handleAddPartner}
             onUpdateFunds={(updatedFunds) => {
               setFunds(updatedFunds);
               updatedFunds.forEach(f => updateFundInFirestore(f));

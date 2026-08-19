@@ -1,13 +1,14 @@
 import React from 'react';
 import { FundAccount, Partner } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
-import { User, Phone, Wallet, CreditCard, Receipt, Loader2, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { User, Phone, Wallet, CreditCard, Receipt, Loader2, CheckCircle2, ShieldCheck, Plus } from 'lucide-react';
 
 export interface PaymentPanelProps {
   customerName: string;
   customerPhone: string;
   onChangeCustomerName: (name: string) => void;
   onChangeCustomerPhone: (phone: string) => void;
+  onOpenCreateCustomerModal?: () => void;
   paymentMethod: string;
   onChangePaymentMethod: (method: any) => void;
   funds: FundAccount[];
@@ -26,6 +27,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   customerPhone,
   onChangeCustomerName,
   onChangeCustomerPhone,
+  onOpenCreateCustomerModal,
   paymentMethod,
   onChangePaymentMethod,
   funds,
@@ -62,7 +64,20 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs font-bold text-zinc-700">
           <span>Khách Hàng</span>
-          <span className="text-[10px] text-zinc-400 font-mono">F4: SĐT</span>
+          <div className="flex items-center space-x-2">
+            <span className="text-[10px] text-zinc-400 font-mono">F4: SĐT</span>
+            {onOpenCreateCustomerModal && (
+              <button
+                type="button"
+                onClick={onOpenCreateCustomerModal}
+                className="text-[11px] font-bold text-[#ff4b16] hover:underline flex items-center space-x-0.5 cursor-pointer"
+                title="Tạo hồ sơ khách hàng mới"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Thêm mới</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="relative">

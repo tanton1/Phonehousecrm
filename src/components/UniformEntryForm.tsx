@@ -6,6 +6,7 @@ import {
 import { 
   DeviceItem, Partner, StoreBranch, WarehouseInfo, FundAccount, PurchaseOrder, MasterCatalogItem, UserAccount
 } from '../types';
+import { CreatePartnerModal } from './CreatePartnerModal';
 
 interface UniformEntryFormProps {
   isOpen: boolean;
@@ -17,6 +18,11 @@ interface UniformEntryFormProps {
   catalogItems?: MasterCatalogItem[];
   currentUser?: UserAccount | null;
   onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void;
+  onAddPartner?: (partner: Partner) => void | Promise<void>;
+  onAddDevice?: () => void;
+  onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
+  onAddCashTransaction?: (tx: import('../types').CashTransaction) => void;
+  onUpdatePartner?: (partner: Partner) => void;
 }
 
 interface FormItem {
@@ -44,9 +50,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   catalogItems = [],
   currentUser,
   onAddPurchaseOrder,
+  onAddPartner
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
   const defaultBranchId = currentUser?.branchId || branches[0]?.id || '';
+  const [isCreateSupplierModalOpen, setIsCreateSupplierModalOpen] = useState(false);
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
@@ -258,14 +266,24 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
               {/* 1. Supplier Selection */}
               <section className="bg-white p-5 rounded-2xl border border-orange-100 shadow-sm shadow-orange-100/50">
-                <h3 className="flex items-center text-sm font-bold text-zinc-800 mb-3 uppercase tracking-wider">
-                  <Store className="w-4 h-4 mr-2 text-orange-500" />
-                  Nhà Cung Cấp
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="flex items-center text-sm font-bold text-zinc-800 uppercase tracking-wider">
+                    <Store className="w-4 h-4 mr-2 text-orange-500" />
+                    Nhà Cung Cấp
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateSupplierModalOpen(true)}
+                    className="text-xs font-bold text-orange-600 hover:text-orange-700 flex items-center space-x-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Thêm NCC</span>
+                  </button>
+                </div>
                 <div className="relative">
                   <select 
                     {...register("supplierId", { required: "Vui lòng chọn nhà cung cấp." })}
-                    className="${errors.supplierId ? 'border-rose-500' : 'border-zinc-200 focus:border-orange-500'} w-full px-4 py-3 bg-zinc-50 border rounded-xl text-sm font-semibold outline-none appearance-none transition-all"
+                    className={`${errors.supplierId ? 'border-rose-500' : 'border-zinc-200 focus:border-orange-500'} w-full px-4 py-3 bg-zinc-50 border rounded-xl text-sm font-semibold outline-none appearance-none transition-all`}
                   >
                     <option value="">-- Chọn nhà cung cấp --</option>
                     {suppliers.map(s => (
@@ -595,6 +613,19 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Quick Create Supplier Modal */}
+      <CreatePartnerModal
+        isOpen={isCreateSupplierModalOpen}
+        onClose={() => setIsCreateSupplierModalOpen(false)}
+        defaultType="SUPPLIER"
+        onSavePartner={async (newSupplier) => {
+          if (onAddPartner) {
+            await onAddPartner(newSupplier);
+          }
+          setValue('supplierId', newSupplier.id);
+        }}
+      />
     </div>
   );
 };

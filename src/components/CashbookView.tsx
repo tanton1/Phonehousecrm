@@ -8,7 +8,7 @@ import {
   CashTransaction, FundAccount, CashTransactionType, PaymentFundType, 
   CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch 
 } from '../types';
-import { PhoneHouseLogo } from './PhoneHouseLogo';
+import { CreatePartnerModal } from './CreatePartnerModal';
 import { transferFundsInFirestore } from '../services/firestoreService';
 
 // format helpers
@@ -28,24 +28,47 @@ interface CashbookViewProps {
   onAddTransaction: (transaction: CashTransaction) => void;
   onUpdateFunds?: (funds: FundAccount[]) => void;
   onTransferFunds?: (fromFundId: string, toFundId: string, amount: number, notes: string, creator?: string) => Promise<void> | void;
+  onAddPartner?: (partner: Partner) => void | Promise<void>;
 }
 
 export const CashbookView: React.FC<CashbookViewProps> = ({
   currentUser,
   branches = [], 
-  transactions, funds, partners, onAddTransaction, onUpdateFunds, onTransferFunds 
+  transactions, funds, partners, onAddTransaction, onUpdateFunds, onTransferFunds, onAddPartner 
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<'TRANSACTIONS' | 'ACCOUNTS' | 'REPORTS'>('TRANSACTIONS');
   const [selectedFundFilter, setSelectedFundFilter] = useState<string>('ALL');
   const [showBalance, setShowBalance] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   
-  // Sheet states
+  // Date filter state
+  const [dateFilterMode, setDateFilterMode] = useState<'ALL' | 'TODAY' | 'YESTERDAY' | '7DAYS' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('THIS_MONTH');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
+  // Sheet & Modal states
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false);
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
-  
-  // Transaction Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isCreatePartnerModalOpen, setIsCreatePartnerModalOpen] = useState(false);
+  const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+
+  // Custom categories list
+  const [customReceiptCategories, setCustomReceiptCategories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ph_custom_receipt_categories');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [customPaymentCategories, setCustomPaymentCategories] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('ph_custom_payment_categories');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
   const [selectedTx, setSelectedTx] = useState<CashTransaction | null>(null);
   const [modalType, setModalType] = useState<'RECEIPT' | 'PAYMENT'>('RECEIPT');
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -76,18 +99,19 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   const [formData, setFormData] = useState({
     type: 'RECEIPT' as CashTransactionType,
     category: 'SALES_REVENUE',
-    categoryName: 'Thu tiền bán lẻ iPhone',
+    categoryName: 'Thu tiền bán lẻ iPhone, Phụ kiện (POS)',
     amount: '',
     fundType: 'BANK' as PaymentFundType,
-    fundName: 'Techcombank - 190388889999 (VietQR Chính)',
+    fundName: funds.find(f => f.type === 'BANK')?.name || 'Techcombank - 190388889999 (VietQR Chính)',
     partnerId: '',
     partnerName: '',
-    partnerType: 'CUSTOMER',
+    partnerType: 'CUSTOMER' as import('../types').PartnerType,
     partnerPhone: '',
     referenceCode: '',
-    creator: 'Nhật Tân (Admin)',
+    creator: currentUser?.displayName || 'Nhân viên kế toán',
     notes: '',
-    branchId: ''
+    branchId: '',
+    isPLAccounted: true // Mặc định có hạch toán vào Kết quả kinh doanh
   });
 
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'RECEIPT' | 'PAYMENT' | 'RETAIL'>('ALL');
@@ -333,6 +357,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       creator: currentUser?.displayName || formData.creator || 'Nhân viên kế toán',
       branchId: formData.branchId || branches[0]?.id || 'CN01',
       notes: formData.notes || (formData.type === 'RECEIPT' ? 'Thu tiền theo chứng từ' : 'Chi tiền theo hóa đơn'),
+      isPLAccounted: formData.isPLAccounted !== false,
       status: 'COMPLETED'
     };
 
@@ -341,12 +366,61 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     setSelectedTx(newTx);
   };
 
-  const filteredTransactions = transactions.filter(t => {
-    if (activeFilter === 'RECEIPT') return t.type === 'RECEIPT';
-    if (activeFilter === 'PAYMENT') return t.type === 'PAYMENT';
-    if (activeFilter === 'RETAIL') return t.category === 'SALES_REVENUE';
-    return true;
-  });
+  const filteredTransactions = useMemo(() => {
+    let result = [...transactions];
+
+    // 1. Fund Filter
+    if (selectedFundFilter !== 'ALL') {
+      result = result.filter(t => t.fundId === selectedFundFilter || t.fundName.includes(selectedFundFilter));
+    }
+
+    // 2. Type/Category Filter
+    if (activeFilter === 'RECEIPT') result = result.filter(t => t.type === 'RECEIPT');
+    else if (activeFilter === 'PAYMENT') result = result.filter(t => t.type === 'PAYMENT');
+    else if (activeFilter === 'RETAIL') result = result.filter(t => t.category === 'SALES_REVENUE');
+
+    // 3. Date Filter
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (dateFilterMode === 'TODAY') {
+      result = result.filter(t => (t.date || '').startsWith(todayStr));
+    } else if (dateFilterMode === 'YESTERDAY') {
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      result = result.filter(t => (t.date || '').startsWith(yesterday));
+    } else if (dateFilterMode === '7DAYS') {
+      const past7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      result = result.filter(t => (t.date || '').slice(0, 10) >= past7);
+    } else if (dateFilterMode === 'THIS_MONTH') {
+      const thisMonth = todayStr.slice(0, 7);
+      result = result.filter(t => (t.date || '').startsWith(thisMonth));
+    } else if (dateFilterMode === 'LAST_MONTH') {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 1);
+      const lastMonth = d.toISOString().slice(0, 7);
+      result = result.filter(t => (t.date || '').startsWith(lastMonth));
+    } else if (dateFilterMode === 'CUSTOM') {
+      if (customStartDate) result = result.filter(t => (t.date || '').slice(0, 10) >= customStartDate);
+      if (customEndDate) result = result.filter(t => (t.date || '').slice(0, 10) <= customEndDate);
+    }
+
+    // 4. Search Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(t => 
+        (t.code || '').toLowerCase().includes(q) ||
+        (t.partnerName || '').toLowerCase().includes(q) ||
+        (t.notes || '').toLowerCase().includes(q) ||
+        (t.categoryName || '').toLowerCase().includes(q) ||
+        (t.referenceCode || '').toLowerCase().includes(q)
+      );
+    }
+
+    // 5. Sort newest first (ngày gần nhất lên đầu)
+    return result.sort((a, b) => {
+      const timeA = new Date(a.date).getTime() || 0;
+      const timeB = new Date(b.date).getTime() || 0;
+      return timeB - timeA;
+    });
+  }, [transactions, selectedFundFilter, activeFilter, dateFilterMode, customStartDate, customEndDate, searchQuery]);
 
   return (
     <div className="flex flex-col min-h-screen max-w-[1600px] mx-auto p-2 sm:p-4 space-y-4 text-zinc-900 font-sans">
@@ -580,18 +654,29 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             </div>
 
             {/* 5. Filter & Search Bar */}
-            <div className="bg-white p-3.5 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-2.5">
+            <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-3">
+              {/* Row 1: Search & Type Filter */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
                     placeholder="Tìm theo mã phiếu (PT/PC), đối tác, nội dung thu chi..."
-                    className="w-full pl-9 pr-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
+                    className="w-full pl-9 pr-8 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
                   />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center space-x-1.5">
+                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
                   {[
                     { id: 'ALL', label: `Tất cả (${transactions.length})` },
                     { id: 'RECEIPT', label: `Thu (+${transactions.filter(t => t.type === 'RECEIPT').length})`, color: 'text-emerald-700' },
@@ -601,7 +686,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     <button
                       key={f.id}
                       onClick={() => setActiveFilter(f.id as any)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                         activeFilter === f.id
                           ? 'bg-zinc-900 text-white shadow-2xs'
                           : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
@@ -612,12 +697,64 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* Row 2: Date Filters */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-zinc-100">
+                <div className="flex items-center space-x-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                  <span className="text-[11px] font-bold text-zinc-400 mr-1 flex items-center shrink-0">
+                    <Calendar className="w-3 h-3 mr-1" />
+                    Thời gian:
+                  </span>
+                  {[
+                    { id: 'THIS_MONTH', label: 'Tháng này' },
+                    { id: 'TODAY', label: 'Hôm nay' },
+                    { id: 'YESTERDAY', label: 'Hôm qua' },
+                    { id: '7DAYS', label: '7 ngày' },
+                    { id: 'LAST_MONTH', label: 'Tháng trước' },
+                    { id: 'ALL', label: 'Tất cả' },
+                    { id: 'CUSTOM', label: 'Tùy chọn...' }
+                  ].map(d => (
+                    <button
+                      key={d.id}
+                      onClick={() => setDateFilterMode(d.id as any)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+                        dateFilterMode === d.id
+                          ? 'bg-orange-100 text-[#ff4b16] ring-1 ring-[#ff4b16]/30 font-black'
+                          : 'bg-zinc-100/70 text-zinc-600 hover:bg-zinc-200'
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+
+                {dateFilterMode === 'CUSTOM' && (
+                  <div className="flex items-center space-x-1.5 text-xs bg-zinc-50 p-1.5 rounded-xl border border-zinc-200 animate-in fade-in">
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={e => setCustomStartDate(e.target.value)}
+                      className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
+                    />
+                    <span className="text-zinc-400 font-bold">-</span>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={e => setCustomEndDate(e.target.value)}
+                      className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 6. Transaction Items List */}
             <div className="space-y-2 pb-12">
               <div className="flex items-center justify-between text-xs font-bold text-zinc-600 px-1">
-                <span>Nhật ký thu chi gần đây ({filteredTransactions.length} chứng từ)</span>
+                <span>Nhật ký thu chi gần đây ({filteredTransactions.length} chứng từ • Mới nhất lên đầu)</span>
+                <span className="text-[11px] font-mono text-zinc-400 font-normal">
+                  Hạch toán tự động
+                </span>
               </div>
               <div className="space-y-2">
                 {filteredTransactions.map(tx => (
@@ -643,6 +780,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                           <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-600 border border-zinc-200">
                             {tx.code}
                           </span>
+                          {tx.isPLAccounted !== false ? (
+                            <span className="hidden sm:inline text-[9px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded">
+                              P&L
+                            </span>
+                          ) : (
+                            <span className="hidden sm:inline text-[9px] font-bold px-1.5 py-0.2 bg-zinc-100 text-zinc-500 rounded">
+                              Luân chuyển
+                            </span>
+                          )}
                         </div>
                         <p className="text-[11px] text-zinc-600 mt-0.5 truncate font-medium">
                           {tx.notes || tx.categoryName}
@@ -991,44 +1137,82 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
                 {/* Hạng mục */}
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">
-                    Hạng mục {modalType === 'RECEIPT' ? 'thu' : 'chi'}
-                  </label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const name = e.target.options[e.target.selectedIndex].text;
-                      setFormData(prev => ({ ...prev, category: val as any, categoryName: name }));
-                    }}
-                    className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
-                  >
-                    {modalType === 'RECEIPT' ? (
-                      <>
-                        <option value="SALES_REVENUE">Thu tiền bán lẻ iPhone, Phụ kiện (POS)</option>
-                        <option value="CUSTOMER_DEBT_COLLECT">Thu nợ khách hàng / Giải ngân trả góp</option>
-                        <option value="TRADEIN_DIFF_COLLECT">Thu tiền chênh lệch Trade-in thu cũ đổi mới</option>
-                        <option value="DEPOSIT">Thu tiền đặt cọc giữ máy</option>
-                        <option value="REPAIR_SERVICE">Thu phí dịch vụ sửa chữa / Thay linh kiện</option>
-                        <option value="CAPITAL_INVEST">Chủ đầu tư nạp vốn / Bổ sung quỹ</option>
-                        <option value="SUPPLIER_REFUND">Nhà cung cấp hoàn tiền hàng</option>
-                        <option value="OTHER_INCOME">Thu nhập khác</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="INVENTORY_PURCHASE">Chi nhập hàng iPhone / Phụ kiện từ NCC</option>
-                        <option value="SUPPLIER_DEBT_PAY">Chi thanh toán nợ Nhà Cung Cấp</option>
-                        <option value="TRADEIN_BUYBACK">Chi tiền mua lại máy cũ khách Trade-in</option>
-                        <option value="STORE_RENT">Chi tiền thuê mặt bằng showroom</option>
-                        <option value="SALARY_BONUS">Chi lương, thưởng, hoa hồng nhân viên</option>
-                        <option value="MARKETING_ADS">Chi phí Marketing, quảng cáo Ads</option>
-                        <option value="UTILITIES">Chi tiền điện, nước, internet cửa hàng</option>
-                        <option value="WARRANTY_PARTS">Chi mua linh kiện kỹ thuật sửa chữa</option>
-                        <option value="CUSTOMER_REFUND">Chi hoàn tiền đổi trả cho khách</option>
-                        <option value="OTHER_EXPENSE">Chi phí hoạt động khác</option>
-                      </>
-                    )}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-zinc-700">
+                      Hạng mục {modalType === 'RECEIPT' ? 'thu' : 'chi'} *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddCategoryModalOpen(true)}
+                      className="text-[11px] font-bold text-[#ff4b16] hover:underline flex items-center space-x-0.5 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Tạo nhóm mới</span>
+                    </button>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <select
+                      value={formData.category}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const name = e.target.options[e.target.selectedIndex].text;
+                        setFormData(prev => ({ ...prev, category: val as any, categoryName: name }));
+                      }}
+                      className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
+                    >
+                      {modalType === 'RECEIPT' ? (
+                        <>
+                          <optgroup label="Danh mục Thu chuẩn">
+                            <option value="SALES_REVENUE">Thu tiền bán lẻ iPhone, Phụ kiện (POS)</option>
+                            <option value="CUSTOMER_DEBT_COLLECT">Thu nợ khách hàng / Giải ngân trả góp</option>
+                            <option value="TRADEIN_DIFF_COLLECT">Thu tiền chênh lệch Trade-in thu cũ đổi mới</option>
+                            <option value="DEPOSIT">Thu tiền đặt cọc giữ máy</option>
+                            <option value="REPAIR_SERVICE">Thu phí dịch vụ sửa chữa / Thay linh kiện</option>
+                            <option value="CAPITAL_INVEST">Chủ đầu tư nạp vốn / Bổ sung quỹ</option>
+                            <option value="SUPPLIER_REFUND">Nhà cung cấp hoàn tiền hàng</option>
+                            <option value="OTHER_INCOME">Thu nhập khác</option>
+                          </optgroup>
+                          {customReceiptCategories.length > 0 && (
+                            <optgroup label="Danh mục Thu tự tạo">
+                              {customReceiptCategories.map((c, i) => (
+                                <option key={i} value={c}>{c}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <optgroup label="Danh mục Chi chuẩn">
+                            <option value="INVENTORY_PURCHASE">Chi nhập hàng iPhone / Phụ kiện từ NCC</option>
+                            <option value="SUPPLIER_DEBT_PAY">Chi thanh toán nợ Nhà Cung Cấp</option>
+                            <option value="TRADEIN_BUYBACK">Chi tiền mua lại máy cũ khách Trade-in</option>
+                            <option value="STORE_RENT">Chi tiền thuê mặt bằng showroom</option>
+                            <option value="SALARY_BONUS">Chi lương, thưởng, hoa hồng nhân viên</option>
+                            <option value="MARKETING_ADS">Chi phí Marketing, quảng cáo Ads</option>
+                            <option value="UTILITIES">Chi tiền điện, nước, internet cửa hàng</option>
+                            <option value="WARRANTY_PARTS">Chi mua linh kiện kỹ thuật sửa chữa</option>
+                            <option value="CUSTOMER_REFUND">Chi hoàn tiền đổi trả cho khách</option>
+                            <option value="OTHER_EXPENSE">Chi phí hoạt động khác</option>
+                          </optgroup>
+                          {customPaymentCategories.length > 0 && (
+                            <optgroup label="Danh mục Chi tự tạo">
+                              {customPaymentCategories.map((c, i) => (
+                                <option key={i} value={c}>{c}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      )}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddCategoryModalOpen(true)}
+                      className="p-2.5 bg-orange-50 hover:bg-orange-100 text-[#ff4b16] border border-orange-200 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0"
+                      title="Thêm hạng mục mới"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1068,20 +1252,41 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-zinc-700 mb-1">
-                      {modalType === 'RECEIPT' ? 'Khách hàng (Nộp tiền)' : 'Nhà cung cấp (Nhận tiền)'}
-                    </label>
-                    <div className="relative">
-                      <select
-                        onChange={(e) => handlePartnerSelect(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none appearance-none"
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-zinc-700">
+                        {modalType === 'RECEIPT' ? 'Khách hàng (Nộp tiền)' : 'Nhà cung cấp (Nhận tiền)'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatePartnerModalOpen(true)}
+                        className="text-[11px] font-bold text-[#ff4b16] hover:underline flex items-center space-x-0.5 cursor-pointer"
                       >
-                        <option value="">-- Chọn khách/NCC có sẵn --</option>
-                        {partners.filter(p => modalType === 'RECEIPT' ? p.type === 'CUSTOMER' : p.type === 'SUPPLIER').map(p => (
-                          <option key={p.id} value={p.id}>{p.name} - {p.phone}</option>
-                        ))}
-                      </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Tạo mới</span>
+                      </button>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <div className="relative flex-1">
+                        <select
+                          value={formData.partnerId}
+                          onChange={(e) => handlePartnerSelect(e.target.value)}
+                          className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none appearance-none"
+                        >
+                          <option value="">-- Chọn khách/NCC có sẵn --</option>
+                          {partners.filter(p => modalType === 'RECEIPT' ? (p.type === 'CUSTOMER' || p.type === 'BOTH') : (p.type === 'SUPPLIER' || p.type === 'BOTH')).map(p => (
+                            <option key={p.id} value={p.id}>{p.name} - {p.phone}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsCreatePartnerModalOpen(true)}
+                        className="p-2.5 bg-orange-50 hover:bg-orange-100 text-[#ff4b16] border border-orange-200 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0"
+                        title="Tạo nhanh đối tác mới"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                   <div>
@@ -1096,19 +1301,20 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-zinc-700 mb-1">Mã tham chiếu (Hóa đơn, UNC...)</label>
                     <input
                       type="text"
-                      placeholder="Ví dụ: INV-20250214-001"
+                      placeholder="Ví dụ: INV-20250214-001 hoặc PN-001"
                       value={formData.referenceCode}
                       onChange={(e) => setFormData(prev => ({ ...prev, referenceCode: e.target.value }))}
                       className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
                     />
                   </div>
+
                   <div>
-                    <label className="block text-xs font-bold text-zinc-700 mb-1">Nội dung chi tiết</label>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">Nội dung chi tiết & Lý do</label>
                     <textarea
                       rows={2}
                       placeholder="Ghi rõ lý do thu chi..."
@@ -1116,6 +1322,25 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
                       className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
                     />
+                  </div>
+
+                  {/* P&L Accounting Checkbox */}
+                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-start space-x-2.5">
+                    <input
+                      type="checkbox"
+                      id="isPLAccounted"
+                      checked={formData.isPLAccounted}
+                      onChange={(e) => setFormData(prev => ({ ...prev, isPLAccounted: e.target.checked }))}
+                      className="mt-0.5 w-4 h-4 rounded text-[#ff4b16] focus:ring-[#ff4b16] border-zinc-300 cursor-pointer accent-[#ff4b16]"
+                    />
+                    <label htmlFor="isPLAccounted" className="text-xs text-zinc-800 cursor-pointer select-none">
+                      <span className="font-bold block text-zinc-900">Hạch toán vào Kết quả hoạt động kinh doanh (P&L)</span>
+                      <span className="text-[11px] text-zinc-500 block mt-0.5">
+                        {formData.isPLAccounted 
+                          ? '✓ Mặc định: Giao dịch này sẽ được ghi nhận vào Báo Cáo Doanh Thu / Chi Phí kinh doanh định kỳ.' 
+                          : '⚡ Bỏ chọn: Giao dịch này chỉ tác động số dư quỹ (luân chuyển vốn, nạp/rút vốn, cho mượn tạm...).'}
+                      </span>
+                    </label>
                   </div>
                 </div>
 
@@ -1487,6 +1712,96 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 Đóng
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: TẠO NHANH ĐỐI TÁC (KHÁCH HÀNG / NCC) */}
+      <CreatePartnerModal
+        isOpen={isCreatePartnerModalOpen}
+        onClose={() => setIsCreatePartnerModalOpen(false)}
+        defaultType={modalType === 'RECEIPT' ? 'CUSTOMER' : 'SUPPLIER'}
+        onSavePartner={async (newPartner) => {
+          if (onAddPartner) {
+            await onAddPartner(newPartner);
+          }
+          // Auto-select into current form
+          setFormData(prev => ({
+            ...prev,
+            partnerId: newPartner.id,
+            partnerName: newPartner.name,
+            partnerPhone: newPartner.phone || '',
+            partnerType: newPartner.type
+          }));
+        }}
+      />
+
+      {/* MODAL: TẠO HẠNG MỤC THU / CHI MỚI */}
+      {isAddCategoryModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-zinc-200/80 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-xl bg-[#ff4b16] text-white flex items-center justify-center font-bold text-xs">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-zinc-900 text-sm">Tạo Hạng Mục {modalType === 'RECEIPT' ? 'Thu' : 'Chi'} Mới</h3>
+                  <p className="text-[10px] text-zinc-500">Tự động lưu và hiển thị trong danh mục</p>
+                </div>
+              </div>
+              <button onClick={() => setIsAddCategoryModalOpen(false)} className="text-zinc-400 hover:text-zinc-700 p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (!newCategoryName.trim()) return;
+              const cat = newCategoryName.trim();
+              if (modalType === 'RECEIPT') {
+                const updated = [...customReceiptCategories, cat];
+                setCustomReceiptCategories(updated);
+                localStorage.setItem('ph_custom_receipt_categories', JSON.stringify(updated));
+                setFormData(prev => ({ ...prev, category: cat as any, categoryName: cat }));
+              } else {
+                const updated = [...customPaymentCategories, cat];
+                setCustomPaymentCategories(updated);
+                localStorage.setItem('ph_custom_payment_categories', JSON.stringify(updated));
+                setFormData(prev => ({ ...prev, category: cat as any, categoryName: cat }));
+              }
+              setNewCategoryName('');
+              setIsAddCategoryModalOpen(false);
+            }} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">Tên Hạng Mục Mới *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder={modalType === 'RECEIPT' ? 'VD: Thu thanh lý ve chai...' : 'VD: Chi tiền nước uống khách...'}
+                  value={newCategoryName}
+                  onChange={e => setNewCategoryName(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16]"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCategoryModalOpen(false)}
+                  className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs rounded-xl"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="flex-[2] py-2 bg-[#ff4b16] hover:bg-[#e03e0e] text-white font-bold text-xs rounded-xl shadow-sm"
+                >
+                  Lưu & Chọn Ngay
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -8,6 +8,7 @@ import { Receipt, Sparkles, CheckCircle2, AlertCircle, Printer } from 'lucide-re
 import { ThermalReceiptK80 } from './ThermalReceiptK80';
 import { usePosHotkeys } from '../hooks/usePosHotkeys';
 import { PosHotkeysBar } from './PosHotkeysBar';
+import { CreatePartnerModal } from '../../../components/CreatePartnerModal';
 
 export interface POSCockpitViewProps {
   devices: DeviceItem[];
@@ -20,6 +21,7 @@ export interface POSCockpitViewProps {
   initialCustomer?: { name?: string; phone?: string } | null;
   tradeInAppraisal?: any | null;
   onNavigateToInvoices?: () => void;
+  onAddPartner?: (partner: Partner) => void | Promise<void>;
   onCheckoutSuccess?: (
     invoice: SalesInvoice,
     devicesSold: DeviceItem[],
@@ -40,6 +42,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   initialCustomer,
   tradeInAppraisal,
   onNavigateToInvoices,
+  onAddPartner,
   onCheckoutSuccess
 }) => {
   // 1. Cart State
@@ -54,6 +57,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   // 2. Customer & Payment State
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [isCreateCustomerModalOpen, setIsCreateCustomerModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'Tiền mặt' | 'Chuyển khoản QR' | 'Quẹt thẻ POS' | 'Trả góp qua Cty Tài Chính (HD/Home/Mpos)'>('Tiền mặt');
   const [selectedFundId, setSelectedFundId] = useState<string>(() => {
     const defaultFund = funds.find(f => !f.branchId || f.branchId === currentBranch.id || f.branchId === 'ALL');
@@ -511,6 +515,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
             customerPhone={customerPhone}
             onChangeCustomerName={setCustomerName}
             onChangeCustomerPhone={setCustomerPhone}
+            onOpenCreateCustomerModal={() => setIsCreateCustomerModalOpen(true)}
             paymentMethod={paymentMethod}
             onChangePaymentMethod={setPaymentMethod}
             funds={funds}
@@ -563,6 +568,22 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           onClose={() => setReceiptData(null)}
         />
       )}
+
+      {/* 6. Quick Create Customer Modal */}
+      <CreatePartnerModal
+        isOpen={isCreateCustomerModalOpen}
+        onClose={() => setIsCreateCustomerModalOpen(false)}
+        defaultType="CUSTOMER"
+        initialPhone={customerPhone}
+        initialName={customerName}
+        onSavePartner={async (newPartner) => {
+          if (onAddPartner) {
+            await onAddPartner(newPartner);
+          }
+          setCustomerName(newPartner.name);
+          setCustomerPhone(newPartner.phone || '');
+        }}
+      />
 
       {/* 6. Sticky Bottom Hotkeys Bar for Instant Cashier Productivity (Desktop) */}
       <div className="hidden lg:block fixed bottom-0 left-0 right-0 z-40">

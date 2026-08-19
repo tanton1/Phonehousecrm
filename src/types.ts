@@ -714,6 +714,7 @@ export interface CashTransaction {
   creator: string; // Nhật Tân (Admin), Thu ngân Linh...
   notes: string;
   status: 'COMPLETED' | 'PENDING' | 'CANCELLED';
+  isPLAccounted?: boolean; // Mặc định: true (Có hạch toán vào Kết quả kinh doanh P&L)
   attachments?: string[];
 }
 
