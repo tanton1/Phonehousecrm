@@ -146,43 +146,60 @@ export async function executeAtomicCheckout(
 
     const subTotal = authoritativeDeviceSubtotal + authoritativeAccessorySubtotal;
 
-    // 5. Server Truth: Resolve Discount via DB Voucher with Quota Lock
+    // 5. Server Truth: Resolve Discount via DB Voucher with Quota & Eligibility Guard
     let authoritativeDiscount = 0;
     let voucherRef: DocumentReference | null = null;
+    let voucherApplied = false;
 
     if (payload.voucherCode) {
-      voucherRef = db.collection('vouchers').doc(payload.voucherCode.trim().toUpperCase());
+      const codeUpper = payload.voucherCode.trim().toUpperCase();
+      voucherRef = db.collection('vouchers').doc(codeUpper);
       const voucherSnap = await transaction.get(voucherRef);
-      if (voucherSnap.exists) {
-        const vData = voucherSnap.data()!;
-        const now = new Date();
-        const isValidDate = (!vData.expiryDate || new Date(vData.expiryDate) >= now) &&
-                            (!vData.startDate || new Date(vData.startDate) <= now);
-        const meetsMinOrder = !vData.minOrderAmount || subTotal >= vData.minOrderAmount;
-
-        // Check Voucher Quota & Branch Eligibility
-        if (typeof vData.usageLimit === 'number' && (vData.usedCount || 0) >= vData.usageLimit) {
-          throw new Error('VOUCHER_EXHAUSTED: Voucher khuyến mãi đã hết số lượt sử dụng.');
-        }
-
-        if (Array.isArray(vData.applicableBranchIds) && vData.applicableBranchIds.length > 0 && !vData.applicableBranchIds.includes(branchId)) {
-          throw new Error(`VOUCHER_BRANCH_INELIGIBLE: Voucher không áp dụng cho chi nhánh "${branchId}".`);
-        }
-
-        if (isValidDate && meetsMinOrder && vData.active !== false) {
-          if (vData.discountType === 'PERCENT') {
-            authoritativeDiscount = Math.round((subTotal * (vData.discountValue || 0)) / 100);
-            if (vData.maxDiscountAmount && authoritativeDiscount > vData.maxDiscountAmount) {
-              authoritativeDiscount = vData.maxDiscountAmount;
-            }
-          } else {
-            authoritativeDiscount = vData.discountValue || 0;
-          }
-        }
+      if (!voucherSnap.exists) {
+        throw new Error(`VOUCHER_NOT_FOUND: Mã giảm giá "${codeUpper}" không tồn tại trên hệ thống.`);
       }
+
+      const vData = voucherSnap.data()!;
+      const now = new Date();
+      const isValidDate = (!vData.expiryDate || new Date(vData.expiryDate) >= now) &&
+                          (!vData.startDate || new Date(vData.startDate) <= now);
+      const meetsMinOrder = !vData.minOrderAmount || subTotal >= vData.minOrderAmount;
+
+      if (vData.active === false) {
+        throw new Error(`VOUCHER_INACTIVE: Mã giảm giá "${codeUpper}" hiện đang tạm khóa.`);
+      }
+
+      if (!isValidDate) {
+        throw new Error(`VOUCHER_EXPIRED: Mã giảm giá "${codeUpper}" đã hết hạn sử dụng.`);
+      }
+
+      if (!meetsMinOrder) {
+        throw new Error(`VOUCHER_MIN_ORDER_NOT_MET: Đơn hàng cần đạt tối thiểu ${vData.minOrderAmount?.toLocaleString('vi-VN')} đ để sử dụng voucher này.`);
+      }
+
+      // Check Voucher Quota
+      if (typeof vData.usageLimit === 'number' && (vData.usedCount || 0) >= vData.usageLimit) {
+        throw new Error(`VOUCHER_EXHAUSTED: Mã giảm giá "${codeUpper}" đã hết lượt sử dụng.`);
+      }
+
+      // Check Branch Eligibility
+      if (Array.isArray(vData.applicableBranchIds) && vData.applicableBranchIds.length > 0 && !vData.applicableBranchIds.includes(branchId)) {
+        throw new Error(`VOUCHER_BRANCH_INELIGIBLE: Mã giảm giá "${codeUpper}" không áp dụng cho chi nhánh "${branchId}".`);
+      }
+
+      if (vData.discountType === 'PERCENT') {
+        authoritativeDiscount = Math.round((subTotal * (vData.discountValue || 0)) / 100);
+        if (vData.maxDiscountAmount && authoritativeDiscount > vData.maxDiscountAmount) {
+          authoritativeDiscount = vData.maxDiscountAmount;
+        }
+      } else {
+        authoritativeDiscount = vData.discountValue || 0;
+      }
+
+      voucherApplied = true;
     }
 
-    // 6. Server Truth: Resolve Trade-in Valuation from DB with Consumption Lock
+    // 6. Server Truth: Resolve Trade-in Valuation from DB with Consumption Lock & Final Approved Price
     let authoritativeTradeInDeduction = 0;
     let appraisalRef: DocumentReference | null = null;
 
@@ -203,21 +220,31 @@ export async function executeAtomicCheckout(
         throw new Error(`TRADE_IN_NOT_APPROVED: Phiếu thẩm định thu cũ "${payload.tradeInAppraisalId}" chưa được phê duyệt.`);
       }
 
-      // Precedence: Approved Final Price > Estimated Value
-      authoritativeTradeInDeduction = typeof appData.approvedPrice === 'number'
-        ? appData.approvedPrice
-        : (typeof appData.finalApprovedPrice === 'number' ? appData.finalApprovedPrice : (typeof appData.estimatedValue === 'number' ? appData.estimatedValue : 0));
+      // Mandatory Final Approved Price Check (Strict Production Invariant)
+      const approvedPrice = appData.approvedPrice ?? appData.finalApprovedPrice;
+      if (typeof approvedPrice !== 'number') {
+        throw new Error(`TRADE_IN_FINAL_PRICE_REQUIRED: Phiếu thu cũ "${payload.tradeInAppraisalId}" chưa có giá thu mua được quản lý phê duyệt.`);
+      }
+
+      authoritativeTradeInDeduction = approvedPrice;
     }
 
     const finalAmount = Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction);
 
-    // 7. Validate Installment Accounting Invariants
+    // 7. Validate Installment Accounting Invariants (Chặn downPayment < 0 & check Partner Type)
     let downPayment = 0;
     let financeAmount = 0;
     let financePartnerRef: DocumentReference | null = null;
 
     if (paymentMethod === 'INSTALLMENT') {
       downPayment = typeof payload.payment?.downPayment === 'number' ? payload.payment.downPayment : 0;
+
+      // Invariant: Non-negative and finite downPayment
+      if (!Number.isFinite(downPayment) || downPayment < 0) {
+        throw new Error('INVALID_DOWN_PAYMENT: Số tiền trả trước không hợp lệ (không được là số âm).');
+      }
+
+      // Invariant: downPayment cannot exceed total final amount
       if (downPayment > finalAmount) {
         throw new Error(`DOWN_PAYMENT_EXCEEDS_TOTAL: Số tiền trả trước (${downPayment.toLocaleString('vi-VN')} đ) không được lớn hơn tổng giá trị đơn hàng (${finalAmount.toLocaleString('vi-VN')} đ).`);
       }
@@ -234,8 +261,15 @@ export async function executeAtomicCheckout(
         if (!partnerSnap.exists) {
           throw new Error(`FINANCE_PARTNER_NOT_FOUND: Công ty tài chính ID "${financePartnerId}" không tồn tại.`);
         }
-        if (partnerSnap.data()?.status === 'INACTIVE') {
-          throw new Error(`FINANCE_PARTNER_INACTIVE: Đối tác tài chính "${partnerSnap.data()?.name}" đang tạm ngưng hợp tác.`);
+        const partnerData = partnerSnap.data()!;
+        if (partnerData.status === 'INACTIVE') {
+          throw new Error(`FINANCE_PARTNER_INACTIVE: Đối tác tài chính "${partnerData.name}" đang tạm ngưng hợp tác.`);
+        }
+
+        // Validate Partner Category/Type
+        const partnerType = (partnerData.type || partnerData.category || '').toUpperCase();
+        if (partnerType && !partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP')) {
+          throw new Error(`INVALID_FINANCE_PARTNER_TYPE: Đối tác "${partnerData.name}" không phải là công ty tài chính trả góp.`);
         }
       }
     }
@@ -272,8 +306,8 @@ export async function executeAtomicCheckout(
       });
     }
 
-    // 11. Lock Voucher Quota Increment
-    if (voucherRef) {
+    // 11. Lock Voucher Quota Increment ONLY when voucher was genuinely applied
+    if (voucherRef && voucherApplied) {
       transaction.update(voucherRef, {
         usedCount: FieldValue.increment(1)
       });

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Firestore } from 'firebase-admin/firestore';
 import { processServerCheckIn, processServerCheckOut } from '../services/attendanceService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
+import { requireBranchAccess } from '../middleware/requireBranchAccess';
 
 export function createAttendanceRouter(db: Firestore | null): Router {
   const router = Router();
@@ -69,8 +70,8 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     });
   });
 
-  // 2. Authoritative Check-In Endpoint (Requires Firebase Auth Token)
-  router.post('/check-in', authenticateFirebase, async (req: Request, res: Response) => {
+  // 2. Authoritative Check-In Endpoint (Requires Firebase Auth Token & Branch Access)
+  router.post('/check-in', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
       const ip = getClientIp(req);
       const bodyWithAuth = {
@@ -94,8 +95,8 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     }
   });
 
-  // 3. Authoritative Check-Out Endpoint (Requires Firebase Auth Token)
-  router.post('/check-out', authenticateFirebase, async (req: Request, res: Response) => {
+  // 3. Authoritative Check-Out Endpoint (Requires Firebase Auth Token & Branch Access)
+  router.post('/check-out', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
       const bodyWithAuth = {
         ...req.body,
