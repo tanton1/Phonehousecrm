@@ -16,6 +16,9 @@ export interface POSCockpitViewProps {
   partners: Partner[];
   currentBranch: StoreBranch;
   currentUser?: StaffMember | null;
+  preSelectedDevice?: DeviceItem | null;
+  initialCustomer?: { name?: string; phone?: string } | null;
+  tradeInAppraisal?: any | null;
   onNavigateToInvoices?: () => void;
 }
 
@@ -26,6 +29,9 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   partners,
   currentBranch,
   currentUser,
+  preSelectedDevice,
+  initialCustomer,
+  tradeInAppraisal,
   onNavigateToInvoices
 }) => {
   // 1. Cart State
@@ -35,6 +41,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const [discountAmount, setDiscountAmount] = useState(0);
   const [tradeInDeduction, setTradeInDeduction] = useState(0);
   const [tradeInDevice, setTradeInDevice] = useState<DeviceItem | null>(null);
+  const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
 
   // 2. Customer & Payment State
   const [customerName, setCustomerName] = useState('');
@@ -45,6 +52,31 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     return defaultFund?.id || funds[0]?.id || '';
   });
   const [downPaymentAmount, setDownPaymentAmount] = useState(0);
+
+  // Sync incoming contexts
+  useEffect(() => {
+    if (preSelectedDevice) {
+      setSelectedDevices(prev => {
+        if (!prev.some(d => d.id === preSelectedDevice.id)) {
+          return [...prev, preSelectedDevice];
+        }
+        return prev;
+      });
+    }
+  }, [preSelectedDevice]);
+
+  useEffect(() => {
+    if (initialCustomer) {
+      if (initialCustomer.name) setCustomerName(initialCustomer.name);
+      if (initialCustomer.phone) setCustomerPhone(initialCustomer.phone);
+    }
+  }, [initialCustomer]);
+
+  useEffect(() => {
+    if (tradeInAppraisal) {
+      setTradeInDeduction(tradeInAppraisal.suggestedTradeInPrice || tradeInAppraisal.finalAppraisalPrice || 0);
+    }
+  }, [tradeInAppraisal]);
 
   // 3. Thermal Receipt Preview State
   const [receiptData, setReceiptData] = useState<any | null>(null);
@@ -89,8 +121,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       phoneInputRef.current?.select();
     },
     onVoucherOpen: () => {
-      const disc = window.prompt('Nhập số tiền giảm giá / Voucher (VNĐ):', discountAmount.toString());
-      if (disc !== null) setDiscountAmount(parseInt(disc.replace(/\D/g, ''), 10) || 0);
+      setIsDiscountModalOpen(true);
     },
     onPaymentSwitch: handleCyclePaymentMethod,
     onCheckoutSubmit: () => {
@@ -101,6 +132,9 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     onEscape: () => {
       if (receiptData) {
         setReceiptData(null);
+      }
+      if (isDiscountModalOpen) {
+        setIsDiscountModalOpen(false);
       }
     }
   });
@@ -138,7 +172,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       return;
     }
     setSelectedAccessories(prev =>
-      prev.map(item => (item.product.id === productId ? { ...item, quantity } : item))
+      prev.map(item => item.product.id === productId ? { ...item, quantity } : item)
     );
   };
 
@@ -201,31 +235,70 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       }))
     ];
 
-    // Form Pure Intent Payload
-    const purePayload = {
-      idempotencyKey: `POS-${invoiceId}-${Date.now()}`,
+    const newInvoice: SalesInvoice = {
+      id: invoiceId,
+      invoiceCode,
+      createdAt: new Date().toISOString(),
       branchId: currentBranch.id,
-      warehouseId: 'WH01',
-      deviceIds: selectedDevices.map(d => d.id),
-      accessoryLines: selectedAccessories.map(acc => ({
-        productId: acc.product.id,
-        quantity: acc.quantity
-      })),
-      customerId: undefined,
+      branch: currentBranch.name,
+      creatorName: currentUser?.name || 'Thu Ngân',
       customerName: customerName || 'Khách vãng lai',
       customerPhone: customerPhone || '',
-      payment: {
-        method: backendPaymentMethod as any,
-        fundId: selectedFundId,
-        downPayment: isInstallment ? downPaymentAmount : undefined
-      },
-      discountAmount,
-      tradeInDeduction
+      items: [
+        ...selectedDevices.map(d => ({
+          deviceId: d.id,
+          model: d.model,
+          imei: d.imei,
+          color: d.color,
+          price: d.sellPrice || 0,
+          warranty: warrantyPackage
+        })),
+        ...selectedAccessories.map(acc => ({
+          productId: acc.product.id,
+          name: acc.product.name,
+          quantity: acc.quantity,
+          unitPrice: acc.product.price || acc.product.salePrice || 0,
+          totalPrice: (acc.product.price || acc.product.salePrice || 0) * acc.quantity
+        }))
+      ] as any,
+      paidAmount: isInstallment ? downPaymentAmount : finalAmount,
+      debtAmount: isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : 0,
+      status: 'completed'
+    } as any;
+
+    const cashTx: CashTransaction | null = finalAmount > 0 ? {
+      id: `TX-${Date.now()}`,
+      code: invoiceCode,
+      branchId: currentBranch.id,
+      type: 'RECEIPT',
+      category: 'SALES_REVENUE',
+      categoryName: 'Thu bán hàng POS',
+      amount: isInstallment ? downPaymentAmount : finalAmount,
+      fundType: 'CASH',
+      fundName: currentFund?.name || 'Quỹ Tiền Mặt Tại Két',
+      fundId: selectedFundId,
+      date: new Date().toISOString(),
+      creator: currentUser?.name || 'Thu Ngân',
+      notes: `Thu tiền đơn hàng ${invoiceCode} - Khách: ${customerName || 'Vãng lai'}`,
+      referenceCode: invoiceCode,
+      status: 'COMPLETED'
+    } : null;
+
+    const payload = {
+      invoice: newInvoice,
+      devicesToSell: selectedDevices,
+      accessoriesToSell: selectedAccessories,
+      cashTx,
+      tradeInDevice: tradeInDevice,
+      customerPartner: null,
+      financeCompanyPartner: null,
+      fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.balance + (isInstallment ? downPaymentAmount : finalAmount) } : null,
+      idempotencyKey: `POS-${invoiceId}-${Date.now()}`
     };
 
-    const result = await runCheckout(purePayload);
+    const isSuccess = await runCheckout(payload as any);
 
-    if (result.success) {
+    if (isSuccess) {
       // Trigger K80 Thermal Receipt Modal
       setReceiptData({
         id: invoiceId,
@@ -260,21 +333,21 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
 
   return (
     <div className="flex flex-col space-y-3 p-2 sm:p-4 max-w-[1600px] mx-auto min-h-screen">
-      {/* 1. Header Bar with Cockpit Indicators */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+      {/* 1. Header Bar with Brand Recognition */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
         <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center shadow-sm">
-            <Sparkles className="w-5 h-5" />
+          <div className="w-9 h-9 rounded-xl bg-[#ff4b16] text-white flex items-center justify-center shadow-sm font-bold">
+            <Receipt className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h1 className="text-base font-bold text-slate-800 tracking-tight">Bán Hàng POS & Cockpit Thu Ngân</h1>
-              <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60 rounded-full">
-                V1 Enterprise
+              <h1 className="text-base font-bold text-zinc-900 tracking-tight">Bán Hàng POS Thu Ngân</h1>
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-50 text-[#ff4b16] border border-orange-200/60 rounded-full">
+                {currentBranch.name}
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium">
-              Chi nhánh: <b className="text-slate-700">{currentBranch.name}</b> • Thu ngân: <b className="text-slate-700">{currentUser?.name || 'Chưa đăng nhập'}</b>
+            <p className="text-xs text-zinc-500 font-medium">
+              Thu ngân: <b className="text-zinc-700">{currentUser?.name || 'Chưa đăng nhập'}</b>
             </p>
           </div>
         </div>
@@ -283,7 +356,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           {onNavigateToInvoices && (
             <button
               onClick={onNavigateToInvoices}
-              className="text-xs font-semibold text-[#ff4b16] bg-orange-50 hover:bg-orange-100 border border-orange-200 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs"
+              className="text-xs font-semibold text-[#ff4b16] bg-orange-50 hover:bg-orange-100 border border-orange-200 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
             >
               <Receipt className="w-3.5 h-3.5" />
               <span>Lịch Sử Hóa Đơn</span>
@@ -305,6 +378,56 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           >
             Đóng
           </button>
+        </div>
+      )}
+
+      {/* Discount Voucher Dialog */}
+      {isDiscountModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-zinc-200 space-y-4">
+            <h3 className="text-sm font-bold text-zinc-900">Áp Dụng Chiết Khấu / Voucher</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-medium text-zinc-700 mb-1">Số tiền giảm giá (VNĐ):</label>
+                <input
+                  type="number"
+                  value={discountAmount || ''}
+                  onChange={(e) => setDiscountAmount(Number(e.target.value) || 0)}
+                  placeholder="Nhập số tiền..."
+                  className="w-full h-10 px-3 border border-zinc-300 rounded-xl font-bold text-sm text-[#ff4b16] focus:outline-none focus:border-[#ff4b16]"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2">
+                {[100000, 200000, 500000].map(amt => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setDiscountAmount(amt)}
+                    className="flex-1 py-1.5 bg-zinc-100 hover:bg-orange-50 hover:text-[#ff4b16] rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                  >
+                    +{(amt/1000).toLocaleString()}k
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex space-x-2 pt-2 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setDiscountAmount(0)}
+                className="px-3 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl font-bold text-xs cursor-pointer"
+              >
+                Xóa giảm
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDiscountModalOpen(false)}
+                className="flex-1 py-2 bg-[#ff4b16] hover:bg-[#e03e0e] text-white rounded-xl font-bold text-xs cursor-pointer"
+              >
+                Xác Nhận
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

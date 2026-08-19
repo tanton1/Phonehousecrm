@@ -7,6 +7,10 @@ import { RevenueTrendChart } from './components/RevenueTrendChart';
 import { StockSummary } from './components/StockSummary';
 import { Sparkles, RefreshCw } from 'lucide-react';
 
+import { SalesHomeView } from './components/SalesHomeView';
+import { TechHomeView } from './components/TechHomeView';
+import { AccountantHomeView } from './components/AccountantHomeView';
+
 export interface DashboardPageProps {
   invoices: SalesInvoice[];
   devices: DeviceItem[];
@@ -34,6 +38,50 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   onNavigateTab,
   onOpenAICopilot
 }) => {
+  const currentBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
+
+  // 1. Role-Adaptive Home for SALES
+  if (currentUser?.role === 'SALES') {
+    return (
+      <SalesHomeView
+        invoices={invoices}
+        devices={devices}
+        leads={leads}
+        currentBranch={currentBranch}
+        currentUser={currentUser}
+        onNavigateTab={onNavigateTab}
+      />
+    );
+  }
+
+  // 2. Role-Adaptive Home for TECHNICIANS
+  if (currentUser?.role === 'TECHNICIAN' || currentUser?.role === 'TECH' || currentUser?.role === 'TECH_LEAD') {
+    return (
+      <TechHomeView
+        warrantyTickets={warrantyTickets}
+        devices={devices}
+        currentBranch={currentBranch}
+        currentUser={currentUser}
+        onNavigateTab={onNavigateTab}
+      />
+    );
+  }
+
+  // 3. Role-Adaptive Home for ACCOUNTANTS
+  if (currentUser?.role === 'ACCOUNTANT') {
+    return (
+      <AccountantHomeView
+        invoices={invoices}
+        funds={funds}
+        partners={partners}
+        currentBranch={currentBranch}
+        currentUser={currentUser}
+        onNavigateTab={onNavigateTab}
+      />
+    );
+  }
+
+  // 4. Executive Dashboard for ADMIN & MANAGERS
   const metrics = useDashboardMetrics({
     invoices,
     devices,

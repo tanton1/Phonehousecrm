@@ -117,3 +117,44 @@ export const MOBILE_PRIMARY_TABS = [
   { id: 'crm', label: 'CRM Lead', icon: Users },
   { id: 'more', label: 'Thêm', icon: Settings }
 ];
+
+export function getMobilePrimaryTabs(userRole?: string) {
+  if (userRole === 'SALES') {
+    return [
+      { id: 'dashboard', label: 'Hôm nay', icon: LayoutDashboard },
+      { id: 'pos', label: 'Bán POS', icon: ShoppingCart },
+      { id: 'crm', label: 'Khách CRM', icon: Users },
+      { id: 'omnichannel-chat', label: 'Inbox', icon: MessageSquare },
+      { id: 'more', label: 'Thêm', icon: Settings }
+    ];
+  }
+
+  if (userRole === 'TECHNICIAN' || userRole === 'TECH' || userRole === 'TECH_LEAD') {
+    return [
+      { id: 'dashboard', label: 'Bàn thợ', icon: Cpu },
+      { id: 'warranty', label: 'Sửa chữa', icon: Wrench },
+      { id: 'products', label: 'Linh kiện', icon: Package },
+      { id: 'checkin-portal', label: 'Điểm danh', icon: ScanFace },
+      { id: 'more', label: 'Thêm', icon: Settings }
+    ];
+  }
+
+  if (userRole === 'ACCOUNTANT') {
+    return [
+      { id: 'dashboard', label: 'Tài chính', icon: Wallet },
+      { id: 'funds', label: 'Sổ quỹ', icon: Wallet },
+      { id: 'invoices', label: 'Hóa đơn', icon: Receipt },
+      { id: 'partners', label: 'Công nợ', icon: Building2 },
+      { id: 'more', label: 'Thêm', icon: Settings }
+    ];
+  }
+
+  // Default for ADMIN / MANAGER
+  return [
+    { id: 'dashboard', label: 'Điều hành', icon: LayoutDashboard },
+    { id: 'pos', label: 'Bán POS', icon: ShoppingCart },
+    { id: 'inventory', label: 'Kho hàng', icon: Package },
+    { id: 'reports', label: 'Báo cáo', icon: BarChart3 },
+    { id: 'more', label: 'Thêm', icon: Settings }
+  ];
+}

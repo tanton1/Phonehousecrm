@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MOBILE_PRIMARY_TABS } from './navigationConfig';
+import { MOBILE_PRIMARY_TABS, getMobilePrimaryTabs } from './navigationConfig';
 import { getAuthorizedNavigation } from './permissionNavigation';
 import { X } from 'lucide-react';
 
@@ -16,6 +16,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
 }) => {
   const [isMoreDrawerOpen, setIsMoreDrawerOpen] = useState(false);
   const navGroups = getAuthorizedNavigation(userRole);
+  const primaryTabs = getMobilePrimaryTabs(userRole);
 
   const handleTabClick = (tabId: string) => {
     if (tabId === 'menu' || tabId === 'more') {
@@ -29,7 +30,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     <>
       {/* 1. Fixed Bottom Navigation Bar */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        {MOBILE_PRIMARY_TABS.map(tab => {
+        {primaryTabs.map(tab => {
           const Icon = tab.icon;
           const isActive = tab.id === 'menu' ? isMoreDrawerOpen : activeTab === tab.id;
 

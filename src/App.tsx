@@ -48,6 +48,7 @@ import { TradeInCockpitView } from './features/tradein/components/TradeInCockpit
 import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
 import { OmnichannelChatView } from './features/chat/components/OmnichannelChatView';
 import { MonthlyPayrollTable } from './features/payroll/components/MonthlyPayrollTable';
+import { ReportsPage } from './features/reports/ReportsPage';
 
 import { PurchaseOrdersView } from './components/PurchaseOrdersView';
 import { InventoryView } from './components/InventoryView';
@@ -339,6 +340,8 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
   const [posPreSelectedDevice, setPosPreSelectedDevice] = useState<DeviceItem | null>(null);
+  const [posCustomerContext, setPosCustomerContext] = useState<{ name?: string; phone?: string } | null>(null);
+  const [posTradeInContext, setPosTradeInContext] = useState<any | null>(null);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(true);
 
   // Global Branch Selection for ADMIN
@@ -1460,7 +1463,7 @@ export default function App() {
           />
         )}
 
-        {(activeTab === 'dashboard' || activeTab === 'reports') && (
+        {activeTab === 'dashboard' && (
           <DashboardPage
             invoices={filteredInvoices}
             devices={filteredDevices}
@@ -1482,6 +1485,27 @@ export default function App() {
             } : null}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
+          />
+        )}
+
+        {activeTab === 'reports' && (
+          <ReportsPage
+            invoices={filteredInvoices}
+            devices={filteredDevices}
+            warrantyTickets={filteredWarrantyTickets}
+            funds={funds}
+            branches={branches}
+            selectedBranchId={selectedBranchId}
+            currentUser={currentUser ? {
+              id: currentUser.id,
+              uid: currentUser.id,
+              name: currentUser.displayName,
+              email: currentUser.email,
+              role: currentUser.role,
+              branchId: currentUser.branchId || 'CN01',
+              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
+              isActive: currentUser.active
+            } : null}
           />
         )}
 
@@ -1518,7 +1542,12 @@ export default function App() {
             onAddPurchaseOrder={handleAddPurchaseOrder}
             onUpdateDevice={handleUpdateDevice}
             onDeleteDevice={handleDeleteDevice}
-            onQuickSell={handleQuickSell}
+            onQuickSell={(device) => {
+              setPosPreSelectedDevice(device);
+              setPosCustomerContext(null);
+              setPosTradeInContext(null);
+              setActiveTab('pos');
+            }}
             onOpenTransferModal={() => setActiveTab('transfers')}
             onAddCashTransaction={handleAddCashTransaction}
             onUpdatePartner={handleUpdatePartner}
@@ -1569,7 +1598,12 @@ export default function App() {
           <LeadKanbanBoard
             leads={filteredLeads}
             onSelectLead={(lead) => {
-              // Select lead
+              setPosCustomerContext({ name: lead.name, phone: lead.phone });
+              if (lead.interestedModel) {
+                const found = devices.find(d => d.status === 'in_stock' && d.model.toLowerCase().includes(lead.interestedModel.toLowerCase()));
+                if (found) setPosPreSelectedDevice(found);
+              }
+              setActiveTab('pos');
             }}
             onUpdateLeadStatus={async (leadId, newStatus) => {
               const lead = leads.find(l => l.id === leadId);
@@ -1578,7 +1612,25 @@ export default function App() {
               }
             }}
             onOpenCreateModal={() => {
-              // Open create lead
+              const name = window.prompt('Nhập tên khách hàng tiềm năng:');
+              if (!name) return;
+              const phone = window.prompt('Nhập số điện thoại khách:') || '';
+              const model = window.prompt('Dòng máy khách quan tâm (vd: iPhone 15 Pro Max):') || '';
+              const newLead: Lead = {
+                id: `LEAD-${Date.now()}`,
+                name,
+                phone,
+                interestedModel: model,
+                source: 'Facebook Ads',
+                status: 'new',
+                createdAt: new Date().toISOString(),
+                assignedStaff: currentUser?.displayName || 'Chuyên viên',
+                budget: 0,
+                tradeInRequirose: false,
+                followUpDate: new Date().toISOString().split('T')[0],
+                notes: 'Tạo từ Kanban CRM'
+              };
+              handleAddLead(newLead);
             }}
           />
         )}
@@ -1590,6 +1642,11 @@ export default function App() {
               if (selectedDevice) {
                 setPosPreSelectedDevice(selectedDevice);
               }
+              setPosCustomerContext({
+                name: conversation.customerName,
+                phone: conversation.customerPhone
+              });
+              setPosTradeInContext(null);
               setActiveTab('pos');
             }}
           />
@@ -1611,6 +1668,12 @@ export default function App() {
             } : null}
             onCompleteTradeInToPOS={(appraisal, targetDevice) => {
               handleAddTradeIn(appraisal);
+              if (targetDevice) setPosPreSelectedDevice(targetDevice);
+              setPosCustomerContext({
+                name: appraisal.customerName || 'Khách Thu Cũ',
+                phone: appraisal.customerPhone || ''
+              });
+              setPosTradeInContext(appraisal);
               setActiveTab('pos');
             }}
           />
@@ -1622,7 +1685,7 @@ export default function App() {
             branches={branches}
             selectedBranchId={selectedBranchId}
             onSelectTicket={(ticket) => {
-              // Select ticket
+              alert(`Chi tiết phiếu ${ticket.ticketNumber}:\nKhách: ${ticket.customerName} (${ticket.phone})\nMáy: ${ticket.model}\nLỗi: ${ticket.faultDescription || ticket.issueType}\nKTV: ${ticket.technician || 'Chưa gán'}`);
             }}
             onUpdateTicketStatus={async (ticketId, newStatus) => {
               const t = warrantyTickets.find(w => w.id === ticketId);
@@ -1631,7 +1694,30 @@ export default function App() {
               }
             }}
             onOpenCreateModal={() => {
-              // Open create ticket
+              const customerName = window.prompt('Tên khách hàng tiếp nhận máy:');
+              if (!customerName) return;
+              const phone = window.prompt('Số điện thoại khách:') || '';
+              const model = window.prompt('Model máy (vd: iPhone 13 Pro 128GB):') || 'iPhone';
+              const fault = window.prompt('Mô tả tình trạng lỗi (vd: Màn sọc xanh, liệt cảm ứng):') || 'Lỗi chức năng';
+              const newTicket: WarrantyTicket = {
+                id: `TICKET-${Date.now()}`,
+                ticketNumber: `SC-${Date.now().toString().slice(-4)}`,
+                customerName,
+                phone,
+                model,
+                imei: '358' + Math.floor(100000000000 + Math.random() * 900000000000),
+                faultDescription: fault,
+                issueType: 'Màn Hình / Cảm Ứng',
+                status: 'received',
+                technician: currentUser?.displayName || 'KTV Ca trực',
+                branchId: branches[0]?.id || 'CN01',
+                isWarrantyFree: false,
+                estimatedCost: 1500000,
+                finalCost: 1500000,
+                receivedDate: new Date().toISOString(),
+                expectedReturnDate: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
+              };
+              handleAddWarrantyTicket(newTicket);
             }}
           />
         )}
@@ -1653,6 +1739,9 @@ export default function App() {
               assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
               isActive: currentUser.active
             } : null}
+            preSelectedDevice={posPreSelectedDevice}
+            initialCustomer={posCustomerContext}
+            tradeInAppraisal={posTradeInContext}
             onNavigateToInvoices={() => setActiveTab('invoices')}
           />
         )}
@@ -1697,7 +1786,30 @@ export default function App() {
             branches={branches}
             selectedBranchId={selectedBranchId}
             onOpenCreateModal={(type) => {
-              // Open create transaction modal
+              const amountStr = window.prompt(`Nhập số tiền ${type === 'RECEIPT' ? 'THU' : 'CHI'} (VNĐ):`);
+              if (!amountStr) return;
+              const amount = parseInt(amountStr.replace(/\D/g, ''), 10) || 0;
+              const reason = window.prompt('Nhập lý do thu/chi:') || 'Giao dịch thu chi nội bộ';
+              const targetFund = funds[0];
+              const newTx: CashTransaction = {
+                id: `TX-${Date.now()}`,
+                code: `PTC-${Date.now().toString().slice(-4)}`,
+                branchId: branches[0]?.id || 'CN01',
+                type,
+                category: type === 'RECEIPT' ? 'SALES_REVENUE' : 'OTHER_EXPENSE',
+                categoryName: type === 'RECEIPT' ? 'Thu bán hàng POS' : 'Chi phí khác',
+                amount,
+                fundType: 'CASH',
+                fundName: targetFund?.name || 'Quỹ Tiền Mặt Tại Két',
+                fundId: targetFund?.id || 'FUND-01',
+                date: new Date().toISOString(),
+                creator: currentUser?.displayName || 'Nhân viên',
+                notes: reason,
+                referenceCode: `PTC-${Date.now().toString().slice(-4)}`,
+                status: 'COMPLETED'
+              };
+              handleAddCashTransaction(newTx);
+              alert(`Đã lập thành công phiếu ${type === 'RECEIPT' ? 'THU' : 'CHI'} ${amount.toLocaleString('vi-VN')} đ!`);
             }}
           />
         )}
