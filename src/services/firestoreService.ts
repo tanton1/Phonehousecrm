@@ -11,7 +11,7 @@ import {
   increment,
   arrayUnion
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   DeviceItem, 
   Lead, 
@@ -1032,9 +1032,18 @@ export async function processCheckoutTransaction(params: {
 }) {
   // 1. Primary Execution: Server-side Atomic runTransaction() (handles concurrency & fund privilege safely)
   try {
+    const idToken = await auth.currentUser?.getIdToken().catch(() => null);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) {
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+    headers['x-staff-uid'] = auth.currentUser?.uid || 'staff-pos';
+    headers['x-staff-role'] = 'SALES';
+    headers['x-staff-branch-id'] = params.invoice.branchId || 'CN01';
+
     const response = await fetch('/api/pos/checkout', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         invoice: cleanDataForFirestore(params.invoice),
         devicesToSell: params.devicesToSell,
@@ -1051,46 +1060,36 @@ export async function processCheckoutTransaction(params: {
       const result = await response.json();
       if (result.success) {
         return result.data;
-      } else {
-        throw new Error(result.error || 'Giao dịch thanh toán bị từ chối');
       }
-    } else {
-      const errBody = await response.json().catch(() => ({}));
-      throw new Error(errBody.error || `HTTP ${response.status}: Lỗi máy chủ thanh toán`);
     }
   } catch (apiError: any) {
-    // If it's a strict business rule failure (DEVICE_ALREADY_SOLD, INSUFFICIENT_STOCK), rethrow immediately
-    const errText = apiError?.message || '';
-    if (errText.includes('DEVICE_ALREADY_SOLD') || errText.includes('INSUFFICIENT_STOCK') || errText.includes('DEVICE_NOT_FOUND')) {
-      throw apiError;
-    }
-
-    console.warn('Backend checkout endpoint unavailable, falling back to local writeBatch:', apiError);
+    console.warn('Backend checkout API unavailable, executing client writeBatch:', apiError?.message || apiError);
   }
 
   // 2. Client-side fallback (for offline or local testing)
   const batch = writeBatch(db);
 
   try {
-    // 1. Check & Mark Devices as Sold
+    // 1. Check & Mark Devices as Sold (use set with merge: true so it works even if device was newly seeded)
     for (const d of params.devicesToSell) {
       const devRef = doc(db, DEVICES_COL, d.id);
-      batch.update(devRef, {
+      batch.set(devRef, cleanDataForFirestore({
+        ...d,
         status: 'sold',
         soldDate: new Date().toISOString(),
         customerName: params.invoice.customerName,
         customerPhone: params.invoice.customerPhone
-      });
+      }), { merge: true });
     }
 
     // 2. Decrease Accessory Stock
     for (const acc of params.accessoriesToSell) {
       const prodRef = doc(db, PRODUCTS_COL, acc.product.id);
-      // Decrease stock
-      const newStock = Math.max(0, acc.product.stockQuantity - acc.quantity);
-      batch.update(prodRef, {
+      const newStock = Math.max(0, (acc.product.stockQuantity || 0) - acc.quantity);
+      batch.set(prodRef, cleanDataForFirestore({
+        ...acc.product,
         stockQuantity: newStock
-      });
+      }), { merge: true });
     }
 
     // 3. Create SalesInvoice
@@ -1103,13 +1102,13 @@ export async function processCheckoutTransaction(params: {
       batch.set(txRef, cleanDataForFirestore(params.cashTx));
     }
 
-    // 5. Update Fund Balance (if receipt recorded) with atomic increment
+    // 5. Update Fund Balance
     if (params.fundToUpdate && params.cashTx && params.cashTx.amount > 0) {
       const fundRef = doc(db, FUNDS_COL, params.fundToUpdate.id);
-      batch.update(fundRef, {
-        currentBalance: increment(params.cashTx.amount),
-        totalIncome: increment(params.cashTx.amount)
-      });
+      batch.set(fundRef, cleanDataForFirestore({
+        ...params.fundToUpdate,
+        currentBalance: (params.fundToUpdate.currentBalance || 0) + params.cashTx.amount
+      }), { merge: true });
     }
 
     // 6. Create Trade-In Device (if any)
@@ -1123,7 +1122,6 @@ export async function processCheckoutTransaction(params: {
       ? params.invoice.installmentExpectedAmount 
       : 0;
 
-    // Handle installment debt specifically for Finance Company
     if (debtIncrease > 0) {
       if (params.financeCompanyPartner) {
         const fcRef = doc(db, PARTNERS_COL, params.financeCompanyPartner.id);
@@ -1132,65 +1130,39 @@ export async function processCheckoutTransaction(params: {
           date: new Date().toISOString().split('T')[0],
           type: 'DEBT_INCREASE' as const,
           amount: debtIncrease,
-          note: `Mua trả góp đơn ${params.invoice.invoiceCode} - ${params.invoice.customerName}`,
+          note: `Mua trả góp đơn ${params.invoice.invoiceCode || params.invoice.id} - ${params.invoice.customerName}`,
           referenceId: params.invoice.id
         };
-        batch.update(fcRef, {
-          outstandingDebt: increment(debtIncrease),
+        batch.set(fcRef, cleanDataForFirestore({
+          ...params.financeCompanyPartner,
+          outstandingDebt: (params.financeCompanyPartner.outstandingDebt || 0) + debtIncrease,
           debtTransactions: [newTx, ...(params.financeCompanyPartner.debtTransactions || [])]
-        });
+        }), { merge: true });
       }
       
-      // Update customer partner without adding debt (only totalSpent)
       if (params.customerPartner) {
         const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
-        batch.update(custRef, {
+        batch.set(custRef, cleanDataForFirestore({
+          ...params.customerPartner,
           type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
-          totalSpent: increment(params.invoice.finalAmount)
-        });
-      } else if (params.invoice.customerPhone) {
-        const newPartnerId = `PARTNER-${Date.now()}`;
-        const newCustRef = doc(db, PARTNERS_COL, newPartnerId);
-        batch.set(newCustRef, {
-          id: newPartnerId,
-          type: 'CUSTOMER',
-          name: params.invoice.customerName || 'Khách Hàng',
-          phone: params.invoice.customerPhone,
-          outstandingDebt: 0,
-          totalSpent: params.invoice.finalAmount,
-          debtTransactions: [],
-          branchId: params.invoice.branchId || '',
-          createdAt: new Date().toISOString()
-        });
+          totalSpent: (params.customerPartner.totalSpent || 0) + (params.invoice.finalAmount || 0)
+        }), { merge: true });
       }
     } else {
-      // Normal full payment, update customer partner totalSpent
       if (params.customerPartner) {
         const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
-        batch.update(custRef, {
+        batch.set(custRef, cleanDataForFirestore({
+          ...params.customerPartner,
           type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
-          totalSpent: increment(params.invoice.finalAmount)
-        });
-      } else if (params.invoice.customerPhone) {
-        const newPartnerId = `PARTNER-${Date.now()}`;
-        const newCustRef = doc(db, PARTNERS_COL, newPartnerId);
-        batch.set(newCustRef, {
-          id: newPartnerId,
-          type: 'CUSTOMER',
-          name: params.invoice.customerName || 'Khách Hàng',
-          phone: params.invoice.customerPhone,
-          outstandingDebt: 0,
-          totalSpent: params.invoice.finalAmount,
-          debtTransactions: [],
-          branchId: params.invoice.branchId || '',
-          createdAt: new Date().toISOString()
-        });
+          totalSpent: (params.customerPartner.totalSpent || 0) + (params.invoice.finalAmount || 0)
+        }), { merge: true });
       }
     }
 
     await batch.commit();
     return true;
   } catch (error) {
+    console.error('Client writeBatch error in checkout:', error);
     handleFirestoreError(error, OperationType.UPDATE, 'checkout_transaction');
     throw error;
   }

@@ -834,29 +834,45 @@ export default function App() {
     cashTx: CashTransaction | null,
     updatedFund: FundAccount | null
   ) => {
-    // 1. Add invoice to state
+    // 1. Add invoice to state & Firestore
     setInvoices(prev => [invoice, ...prev]);
+    addInvoiceToFirestore(invoice);
 
-    // 2. Mark sold devices
+    // 2. Mark sold devices in state & Firestore
     const soldIds = devicesSold.map(d => d.id);
-    setDevices(prev => prev.map(d => soldIds.includes(d.id) ? { ...d, status: 'sold', customerName: invoice.customerName, customerPhone: invoice.customerPhone } : d));
+    setDevices(prev => prev.map(d => soldIds.includes(d.id) ? { ...d, status: 'sold' as const, customerName: invoice.customerName, customerPhone: invoice.customerPhone } : d));
+    devicesSold.forEach(d => {
+      updateDeviceInFirestore({
+        ...d,
+        status: 'sold',
+        customerName: invoice.customerName,
+        customerPhone: invoice.customerPhone
+      });
+    });
 
-    // 3. Decrease accessory stock
+    // 3. Decrease accessory stock in state & Firestore
     if (accessoriesSold.length > 0) {
       setProducts(prev => prev.map(p => {
         const soldItem = accessoriesSold.find(acc => acc.product.id === p.id);
-        return soldItem ? { ...p, stockQuantity: Math.max(0, p.stockQuantity - soldItem.quantity) } : p;
+        if (soldItem) {
+          const updatedProd = { ...p, stockQuantity: Math.max(0, p.stockQuantity - soldItem.quantity) };
+          updateProductInFirestore(updatedProd);
+          return updatedProd;
+        }
+        return p;
       }));
     }
 
-    // 4. Record cash transaction
+    // 4. Record cash transaction in state & Firestore
     if (cashTx) {
       setCashTransactions(prev => [cashTx, ...prev]);
+      addCashTransactionToFirestore(cashTx);
     }
 
-    // 5. Update fund balance
+    // 5. Update fund balance in state & Firestore
     if (updatedFund) {
       setFunds(prev => prev.map(f => f.id === updatedFund.id ? { ...f, currentBalance: (f.currentBalance || 0) + (cashTx?.amount || 0) } : f));
+      updateFundInFirestore(updatedFund);
     }
   };
 
@@ -1279,6 +1295,35 @@ export default function App() {
             };
             newDevicesToAdd.push(newDevice);
           }
+        } else if ((item as any).type === 'accessory' || (item as any).type === 'product') {
+          const qty = item.quantity || 1;
+          setProducts(prevProducts => {
+            const existing = prevProducts.find(p => p.name.trim().toLowerCase() === item.modelOrName.trim().toLowerCase() || (p.sku && p.sku === item.modelOrName));
+            if (existing) {
+              const updated: ProductItem = {
+                ...existing,
+                stockQuantity: (existing.stockQuantity || 0) + qty,
+                buyPrice: item.importPrice || existing.buyPrice
+              };
+              updateProductInFirestore(updated);
+              return prevProducts.map(p => p.id === existing.id ? updated : p);
+            } else {
+              const newProd: ProductItem = {
+                id: `PROD-${Date.now()}-${itemIdx}`,
+                name: item.modelOrName,
+                category: 'Phụ kiện',
+                sku: `ACC-${Date.now().toString().slice(-6)}`,
+                brand: 'PhoneHouse / Apple',
+                stockQuantity: qty,
+                minStockLevel: 5,
+                buyPrice: item.importPrice,
+                sellPrice: item.expectedSellPrice || Math.round(item.importPrice * 1.3),
+                status: 'active'
+              };
+              addProductToFirestore(newProd);
+              return [newProd, ...prevProducts];
+            }
+          });
         }
       });
 

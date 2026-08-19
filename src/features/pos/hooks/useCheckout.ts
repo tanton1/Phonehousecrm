@@ -58,8 +58,10 @@ export function useCheckout() {
         console.warn('Backend/Firestore transaction fallback mode:', firestoreErr?.message || firestoreErr);
         // Persist to localStorage directly as resilient fallback
         try {
-          const localInvoices = JSON.parse(localStorage.getItem('phonehouse_invoices') || '[]');
-          localStorage.setItem('phonehouse_invoices', JSON.stringify([payload.invoice, ...localInvoices]));
+          const localInvoices = JSON.parse(localStorage.getItem('istore_invoices') || localStorage.getItem('phonehouse_invoices') || '[]');
+          const updated = [payload.invoice, ...localInvoices.filter((i: any) => i.id !== payload.invoice.id)];
+          localStorage.setItem('istore_invoices', JSON.stringify(updated));
+          localStorage.setItem('phonehouse_invoices', JSON.stringify(updated));
         } catch (e) {
           console.error('LocalStorage write error:', e);
         }

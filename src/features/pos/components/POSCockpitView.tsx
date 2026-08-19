@@ -256,29 +256,72 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       branchId: currentBranch.id,
       branch: currentBranch.name,
       creatorName: currentUser?.name || 'Thu Ngân',
-      customerName: customerName || 'Khách vãng lai',
-      customerPhone: customerPhone || '',
+      customerName: customerName.trim() || 'Khách vãng lai',
+      customerPhone: customerPhone.trim() || '',
+      phone: customerPhone.trim() || '',
+      status: 'completed',
+      totalAmount,
+      discountAmount,
+      tradeInDeduction,
+      tradeInDiscount: tradeInDeduction,
+      finalAmount,
+      paidAmount: isInstallment ? downPaymentAmount : finalAmount,
+      debtAmount: isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : 0,
+      paymentMethod: paymentMethod as any,
+      warrantyPackage,
+      downPayment: isInstallment ? downPaymentAmount : undefined,
+      installmentCompany: isInstallment ? 'Home Credit / HD Saison / Mpos' : undefined,
+      imeiList: selectedDevices.map(d => d.imei).filter(Boolean),
+      devices: selectedDevices.map(d => ({
+        model: d.model,
+        imei: d.imei,
+        price: d.sellPrice || 0,
+        color: d.color,
+        storage: d.storage
+      })),
+      accessories: selectedAccessories.map(acc => ({
+        name: acc.product.name,
+        price: acc.product.price || acc.product.salePrice || 0,
+        quantity: acc.quantity
+      })),
       items: [
         ...selectedDevices.map(d => ({
-          deviceId: d.id,
           model: d.model,
           imei: d.imei,
-          color: d.color,
           price: d.sellPrice || 0,
-          warranty: warrantyPackage
+          color: d.color,
+          storage: d.storage
         })),
         ...selectedAccessories.map(acc => ({
-          productId: acc.product.id,
+          model: acc.product.name,
+          imei: '',
+          price: acc.product.price || acc.product.salePrice || 0,
+          color: '',
+          storage: ''
+        }))
+      ],
+      detailedItems: [
+        ...selectedDevices.map(d => ({
+          sku: d.sku || d.model,
+          name: d.model,
+          quantity: 1,
+          unitPrice: d.sellPrice || 0,
+          totalPrice: d.sellPrice || 0,
+          imei: d.imei,
+          type: 'device' as const,
+          color: d.color,
+          storage: d.storage
+        })),
+        ...selectedAccessories.map(acc => ({
+          sku: acc.product.sku || acc.product.name,
           name: acc.product.name,
           quantity: acc.quantity,
           unitPrice: acc.product.price || acc.product.salePrice || 0,
-          totalPrice: (acc.product.price || acc.product.salePrice || 0) * acc.quantity
+          totalPrice: (acc.product.price || acc.product.salePrice || 0) * acc.quantity,
+          type: 'accessory' as const
         }))
-      ] as any,
-      paidAmount: isInstallment ? downPaymentAmount : finalAmount,
-      debtAmount: isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : 0,
-      status: 'completed'
-    } as any;
+      ]
+    };
 
     const cashTx: CashTransaction | null = finalAmount > 0 ? {
       id: `TX-${Date.now()}`,
