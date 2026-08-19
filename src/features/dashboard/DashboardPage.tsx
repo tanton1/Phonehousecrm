@@ -67,13 +67,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const currentBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
   const currentBranchName = branches.find(b => b.id === selectedBranchId)?.name || 'Toàn Hệ Thống PhoneHouse';
 
-  // 1. Role-Adaptive Home for SALES
+  // 1. Role-Adaptive Home for SALES (Integrated Cockpit & KPI Center)
   if (currentUser?.role === 'SALES' || currentUser?.role === 'SALE') {
     return (
       <SalesHomeView
         invoices={invoices}
         devices={devices}
         leads={leads}
+        warrantyTickets={warrantyTickets}
+        funds={funds}
+        partners={partners}
+        branches={branches}
         currentBranch={currentBranch}
         currentUser={currentUser}
         onNavigateTab={onNavigateTab}
