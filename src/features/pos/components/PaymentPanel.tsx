@@ -3,6 +3,19 @@ import { FundAccount, Partner } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
 import { User, Phone, Wallet, CreditCard, Receipt, Loader2, CheckCircle2, ShieldCheck, Plus, QrCode, ArrowRight, Coins, Building, Search, Star, Check } from 'lucide-react';
 
+export interface SplitPaymentData {
+  isSplitMode: boolean;
+  splitCash: number;
+  splitCashFundId: string;
+  splitBank1: number;
+  splitBankFundId1: string;
+  splitBank2: number;
+  splitBankFundId2: string;
+  splitCard: number;
+  splitCardFundId: string;
+  splitDebt: number;
+}
+
 export interface PaymentPanelProps {
   customerName: string;
   customerPhone: string;
@@ -18,7 +31,7 @@ export interface PaymentPanelProps {
   downPaymentAmount: number;
   onChangeDownPayment: (amount: number) => void;
   isProcessing: boolean;
-  onExecuteCheckout: () => void;
+  onExecuteCheckout: (splitData?: SplitPaymentData) => void;
   phoneInputRef?: React.RefObject<HTMLInputElement | null>;
   partners?: Partner[];
   onSelectCustomer?: (partner: Partner) => void;
@@ -49,23 +62,49 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   const [showQRModal, setShowQRModal] = useState(false);
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
-  // Multi-Payment / Split Tender State
+  // Group funds by type for intuitive identification
+  const cashFunds = useMemo(() => funds.filter(f => f.type === 'CASH' || f.name.toLowerCase().includes('tiền mặt') || f.name.toLowerCase().includes('két')), [funds]);
+  const bankFunds = useMemo(() => funds.filter(f => f.type === 'BANK' || f.name.toLowerCase().includes('ngân hàng') || f.bankName || f.accountNumber), [funds]);
+  const cardFunds = useMemo(() => funds.filter(f => f.type === 'CARD' || f.name.toLowerCase().includes('pos') || f.name.toLowerCase().includes('thẻ')), [funds]);
+
+  // Multi-Payment / Split Tender State (Supports 2 separate bank accounts!)
   const [isSplitMode, setIsSplitMode] = useState<boolean>(false);
   const [splitCash, setSplitCash] = useState<number>(0);
-  const [splitBank, setSplitBank] = useState<number>(finalAmount);
+  const [splitCashFundId, setSplitCashFundId] = useState<string>(() => cashFunds[0]?.id || funds[0]?.id || '');
+  
+  const [splitBank1, setSplitBank1] = useState<number>(finalAmount);
+  const [splitBankFundId1, setSplitBankFundId1] = useState<string>(() => bankFunds[0]?.id || funds[0]?.id || '');
+  
+  const [hasSecondBankTransfer, setHasSecondBankTransfer] = useState<boolean>(false);
+  const [splitBank2, setSplitBank2] = useState<number>(0);
+  const [splitBankFundId2, setSplitBankFundId2] = useState<string>(() => bankFunds[1]?.id || bankFunds[0]?.id || funds[0]?.id || '');
+  
   const [splitCard, setSplitCard] = useState<number>(0);
+  const [splitCardFundId, setSplitCardFundId] = useState<string>(() => cardFunds[0]?.id || funds[0]?.id || '');
+  
   const [splitDebt, setSplitDebt] = useState<number>(0);
 
   // Auto sync when finalAmount changes
   useEffect(() => {
     setCashGiven(finalAmount);
     if (!isSplitMode) {
-      setSplitBank(finalAmount);
+      setSplitBank1(finalAmount);
+      setSplitBank2(0);
       setSplitCash(0);
       setSplitCard(0);
       setSplitDebt(0);
     }
   }, [finalAmount, isSplitMode]);
+
+  // Ensure default fund selections when funds are loaded
+  useEffect(() => {
+    if (!selectedFundId && funds.length > 0) {
+      onSelectFundId(funds[0].id);
+    }
+    if (!splitCashFundId && cashFunds.length > 0) setSplitCashFundId(cashFunds[0].id);
+    if (!splitBankFundId1 && bankFunds.length > 0) setSplitBankFundId1(bankFunds[0].id);
+    if (!splitBankFundId2 && bankFunds.length > 1) setSplitBankFundId2(bankFunds[1].id);
+  }, [funds, cashFunds, bankFunds, selectedFundId, splitCashFundId, splitBankFundId1, splitBankFundId2, onSelectFundId]);
 
   // Search existing customers
   const matchingCustomers = useMemo(() => {
@@ -110,7 +149,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   const expectedDisbursement = Math.max(0, finalAmount - downPaymentAmount);
 
   // Split sum calculations
-  const totalSplit = splitCash + splitBank + splitCard + splitDebt;
+  const totalSplit = splitCash + splitBank1 + (hasSecondBankTransfer ? splitBank2 : 0) + splitCard + splitDebt;
   const splitDiff = totalSplit - finalAmount;
 
   // Quick tender suggestions
@@ -137,11 +176,70 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
 
   const changeDue = Math.max(0, (cashGiven || finalAmount) - finalAmount);
 
+  // Find active bank fund for VietQR
+  const activeBankFund = funds.find(f => f.id === (isSplitMode ? splitBankFundId1 : selectedFundId)) || bankFunds[0] || funds[0];
+  const vietQrAccount = activeBankFund?.accountNumber || '1903678999999';
+  const vietQrBankName = activeBankFund?.bankName || 'Techcombank';
+
   // Dynamic VietQR Techcombank URL simulation
-  const vietQrUrl = `https://img.vietqr.io/image/970407-1903678999999-compact2.png?amount=${isSplitMode ? splitBank : finalAmount}&addInfo=PhoneHouse%20POS%20${customerPhone || 'DonHang'}&accountName=PHONEHOUSE%20RETAIL`;
+  const vietQrUrl = `https://img.vietqr.io/image/970407-${vietQrAccount}-compact2.png?amount=${isSplitMode ? splitBank1 : finalAmount}&addInfo=PhoneHouse%20POS%20${customerPhone || 'DonHang'}&accountName=PHONEHOUSE%20RETAIL`;
+
+  const handleSubmitCheckout = () => {
+    if (isSplitMode) {
+      if (splitDiff !== 0) {
+        alert(`Tổng tiền các phương thức (${totalSplit.toLocaleString('vi-VN')} đ) chưa khớp với tổng đơn hàng (${finalAmount.toLocaleString('vi-VN')} đ)!`);
+        return;
+      }
+      if (splitCash > 0 && !splitCashFundId) {
+        alert('Vui lòng chọn Két tiền mặt nhận tiền cho khoản thanh toán tiền mặt!');
+        return;
+      }
+      if (splitBank1 > 0 && !splitBankFundId1) {
+        alert('Vui lòng chọn Tài khoản ngân hàng nhận tiền cho khoản chuyển khoản 1!');
+        return;
+      }
+      if (hasSecondBankTransfer && splitBank2 > 0 && !splitBankFundId2) {
+        alert('Vui lòng chọn Tài khoản ngân hàng nhận tiền cho khoản chuyển khoản 2!');
+        return;
+      }
+      if (splitCard > 0 && !splitCardFundId) {
+        alert('Vui lòng chọn Tài khoản POS nhận tiền cho khoản cà thẻ!');
+        return;
+      }
+      onExecuteCheckout({
+        isSplitMode: true,
+        splitCash,
+        splitCashFundId,
+        splitBank1,
+        splitBankFundId1,
+        splitBank2: hasSecondBankTransfer ? splitBank2 : 0,
+        splitBankFundId2: hasSecondBankTransfer ? splitBankFundId2 : '',
+        splitCard,
+        splitCardFundId,
+        splitDebt
+      });
+    } else {
+      if (!selectedFundId) {
+        alert('BẮT BUỘC: Vui lòng chọn tài khoản ngân hàng hoặc két tiền mặt nhận tiền!');
+        return;
+      }
+      onExecuteCheckout({
+        isSplitMode: false,
+        splitCash: isCash ? finalAmount : 0,
+        splitCashFundId: isCash ? selectedFundId : '',
+        splitBank1: isVietQR ? finalAmount : 0,
+        splitBankFundId1: isVietQR ? selectedFundId : '',
+        splitBank2: 0,
+        splitBankFundId2: '',
+        splitCard: paymentMethod.includes('thẻ') ? finalAmount : 0,
+        splitCardFundId: paymentMethod.includes('thẻ') ? selectedFundId : '',
+        splitDebt: isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : 0
+      });
+    }
+  };
 
   return (
-    <div className="bg-white p-3 sm:p-4 flex flex-col h-full space-y-3 overflow-y-auto pb-28 lg:pb-4">
+    <div className="bg-white p-3 sm:p-4 flex flex-col h-full space-y-3 overflow-y-auto pb-32 lg:pb-6">
       {/* 1. Header */}
       <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
         <div className="flex items-center space-x-2">
@@ -149,7 +247,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
             <Coins className="w-3.5 h-3.5" />
           </div>
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-800">Thu Tiền Khách Hàng</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-800">Thu Tiền & Định Danh Quỹ</h3>
           </div>
         </div>
         <span className="text-[10px] font-mono text-zinc-400">
@@ -302,18 +400,19 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           </button>
         </div>
 
-        {/* MULTI-PAYMENT / SPLIT TENDER VIEW */}
+        {/* MULTI-PAYMENT / SPLIT TENDER VIEW (With multiple bank accounts) */}
         {isSplitMode ? (
-          <div className="p-3 bg-gradient-to-br from-orange-50/40 via-white to-orange-50/20 border border-orange-200/80 rounded-2xl space-y-2.5">
+          <div className="p-3 bg-gradient-to-br from-orange-50/40 via-white to-orange-50/20 border border-orange-200/80 rounded-2xl space-y-3">
             <div className="text-[11px] font-semibold text-zinc-600 flex items-center justify-between">
-              <span>Nhập số tiền từng hình thức:</span>
+              <span>Phân bổ số tiền & chọn đúng tài khoản nhận:</span>
               <div className="flex items-center space-x-1">
                 <button
                   type="button"
                   onClick={() => {
                     const half = Math.round(finalAmount / 2);
                     setSplitCash(half);
-                    setSplitBank(finalAmount - half);
+                    setSplitBank1(finalAmount - half);
+                    setSplitBank2(0);
                     setSplitCard(0);
                     setSplitDebt(0);
                   }}
@@ -324,112 +423,255 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
               </div>
             </div>
 
-            {/* Split Method 1: Cash */}
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
-                <Wallet className="w-3.5 h-3.5 text-orange-600" />
-                <span>Tiền mặt:</span>
+            {/* Split Method 1: Cash + Mandatory Cash Fund */}
+            <div className="p-2 bg-white rounded-xl border border-zinc-200/90 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center space-x-1.5 text-zinc-700 w-28 shrink-0">
+                  <Wallet className="w-3.5 h-3.5 text-orange-600" />
+                  <span className="font-semibold">Tiền mặt:</span>
+                </div>
+                <input
+                  type="number"
+                  value={splitCash || ''}
+                  onChange={e => setSplitCash(Number(e.target.value) || 0)}
+                  placeholder="0 đ"
+                  className="flex-1 h-8 px-2.5 text-right bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-mono font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16] focus:bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSplitCash(finalAmount);
+                    setSplitBank1(0);
+                    setSplitBank2(0);
+                    setSplitCard(0);
+                    setSplitDebt(0);
+                  }}
+                  className="px-2 py-1 text-[10px] bg-zinc-100 hover:bg-zinc-200 rounded-lg text-zinc-600 font-semibold cursor-pointer"
+                >
+                  Hết
+                </button>
               </div>
-              <input
-                type="number"
-                value={splitCash || ''}
-                onChange={e => setSplitCash(Number(e.target.value) || 0)}
-                placeholder="0 đ"
-                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setSplitCash(finalAmount);
-                  setSplitBank(0);
-                  setSplitCard(0);
-                  setSplitDebt(0);
-                }}
-                className="px-2 py-1 text-[10px] bg-zinc-100 hover:bg-zinc-200 rounded-lg text-zinc-600 font-semibold"
-              >
-                Hết
-              </button>
+
+              {splitCash > 0 && (
+                <div className="flex items-center space-x-2 pt-1 border-t border-zinc-100">
+                  <span className="text-[10px] text-zinc-500 font-medium shrink-0">Két nhận tiền:</span>
+                  <select
+                    value={splitCashFundId}
+                    onChange={e => setSplitCashFundId(e.target.value)}
+                    className="flex-1 h-7 px-2 bg-orange-50/50 border border-orange-200 rounded-lg text-[11px] font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+                  >
+                    {cashFunds.length > 0 ? (
+                      cashFunds.map(f => (
+                        <option key={f.id} value={f.id}>
+                          💵 {f.name} (Dư: {f.currentBalance.toLocaleString('vi-VN')}đ)
+                        </option>
+                      ))
+                    ) : (
+                      funds.map(f => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
             </div>
 
-            {/* Split Method 2: VietQR / Bank */}
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
-                <QrCode className="w-3.5 h-3.5 text-blue-600" />
-                <span>Chuyển khoản:</span>
+            {/* Split Method 2: Bank Transfer 1 + Mandatory Bank Account 1 */}
+            <div className="p-2 bg-white rounded-xl border border-blue-200/90 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center space-x-1.5 text-blue-900 w-28 shrink-0">
+                  <QrCode className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="font-semibold">Chuyển khoản 1:</span>
+                </div>
+                <input
+                  type="number"
+                  value={splitBank1 || ''}
+                  onChange={e => setSplitBank1(Number(e.target.value) || 0)}
+                  placeholder="0 đ"
+                  className="flex-1 h-8 px-2.5 text-right bg-blue-50/30 border border-blue-200 rounded-lg text-xs font-mono font-semibold text-blue-700 focus:outline-none focus:border-blue-500 focus:bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSplitBank1(Math.max(0, finalAmount - splitCash - (hasSecondBankTransfer ? splitBank2 : 0) - splitCard - splitDebt));
+                  }}
+                  className="px-2 py-1 text-[10px] bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 font-semibold cursor-pointer"
+                >
+                  Bù
+                </button>
               </div>
-              <input
-                type="number"
-                value={splitBank || ''}
-                onChange={e => setSplitBank(Number(e.target.value) || 0)}
-                placeholder="0 đ"
-                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-blue-700 focus:outline-none focus:border-blue-500"
-              />
+
+              {splitBank1 > 0 && (
+                <div className="flex items-center space-x-2 pt-1 border-t border-blue-100">
+                  <span className="text-[10px] text-blue-600 font-medium shrink-0">TK ngân hàng nhận 1:</span>
+                  <select
+                    value={splitBankFundId1}
+                    onChange={e => setSplitBankFundId1(e.target.value)}
+                    className="flex-1 h-7 px-2 bg-blue-50/50 border border-blue-200 rounded-lg text-[11px] font-semibold text-blue-900 focus:outline-none focus:border-blue-500"
+                  >
+                    {bankFunds.length > 0 ? (
+                      bankFunds.map(f => (
+                        <option key={f.id} value={f.id}>
+                          🏦 {f.name} {f.accountNumber ? `(${f.accountNumber})` : ''} - Dư: {f.currentBalance.toLocaleString('vi-VN')}đ
+                        </option>
+                      ))
+                    ) : (
+                      funds.map(f => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Optional Bank Transfer 2 (If customer transfers into 2 separate bank accounts!) */}
+            {hasSecondBankTransfer ? (
+              <div className="p-2 bg-white rounded-xl border border-indigo-200/90 space-y-1.5 relative">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center space-x-1.5 text-indigo-900 w-28 shrink-0">
+                    <QrCode className="w-3.5 h-3.5 text-indigo-600" />
+                    <span className="font-semibold">Chuyển khoản 2:</span>
+                  </div>
+                  <input
+                    type="number"
+                    value={splitBank2 || ''}
+                    onChange={e => setSplitBank2(Number(e.target.value) || 0)}
+                    placeholder="0 đ"
+                    className="flex-1 h-8 px-2.5 text-right bg-indigo-50/30 border border-indigo-200 rounded-lg text-xs font-mono font-semibold text-indigo-700 focus:outline-none focus:border-indigo-500 focus:bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSplitBank2(0);
+                      setHasSecondBankTransfer(false);
+                    }}
+                    className="px-2 py-1 text-[10px] bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 font-semibold cursor-pointer"
+                    title="Xóa chuyển khoản 2"
+                  >
+                    ✕ Xóa
+                  </button>
+                </div>
+
+                <div className="flex items-center space-x-2 pt-1 border-t border-indigo-100">
+                  <span className="text-[10px] text-indigo-600 font-medium shrink-0">TK ngân hàng nhận 2:</span>
+                  <select
+                    value={splitBankFundId2}
+                    onChange={e => setSplitBankFundId2(e.target.value)}
+                    className="flex-1 h-7 px-2 bg-indigo-50/50 border border-indigo-200 rounded-lg text-[11px] font-semibold text-indigo-900 focus:outline-none focus:border-indigo-500"
+                  >
+                    {bankFunds.length > 0 ? (
+                      bankFunds.map(f => (
+                        <option key={f.id} value={f.id}>
+                          🏦 {f.name} {f.accountNumber ? `(${f.accountNumber})` : ''} - Dư: {f.currentBalance.toLocaleString('vi-VN')}đ
+                        </option>
+                      ))
+                    ) : (
+                      funds.map(f => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              </div>
+            ) : (
               <button
                 type="button"
                 onClick={() => {
-                  setSplitBank(Math.max(0, finalAmount - splitCash - splitCard - splitDebt));
+                  setHasSecondBankTransfer(true);
+                  if (bankFunds.length > 1) {
+                    setSplitBankFundId2(bankFunds[1].id);
+                  }
                 }}
-                className="px-2 py-1 text-[10px] bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 font-semibold"
+                className="w-full py-1.5 px-2.5 rounded-xl border border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 text-[11px] font-semibold flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
               >
-                Bù
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Thêm chuyển khoản vào tài khoản ngân hàng thứ 2</span>
               </button>
-            </div>
+            )}
 
             {/* Split Method 3: POS Card */}
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
-                <CreditCard className="w-3.5 h-3.5 text-purple-600" />
-                <span>Cà thẻ POS:</span>
+            <div className="p-2 bg-white rounded-xl border border-purple-200/90 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center space-x-1.5 text-purple-900 w-28 shrink-0">
+                  <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                  <span className="font-semibold">Cà thẻ POS:</span>
+                </div>
+                <input
+                  type="number"
+                  value={splitCard || ''}
+                  onChange={e => setSplitCard(Number(e.target.value) || 0)}
+                  placeholder="0 đ"
+                  className="flex-1 h-8 px-2.5 text-right bg-purple-50/30 border border-purple-200 rounded-lg text-xs font-mono font-semibold text-purple-700 focus:outline-none focus:border-purple-500 focus:bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSplitCard(Math.max(0, finalAmount - splitCash - splitBank1 - (hasSecondBankTransfer ? splitBank2 : 0) - splitDebt));
+                  }}
+                  className="px-2 py-1 text-[10px] bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-semibold cursor-pointer"
+                >
+                  Bù
+                </button>
               </div>
-              <input
-                type="number"
-                value={splitCard || ''}
-                onChange={e => setSplitCard(Number(e.target.value) || 0)}
-                placeholder="0 đ"
-                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-purple-700 focus:outline-none focus:border-purple-500"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setSplitCard(Math.max(0, finalAmount - splitCash - splitBank - splitDebt));
-                }}
-                className="px-2 py-1 text-[10px] bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-semibold"
-              >
-                Bù
-              </button>
+
+              {splitCard > 0 && (
+                <div className="flex items-center space-x-2 pt-1 border-t border-purple-100">
+                  <span className="text-[10px] text-purple-600 font-medium shrink-0">Máy/TK POS:</span>
+                  <select
+                    value={splitCardFundId}
+                    onChange={e => setSplitCardFundId(e.target.value)}
+                    className="flex-1 h-7 px-2 bg-purple-50/50 border border-purple-200 rounded-lg text-[11px] font-semibold text-purple-900 focus:outline-none focus:border-purple-500"
+                  >
+                    {cardFunds.length > 0 ? (
+                      cardFunds.map(f => (
+                        <option key={f.id} value={f.id}>
+                          💳 {f.name} - Dư: {f.currentBalance.toLocaleString('vi-VN')}đ
+                        </option>
+                      ))
+                    ) : (
+                      funds.map(f => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Split Method 4: Debt / Installment */}
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
-                <Receipt className="w-3.5 h-3.5 text-rose-600" />
-                <span>Ghi nợ / Trả góp:</span>
+            <div className="p-2 bg-white rounded-xl border border-rose-200/90 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center space-x-1.5 text-rose-900 w-28 shrink-0">
+                  <Receipt className="w-3.5 h-3.5 text-rose-600" />
+                  <span className="font-semibold">Ghi nợ / Trả góp:</span>
+                </div>
+                <input
+                  type="number"
+                  value={splitDebt || ''}
+                  onChange={e => setSplitDebt(Number(e.target.value) || 0)}
+                  placeholder="0 đ"
+                  className="flex-1 h-8 px-2.5 text-right bg-rose-50/30 border border-rose-200 rounded-lg text-xs font-mono font-semibold text-rose-700 focus:outline-none focus:border-rose-500 focus:bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSplitDebt(Math.max(0, finalAmount - splitCash - splitBank1 - (hasSecondBankTransfer ? splitBank2 : 0) - splitCard));
+                  }}
+                  className="px-2 py-1 text-[10px] bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 font-semibold cursor-pointer"
+                >
+                  Bù
+                </button>
               </div>
-              <input
-                type="number"
-                value={splitDebt || ''}
-                onChange={e => setSplitDebt(Number(e.target.value) || 0)}
-                placeholder="0 đ"
-                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-rose-700 focus:outline-none focus:border-rose-500"
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setSplitDebt(Math.max(0, finalAmount - splitCash - splitBank - splitCard));
-                }}
-                className="px-2 py-1 text-[10px] bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 font-semibold"
-              >
-                Bù
-              </button>
             </div>
 
             {/* Multi-Payment Balance Feedback */}
             <div className="pt-2 border-t border-orange-200/60 flex items-center justify-between text-xs">
-              <span className="text-zinc-600">Tổng đã phân bổ:</span>
+              <span className="text-zinc-600 font-medium">Tổng tiền phân bổ:</span>
               <span className={`font-mono font-bold ${splitDiff === 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
                 {totalSplit.toLocaleString('vi-VN')} / {finalAmount.toLocaleString('vi-VN')} đ
                 {splitDiff !== 0 && (
-                  <span className="text-[10px] ml-1 font-normal">
+                  <span className="text-[10px] ml-1 font-semibold">
                     ({splitDiff > 0 ? `+${splitDiff.toLocaleString('vi-VN')}đ` : `${splitDiff.toLocaleString('vi-VN')}đ`})
                   </span>
                 )}
@@ -510,14 +752,14 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
       )}
 
       {/* VietQR Fast Preview Link (If VietQR Single or VietQR in split) */}
-      {((!isSplitMode && isVietQR) || (isSplitMode && splitBank > 0)) && (
+      {((!isSplitMode && isVietQR) || (isSplitMode && splitBank1 > 0)) && (
         <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/50 border border-blue-200/80 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <QrCode className="w-7 h-7 text-blue-600" />
             <div>
-              <span className="text-xs font-bold text-blue-900 block">Mã VietQR Động Techcombank</span>
+              <span className="text-xs font-bold text-blue-900 block">Mã VietQR Động {vietQrBankName}</span>
               <span className="text-[10px] text-blue-600 font-mono">
-                Số tiền: {(isSplitMode ? splitBank : finalAmount).toLocaleString('vi-VN')}đ
+                TK {vietQrAccount} • Số tiền: {(isSplitMode ? splitBank1 : finalAmount).toLocaleString('vi-VN')}đ
               </span>
             </div>
           </div>
@@ -575,24 +817,35 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
         </div>
       )}
 
-      {/* 6. Target Fund Account Picker */}
-      <div className="space-y-1.5">
-        <span className="text-xs font-semibold text-zinc-700 block">Két Tiền / Quỹ Thu Ngân Nhận Tiền</span>
-        <select
-          value={selectedFundId}
-          onChange={e => onSelectFundId(e.target.value)}
-          className="w-full h-10 px-3 bg-zinc-50 border border-zinc-200 rounded-2xl text-xs font-medium text-zinc-800 focus:outline-none focus:border-[#ff4b16] focus:bg-white transition-all"
-        >
-          {funds.map(f => {
-            const balance = f.currentBalance ?? (f as any).balance ?? 0;
-            return (
-              <option key={f.id} value={f.id}>
-                {f.name} (Số dư: {balance.toLocaleString('vi-VN')} đ)
-              </option>
-            );
-          })}
-        </select>
-      </div>
+      {/* 6. Target Fund Account Picker (MANDATORY in Single Mode) */}
+      {!isSplitMode && (
+        <div className="space-y-1.5 p-3 bg-zinc-50/80 rounded-2xl border border-zinc-200">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1">
+              <span>Tài Khoản / Két Tiền Nhận Tiền</span>
+              <span className="text-rose-500 font-bold">*</span>
+            </span>
+            <span className="text-[10px] font-semibold text-[#ff4b16] bg-orange-50 px-2 py-0.5 rounded-full border border-orange-200">
+              Bắt buộc chọn
+            </span>
+          </div>
+          <select
+            value={selectedFundId}
+            onChange={e => onSelectFundId(e.target.value)}
+            className="w-full h-10 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16] transition-all"
+          >
+            {funds.map(f => {
+              const balance = f.currentBalance ?? (f as any).balance ?? 0;
+              const icon = f.type === 'CASH' ? '💵' : f.type === 'BANK' ? '🏦' : '💳';
+              return (
+                <option key={f.id} value={f.id}>
+                  {icon} {f.name} {f.accountNumber ? `(${f.accountNumber})` : ''} - Số dư: {balance.toLocaleString('vi-VN')} đ
+                </option>
+              );
+            })}
+          </select>
+        </div>
+      )}
 
       {/* 7. Checkout Action Button (F9) */}
       <div className="pt-2 mt-auto">
@@ -600,7 +853,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           variant="primary"
           size="lg"
           isLoading={isProcessing}
-          onClick={onExecuteCheckout}
+          onClick={handleSubmitCheckout}
           leftIcon={<Receipt className="w-5 h-5" />}
           className="w-full font-bold text-sm shadow-xl shadow-orange-500/25 h-12 rounded-2xl cursor-pointer"
         >
@@ -614,7 +867,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           <div className="bg-white rounded-3xl p-5 max-w-sm w-full text-center space-y-3 shadow-2xl border border-zinc-200">
             <h3 className="text-sm font-bold text-zinc-900">Quét Mã VietQR Chuyển Khoản</h3>
             <p className="text-xs text-zinc-500 font-mono">
-              Techcombank • 1903678999999 • PhoneHouse Retail
+              {vietQrBankName} • {vietQrAccount} • PhoneHouse Retail
             </p>
 
             <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl flex justify-center">
@@ -629,7 +882,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
             </div>
 
             <div className="font-mono font-bold text-base text-[#ff4b16]">
-              {(isSplitMode ? splitBank : finalAmount).toLocaleString('vi-VN')} đ
+              {(isSplitMode ? splitBank1 : finalAmount).toLocaleString('vi-VN')} đ
             </div>
 
             <button

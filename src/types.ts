@@ -601,6 +601,14 @@ export interface SalesInvoice {
   installmentContractCode?: string;
   paymentFundId?: string;
   paymentTransactionId?: string;
+  splitPayments?: {
+    method: string;
+    amount: number;
+    fundId: string;
+    fundName?: string;
+    bankName?: string;
+    accountNumber?: string;
+  }[];
   history?: ActionLogEntry[];
 }
 

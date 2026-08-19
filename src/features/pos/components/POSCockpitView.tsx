@@ -203,13 +203,14 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     resetCheckout();
   };
 
-  const handleExecuteCheckout = async () => {
+  const handleExecuteCheckout = async (splitData?: any) => {
     if (selectedDevices.length === 0 && selectedAccessories.length === 0) {
       alert('Giỏ hàng đang trống. Vui lòng chọn máy hoặc phụ kiện.');
       return;
     }
 
-    const isInstallment = paymentMethod.includes('Trả góp');
+    const isSplit = splitData?.isSplitMode;
+    const isInstallment = !isSplit && paymentMethod.includes('Trả góp');
     if (isInstallment && downPaymentAmount > finalAmount) {
       alert('Số tiền trả trước không thể lớn hơn tổng giá trị đơn hàng.');
       return;
@@ -219,35 +220,55 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     const invoiceCode = `HD-${Date.now().toString().slice(-6)}`;
     const invoiceId = `INV-${Date.now()}`;
 
-    // Map Payment Method to Backend Standard
-    const backendPaymentMethod = isInstallment
-      ? 'INSTALLMENT'
-      : paymentMethod.includes('QR')
-      ? 'BANK'
-      : paymentMethod.includes('thẻ')
-      ? 'CARD'
-      : 'CASH';
+    // Build Split Payments List if in Multi-Payment Mode
+    const splitPaymentsList = isSplit ? [
+      ...(splitData.splitCash > 0 ? [{
+        method: 'Tiền mặt',
+        amount: splitData.splitCash,
+        fundId: splitData.splitCashFundId,
+        fundName: funds.find(f => f.id === splitData.splitCashFundId)?.name || 'Két Tiền Mặt'
+      }] : []),
+      ...(splitData.splitBank1 > 0 ? [{
+        method: 'Chuyển khoản 1',
+        amount: splitData.splitBank1,
+        fundId: splitData.splitBankFundId1,
+        fundName: funds.find(f => f.id === splitData.splitBankFundId1)?.name || 'Tài Khoản Ngân Hàng 1',
+        bankName: funds.find(f => f.id === splitData.splitBankFundId1)?.bankName,
+        accountNumber: funds.find(f => f.id === splitData.splitBankFundId1)?.accountNumber
+      }] : []),
+      ...(splitData.splitBank2 > 0 ? [{
+        method: 'Chuyển khoản 2',
+        amount: splitData.splitBank2,
+        fundId: splitData.splitBankFundId2,
+        fundName: funds.find(f => f.id === splitData.splitBankFundId2)?.name || 'Tài Khoản Ngân Hàng 2',
+        bankName: funds.find(f => f.id === splitData.splitBankFundId2)?.bankName,
+        accountNumber: funds.find(f => f.id === splitData.splitBankFundId2)?.accountNumber
+      }] : []),
+      ...(splitData.splitCard > 0 ? [{
+        method: 'Quẹt thẻ POS',
+        amount: splitData.splitCard,
+        fundId: splitData.splitCardFundId,
+        fundName: funds.find(f => f.id === splitData.splitCardFundId)?.name || 'Máy POS'
+      }] : []),
+      ...(splitData.splitDebt > 0 ? [{
+        method: 'Ghi nợ / Trả góp',
+        amount: splitData.splitDebt,
+        fundId: '',
+        fundName: 'Công nợ'
+      }] : [])
+    ] : undefined;
 
-    // Prepare Items for K80 Receipt
-    const receiptItems = [
-      ...selectedDevices.map(d => ({
-        id: d.id,
-        name: d.model,
-        imei: d.imei,
-        quantity: 1,
-        unitPrice: d.sellPrice || 0,
-        totalPrice: d.sellPrice || 0,
-        isDevice: true
-      })),
-      ...selectedAccessories.map(acc => ({
-        id: acc.product.id,
-        name: acc.product.name,
-        quantity: acc.quantity,
-        unitPrice: acc.product.price || acc.product.salePrice || 0,
-        totalPrice: (acc.product.price || acc.product.salePrice || 0) * acc.quantity,
-        isDevice: false
-      }))
-    ];
+    const paidAmt = isSplit
+      ? finalAmount - (splitData.splitDebt || 0)
+      : isInstallment
+      ? downPaymentAmount
+      : finalAmount;
+
+    const debtAmt = isSplit
+      ? (splitData.splitDebt || 0)
+      : isInstallment
+      ? Math.max(0, finalAmount - downPaymentAmount)
+      : 0;
 
     const newInvoice: SalesInvoice = {
       id: invoiceId,
@@ -265,9 +286,11 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       tradeInDeduction,
       tradeInDiscount: tradeInDeduction,
       finalAmount,
-      paidAmount: isInstallment ? downPaymentAmount : finalAmount,
-      debtAmount: isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : 0,
-      paymentMethod: paymentMethod as any,
+      paidAmount: paidAmt,
+      debtAmount: debtAmt,
+      paymentMethod: isSplit ? ('Đa phương thức' as any) : (paymentMethod as any),
+      paymentFundId: isSplit ? (splitData.splitBankFundId1 || splitData.splitCashFundId || selectedFundId) : selectedFundId,
+      splitPayments: splitPaymentsList,
       warrantyPackage,
       downPayment: isInstallment ? downPaymentAmount : undefined,
       installmentCompany: isInstallment ? 'Home Credit / HD Saison / Mpos' : undefined,
@@ -323,20 +346,20 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       ]
     };
 
-    const cashTx: CashTransaction | null = finalAmount > 0 ? {
+    const cashTx: CashTransaction | null = paidAmt > 0 ? {
       id: `TX-${Date.now()}`,
       code: invoiceCode,
       branchId: currentBranch.id,
       type: 'RECEIPT',
       category: 'SALES_REVENUE',
-      categoryName: 'Thu bán hàng POS',
-      amount: isInstallment ? downPaymentAmount : finalAmount,
-      fundType: 'CASH',
-      fundName: currentFund?.name || 'Quỹ Tiền Mặt Tại Két',
-      fundId: selectedFundId,
+      categoryName: isSplit ? 'Thu bán hàng (Đa phương thức)' : 'Thu bán hàng POS',
+      amount: paidAmt,
+      fundType: isSplit ? 'BANK' : (currentFund?.type || 'CASH'),
+      fundName: isSplit ? 'Thanh toán phân bổ quỹ' : (currentFund?.name || 'Quỹ Tiền Mặt Tại Két'),
+      fundId: isSplit ? (splitData.splitBankFundId1 || splitData.splitCashFundId || selectedFundId) : selectedFundId,
       date: new Date().toISOString(),
       creator: currentUser?.name || 'Thu Ngân',
-      notes: `Thu tiền đơn hàng ${invoiceCode} - Khách: ${customerName || 'Vãng lai'}`,
+      notes: `Thu tiền đơn hàng ${invoiceCode} - Khách: ${customerName || 'Vãng lai'} ${isSplit ? `(Phân bổ: ${splitPaymentsList?.map(s => `${s.method}: ${s.amount.toLocaleString('vi-VN')}đ`).join(', ')})` : ''}`,
       referenceCode: invoiceCode,
       status: 'COMPLETED'
     } : null;
@@ -347,7 +370,6 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       if (existingPartner) {
         customerPartner = existingPartner;
       } else {
-        // Auto create customer
         customerPartner = {
           id: `CUST-${customerPhone.replace(/\D/g, '') || Date.now().toString()}`,
           name: customerName.trim() || `Khách ${customerPhone}`,
@@ -358,7 +380,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           customerTier: 'STANDARD',
           loyaltyPoints: Math.floor(finalAmount / 100000),
           totalSpent: finalAmount,
-          outstandingDebt: 0
+          outstandingDebt: debtAmt
         };
         onAddPartner?.(customerPartner);
       }
@@ -372,51 +394,32 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       tradeInDevice: tradeInDevice,
       customerPartner: customerPartner,
       financeCompanyPartner: null,
-      fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.currentBalance + (isInstallment ? downPaymentAmount : finalAmount) } : null,
+      fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.currentBalance + paidAmt } : null,
       idempotencyKey: `POS-${invoiceId}-${Date.now()}`
     };
 
     const isSuccess = await runCheckout(payload as any);
 
     if (isSuccess) {
-      // Notify parent app state
+      setReceiptData(newInvoice);
       onCheckoutSuccess?.(
         newInvoice,
         selectedDevices,
         selectedAccessories,
         cashTx,
-        currentFund ? { ...currentFund, currentBalance: (currentFund.currentBalance || 0) + (isInstallment ? downPaymentAmount : finalAmount) } : null
+        payload.fundToUpdate
       );
-
-      // Trigger K80 Thermal Receipt Modal
-      setReceiptData({
-        id: invoiceId,
-        invoiceCode,
-        createdAt: new Date().toISOString(),
-        branchName: currentBranch.name,
-        branchAddress: currentBranch.address,
-        branchPhone: currentBranch.phone,
-        creatorName: currentUser?.name || 'Thu Ngân',
-        customerName: customerName || 'Khách vãng lai',
-        customerPhone,
-        items: receiptItems,
-        subTotal: totalAmount,
-        discountAmount,
-        tradeInDeduction,
-        finalAmount,
-        paymentMethod: backendPaymentMethod,
-        downPayment: isInstallment ? downPaymentAmount : undefined,
-        financeAmount: isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : undefined,
-        financePartnerName: isInstallment ? 'Home Credit / HD Saison' : undefined
-      });
 
       // Clear Cart after success
       setSelectedDevices([]);
       setSelectedAccessories([]);
       setDiscountAmount(0);
       setTradeInDeduction(0);
+      setTradeInDevice(null);
       setCustomerName('');
       setCustomerPhone('');
+      setDownPaymentAmount(0);
+      setMobileTab('PRODUCTS');
     }
   };
 
@@ -630,14 +633,14 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Mobile Sticky Bottom Checkout Bar */}
-      {totalItemsCount > 0 && (
-        <div className="lg:hidden fixed bottom-3 left-2 right-2 z-40 bg-zinc-950/95 backdrop-blur-xl text-white p-3 rounded-3xl shadow-2xl border border-zinc-800 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
+      {/* 4. Mobile Sticky Bottom Checkout Bar (Docked at bottom-20 above MobileBottomNav) */}
+      {totalItemsCount > 0 && mobileTab !== 'PAYMENT' && (
+        <div className="lg:hidden fixed bottom-20 left-2 right-2 z-40 bg-zinc-950/95 backdrop-blur-xl text-white p-3 rounded-2xl shadow-2xl border border-zinc-800 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
           <div className="flex flex-col pl-1">
             <span className="text-[11px] text-zinc-400 font-medium">
               🛒 {totalItemsCount} món hàng
             </span>
-            <span className="text-sm sm:text-base font-black font-mono text-[#ff4b16]">
+            <span className="text-sm font-semibold font-mono text-[#ff4b16]">
               {finalAmount.toLocaleString('vi-VN')} đ
             </span>
           </div>
@@ -647,14 +650,12 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
                 setMobileTab('CART');
               } else if (mobileTab === 'CART') {
                 setMobileTab('PAYMENT');
-              } else {
-                handleExecuteCheckout();
               }
             }}
             disabled={isProcessing}
-            className="bg-gradient-to-r from-orange-500 to-[#ff4b16] hover:brightness-110 active:scale-95 text-white font-black text-xs px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-lg shadow-orange-500/30 transition-all cursor-pointer"
+            className="bg-gradient-to-r from-orange-500 to-[#ff4b16] hover:brightness-110 active:scale-95 text-white font-semibold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-1.5 shadow-lg shadow-orange-500/30 transition-all cursor-pointer"
           >
-            <span>{isProcessing ? 'Đang Xử Lý...' : mobileTab === 'PAYMENT' ? 'Xuất Đơn (F9) ➔' : 'Tiếp Tục ➔'}</span>
+            <span>{mobileTab === 'PRODUCTS' ? 'Xem Giỏ Hàng ➔' : 'Thu Tiền & Quỹ ➔'}</span>
           </button>
         </div>
       )}
