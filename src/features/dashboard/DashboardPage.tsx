@@ -94,30 +94,82 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }
 
   // 3. Shared State for Filters & Action Tabs
-  const [dateFilter, setDateFilter] = useState<'today' | 'this_month' | 'last_month'>('this_month');
+  type DateFilterType = 'today' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
+  const [dateFilter, setDateFilter] = useState<DateFilterType>('this_month');
   const [kpiCardIndex, setKpiCardIndex] = useState(0);
   const [bestSellerTab, setBestSellerTab] = useState<'revenue' | 'quantity'>('revenue');
   const [bestSellerLimit, setBestSellerLimit] = useState(10);
   const [actionQueueTab, setActionQueueTab] = useState<'ALL' | 'APPOINTMENTS' | 'AGING_STOCK' | 'WARRANTY'>('ALL');
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
 
+  // Helper date calculations
+  const dateRanges = useMemo(() => {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const thisMonthStr = todayStr.substring(0, 7);
+
+    // Last Month
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthStr = lastMonthDate.toISOString().substring(0, 7);
+
+    // This Week (Monday to Sunday)
+    const dayOfWeek = now.getDay(); // 0 is Sun, 1 is Mon...
+    const diffToMon = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
+    const monThisWeek = new Date(now);
+    monThisWeek.setDate(now.getDate() + diffToMon);
+    monThisWeek.setHours(0, 0, 0, 0);
+
+    const sunThisWeek = new Date(monThisWeek);
+    sunThisWeek.setDate(monThisWeek.getDate() + 6);
+    sunThisWeek.setHours(23, 59, 59, 999);
+
+    // Last Week (Monday to Sunday)
+    const monLastWeek = new Date(monThisWeek);
+    monLastWeek.setDate(monThisWeek.getDate() - 7);
+
+    const sunLastWeek = new Date(monLastWeek);
+    sunLastWeek.setDate(monLastWeek.getDate() + 6);
+    sunLastWeek.setHours(23, 59, 59, 999);
+
+    const formatD = (d: Date) => d.toISOString().split('T')[0];
+
+    return {
+      todayStr,
+      thisMonthStr,
+      lastMonthStr,
+      monThisWeek,
+      sunThisWeek,
+      monLastWeek,
+      sunLastWeek,
+      startThisWeekStr: formatD(monThisWeek),
+      endThisWeekStr: formatD(sunThisWeek),
+      startLastWeekStr: formatD(monLastWeek),
+      endLastWeekStr: formatD(sunLastWeek)
+    };
+  }, []);
+
   // 4. Dynamic Filter for Invoices (100% Real Data, excluding cancelled)
   const filteredInvoices = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const thisMonthStr = todayStr.substring(0, 7); // e.g. '2026-08'
-    
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    const lastMonthStr = d.toISOString().substring(0, 7);
-
     return invoices.filter(inv => {
       if (inv.status === 'cancelled') return false;
-      const invDate = inv.createdAt || '';
-      if (dateFilter === 'today') return invDate.startsWith(todayStr);
-      if (dateFilter === 'last_month') return invDate.startsWith(lastMonthStr);
-      return invDate.startsWith(thisMonthStr) || !inv.createdAt;
+      const invDate = inv.createdAt ? inv.createdAt.split('T')[0] : dateRanges.todayStr;
+      
+      if (dateFilter === 'today') {
+        return invDate === dateRanges.todayStr;
+      }
+      if (dateFilter === 'this_week') {
+        return invDate >= dateRanges.startThisWeekStr && invDate <= dateRanges.endThisWeekStr;
+      }
+      if (dateFilter === 'last_week') {
+        return invDate >= dateRanges.startLastWeekStr && invDate <= dateRanges.endLastWeekStr;
+      }
+      if (dateFilter === 'last_month') {
+        return invDate.startsWith(dateRanges.lastMonthStr);
+      }
+      // 'this_month'
+      return invDate.startsWith(dateRanges.thisMonthStr) || !inv.createdAt;
     });
-  }, [invoices, dateFilter]);
+  }, [invoices, dateFilter, dateRanges]);
 
   // Aggregate Real Metrics
   const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
@@ -155,60 +207,112 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   // Real Appointments & Active Leads
   const myAppointments = leads.filter(l => l.status === 'appointment_scheduled');
-  const myLeadsToCall = leads.filter(l => l.status === 'new' || l.status === 'contacted' || l.status === 'negotiating');
-
-  // Real Pending Warranties
   const pendingWarranties = warrantyTickets.filter(w => w.status === 'PENDING' || w.status === 'IN_PROGRESS' || w.status === 'WAITING_FOR_PARTS');
-
-  // Total Action Items count
   const totalActionCount = myAppointments.length + agingDevices.length + pendingWarranties.length;
 
-  // 5. 100% Real Daily Revenue Bar Chart Calculation (Robust & Fail-safe)
-  const realChartDays = useMemo(() => {
-    const dayMap = new Map<string, number>();
+  // 5. Dynamic Revenue Bar Chart Calculation Adapting to Every Filter (Today, This Week, Last Week, This Month, Last Month)
+  const realChartData = useMemo(() => {
+    // 1. TODAY -> Hourly Buckets (08h, 10h, 12h, 14h, 16h, 18h, 20h, 22h)
+    if (dateFilter === 'today') {
+      const hours = ['08h', '10h', '12h', '14h', '16h', '18h', '20h', '22h'];
+      const hourMap = new Map<string, number>();
+      hours.forEach(h => hourMap.set(h, 0));
 
-    // Generate buckets for the month (1..30)
-    const daysInMonth = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31];
-    daysInMonth.forEach(d => {
+      filteredInvoices.forEach(inv => {
+        if (inv.createdAt) {
+          try {
+            const timePart = inv.createdAt.split('T')[1] || '';
+            const hNum = parseInt(timePart.split(':')[0] || '10', 10);
+            const matched = hours.find(hr => Math.abs(parseInt(hr, 10) - hNum) <= 1) || '14h';
+            hourMap.set(matched, (hourMap.get(matched) || 0) + ((inv.finalAmount || inv.totalAmount || 0) / 1_000_000));
+          } catch (e) {}
+        }
+      });
+
+      const entries = hours.map(h => ({
+        label: h,
+        val: Math.round((hourMap.get(h) || 0) * 10) / 10
+      }));
+      const maxVal = Math.max(5, ...entries.map(e => e.val));
+
+      return {
+        title: 'Doanh thu hôm nay (Theo khung giờ)',
+        entries: entries.map(e => ({ ...e, isPeak: e.val > 0 && e.val >= maxVal * 0.85 })),
+        maxVal: Math.ceil(maxVal / 5) * 5
+      };
+    }
+
+    // 2. THIS WEEK or LAST WEEK -> 7 Weekdays (T2, T3, T4, T5, T6, T7, CN)
+    if (dateFilter === 'this_week' || dateFilter === 'last_week') {
+      const baseMonday = dateFilter === 'this_week' ? dateRanges.monThisWeek : dateRanges.monLastWeek;
+      const dayNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+      const dayEntries = dayNames.map((name, i) => {
+        const d = new Date(baseMonday);
+        d.setDate(baseMonday.getDate() + i);
+        const dateStr = d.toISOString().split('T')[0];
+        const dayOfMonth = d.getDate().toString().padStart(2, '0');
+        return {
+          key: dateStr,
+          label: `${name}`,
+          subLabel: `${dayOfMonth}`,
+          val: 0
+        };
+      });
+
+      filteredInvoices.forEach(inv => {
+        if (inv.createdAt) {
+          const invDate = inv.createdAt.split('T')[0];
+          const target = dayEntries.find(d => d.key === invDate);
+          if (target) {
+            target.val += (inv.finalAmount || inv.totalAmount || 0) / 1_000_000;
+          }
+        }
+      });
+
+      dayEntries.forEach(d => { d.val = Math.round(d.val * 10) / 10; });
+      const maxVal = Math.max(10, ...dayEntries.map(e => e.val));
+
+      return {
+        title: dateFilter === 'this_week' ? 'Doanh thu tuần này (Thứ 2 - Chủ Nhật)' : 'Doanh thu tuần trước (Thứ 2 - Chủ Nhật)',
+        entries: dayEntries.map(e => ({ ...e, isPeak: e.val > 0 && e.val >= maxVal * 0.85 })),
+        maxVal: Math.ceil(maxVal / 10) * 10
+      };
+    }
+
+    // 3. THIS MONTH or LAST MONTH -> Days of Month (01, 04, 07... 31)
+    const isLastMonth = dateFilter === 'last_month';
+    const sampleDays = [1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31];
+    const monthDayMap = new Map<string, number>();
+    sampleDays.forEach(d => {
       const key = d.toString().padStart(2, '0');
-      dayMap.set(key, 0);
+      monthDayMap.set(key, 0);
     });
 
-    // Populate from real invoices
     filteredInvoices.forEach(inv => {
       if (inv.createdAt) {
         try {
           const datePart = inv.createdAt.split('T')[0];
-          const parts = datePart.split('-');
-          const dayStr = parts[2] ? parts[2].padStart(2, '0') : '01';
-          
-          // Match to closest bucket or set directly
-          const matchedDay = daysInMonth.find(d => Math.abs(d - parseInt(dayStr, 10)) <= 1);
-          const bucketKey = matchedDay ? matchedDay.toString().padStart(2, '0') : dayStr;
-          
-          const current = dayMap.get(bucketKey) || 0;
-          dayMap.set(bucketKey, current + ((inv.finalAmount || inv.totalAmount || 0) / 1_000_000));
-        } catch (e) {
-          // ignore parsing error
-        }
+          const dayStr = datePart.split('-')[2] ? datePart.split('-')[2].padStart(2, '0') : '01';
+          const dNum = parseInt(dayStr, 10);
+          const matchedDay = sampleDays.find(d => Math.abs(d - dNum) <= 1) || 1;
+          const bucketKey = matchedDay.toString().padStart(2, '0');
+          monthDayMap.set(bucketKey, (monthDayMap.get(bucketKey) || 0) + ((inv.finalAmount || inv.totalAmount || 0) / 1_000_000));
+        } catch (e) {}
       }
     });
 
-    const entries = Array.from(dayMap.entries()).map(([day, val]) => ({
-      day,
+    const entries = Array.from(monthDayMap.entries()).map(([day, val]) => ({
+      label: day,
       val: Math.round(val * 10) / 10
     }));
-
     const maxVal = Math.max(10, ...entries.map(e => e.val));
 
     return {
-      entries: entries.map(e => ({
-        ...e,
-        isPeak: e.val > 0 && e.val >= maxVal * 0.85
-      })),
+      title: isLastMonth ? 'Doanh thu tháng trước (Theo ngày)' : 'Doanh thu tháng này (Theo ngày)',
+      entries: entries.map(e => ({ ...e, isPeak: e.val > 0 && e.val >= maxVal * 0.85 })),
       maxVal: Math.ceil(maxVal / 20) * 20
     };
-  }, [filteredInvoices]);
+  }, [filteredInvoices, dateFilter, dateRanges]);
 
   // 6. 100% Real Best-Selling Products Calculation
   const realBestSellers = useMemo(() => {
@@ -306,15 +410,24 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     }
   ];
 
-  // 2-Tone Shortcuts List (Chỉ dùng xám trung tính + màu thương hiệu #ff4b16)
+  // 6 Shortcuts List: 100% Brand Orange Icons (#ff4b16), KHÔNG KHUNG XUNG QUANH
   const shortcutsList = [
-    { id: 'crm', label: 'Khách hàng CRM', icon: Users, tab: 'crm' },
-    { id: 'warranty', label: 'Sửa chữa', icon: Wrench, tab: 'warranty' },
-    { id: 'chat', label: 'Chat', icon: MessageSquare, action: () => onOpenAICopilot ? onOpenAICopilot() : onNavigateTab('crm') },
-    { id: 'cashbook', label: 'Sổ quỹ', icon: BookOpen, tab: 'cashbook' },
-    { id: 'hrm', label: 'Chấm công', icon: Clock, tab: 'hrm' },
-    { id: 'installments', label: 'Đối soát trả góp', icon: CreditCard, tab: 'accounting-reports', isNew: true }
+    { id: 'crm', label: 'Khách hàng CRM', icon: Users, action: () => onNavigateTab('crm') },
+    { id: 'warranty', label: 'Sửa chữa', icon: Wrench, action: () => onNavigateTab('warranty') },
+    { id: 'chat', label: 'Chat', icon: MessageSquare, action: () => onOpenAICopilot ? onOpenAICopilot() : onNavigateTab('omnichannel-chat') },
+    { id: 'cashbook', label: 'Sổ quỹ', icon: BookOpen, action: () => onNavigateTab('cashbook') },
+    { id: 'hrm', label: 'Chấm công', icon: Clock, action: () => onNavigateTab('hr-attendance') },
+    { id: 'installments', label: 'Đối soát trả góp', icon: CreditCard, action: () => onNavigateTab('installments'), isNew: true }
   ];
+
+  // Helper date label
+  const dateFilterLabel = {
+    today: 'Hôm nay',
+    this_week: 'Tuần này',
+    last_week: 'Tuần trước',
+    this_month: 'Tháng này',
+    last_month: 'Tháng trước'
+  }[dateFilter];
 
   return (
     <div className="w-full min-h-screen bg-[#f8f9fa] text-zinc-900 select-none font-sans">
@@ -343,8 +456,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
 
           <div className="flex items-center space-x-3">
-            {/* Date Filters */}
-            <div className="flex items-center p-1 bg-zinc-100 rounded-xl text-xs font-bold">
+            {/* Extended Date Filters (Hôm nay, Tuần này, Tuần trước, Tháng này, Tháng trước) */}
+            <div className="flex items-center p-1 bg-zinc-100 rounded-xl text-xs font-bold space-x-0.5">
               <button
                 onClick={() => setDateFilter('today')}
                 className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
@@ -352,6 +465,22 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 }`}
               >
                 Hôm nay
+              </button>
+              <button
+                onClick={() => setDateFilter('this_week')}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  dateFilter === 'this_week' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                Tuần này
+              </button>
+              <button
+                onClick={() => setDateFilter('last_week')}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  dateFilter === 'last_week' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+                }`}
+              >
+                Tuần trước
               </button>
               <button
                 onClick={() => setDateFilter('this_month')}
@@ -453,54 +582,53 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="grid grid-cols-12 gap-5 items-start">
           {/* Left Column (65% -> 8 cols): Chart + Top Best Sellers */}
           <div className="col-span-8 space-y-5">
-            {/* Real Dynamic Revenue Bar Chart */}
+            {/* Dynamic Revenue Bar Chart According to Filter */}
             <div className="bg-white p-5 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-4">
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
                 <div>
                   <h3 className="text-sm font-black uppercase tracking-wider text-zinc-900">
-                    Biểu Đồ Doanh Thu Theo Ngày Thực Tế
+                    {realChartData.title}
                   </h3>
                   <span className="text-xs text-zinc-400 font-medium">
-                    Tổng doanh thu kỳ: <b className="text-zinc-900 font-mono">{totalRevenue.toLocaleString('vi-VN')} đ</b>
+                    Tổng doanh thu kỳ này: <b className="text-zinc-900 font-mono">{totalRevenue.toLocaleString('vi-VN')} đ</b>
                   </span>
                 </div>
-                <span className="text-xs font-mono font-bold text-zinc-500 px-2.5 py-1 rounded-lg bg-zinc-50 border border-zinc-200">
-                  {dateFilter === 'this_month' ? 'Tháng này' : dateFilter === 'last_month' ? 'Tháng trước' : 'Hôm nay'}
+                <span className="text-xs font-mono font-bold text-zinc-600 px-3 py-1 rounded-lg bg-zinc-50 border border-zinc-200">
+                  {dateFilterLabel}
                 </span>
               </div>
 
-              {/* Chart Grid */}
+              {/* Dynamic Chart Display */}
               <div className="relative pt-3">
                 <div className="absolute inset-x-0 top-3 border-b border-dashed border-zinc-100 flex justify-between">
-                  <span className="text-[10px] font-mono text-zinc-400 -mt-2">{realChartDays.maxVal} Tr</span>
+                  <span className="text-[10px] font-mono text-zinc-400 -mt-2">{realChartData.maxVal} Tr</span>
                 </div>
                 <div className="absolute inset-x-0 top-20 border-b border-dashed border-zinc-100 flex justify-between">
-                  <span className="text-[10px] font-mono text-zinc-400 -mt-2">{Math.round(realChartDays.maxVal / 2)} Tr</span>
+                  <span className="text-[10px] font-mono text-zinc-400 -mt-2">{Math.round(realChartData.maxVal / 2)} Tr</span>
                 </div>
                 <div className="absolute inset-x-0 bottom-7 border-b border-zinc-200 flex justify-between">
                   <span className="text-[10px] font-mono text-zinc-400 -mt-2">0</span>
                 </div>
 
                 <div className="h-40 flex items-end justify-between gap-2 pl-10 pr-2 pb-7">
-                  {realChartDays.entries.map((item, idx) => (
+                  {realChartData.entries.map((item, idx) => (
                     <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group relative">
-                      {/* Tooltip on hover */}
                       <div className="absolute -top-7 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-900 text-white text-[10px] font-mono px-2 py-0.5 rounded-md whitespace-nowrap z-20 pointer-events-none shadow-md">
-                        Ngày {item.day}: {item.val} Tr
+                        {item.label}: {item.val} Tr
                       </div>
 
                       <div
-                        style={{ height: `${Math.max(item.val > 0 ? 8 : 2, (item.val / realChartDays.maxVal) * 100)}%` }}
-                        className={`w-full max-w-[20px] rounded-t-md transition-all duration-300 ${
+                        style={{ height: `${Math.max(item.val > 0 ? 8 : 2, (item.val / realChartData.maxVal) * 100)}%` }}
+                        className={`w-full max-w-[22px] rounded-t-md transition-all duration-300 ${
                           item.isPeak
                             ? 'bg-[#ff4b16]'
                             : item.val > 0
-                              ? 'bg-zinc-700 hover:bg-[#ff4b16]'
+                              ? 'bg-zinc-800 hover:bg-[#ff4b16]'
                               : 'bg-zinc-200'
                         }`}
                       />
                       <span className={`text-[10px] font-mono mt-1.5 ${item.isPeak ? 'text-[#ff4b16] font-bold' : 'text-zinc-500'}`}>
-                        {item.day}
+                        {item.label}
                       </span>
                     </div>
                   ))}
@@ -551,7 +679,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                       className="py-3 flex items-center justify-between gap-3 hover:bg-zinc-50 -mx-2 px-2 rounded-xl transition-colors cursor-pointer group"
                     >
                       <div className="flex items-center space-x-3 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-zinc-100 text-zinc-700 flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-[#ff4b16] group-hover:text-white transition-colors">
+                        <div className="w-8 h-8 rounded-lg bg-orange-50 text-[#ff4b16] flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-[#ff4b16] group-hover:text-white transition-colors">
                           #{idx + 1}
                         </div>
                         <div className="min-w-0">
@@ -576,32 +704,31 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             </div>
           </div>
 
-          {/* Right Column (35% -> 4 cols): 6 Shortcuts (2-Tone) + Action Center Tab */}
+          {/* Right Column (35% -> 4 cols): 6 Frameless Orange Shortcuts + Action Center Tab */}
           <div className="col-span-4 space-y-5">
-            {/* 6 Quick Shortcuts (2-Tone Neutral Gray + Brand Orange) */}
+            {/* 6 Quick Shortcuts (100% Màu Cam Thương Hiệu, Không Khung Bao Quanh) */}
             <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-3">
               <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900 border-b border-zinc-100 pb-2">
                 Phím Tắt Điều Hành Nhanh
               </h3>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-y-4 gap-x-2 pt-1">
                 {shortcutsList.map(sc => {
                   const Icon = sc.icon;
                   return (
                     <button
                       key={sc.id}
-                      onClick={() => sc.action ? sc.action() : onNavigateTab(sc.tab || 'crm')}
-                      className="p-2.5 rounded-xl bg-zinc-50 hover:bg-zinc-100 border border-zinc-200/70 flex flex-col items-center text-center transition-all cursor-pointer group active:scale-95 relative"
+                      onClick={sc.action}
+                      className="flex flex-col items-center text-center group cursor-pointer active:scale-95 transition-all relative py-1"
                     >
                       {sc.isNew && (
-                        <span className="absolute -top-1.5 -right-1 bg-[#ff4b16] text-white text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase shadow-xs">
+                        <span className="absolute -top-1 right-2 bg-[#ff4b16] text-white text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase shadow-xs">
                           mới
                         </span>
                       )}
-                      <div className="w-8 h-8 rounded-lg bg-zinc-200/80 text-zinc-700 group-hover:bg-[#ff4b16] group-hover:text-white flex items-center justify-center transition-colors">
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <span className="text-[11px] font-bold text-zinc-700 group-hover:text-zinc-950 mt-1 line-clamp-1">
+                      {/* Icon màu cam, không có khung bao quanh */}
+                      <Icon className="w-7 h-7 text-[#ff4b16] stroke-[2.2] transition-transform duration-200 group-hover:scale-115" />
+                      <span className="text-[11px] font-bold text-zinc-800 group-hover:text-[#ff4b16] mt-2 line-clamp-1 transition-colors">
                         {sc.label}
                       </span>
                     </button>
@@ -774,7 +901,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
 
-        {/* 2. Mobile Date Filter */}
+        {/* 2. Mobile Date Filter (Hôm nay, Tuần này, Tuần trước, Tháng này, Tháng trước) */}
         <div className="relative">
           <button
             type="button"
@@ -782,27 +909,39 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white border border-zinc-200 text-xs font-bold text-zinc-800 shadow-2xs hover:bg-zinc-50 cursor-pointer"
           >
             <Calendar className="w-3.5 h-3.5 text-[#ff4b16]" />
-            <span>{dateFilter === 'this_month' ? 'Tháng này' : dateFilter === 'last_month' ? 'Tháng trước' : 'Hôm nay'}</span>
+            <span>{dateFilterLabel}</span>
             <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
           </button>
 
           {isDateDropdownOpen && (
-            <div className="absolute top-10 left-0 z-30 bg-white border border-zinc-200 rounded-xl shadow-xl py-1 w-36 text-xs font-bold text-zinc-700">
+            <div className="absolute top-10 left-0 z-30 bg-white border border-zinc-200 rounded-xl shadow-xl py-1 w-40 text-xs font-bold text-zinc-700">
               <button
                 onClick={() => { setDateFilter('today'); setIsDateDropdownOpen(false); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-100 cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-orange-50 hover:text-[#ff4b16] cursor-pointer"
               >
                 Hôm nay
               </button>
               <button
+                onClick={() => { setDateFilter('this_week'); setIsDateDropdownOpen(false); }}
+                className="w-full text-left px-3 py-2 hover:bg-orange-50 hover:text-[#ff4b16] cursor-pointer"
+              >
+                Tuần này
+              </button>
+              <button
+                onClick={() => { setDateFilter('last_week'); setIsDateDropdownOpen(false); }}
+                className="w-full text-left px-3 py-2 hover:bg-orange-50 hover:text-[#ff4b16] cursor-pointer"
+              >
+                Tuần trước
+              </button>
+              <button
                 onClick={() => { setDateFilter('this_month'); setIsDateDropdownOpen(false); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-100 cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-orange-50 hover:text-[#ff4b16] cursor-pointer"
               >
                 Tháng này
               </button>
               <button
                 onClick={() => { setDateFilter('last_month'); setIsDateDropdownOpen(false); }}
-                className="w-full text-left px-3 py-1.5 hover:bg-zinc-100 cursor-pointer"
+                className="w-full text-left px-3 py-2 hover:bg-orange-50 hover:text-[#ff4b16] cursor-pointer"
               >
                 Tháng trước
               </button>
@@ -849,26 +988,25 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
 
-        {/* 4. Mobile 6-Grid Shortcuts (Chỉ dùng 2 tone: Xám + Cam thương hiệu) */}
+        {/* 4. Mobile 6-Grid Shortcuts: Icon Màu Cam, Không Khung Bao Quanh */}
         <div className="bg-white rounded-2xl p-3 border border-zinc-200/70 shadow-2xs">
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-3 gap-y-3.5 gap-x-2 pt-1">
             {shortcutsList.map(sc => {
               const Icon = sc.icon;
               return (
                 <button
                   key={sc.id}
-                  onClick={() => sc.action ? sc.action() : onNavigateTab(sc.tab || 'crm')}
-                  className="flex flex-col items-center text-center p-2 rounded-xl bg-zinc-50/70 hover:bg-zinc-100 transition-all cursor-pointer active:scale-95 relative"
+                  onClick={sc.action}
+                  className="flex flex-col items-center text-center group cursor-pointer active:scale-95 transition-all relative py-1"
                 >
                   {sc.isNew && (
-                    <span className="absolute -top-1 right-1 bg-[#ff4b16] text-white text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase">
+                    <span className="absolute -top-1 right-2 bg-[#ff4b16] text-white text-[8px] font-black px-1.5 py-0.2 rounded-full uppercase">
                       mới
                     </span>
                   )}
-                  <div className="w-10 h-10 rounded-xl bg-zinc-100 text-zinc-700 flex items-center justify-center shadow-2xs">
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <span className="text-[11px] font-bold text-zinc-800 mt-1 line-clamp-1">
+                  {/* Icon màu cam, không có khung bao quanh */}
+                  <Icon className="w-6 h-6 text-[#ff4b16] stroke-[2.2] transition-transform duration-200 group-hover:scale-115" />
+                  <span className="text-[11px] font-bold text-zinc-800 group-hover:text-[#ff4b16] mt-1.5 line-clamp-1 transition-colors">
                     {sc.label}
                   </span>
                 </button>
@@ -930,44 +1068,41 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
         </div>
 
-        {/* 6. Mobile Real Revenue Bar Chart */}
+        {/* 6. Mobile Dynamic Revenue Bar Chart */}
         <div className="bg-white rounded-2xl p-3.5 border border-zinc-200/70 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-1.5">
-              <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">Doanh thu theo ngày</h3>
-              <span className="text-[10px] text-zinc-400 font-mono">
-                ({(totalRevenue / 1_000_000).toFixed(1)}Tr)
-              </span>
+              <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">{realChartData.title}</h3>
             </div>
-            <span className="text-[10px] font-bold text-zinc-400 font-mono">
-              {dateFilter === 'this_month' ? 'Tháng này' : dateFilter === 'last_month' ? 'Tháng trước' : 'Hôm nay'}
+            <span className="text-[10px] font-bold text-zinc-500 font-mono">
+              ({(totalRevenue / 1_000_000).toFixed(1)}Tr)
             </span>
           </div>
 
           {/* Chart Display */}
           <div className="relative pt-2">
             <div className="absolute inset-x-0 top-2 border-b border-dashed border-zinc-100 flex justify-between">
-              <span className="text-[9px] font-mono text-zinc-400 -mt-2">{realChartDays.maxVal}Tr</span>
+              <span className="text-[9px] font-mono text-zinc-400 -mt-2">{realChartData.maxVal}Tr</span>
             </div>
             <div className="absolute inset-x-0 bottom-5 border-b border-zinc-200 flex justify-between">
               <span className="text-[9px] font-mono text-zinc-400 -mt-2">0</span>
             </div>
 
             <div className="h-24 flex items-end justify-between gap-1 pl-6 pr-1 pb-5">
-              {realChartDays.entries.map((item, idx) => (
+              {realChartData.entries.map((item, idx) => (
                 <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end group">
                   <div
-                    style={{ height: `${Math.max(item.val > 0 ? 8 : 2, (item.val / realChartDays.maxVal) * 100)}%` }}
-                    className={`w-full max-w-[8px] rounded-t-sm transition-all duration-300 ${
+                    style={{ height: `${Math.max(item.val > 0 ? 8 : 2, (item.val / realChartData.maxVal) * 100)}%` }}
+                    className={`w-full max-w-[12px] rounded-t-sm transition-all duration-300 ${
                       item.isPeak
                         ? 'bg-[#ff4b16]'
                         : item.val > 0
-                          ? 'bg-zinc-700'
+                          ? 'bg-zinc-800'
                           : 'bg-zinc-200'
                     }`}
                   />
                   <span className={`text-[8px] font-mono mt-1 ${item.isPeak ? 'text-[#ff4b16] font-bold' : 'text-zinc-400'}`}>
-                    {item.day}
+                    {item.label}
                   </span>
                 </div>
               ))}
@@ -1012,7 +1147,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   className="py-2 flex items-center justify-between gap-2 cursor-pointer"
                 >
                   <div className="flex items-center space-x-2 min-w-0">
-                    <div className="w-6 h-6 rounded-md bg-zinc-100 text-zinc-700 flex items-center justify-center font-bold text-[10px] shrink-0">
+                    <div className="w-6 h-6 rounded-md bg-orange-50 text-[#ff4b16] flex items-center justify-center font-bold text-[10px] shrink-0">
                       #{idx + 1}
                     </div>
                     <div className="min-w-0">
