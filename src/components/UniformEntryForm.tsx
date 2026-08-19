@@ -239,11 +239,14 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-zinc-950/60 backdrop-blur-xs flex flex-col h-screen w-screen overflow-hidden select-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-zinc-950 via-[#1a1714] to-zinc-950 backdrop-blur-md flex flex-col h-screen w-screen overflow-hidden select-none animate-in fade-in duration-200">
       
-      <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0">
-        <div className="flex items-center space-x-3">
-          <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-black">
+      {/* 1. Full-Bleed Slim Header Bar with Gradient & Quick Confirm Button */}
+      <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0 shadow-sm relative overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-96 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
+        
+        <div className="flex items-center space-x-3 relative z-10">
+          <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-black shadow-md shadow-orange-500/30">
             <PackagePlus className="w-4 h-4" />
           </div>
           <div>
@@ -253,13 +256,29 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 Mã: PN-{Date.now().toString().slice(-6)}
               </span>
             </div>
-            <span className="text-[11px] text-zinc-400 font-medium">
+            <span className="text-[11px] text-zinc-400 font-medium hidden sm:inline-block">
               Nhập máy theo danh sách IMEI & cập nhật giá vốn tức thì
             </span>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 relative z-10">
+          {/* Quick Header Submit Button */}
+          <button
+            type="button"
+            onClick={handleSubmit(onSubmit)}
+            disabled={totalQuantity === 0}
+            className={`px-3.5 py-1.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center space-x-1.5 transition-all shadow-md active:scale-95 cursor-pointer ${
+              totalQuantity > 0
+                ? 'bg-gradient-to-r from-orange-500 via-[#ff4b16] to-orange-600 text-white hover:brightness-110 shadow-orange-500/30'
+                : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
+            }`}
+            title="Xác nhận nhập kho toàn bộ sản phẩm (F9)"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Xác Nhận Nhập Kho ({totalQuantity} máy)</span>
+          </button>
+
           <button
             type="button"
             onClick={onClose}
@@ -271,7 +290,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         </div>
       </div>
 
-      <div className="lg:hidden flex items-center p-1 bg-zinc-100 border-b border-zinc-200 text-xs font-bold shrink-0">
+      {/* Mobile Segmented Nav (<1024px) */}
+      <div className="lg:hidden flex items-center p-1 bg-gradient-to-r from-zinc-100 via-orange-50/30 to-zinc-100 border-b border-zinc-200 text-xs font-bold shrink-0">
         <button
           type="button"
           onClick={() => setMobileTab('CATALOG')}
@@ -301,9 +321,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         </button>
       </div>
 
+      {/* 2. Three-Column Full-Bleed Cockpit Grid Layout with Gradient Backgrounds */}
       <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.4fr_380px] divide-y lg:divide-y-0 lg:divide-x divide-zinc-200/80 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden bg-white w-full">
         
-        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3 bg-zinc-50/40 ${mobileTab !== 'CATALOG' ? 'hidden lg:flex' : 'flex'}`}>
+        {/* ========================================================================= */}
+        {/* CỘT 1: CHỌN MÃ SKU / DANH MỤC SẢN PHẨM NHẬP KHO */}
+        {/* ========================================================================= */}
+        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3 bg-gradient-to-b from-white via-orange-50/15 to-zinc-50/50 ${mobileTab !== 'CATALOG' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
             <div className="flex items-center space-x-2">
               <Layers className="w-4 h-4 text-[#ff4b16]" />
@@ -316,6 +340,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             </span>
           </div>
 
+          {/* Catalog Search Input */}
           <div className="relative">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-3 pointer-events-none" />
             <input
@@ -327,6 +352,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             />
           </div>
 
+          {/* Category Chips */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px] font-bold">
             {['ALL', '16', '15', '14', '13', '12'].map(s => (
               <button
@@ -342,6 +368,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             ))}
           </div>
 
+          {/* Catalog List */}
           <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
             {filteredCatalogItems.length === 0 ? (
               <div className="py-8 text-center text-xs text-zinc-400">
@@ -352,7 +379,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 <div
                   key={item.id}
                   onClick={() => handleSelectCatalogItemForNewRow(item)}
-                  className="p-2.5 rounded-xl bg-white border border-zinc-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all cursor-pointer flex items-center justify-between group"
+                  className="p-2.5 rounded-xl bg-gradient-to-r from-white to-orange-50/30 border border-zinc-200/90 hover:border-orange-300 hover:shadow-xs transition-all cursor-pointer flex items-center justify-between group"
                 >
                   <div className="min-w-0 pr-2">
                     <div className="flex items-center space-x-1.5">
@@ -381,10 +408,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           </div>
         </div>
 
-        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3 bg-white ${mobileTab !== 'ITEMS' ? 'hidden lg:flex' : 'flex'}`}>
+        {/* ========================================================================= */}
+        {/* CỘT 2: BẢNG SẢN PHẨM & DÁN DANH SÁCH IMEI HÀNG LOẠT */}
+        {/* ========================================================================= */}
+        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3 bg-gradient-to-b from-white via-zinc-50/40 to-white ${mobileTab !== 'ITEMS' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
             <div className="flex items-center space-x-2">
-              <div className="w-6 h-6 rounded-lg bg-[#ff4b16] text-white flex items-center justify-center font-black text-xs">
+              <div className="w-6 h-6 rounded-lg bg-[#ff4b16] text-white flex items-center justify-center font-black text-xs shadow-sm shadow-orange-500/30">
                 {fields.length}
               </div>
               <div>
@@ -400,13 +430,14 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             <button
               type="button"
               onClick={() => append({ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 })}
-              className="px-2.5 py-1 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#ff4b16] font-bold text-xs flex items-center space-x-1 transition-colors cursor-pointer"
+              className="px-2.5 py-1 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#ff4b16] font-bold text-xs flex items-center space-x-1 transition-colors cursor-pointer border border-orange-200/60"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Thêm Dòng</span>
             </button>
           </div>
 
+          {/* Form Rows Container */}
           <div className="flex-1 overflow-y-auto space-y-3 pr-1">
             {fields.map((field, index) => {
               const currentImeis = watchItems[index]?.imeisInput || '';
@@ -418,7 +449,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
               return (
                 <div 
                   key={field.id} 
-                  className="p-3.5 rounded-2xl bg-zinc-50 border border-zinc-200 hover:border-zinc-300 transition-all space-y-2.5 relative"
+                  className="p-3.5 rounded-2xl bg-gradient-to-br from-white via-zinc-50/70 to-orange-50/20 border border-zinc-200/90 hover:border-orange-300 transition-all space-y-2.5 relative shadow-2xs"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex-1">
@@ -451,6 +482,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                     )}
                   </div>
 
+                  {/* Batch IMEI Textarea */}
                   <div className="relative">
                     <textarea
                       {...register(`items.${index}.imeisInput` as const)}
@@ -469,10 +501,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           </div>
         </div>
 
-        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3.5 bg-zinc-50/50 ${mobileTab !== 'PAYMENT' ? 'hidden lg:flex' : 'flex'}`}>
-          <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
+        {/* ========================================================================= */}
+        {/* CỘT 3: NHÀ CUNG CẤP & THANH TOÁN TIỀN HÀNG (Chuẩn PaymentPanel của POS) */}
+        {/* ========================================================================= */}
+        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-y-auto space-y-3.5 bg-gradient-to-b from-orange-50/25 via-zinc-50/40 to-white ${mobileTab !== 'PAYMENT' ? 'hidden lg:flex' : 'flex'}`}>
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-2 shrink-0">
             <div className="flex items-center space-x-2">
-              <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-black">
+              <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-black shadow-2xs">
                 <Store className="w-3.5 h-3.5" />
               </div>
               <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">
@@ -482,7 +517,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             <span className="text-[10px] font-mono text-zinc-400">F9: Nhập kho</span>
           </div>
 
-          <div className="space-y-1">
+          {/* 1. Branch & Warehouse */}
+          <div className="space-y-1 shrink-0">
             <label className="block text-xs font-bold text-zinc-700">Chi Nhánh Nhập</label>
             {isAdmin ? (
               <select
@@ -500,7 +536,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             )}
           </div>
 
-          <div className="space-y-1">
+          {/* 2. Supplier Selection */}
+          <div className="space-y-1 shrink-0">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold text-zinc-700">Nhà Cung Cấp</label>
               <button
@@ -522,7 +559,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             </select>
           </div>
 
-          <div className="space-y-1.5">
+          {/* 3. Payment Method Tabs */}
+          <div className="space-y-1.5 shrink-0">
             <label className="block text-xs font-bold text-zinc-700">Phương Thức Thanh Toán</label>
             <div className="grid grid-cols-3 gap-1">
               {[
@@ -554,8 +592,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             </div>
           </div>
 
-          {/* 4. Financial Summary Card */}
-          <div className="p-3 bg-white rounded-2xl border border-zinc-200 space-y-2 mt-auto">
+          {/* 4. Financial Summary Card with Gradient */}
+          <div className="p-3.5 bg-gradient-to-br from-orange-500/10 via-white to-orange-50/20 rounded-2xl border border-orange-200/80 space-y-2 mt-auto shrink-0 shadow-sm">
             <div className="flex items-center justify-between text-xs text-zinc-600 font-medium">
               <span>Tổng số lượng máy:</span>
               <span className="font-mono font-bold text-zinc-900">{totalQuantity} cây máy</span>
@@ -563,13 +601,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
             <div className="flex items-center justify-between text-xs text-zinc-600 font-medium">
               <span>Tổng tiền hàng:</span>
-              <span className="font-mono font-black text-sm text-[#ff4b16]">
+              <span className="font-mono font-black text-base text-[#ff4b16]">
                 {totalAmount.toLocaleString('vi-VN')} đ
               </span>
             </div>
 
             {watchPaymentMethod !== 'DEBT' && (
-              <div className="flex items-center justify-between text-xs text-zinc-600 font-medium pt-1 border-t border-zinc-100">
+              <div className="flex items-center justify-between text-xs text-zinc-600 font-medium pt-1.5 border-t border-orange-200/40">
                 <span>Số tiền thanh toán:</span>
                 <input
                   type="number"
@@ -578,26 +616,26 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                     setValue("amountPaid", Number(e.target.value) || 0);
                     setIsCustomPaid(true);
                   }}
-                  className="w-28 h-7 text-right px-2 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-[#ff4b16]"
+                  className="w-28 h-7 text-right px-2 bg-white border border-orange-200 rounded-lg text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-[#ff4b16]"
                 />
               </div>
             )}
 
             {remainingDebtAmount > 0 && (
-              <div className="flex items-center justify-between text-[11px] text-rose-600 font-bold pt-1 border-t border-zinc-100">
+              <div className="flex items-center justify-between text-[11px] text-rose-600 font-bold pt-1.5 border-t border-orange-200/40">
                 <span>Công nợ ghi nhận:</span>
                 <span className="font-mono">{remainingDebtAmount.toLocaleString('vi-VN')} đ</span>
               </div>
             )}
           </div>
 
-          {/* 5. Complete Button (F9) */}
+          {/* 5. Complete Button (F9) - Prominent Column Button */}
           <button
             type="submit"
             disabled={totalQuantity === 0}
-            className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all shadow-md active:scale-98 cursor-pointer ${
+            className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all shadow-md active:scale-98 cursor-pointer shrink-0 ${
               totalQuantity > 0
-                ? 'bg-[#ff4b16] hover:bg-[#e03e0e] text-white shadow-orange-500/25'
+                ? 'bg-gradient-to-r from-orange-500 via-[#ff4b16] to-[#e03e0e] text-white shadow-orange-500/30 hover:brightness-105'
                 : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
             }`}
           >
@@ -606,6 +644,27 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           </button>
         </div>
       </form>
+
+      {/* 3. Sticky Mobile Bottom Confirmation Bar (<1024px) */}
+      <div className="lg:hidden px-4 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black border-t border-zinc-800 flex items-center justify-between shrink-0 shadow-lg">
+        <div>
+          <div className="text-[10px] text-zinc-400 font-medium">Tổng: <b className="text-white font-mono">{totalQuantity} máy</b></div>
+          <div className="text-xs font-black font-mono text-[#ff4b16]">{totalAmount.toLocaleString('vi-VN')} đ</div>
+        </div>
+        <button
+          type="button"
+          onClick={handleSubmit(onSubmit)}
+          disabled={totalQuantity === 0}
+          className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider flex items-center space-x-1.5 transition-all shadow-md active:scale-95 cursor-pointer ${
+            totalQuantity > 0
+              ? 'bg-gradient-to-r from-orange-500 via-[#ff4b16] to-[#e03e0e] text-white shadow-orange-500/30'
+              : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+          }`}
+        >
+          <PackagePlus className="w-3.5 h-3.5" />
+          <span>Nhập Kho</span>
+        </button>
+      </div>
 
       {/* Supplier Creation Dialog */}
       <CreatePartnerModal

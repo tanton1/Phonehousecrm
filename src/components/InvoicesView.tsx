@@ -435,19 +435,21 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </div>
         )}
 
-        {/* 1. Top Bar: Back, Code, Quick Status Selector & Actions */}
-        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between sticky top-14 z-20">
-          <div className="flex items-center space-x-2.5">
+        {/* 1. Top Bar: Back, Code, Quick Status Selector & Actions with Dark Obsidian Gradient */}
+        <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white rounded-2xl p-3 sm:p-4 border border-zinc-800 shadow-md flex items-center justify-between sticky top-14 z-20 relative overflow-hidden">
+          <div className="absolute top-0 right-1/4 w-64 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
+
+          <div className="flex items-center space-x-2.5 relative z-10">
             <button
               onClick={() => setSelectedInvoice(null)}
-              className="w-8 h-8 rounded-xl bg-orange-50 hover:bg-orange-100 text-orange-600 flex items-center justify-center transition-all cursor-pointer"
+              className="w-8 h-8 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-orange-400 flex items-center justify-center transition-all cursor-pointer border border-zinc-700"
               title="Quay lại danh sách"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
             <div>
               <div className="flex items-center space-x-2">
-                <span className="font-semibold text-zinc-900 text-base sm:text-lg tracking-tight font-mono">
+                <span className="font-bold text-white text-base sm:text-lg tracking-tight font-mono">
                   {invoiceCode}
                 </span>
 
@@ -465,7 +467,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
                   {/* Status Picker Dropdown Menu */}
                   {showStatusPicker && (
-                    <div className="absolute left-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 z-40 animate-fadeIn text-xs">
+                    <div className="absolute left-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 z-40 animate-fadeIn text-xs text-zinc-900">
                       <div className="px-3 py-1 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-100">
                         Chuyển Trạng Thái Đơn:
                       </div>
@@ -492,17 +494,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   )}
                 </div>
               </div>
-              <p className="text-[11px] text-zinc-500 font-normal mt-0.5">
+              <p className="text-[11px] text-zinc-400 font-normal mt-0.5 font-mono">
                 {rawDate}
               </p>
             </div>
           </div>
 
           {/* Header Action Menu */}
-          <div className="relative">
+          <div className="relative z-10">
             <button
               onClick={() => setShowMoreDropdown(!showMoreDropdown)}
-              className="w-8 h-8 rounded-xl hover:bg-zinc-100 text-zinc-600 flex items-center justify-center transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-xl hover:bg-zinc-800 text-zinc-300 flex items-center justify-center transition-colors cursor-pointer"
             >
               <MoreVertical className="w-5 h-5" />
             </button>
@@ -567,30 +569,30 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </div>
         </div>
 
-        {/* 2. Customer Information Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
+        {/* 2. Customer Information Card with Soft Gradient */}
+        <div className="bg-gradient-to-br from-white via-orange-50/20 to-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-medium text-sm">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold text-sm shadow-sm shadow-orange-500/20">
               <UserIcon className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center space-x-2">
-                <h3 className="font-semibold text-zinc-800 text-sm sm:text-base">
+                <h3 className="font-bold text-zinc-900 text-sm sm:text-base">
                   {customerName}
                 </h3>
-                <span className="text-[10px] font-medium bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-md border border-zinc-200">
+                <span className="text-[10px] font-bold bg-orange-100/70 text-[#ff4b16] px-2 py-0.5 rounded-md border border-orange-200/60">
                   Khách thân thiết
                 </span>
               </div>
               <p className="text-xs text-zinc-500 font-mono flex items-center gap-1.5 mt-0.5">
-                <Phone className="w-3 h-3 text-orange-500" />
+                <Phone className="w-3 h-3 text-[#ff4b16]" />
                 <span>{customerPhone}</span>
               </p>
             </div>
           </div>
           <button 
             onClick={() => handleCopy(customerPhone, 'phone')}
-            className="p-2 rounded-xl text-zinc-400 hover:text-orange-600 hover:bg-orange-50 transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-zinc-400 hover:text-[#ff4b16] hover:bg-orange-50 transition-colors cursor-pointer"
             title="Sao chép SĐT"
           >
             <ChevronRight className="w-5 h-5" />
@@ -653,8 +655,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           ))}
         </div>
 
-        {/* 4. Financial & Payment Summary Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs space-y-2.5 text-xs sm:text-sm">
+        {/* 4. Financial & Payment Summary Card with Soft Brand Gradient */}
+        <div className="bg-gradient-to-br from-white via-orange-50/20 to-white rounded-2xl p-3.5 sm:p-4 border border-orange-200/60 shadow-2xs space-y-2.5 text-xs sm:text-sm">
           <div className="flex justify-between items-center py-1">
             <span className="text-zinc-600 flex items-center space-x-1.5 font-normal">
               <span>Tổng tiền hàng ({totalQty} món)</span>
@@ -677,7 +679,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           )}
 
           {(selectedInvoice.tradeInDiscount || selectedInvoice.tradeInDeduction || 0) > 0 && (
-            <div className="flex justify-between items-center py-1 text-orange-600 font-normal">
+            <div className="flex justify-between items-center py-1 text-[#ff4b16] font-normal">
               <span className="flex items-center gap-1">
                 <Smartphone className="w-3.5 h-3.5" />
                 <span>Trừ tiền Thu cũ đổi mới</span>
@@ -688,9 +690,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </div>
           )}
 
-          <div className="pt-2 border-t border-zinc-100 flex justify-between items-center text-sm sm:text-base font-semibold">
-            <span className="text-zinc-800">Tổng thanh toán</span>
-            <span className="text-orange-600 font-mono text-base sm:text-lg font-bold">
+          <div className="pt-2 border-t border-orange-200/50 flex justify-between items-center text-sm sm:text-base font-semibold">
+            <span className="text-zinc-900 font-bold">Tổng thanh toán</span>
+            <span className="text-[#ff4b16] font-mono text-base sm:text-lg font-black">
               {selectedInvoice.finalAmount.toLocaleString('vi-VN')}đ
             </span>
           </div>
@@ -698,11 +700,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           <div className="flex justify-between items-center py-1 text-zinc-600 font-normal">
             <span className="flex items-center gap-1.5">
               <span>Phương thức thanh toán</span>
-              <span className="text-[10px] bg-orange-50 text-orange-700 px-1.5 py-0.2 rounded font-medium border border-orange-200">
+              <span className="text-[10px] bg-orange-100/80 text-[#ff4b16] px-2 py-0.5 rounded-full font-bold border border-orange-200">
                 {selectedInvoice.paymentMethod}
               </span>
             </span>
-            <span className="font-semibold text-orange-600 font-mono">
+            <span className="font-bold text-zinc-900 font-mono">
               {(selectedInvoice.paidAmount ?? selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ
             </span>
           </div>

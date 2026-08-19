@@ -59,34 +59,37 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-        <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-zinc-100">
-          {/* 1. Modal Top Bar */}
-          <div className="p-4 sm:p-5 border-b border-zinc-100 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-2xl bg-orange-100 text-[#ff4b16] flex items-center justify-center font-bold">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-zinc-200/80">
+          {/* 1. Modal Top Bar with Dark Obsidian Brand Gradient */}
+          <div className="p-4 sm:p-5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 flex items-center justify-between relative overflow-hidden">
+            <div className="absolute top-0 right-1/3 w-64 h-12 bg-orange-500/10 blur-2xl pointer-events-none" />
+
+            <div className="flex items-center space-x-3 relative z-10">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold shadow-md shadow-orange-500/30">
                 <Receipt className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center space-x-2">
-                  <h3 className="text-base font-black text-zinc-900">
+                  <h3 className="text-base font-black text-white font-mono">
                     {invoice.invoiceCode || invoice.id}
                   </h3>
                   <StatusBadge status={invoice.status || 'completed'} />
                 </div>
-                <p className="text-xs text-zinc-500 mt-0.5">
-                  Ngày lập: <span className="font-mono">{invoice.createdAt || invoice.createdDate || 'N/A'}</span> • Chi nhánh: <span className="font-bold text-zinc-700">{branchObj?.name || invoice.branch || 'Toàn Hệ Thống'}</span>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Ngày lập: <span className="font-mono text-zinc-300">{invoice.createdAt || invoice.createdDate || 'N/A'}</span> • Chi nhánh: <span className="font-bold text-orange-300">{branchObj?.name || invoice.branch || 'Toàn Hệ Thống'}</span>
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 relative z-10">
               {onPrintThermal && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => onPrintThermal(invoice)}
                   leftIcon={<Printer className="w-3.5 h-3.5" />}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700"
                 >
                   In K80
                 </Button>
@@ -105,19 +108,19 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
 
               <button
                 onClick={onClose}
-                className="p-2 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
+                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-xl transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* 2. Customer Summary Card */}
-          <div className="bg-zinc-50/80 px-5 py-3 border-b border-zinc-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+          {/* 2. Customer Summary Card with Soft Gradient */}
+          <div className="bg-gradient-to-r from-orange-50/40 via-zinc-50 to-white px-5 py-3 border-b border-zinc-100 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-1.5 text-zinc-700">
-                <User className="w-3.5 h-3.5 text-zinc-400" />
-                <span className="font-bold">{invoice.customerName}</span>
+              <div className="flex items-center space-x-1.5 text-zinc-800">
+                <User className="w-3.5 h-3.5 text-[#ff4b16]" />
+                <span className="font-black">{invoice.customerName}</span>
               </div>
               {invoice.customerPhone && (
                 <div className="flex items-center space-x-1.5 text-zinc-600 font-mono">
@@ -128,7 +131,7 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
             </div>
 
             <div className="text-zinc-600">
-              Thu ngân: <span className="font-bold text-zinc-800">{invoice.cashier || invoice.sellerName || 'Admin'}</span>
+              Thu ngân: <span className="font-bold text-zinc-900">{invoice.cashier || invoice.sellerName || 'Admin'}</span>
             </div>
           </div>
 
