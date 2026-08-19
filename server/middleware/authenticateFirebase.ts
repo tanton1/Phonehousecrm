@@ -1,11 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminAuth, adminDb } from '../firebaseAdmin';
 
+export interface StaffAuthority {
+  uid: string;
+  email?: string;
+  role: string;
+  branchId?: string;
+  assignedBranchIds?: string[];
+  active: boolean;
+  name?: string;
+}
+
 export interface AuthenticatedUser {
   uid: string;
   email?: string;
   role: string;
   branchId?: string;
+  assignedBranchIds?: string[];
   name?: string;
 }
 
@@ -14,6 +25,47 @@ declare global {
     interface Request {
       user?: AuthenticatedUser;
     }
+  }
+}
+
+/**
+ * Authoritative Staff Authority Retrieval:
+ * Reads directly from Firestore users/{uid} as the Single Source of Truth.
+ */
+export async function getStaffAuthority(uid: string, emailFallback?: string): Promise<StaffAuthority | null> {
+  if (!adminDb) return null;
+
+  try {
+    let userSnap = await adminDb.collection('users').doc(uid).get();
+
+    if (!userSnap.exists && emailFallback) {
+      const emailQuery = await adminDb
+        .collection('users')
+        .where('email', '==', emailFallback.toLowerCase())
+        .limit(1)
+        .get();
+      if (!emailQuery.empty) {
+        userSnap = emailQuery.docs[0];
+      }
+    }
+
+    if (!userSnap.exists) {
+      return null;
+    }
+
+    const uData = userSnap.data()!;
+    return {
+      uid: userSnap.id,
+      email: uData.email || emailFallback,
+      role: (uData.role || '').toUpperCase(),
+      branchId: uData.branchId || (uData.assignedBranchIds && uData.assignedBranchIds[0]) || '',
+      assignedBranchIds: uData.assignedBranchIds || [],
+      active: uData.active !== false,
+      name: uData.displayName || uData.name
+    };
+  } catch (err) {
+    console.error('[getStaffAuthority Error]:', err);
+    return null;
   }
 }
 
@@ -36,7 +88,8 @@ export async function authenticateFirebase(
         uid: devUid,
         role: devRole.toUpperCase(),
         branchId: devBranchId || 'CN01',
-        email: `${devUid}@phonehouse.local`
+        email: `${devUid}@phonehouse.local`,
+        assignedBranchIds: [devBranchId || 'CN01']
       };
       return next();
     }
@@ -53,58 +106,44 @@ export async function authenticateFirebase(
   try {
     const decoded = await adminAuth.verifyIdToken(token);
     
-    // 2. Resolve Role & Branch from Custom Claims OR Authoritative Firestore User Document
-    let userRole = (decoded.role as string) || (decoded['custom:role'] as string);
-    let branchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || '';
-    let displayName = decoded.name || decoded.email;
+    // 2. Resolve Role & Branch from Authoritative Firestore User Document (Single Source of Truth)
+    let staff = await getStaffAuthority(decoded.uid, decoded.email);
 
-    if (!userRole && adminDb) {
-      try {
-        // Look up user document in Firestore by UID
-        let userSnap = await adminDb.collection('users').doc(decoded.uid).get();
-        
-        // If not found by UID, lookup by email
-        if (!userSnap.exists && decoded.email) {
-          const emailQuery = await adminDb
-            .collection('users')
-            .where('email', '==', decoded.email.toLowerCase())
-            .limit(1)
-            .get();
-          if (!emailQuery.empty) {
-            userSnap = emailQuery.docs[0];
-          }
-        }
-
-        if (userSnap.exists) {
-          const uData = userSnap.data()!;
-          if (uData.active === false) {
-            return res.status(403).json({
-              success: false,
-              error: 'USER_INACTIVE',
-              message: 'Tài khoản nhân viên này đã bị tạm khóa.'
-            });
-          }
-
-          userRole = uData.role;
-          branchId = uData.branchId || (uData.assignedBranchIds && uData.assignedBranchIds[0]) || '';
-          displayName = uData.displayName || displayName;
-
-          // Asynchronously sync claims to Firebase Auth for subsequent instant verification
-          if (userRole) {
-            adminAuth.setCustomUserClaims(decoded.uid, {
-              role: userRole.toUpperCase(),
-              branchId
-            }).catch((err) => {
-              console.warn('[Sync Custom Claims Error]:', err.message);
-            });
-          }
-        }
-      } catch (dbErr) {
-        console.warn('[Auth Middleware DB Lookup Error]:', dbErr);
+    // If not in DB yet (e.g. initial admin bootstrap), fallback to claims
+    if (!staff) {
+      const claimRole = (decoded.role as string) || (decoded['custom:role'] as string);
+      const claimBranchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || '';
+      if (claimRole) {
+        staff = {
+          uid: decoded.uid,
+          email: decoded.email,
+          role: claimRole.toUpperCase(),
+          branchId: claimBranchId,
+          assignedBranchIds: [claimBranchId].filter(Boolean),
+          active: true,
+          name: decoded.name || decoded.email
+        };
       }
     }
 
-    if (!userRole) {
+    if (!staff) {
+      return res.status(403).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'Tài khoản nhân viên chưa được khởi tạo trong hệ thống.'
+      });
+    }
+
+    // 3. Active User Invariant Check: Inactive employees are immediately denied
+    if (!staff.active) {
+      return res.status(403).json({
+        success: false,
+        error: 'USER_INACTIVE',
+        message: 'Tài khoản nhân viên này đã bị tạm khóa.'
+      });
+    }
+
+    if (!staff.role) {
       return res.status(403).json({
         success: false,
         error: 'ROLE_NOT_ASSIGNED',
@@ -112,7 +151,7 @@ export async function authenticateFirebase(
       });
     }
 
-    if (userRole.toUpperCase() !== 'ADMIN' && !branchId) {
+    if (staff.role !== 'ADMIN' && !staff.branchId) {
       return res.status(403).json({
         success: false,
         error: 'BRANCH_NOT_ASSIGNED',
@@ -121,11 +160,12 @@ export async function authenticateFirebase(
     }
 
     req.user = {
-      uid: decoded.uid,
-      email: decoded.email,
-      role: userRole.toUpperCase(),
-      branchId,
-      name: displayName
+      uid: staff.uid,
+      email: staff.email,
+      role: staff.role,
+      branchId: staff.branchId,
+      assignedBranchIds: staff.assignedBranchIds,
+      name: staff.name
     };
     next();
   } catch (error: any) {

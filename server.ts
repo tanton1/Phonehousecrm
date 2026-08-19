@@ -115,6 +115,12 @@ app.use('/api/attendance', createAttendanceRouter(adminDb));
 import { createUsersRouter } from './server/routes/users';
 app.use('/api/users', createUsersRouter(adminDb));
 
+// -------------------------------------------------------------
+// 4. ATOMIC FINANCE & CASHBOOK TRANSACTION ROUTER
+// -------------------------------------------------------------
+import { createFinanceRouter } from './server/routes/finance';
+app.use('/api/finance', createFinanceRouter(adminDb));
+
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
 
 // Vietnam Timezone (UTC+7) Date Helper

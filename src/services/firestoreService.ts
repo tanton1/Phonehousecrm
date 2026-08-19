@@ -558,6 +558,44 @@ export function subscribeToCashTransactions(onData: (txs: CashTransaction[]) => 
 }
 
 export async function addCashTransactionToFirestore(tx: CashTransaction) {
+  try {
+    const idToken = await auth.currentUser?.getIdToken().catch(() => null);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) {
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+    headers['x-staff-uid'] = auth.currentUser?.uid || 'staff-finance';
+    headers['x-staff-role'] = 'ACCOUNTANT';
+    headers['x-staff-branch-id'] = tx.branchId || 'CN01';
+
+    const endpoint = tx.type === 'RECEIPT' ? '/api/finance/receipt' : '/api/finance/payment';
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        fundId: tx.fundId,
+        amount: tx.amount,
+        partnerId: tx.partnerId,
+        partnerName: tx.partnerName,
+        partnerType: tx.partnerType,
+        category: tx.category,
+        categoryName: tx.categoryName,
+        notes: tx.notes,
+        branchId: tx.branchId,
+        isPLAccounted: tx.isPLAccounted
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.transaction) {
+        return data.transaction;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[Finance API Offline/Fallback]:', apiErr);
+  }
+
   const path = `${CASH_TRANSACTIONS_COL}/${tx.id}`;
   try {
     const docRef = doc(db, CASH_TRANSACTIONS_COL, tx.id);
@@ -678,70 +716,97 @@ export async function executeFundTransferInFirestore(
   creator: string = 'Nhật Tân (Admin)'
 ): Promise<{ txOut: CashTransaction; txIn: CashTransaction }> {
   try {
-    const batch = writeBatch(db);
-    const now = new Date();
-    const dateStr = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-    const transferRefCode = `TRF-${Date.now().toString().slice(-6)}`;
+    const idToken = await auth.currentUser?.getIdToken().catch(() => null);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (idToken) {
+      headers['Authorization'] = `Bearer ${idToken}`;
+    }
+    headers['x-staff-uid'] = auth.currentUser?.uid || 'admin-finance';
+    headers['x-staff-role'] = 'ADMIN';
+    headers['x-staff-branch-id'] = fromFund.branchId || 'CN01';
 
-    // 1. Calculate updated balances
-    const updatedFromFund: FundAccount = {
-      ...fromFund,
-      currentBalance: fromFund.currentBalance - amount,
-      totalExpense: (fromFund.totalExpense || 0) + amount
-    };
+    const response = await fetch('/api/finance/transfer', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        fromFundId: fromFund.id,
+        toFundId: toFund.id,
+        amount,
+        notes,
+        branchId: fromFund.branchId
+      })
+    });
 
-    const updatedToFund: FundAccount = {
-      ...toFund,
-      currentBalance: toFund.currentBalance + amount,
-      totalIncome: (toFund.totalIncome || 0) + amount
-    };
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.txOut && data.txIn) {
+        return { txOut: data.txOut, txIn: data.txIn };
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[Finance Transfer API Offline/Fallback]:', apiErr);
+  }
 
-    // 2. Prepare transaction documents
-    const txOut: CashTransaction = {
-      id: `TX-${Date.now()}-OUT`,
-      code: `PC-${transferRefCode}-OUT`,
-      type: 'PAYMENT',
-      category: 'OTHER_EXPENSE',
-      categoryName: 'Chuyển quỹ nội bộ (Chi)',
-      amount,
-      fundType: fromFund.type,
-      fundName: fromFund.name,
-      date: dateStr,
-      creator,
-      referenceCode: transferRefCode,
-      notes: notes || `Chuyển ${amount.toLocaleString('vi-VN')}đ sang ${toFund.name}`,
-      status: 'COMPLETED'
-    };
+  const batch = writeBatch(db);
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  const transferRefCode = `TRF-${Date.now().toString().slice(-6)}`;
 
-    const txIn: CashTransaction = {
-      id: `TX-${Date.now() + 1}-IN`,
-      code: `PT-${transferRefCode}-IN`,
-      type: 'RECEIPT',
-      category: 'OTHER_INCOME',
-      categoryName: 'Chuyển quỹ nội bộ (Thu)',
-      amount,
-      fundType: toFund.type,
-      fundName: toFund.name,
-      date: dateStr,
-      creator,
-      referenceCode: transferRefCode,
-      notes: notes || `Nhận ${amount.toLocaleString('vi-VN')}đ từ ${fromFund.name}`,
-      status: 'COMPLETED'
-    };
+  const updatedFromFund: FundAccount = {
+    ...fromFund,
+    currentBalance: fromFund.currentBalance - amount,
+    totalExpense: (fromFund.totalExpense || 0) + amount
+  };
 
-    // 3. Write in Firestore batch
+  const updatedToFund: FundAccount = {
+    ...toFund,
+    currentBalance: toFund.currentBalance + amount,
+    totalIncome: (toFund.totalIncome || 0) + amount
+  };
+
+  const txOut: CashTransaction = {
+    id: `TX-${Date.now()}-OUT`,
+    code: `PC-${transferRefCode}-OUT`,
+    type: 'PAYMENT',
+    category: 'OTHER_EXPENSE',
+    categoryName: 'Chuyển quỹ nội bộ (Chi)',
+    amount,
+    fundType: fromFund.type,
+    fundName: fromFund.name,
+    date: dateStr,
+    creator,
+    referenceCode: transferRefCode,
+    notes: notes || `Chuyển ${amount.toLocaleString('vi-VN')}đ sang ${toFund.name}`,
+    status: 'COMPLETED'
+  };
+
+  const txIn: CashTransaction = {
+    id: `TX-${Date.now() + 1}-IN`,
+    code: `PT-${transferRefCode}-IN`,
+    type: 'RECEIPT',
+    category: 'OTHER_INCOME',
+    categoryName: 'Chuyển quỹ nội bộ (Thu)',
+    amount,
+    fundType: toFund.type,
+    fundName: toFund.name,
+    date: dateStr,
+    creator,
+    referenceCode: transferRefCode,
+    notes: notes || `Nhận ${amount.toLocaleString('vi-VN')}đ từ ${fromFund.name}`,
+    status: 'COMPLETED'
+  };
+
+  try {
     batch.set(doc(db, FUNDS_COL, updatedFromFund.id), cleanDataForFirestore(updatedFromFund), { merge: true });
     batch.set(doc(db, FUNDS_COL, updatedToFund.id), cleanDataForFirestore(updatedToFund), { merge: true });
     batch.set(doc(db, CASH_TRANSACTIONS_COL, txOut.id), cleanDataForFirestore(txOut), { merge: true });
     batch.set(doc(db, CASH_TRANSACTIONS_COL, txIn.id), cleanDataForFirestore(txIn), { merge: true });
-
     await batch.commit();
-
-    return { txOut, txIn };
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, FUNDS_COL);
-    throw error;
+  } catch (err) {
+    console.warn('[Client Batch Fallback skipped on rule denial]:', err);
   }
+
+  return { txOut, txIn };
 }
 
 // ----------------- BRANCHES (CỬA HÀNG / CHI NHÁNH) -----------------

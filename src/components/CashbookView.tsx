@@ -514,27 +514,44 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
           </div>
         </div>
 
-        {/* Consolidated Primary CTA + Transfer button */}
+        {/* Desktop Quick Actions + Mobile Consolidated Menu */}
         <div className="flex items-center gap-2 relative">
+          
+          {/* Desktop Direct Action 1: + Lập Phiếu Thu (F4) */}
           <button
             type="button"
-            onClick={handleOpenTransferModal}
-            className="hidden sm:flex items-center space-x-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all cursor-pointer"
+            onClick={() => handleOpenCreateModal('RECEIPT')}
+            className="hidden sm:flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
+            title="Lập phiếu thu tiền mặt / chuyển khoản (Phím tắt F4)"
           >
-            <ArrowRightLeft className="w-4 h-4 text-zinc-600" />
-            <span>Chuyển Quỹ</span>
+            <ArrowDownLeft className="w-4 h-4" />
+            <span>+ Lập Phiếu Thu</span>
           </button>
 
-          {/* Primary Action Dropdown */}
+          {/* Desktop Direct Action 2: - Lập Phiếu Chi */}
+          <button
+            type="button"
+            onClick={() => handleOpenCreateModal('PAYMENT')}
+            className="hidden sm:flex items-center space-x-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs px-3.5 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
+            title="Lập phiếu chi mua hàng, chi phí hoạt động"
+          >
+            <ArrowUpRight className="w-4 h-4" />
+            <span>- Lập Phiếu Chi</span>
+          </button>
+
+          {/* Desktop: Thao Tác Khác (Chuyển quỹ, Đối soát) | Mobile: Tạo Chứng Từ */}
           <div className="relative flex-1 sm:flex-none">
             <button
               type="button"
               onClick={() => setIsActionMenuOpen(!isActionMenuOpen)}
-              className="w-full sm:w-auto bg-[#FF4B16] hover:bg-[#E94112] text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 shadow-sm shadow-[#FF4B16]/25 transition-all cursor-pointer"
+              className="w-full sm:w-auto bg-zinc-900 hover:bg-black text-white font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>Tạo Chứng Từ</span>
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isActionMenuOpen ? 'rotate-180' : ''}`} />
+              <span className="sm:hidden flex items-center space-x-1">
+                <Plus className="w-4 h-4 text-[#FF4B16]" />
+                <span>Tạo Chứng Từ</span>
+              </span>
+              <span className="hidden sm:inline">Thao Tác Khác</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${isActionMenuOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {isActionMenuOpen && (
@@ -542,42 +559,45 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-zinc-200 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150"
                 onClick={() => setIsActionMenuOpen(false)}
               >
-                <button
-                  type="button"
-                  onClick={() => handleOpenCreateModal('RECEIPT')}
-                  className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-emerald-700 hover:bg-emerald-50 transition-colors text-left cursor-pointer"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
-                    <ArrowDownLeft className="w-4 h-4 text-emerald-700" />
-                  </div>
-                  <div>
-                    <span className="block text-zinc-900">+ Lập Phiếu Thu</span>
-                    <span className="text-[10px] text-zinc-400 font-normal">Thu bán hàng, cọc, thu khác (F4)</span>
-                  </div>
-                </button>
+                {/* Mobile-only Thu/Chi items */}
+                <div className="sm:hidden">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCreateModal('RECEIPT')}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-emerald-700 hover:bg-emerald-50 transition-colors text-left cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                      <ArrowDownLeft className="w-4 h-4 text-emerald-700" />
+                    </div>
+                    <div>
+                      <span className="block text-zinc-900">+ Lập Phiếu Thu</span>
+                      <span className="text-[10px] text-zinc-400 font-normal">Thu bán hàng, cọc (F4)</span>
+                    </div>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleOpenCreateModal('PAYMENT')}
-                  className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors text-left cursor-pointer mt-1"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-rose-100 flex items-center justify-center shrink-0">
-                    <ArrowUpRight className="w-4 h-4 text-rose-700" />
-                  </div>
-                  <div>
-                    <span className="block text-zinc-900">- Lập Phiếu Chi</span>
-                    <span className="text-[10px] text-zinc-400 font-normal">Chi mua máy, nhập kho, lương</span>
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenCreateModal('PAYMENT')}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors text-left cursor-pointer mt-1"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-rose-100 flex items-center justify-center shrink-0">
+                      <ArrowUpRight className="w-4 h-4 text-rose-700" />
+                    </div>
+                    <div>
+                      <span className="block text-zinc-900">- Lập Phiếu Chi</span>
+                      <span className="text-[10px] text-zinc-400 font-normal">Chi mua máy, kho, lương</span>
+                    </div>
+                  </button>
 
-                <div className="my-1 border-t border-zinc-100" />
+                  <div className="my-1 border-t border-zinc-100" />
+                </div>
 
                 <button
                   type="button"
                   onClick={handleOpenTransferModal}
                   className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors text-left cursor-pointer"
                 >
-                  <ArrowRightLeft className="w-4 h-4 text-zinc-500" />
+                  <ArrowRightLeft className="w-4 h-4 text-[#FF4B16]" />
                   <span>⇄ Chuyển Quỹ Nội Bộ</span>
                 </button>
 
@@ -586,7 +606,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   onClick={handleOpenReconcileModal}
                   className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors text-left cursor-pointer"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-zinc-500" />
+                  <CheckCircle2 className="w-4 h-4 text-blue-600" />
                   <span>✓ Đối Soát Số Dư Ca</span>
                 </button>
               </div>

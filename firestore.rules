@@ -17,13 +17,17 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // 3. User Data & Role helpers
+    // 3. User Data & Active User Invariant Check (Single Source of Truth)
     function userExists() {
       return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function getUserData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return userExists() && getUserData().active == true;
     }
 
     function getUserRole() {
@@ -38,9 +42,9 @@ service cloud.firestore {
       return userExists() && getUserData().role == role;
     }
 
-    // 4. Role Hierarchy Check
+    // 4. Role Hierarchy Check (Guarded strictly by isActiveUser)
     function isAdmin() {
-      return isAuthenticated() && (
+      return isAuthenticated() && isActiveUser() && (
         request.auth.token.role == 'ADMIN' || 
         getUserRole() == 'ADMIN'
       );
@@ -48,7 +52,7 @@ service cloud.firestore {
 
     function isManager() {
       return isAdmin() || (
-        isAuthenticated() && (
+        isAuthenticated() && isActiveUser() && (
           request.auth.token.role == 'MANAGER' || 
           getUserRole() == 'MANAGER'
         )
@@ -56,17 +60,17 @@ service cloud.firestore {
     }
 
     function canManageInventory() {
-      return isAdmin() || isManager() || hasRole('INVENTORY_MANAGER');
+      return isAdmin() || isManager() || (isActiveUser() && hasRole('INVENTORY_MANAGER'));
     }
 
     function canManageTechnicalStock() {
-      return isAdmin() || isManager() || hasRole('TECH_LEAD') || hasRole('TECH');
+      return isAdmin() || isManager() || (isActiveUser() && (hasRole('TECH_LEAD') || hasRole('TECH')));
     }
 
-    // 5. Multi-tenant Branch Isolation
+    // 5. Multi-tenant Branch Isolation (Requires active user)
     function canAccessBranch(branchId) {
       return isAdmin() || (
-        userExists() &&
+        isActiveUser() &&
         branchId is string &&
         branchId.size() > 0 && (
           branchId == getUserBranch() ||
@@ -76,15 +80,16 @@ service cloud.firestore {
     }
 
     // ============================================================
-    // COLLECTION-SPECIFIC SECURITY RULES (V3.0 STRICT ENTERPRISE)
+    // COLLECTION-SPECIFIC SECURITY RULES (V4.0 AUTHORITATIVE ENTERPRISE)
     // ============================================================
 
     // 1. Users Management (Role escalation protection & strictly immutable privilege fields)
     match /users/{userId} {
-      allow read: if isSelf(userId) || isAdmin() || isManager();
+      allow read: if (isSelf(userId) && isActiveUser()) || isAdmin() || isManager();
       allow create: if false; // Creation must be executed through Admin SDK / Cloud Function / Seed script
       allow update: if isAdmin() || (
         isSelf(userId) &&
+        isActiveUser() &&
         request.resource.data.role == resource.data.role &&
         request.resource.data.branchId == resource.data.branchId &&
         request.resource.data.assignedBranchIds == resource.data.assignedBranchIds &&
@@ -95,17 +100,17 @@ service cloud.firestore {
 
     // 2. Global Enterprise Settings, Branches & Warehouses
     match /storeSettings/{docId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin();
     }
 
     match /branches/{branchId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin();
     }
 
     match /warehouses/{warehouseId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin();
     }
 
@@ -119,13 +124,10 @@ service cloud.firestore {
       allow delete: if isAdmin() || isManager();
     }
 
+    // INVOICES: Strict Single Writer Principle (Only Server Atomic Transaction via Admin SDK)
     match /invoices/{invoiceId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
-      allow update: if isAuthenticated() && 
-        canAccessBranch(resource.data.branchId) && 
-        canAccessBranch(request.resource.data.branchId);
-      allow delete: if isAdmin();
+      allow write: if false;
     }
 
     match /leads/{leadId} {
@@ -164,78 +166,104 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 4. Inventory, Warehouse Transfers & Purchasing (Managed by Inventory Managers)
+    // 4. Inventory, Warehouse Transfers & Purchasing (Multi-branch Isolated)
     match /transfers/{transferId} {
-      allow read: if isAuthenticated();
-      allow create, update: if canManageInventory();
+      allow read: if isAuthenticated() && (
+        isAdmin() || 
+        canAccessBranch(resource.data.sourceBranchId) || 
+        canAccessBranch(resource.data.destinationBranchId) ||
+        canAccessBranch(resource.data.branchId)
+      );
+      allow create: if isAuthenticated() && canManageInventory() && (
+        canAccessBranch(request.resource.data.sourceBranchId) ||
+        canAccessBranch(request.resource.data.branchId)
+      );
+      allow update: if isAuthenticated() && canManageInventory() && (
+        isAdmin() ||
+        canAccessBranch(resource.data.sourceBranchId) ||
+        canAccessBranch(resource.data.destinationBranchId)
+      );
       allow delete: if isAdmin();
     }
 
     match /purchaseOrders/{orderId} {
-      allow read: if isAuthenticated();
-      allow create, update: if canManageInventory();
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow create, update: if isAuthenticated() && canManageInventory() && canAccessBranch(request.resource.data.branchId);
       allow delete: if isAdmin();
     }
 
     match /products/{productId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow create, update: if canManageInventory();
       allow delete: if isAdmin();
     }
 
     match /spareParts/{partId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow create, update: if canManageTechnicalStock();
       allow delete: if isAdmin();
     }
 
     match /repairServices/{serviceId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin() || isManager();
     }
 
-    // 5. Financial Funds & Cash Transactions (Funds write locked for client SDK; written via server transactions)
+    // 5. Financial Funds & Cash Transactions: Strict Single Writer Principle
     match /funds/{fundId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow write: if false; // Strict Single Writer Principle: Only Admin SDK / Server Transactions
+      allow write: if false; // Strict Single Writer: Only Server Finance API (/api/finance/...) via Admin SDK
     }
 
     match /cashTransactions/{txId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
-      allow update: if isAdmin() || isManager();
-      allow delete: if isAdmin();
+      allow write: if false; // Strict Single Writer: Only Server Finance API (/api/finance/...) via Admin SDK
     }
 
-    // 6. Omnichannel Chat & Communication
+    // 6. Omnichannel Chat & Communication (Branch & Participant Scoped)
     match /chatConversations/{convoId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        canAccessBranch(resource.data.branchId) ||
+        resource.data.assignedUserId == request.auth.uid ||
+        (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
+      );
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        canAccessBranch(request.resource.data.branchId)
+      );
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        canAccessBranch(resource.data.branchId) ||
+        resource.data.assignedUserId == request.auth.uid
+      );
+      allow delete: if isAdmin();
     }
 
     // 7. Attendance & Human Resources (Server Authority writes; employees read own records)
     match /attendance/{attId} {
-      allow read: if isAdmin() || isManager() || (isAuthenticated() && resource.data.staffId == request.auth.uid);
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && isActiveUser() && resource.data.staffId == request.auth.uid);
       allow write: if isAdmin() || isManager();
     }
 
     match /sopTemplates/{templateId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin() || isManager();
     }
 
     match /shiftHandover/{handoverId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAdmin() || isManager() || (isAuthenticated() && resource.data.staffId == request.auth.uid);
+      allow read: if isAuthenticated() && isActiveUser();
+      allow create: if isAuthenticated() && isActiveUser();
+      allow update: if isAdmin() || isManager() || (isAuthenticated() && isActiveUser() && resource.data.staffId == request.auth.uid);
       allow delete: if isAdmin();
     }
 
     match /catalogItems/{itemId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin() || isManager();
     }
 
-    // Default Fallback
+    // Default Fallback: Only Active Admin
     match /{document=**} {
       allow read, write: if isAdmin();
     }
