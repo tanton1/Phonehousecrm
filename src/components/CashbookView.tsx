@@ -185,12 +185,28 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     notes: 'Kiểm kê đối soát cuối ca'
   });
 
+  const [accountsBranchFilter, setAccountsBranchFilter] = useState<string>(selectedBranchId || 'ALL');
+
+  // Keep accountsBranchFilter in sync if selectedBranchId prop changes
+  React.useEffect(() => {
+    if (selectedBranchId) {
+      setAccountsBranchFilter(selectedBranchId);
+    }
+  }, [selectedBranchId]);
+
+  // Funds filtered for the ACCOUNTS tab
+  const displayedFundsForAccountsTab = useMemo(() => {
+    if (!accountsBranchFilter || accountsBranchFilter === 'ALL') return funds;
+    return funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === accountsBranchFilter);
+  }, [funds, accountsBranchFilter]);
+
   const [fundFormData, setFundFormData] = useState({
     name: '',
     type: 'CASH' as PaymentFundType,
     bankName: '',
     accountNumber: '',
-    initialBalance: ''
+    initialBalance: '',
+    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : 'ALL'
   });
   const [formData, setFormData] = useState({
     type: 'RECEIPT' as CashTransactionType,
@@ -206,9 +222,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     referenceCode: '',
     creator: currentUser?.displayName || 'Nhân viên kế toán',
     notes: '',
-    branchId: '',
+    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || branches[0]?.id || 'CN01'),
     isPLAccounted: true // Mặc định có hạch toán vào Kết quả kinh doanh
   });
+
+  // Funds filtered for transaction create modal according to chosen branch
+  const availableFundsForForm = useMemo(() => {
+    const currentBranchId = formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id) || 'CN01';
+    return funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === currentBranchId);
+  }, [funds, formData.branchId, selectedBranchId, branches]);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -280,7 +302,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         type: fund.type,
         bankName: fund.bankName || '',
         accountNumber: fund.accountNumber || '',
-        initialBalance: fund.currentBalance.toString()
+        initialBalance: fund.openingBalance ? fund.openingBalance.toString() : fund.currentBalance.toString(),
+        branchId: fund.branchId || 'ALL'
       });
     } else {
       setFundFormData({
@@ -288,7 +311,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         type: 'CASH',
         bankName: '',
         accountNumber: '',
-        initialBalance: ''
+        initialBalance: '',
+        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : 'ALL'
       });
     }
     setIsFundModalOpen(true);
@@ -299,6 +323,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     if (!onUpdateFunds) return;
 
     const initialBalNum = parseFloat(fundFormData.initialBalance.replace(/[^0-9]/g, '')) || 0;
+    const assignedBranch = branches.find(b => b.id === fundFormData.branchId);
+    const assignedBranchName = fundFormData.branchId === 'ALL' ? 'Toàn hệ thống' : (assignedBranch?.name || 'Chi nhánh');
     
     if (editingFund) {
       const updated = funds.map(f => f.id === editingFund.id ? {
@@ -306,7 +332,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         name: fundFormData.name,
         type: fundFormData.type,
         bankName: fundFormData.bankName,
-        accountNumber: fundFormData.accountNumber
+        accountNumber: fundFormData.accountNumber,
+        branchId: fundFormData.branchId,
+        branch: assignedBranchName
       } : f);
       onUpdateFunds(updated);
     } else {
@@ -316,6 +344,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         type: fundFormData.type,
         bankName: fundFormData.bankName,
         accountNumber: fundFormData.accountNumber,
+        branchId: fundFormData.branchId,
+        branch: assignedBranchName,
         currentBalance: initialBalNum,
         openingBalance: initialBalNum,
         totalIncome: 0,
@@ -913,9 +943,51 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
               </div>
             </div>
             
+            {/* Branch Filter Chip Bar for Funds */}
+            {branches.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <span className="text-xs font-bold text-zinc-500 mr-1 shrink-0">Chi nhánh:</span>
+                <button
+                  type="button"
+                  onClick={() => setAccountsBranchFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer ${
+                    accountsBranchFilter === 'ALL'
+                      ? 'bg-zinc-900 text-white shadow-xs'
+                      : 'bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50'
+                  }`}
+                >
+                  🌐 Tất cả chi nhánh ({funds.length})
+                </button>
+                {branches.map(b => {
+                  const count = funds.filter(f => f.branchId === b.id).length;
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => setAccountsBranchFilter(b.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer flex items-center gap-1 ${
+                        accountsBranchFilter === b.id
+                          ? 'bg-[#ff4b16] text-white shadow-xs'
+                          : 'bg-white text-zinc-600 border border-zinc-200 hover:bg-zinc-50'
+                      }`}
+                    >
+                      <Building2 className="w-3 h-3" />
+                      <span>{b.name}</span>
+                      <span className="text-[10px] opacity-80">({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            
             {/* Account Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {funds.map((fund) => (
+              {displayedFundsForAccountsTab.map((fund) => {
+                const assignedBranch = branches.find(b => b.id === fund.branchId);
+                const branchLabel = fund.branchId && fund.branchId !== 'ALL' ? (assignedBranch?.name || fund.branch || 'Chi nhánh') : 'Toàn hệ thống';
+                const isAllBranch = !fund.branchId || fund.branchId === 'ALL';
+
+                return (
                 <div key={fund.id} className="bg-white border border-[#EAECF0] rounded-3xl p-5 flex flex-col justify-between hover:shadow-lg transition-all">
                   <div>
                     <div className="flex justify-between items-start mb-4">
@@ -927,12 +999,20 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                           {fund.type === 'CASH' ? <Wallet className="w-6 h-6" /> : <Building2 className="w-6 h-6" />}
                         </div>
                         <div>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span className="font-black text-[#171717] text-base">{(fund.name || 'Quỹ').split('-')[0]?.trim() || fund.name}</span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               fund.type === 'CASH' ? 'bg-orange-100 text-orange-700' : 'bg-orange-100 text-orange-700'
                             }`}>
                               {fund.type === 'CASH' ? 'Két tiền mặt' : 'Ngân hàng'}
+                            </span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border ${
+                              isAllBranch 
+                                ? 'bg-zinc-100 text-zinc-600 border-zinc-200' 
+                                : 'bg-orange-50 text-[#ff4b16] border-orange-200'
+                            }`}>
+                              {isAllBranch ? '🌐' : <Building2 className="w-3 h-3 text-[#ff4b16]" />}
+                              <span>{branchLabel}</span>
                             </span>
                           </div>
                           <p className="text-xs text-zinc-500 mt-0.5">{fund.type === 'BANK' ? `${fund.bankName || ''} - ${fund.accountNumber || ''}` : 'Tiền mặt tại quầy bán lẻ'}</p>
@@ -983,7 +1063,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     </button>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Internal Transfers History Log Table */}
@@ -1248,9 +1329,35 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Chi nhánh */}
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">Chi nhánh phát sinh *</label>
+                    <select
+                      value={formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'CN01')}
+                      onChange={(e) => {
+                        const newBranchId = e.target.value;
+                        const matchingFunds = funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === newBranchId);
+                        const currentFundValid = matchingFunds.some(f => f.name === formData.fundName);
+                        const nextFund = currentFundValid ? formData.fundName : (matchingFunds[0]?.name || funds[0]?.name || '');
+                        const nextFundObj = funds.find(f => f.name === nextFund);
+                        setFormData(prev => ({ 
+                          ...prev, 
+                          branchId: newBranchId,
+                          fundName: nextFund,
+                          fundType: nextFundObj?.type || prev.fundType
+                        }));
+                      }}
+                      className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
+                    >
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>🏢 {b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
                   {/* Tài khoản quỹ */}
                   <div>
-                    <label className="block text-xs font-bold text-zinc-700 mb-1">Tài khoản quỹ *</label>
+                    <label className="block text-xs font-bold text-zinc-700 mb-1">Tài khoản quỹ tương ứng *</label>
                     <select
                       value={formData.fundName}
                       onChange={(e) => {
@@ -1261,23 +1368,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       }}
                       className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
                     >
-                      {funds.map((f, i) => (
-                        <option key={i} value={f.name}>{f.name} (Dư: {formatCurrency(f.currentBalance)})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Chi nhánh */}
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-700 mb-1">Chi nhánh thực hiện</label>
-                    <select
-                      value={formData.branchId || branches[0]?.id || 'CN01'}
-                      onChange={(e) => setFormData(prev => ({ ...prev, branchId: e.target.value }))}
-                      className="w-full px-3 py-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-800 focus:ring-2 focus:ring-orange-500 focus:bg-white focus:outline-none"
-                    >
-                      {branches.map((b) => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
-                      ))}
+                      {availableFundsForForm.map((f, i) => {
+                        const assignedBranch = branches.find(b => b.id === f.branchId);
+                        const branchTag = f.branchId && f.branchId !== 'ALL' 
+                          ? `[${assignedBranch?.name || f.branch || 'Chi nhánh'}]` 
+                          : '[Toàn HT]';
+                        return (
+                          <option key={i} value={f.name}>{f.name} {branchTag} (Dư: {formatCurrency(f.currentBalance)})</option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>
@@ -1435,11 +1534,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       onChange={e => setTransferData({...transferData, fromFundName: e.target.value})} 
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500"
                     >
-                      {funds.map(f => (
-                        <option key={f.id} value={f.name}>
-                          {(f.name || 'Quỹ').split('-')[0]} (Dư: {formatCompact(f.currentBalance)})
-                        </option>
-                      ))}
+                      {funds.map(f => {
+                        const assignedBranch = branches.find(b => b.id === f.branchId);
+                        const branchTag = f.branchId && f.branchId !== 'ALL' ? `[${assignedBranch?.name || f.branch || 'Chi nhánh'}]` : '[Toàn HT]';
+                        return (
+                          <option key={f.id} value={f.name}>
+                            {(f.name || 'Quỹ').split('-')[0]} {branchTag} (Dư: {formatCompact(f.currentBalance)})
+                          </option>
+                        );
+                      })}
                     </select>
                     {fromFundObj && (
                       <div className="mt-2 pt-2 border-t border-zinc-200/60 text-[11px] flex justify-between">
@@ -1456,11 +1559,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       onChange={e => setTransferData({...transferData, toFundName: e.target.value})} 
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500"
                     >
-                      {funds.map(f => (
-                        <option key={f.id} value={f.name}>
-                          {(f.name || 'Quỹ').split('-')[0]} (Dư: {formatCompact(f.currentBalance)})
-                        </option>
-                      ))}
+                      {funds.map(f => {
+                        const assignedBranch = branches.find(b => b.id === f.branchId);
+                        const branchTag = f.branchId && f.branchId !== 'ALL' ? `[${assignedBranch?.name || f.branch || 'Chi nhánh'}]` : '[Toàn HT]';
+                        return (
+                          <option key={f.id} value={f.name}>
+                            {(f.name || 'Quỹ').split('-')[0]} {branchTag} (Dư: {formatCompact(f.currentBalance)})
+                          </option>
+                        );
+                      })}
                     </select>
                     {toFundObj && (
                       <div className="mt-2 pt-2 border-t border-zinc-200/60 text-[11px] flex justify-between">
@@ -1617,6 +1724,24 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             <option value="POS_CARD">Ví điện tử / Cổng thanh toán</option>
             <option value="INSTALLMENT_CREDIT">Đối tác trả góp (HD Saison, HomeCredit...)</option>
           </select>
+        </div>
+        <div>
+          <label className="block text-xs font-bold text-zinc-500 mb-1">Chi nhánh áp dụng quỹ</label>
+          <select 
+            value={fundFormData.branchId} 
+            onChange={e => setFundFormData({...fundFormData, branchId: e.target.value})} 
+            className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:ring-2 focus:ring-orange-500"
+          >
+            <option value="ALL">🌐 Toàn hệ thống (Dùng chung)</option>
+            {branches.map(b => (
+              <option key={b.id} value={b.id}>🏢 {b.name}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-zinc-400 mt-1">
+            {fundFormData.branchId === 'ALL' 
+              ? 'Quỹ dùng chung cho toàn bộ cửa hàng & báo cáo tổng.' 
+              : 'Quỹ thuộc riêng két tiền hoặc tài khoản thu của chi nhánh đã chọn.'}
+          </p>
         </div>
         <div>
           <label className="block text-xs font-bold text-zinc-500 mb-1">Tên quỹ (Ví dụ: Két CN1, VCB - 123...)</label>
