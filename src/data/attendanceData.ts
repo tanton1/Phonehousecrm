@@ -11,31 +11,7 @@ import {
   MonthlyPayrollSlip
 } from '../types';
 
-export const INITIAL_STAFF_MEMBERS: StaffMember[] = [
-  {
-    id: 'STAFF_001',
-    code: 'NV-001',
-    name: 'Nguyễn Văn A',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    role: 'SALES',
-    roleTitle: 'Nhân viên bán hàng Showroom',
-    phone: '0988.123.456',
-    email: 'vana.sales@phonehouse.vn',
-    branchId: 'BRANCH_1',
-    branchName: 'PhoneHouse Cầu Giấy (Apple Premium)',
-    assignedBranchIds: ['BRANCH_1'],
-    workplaceAddresses: [
-      'Showroom Cầu Giấy - 88 Cầu Giấy, Hà Nội'
-    ],
-    baseSalary: 8000000,
-    monthlyTargetRevenue: 150000000,
-    monthlyTargetOrders: 70,
-    status: 'ACTIVE',
-    joinDate: '2023-03-15',
-    allowedWifiSSID: 'PHONEHOUSE_5G',
-    assignedFaceEmbedding: true
-  }
-];
+export const INITIAL_STAFF_MEMBERS: StaffMember[] = [];
 
 export const INITIAL_SHIFTS: ShiftDefinition[] = [
   {

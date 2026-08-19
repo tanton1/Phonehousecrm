@@ -94,7 +94,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   commissions,
   payrollSlip,
   payrollLedgers,
-  branches = INITIAL_BRANCHES,
+  branches = [],
   onCheckIn,
   onCheckOut,
   onChangeActivity,
@@ -108,7 +108,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
   // Store Branch Target Lookup & Config
   const availableBranches = useMemo(() => {
-    return branches && branches.length > 0 ? branches : INITIAL_BRANCHES;
+    return branches || [];
   }, [branches]);
 
   const targetBranch = useMemo(() => {

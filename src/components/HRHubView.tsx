@@ -223,7 +223,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
                 className="bg-transparent font-bold text-zinc-900 focus:outline-none cursor-pointer pr-1"
               >
                 <option value="ALL">Tất cả chi nhánh</option>
-                {(branches.length > 0 ? branches : INITIAL_BRANCHES).map(br => (
+                {branches.map(br => (
                   <option key={br.id} value={br.id}>{br.name}</option>
                 ))}
               </select>
@@ -332,7 +332,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
           payrollSlips={payrollSlips}
           policies={policies}
           commissions={commissions}
-          branches={branches.length > 0 ? branches : INITIAL_BRANCHES}
+          branches={branches}
           activeAdminTab={activeSubModule as any}
           onSelectAdminTab={(tab) => setActiveSubModule(tab as any)}
           onApproveLeave={handleApproveLeave}

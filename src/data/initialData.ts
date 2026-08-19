@@ -173,8 +173,6 @@ export const INITIAL_USERS: UserAccount[] = [
     email: 'admin@phonehouse.vn',
     displayName: 'Quản Trị Viên (Admin)',
     role: 'ADMIN',
-    branchId: 'BRANCH_1',
-    assignedBranchIds: ['BRANCH_1', 'BRANCH_2'],
     phone: '0988.888.999',
     active: true,
     createdAt: '2025-01-01',
@@ -385,60 +383,7 @@ export const REPAIR_SERVICES_PRICELIST: RepairServiceItem[] = [
 
 export const INITIAL_TRANSFERS: StockTransferSlip[] = [];
 
-export const INITIAL_BRANCHES: StoreBranch[] = [
-  {
-    id: 'BRANCH_1',
-    code: 'CN-01',
-    name: 'Showroom Cầu Giấy (Phone House Flagship)',
-    address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, TP. Hà Nội',
-    phone: '0988.888.999',
-    email: 'caugiay@phonehouse.vn',
-    manager: 'Cửa Hàng Trưởng',
-    openingHours: '08:30 - 21:30 (Cả CN & Ngày Lễ)',
-    warehouseId: 'KHO_PHONEHOUSE',
-    systemType: 'PHONEHOUSE',
-    isActive: true,
-    isHeadquarter: true,
-    taxCode: '0109888999',
-    bankAccount: {
-      bankName: 'Techcombank',
-      accountNumber: '190388889999',
-      accountHolder: 'PHONE HOUSE VIET NAM'
-    },
-    allowedWifiSSID: 'PHONEHOUSE_5G',
-    storePublicIp: '',
-    gpsLatitude: 21.0333,
-    gpsLongitude: 105.7955,
-    allowedGpsRadiusMeters: 300,
-    notes: 'Showroom bán lẻ & bảo hành chính'
-  },
-  {
-    id: 'BRANCH_2',
-    code: 'CN-02',
-    name: 'Chi Nhánh Trần Duy Hưng',
-    address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, TP. Hà Nội',
-    phone: '0966.333.444',
-    email: 'tranduyhung@phonehouse.vn',
-    manager: 'Quản Lý Chi Nhánh',
-    openingHours: '08:30 - 21:30',
-    warehouseId: 'KHO_XSTORE',
-    systemType: 'XSTORE',
-    isActive: true,
-    isHeadquarter: false,
-    taxCode: '0109888999-001',
-    bankAccount: {
-      bankName: 'Techcombank',
-      accountNumber: '190388889999',
-      accountHolder: 'PHONE HOUSE VIET NAM'
-    },
-    allowedWifiSSID: 'XSTORE_5G',
-    storePublicIp: '',
-    gpsLatitude: 21.0112,
-    gpsLongitude: 105.7988,
-    allowedGpsRadiusMeters: 300,
-    notes: 'Chi nhánh bán lẻ & trải nghiệm máy'
-  }
-];
+export const INITIAL_BRANCHES: StoreBranch[] = [];
 
 export const INITIAL_WAREHOUSES: WarehouseInfo[] = [
   {

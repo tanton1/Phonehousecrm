@@ -372,17 +372,20 @@ export function syncCommissionsFromAllSources(
  */
 export function calculateStaffDualWallet(
   staffId: string,
-  allCommissions: CommissionTransaction[],
-  staffList: StaffMember[]
+  allCommissions: CommissionTransaction[] = [],
+  staffList: StaffMember[] = []
 ): StaffDualWalletSummary {
-  const staff = staffList.find(s => s.id === staffId) || staffList[0] || INITIAL_STAFF_MEMBERS[0];
-  const staffNameLower = staff.name.toLowerCase();
+  const staff = staffList.find(s => s.id === staffId) || staffList[0];
+  const effectiveStaffId = staff?.id || staffId || 'STAFF_001';
+  const effectiveStaffName = staff?.name || 'Chuyên viên';
+  const staffNameLower = effectiveStaffName.toLowerCase();
 
   // Lọc các giao dịch thuộc về nhân sự này
-  const staffTransactions = allCommissions.filter(c => {
-    if (c.employeeId === staff.id) return true;
+  const staffTransactions = (allCommissions || []).filter(c => {
+    if (!c) return false;
+    if (c.employeeId === effectiveStaffId) return true;
     const empLower = (c.employeeName || '').toLowerCase();
-    return empLower.includes(staffNameLower) || staffNameLower.includes(empLower);
+    return empLower && staffNameLower && (empLower.includes(staffNameLower) || staffNameLower.includes(empLower));
   });
 
   // 1. Phân tách Giao dịch Ví Kỹ Thuật (Tech Wallet)

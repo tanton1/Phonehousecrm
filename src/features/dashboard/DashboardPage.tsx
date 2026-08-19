@@ -83,24 +83,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       const found = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
       if (found) return found;
     }
-    return branches[0] || {
-      id: 'BRANCH_1',
-      code: 'CN-01',
-      name: 'Chi Nhánh Showroom',
-      address: '',
-      phone: '',
-      email: '',
-      manager: '',
-      openingHours: '',
-      warehouseId: 'KHO_PHONEHOUSE',
-      systemType: 'PHONEHOUSE',
-      isActive: true,
-      isHeadquarter: true,
-      notes: ''
-    };
+    if (branches && branches.length > 0) {
+      return branches[0];
+    }
+    return null;
   }, [branches, currentUser, selectedBranchId]);
 
-  const currentBranchName = currentBranch?.name || 'Toàn Hệ Thống PhoneHouse';
+  const currentBranchName = currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chi Nhánh Showroom';
 
   const userRoleUpper = (currentUser?.role || (currentUser as any)?.roleLevel || '').toUpperCase();
 

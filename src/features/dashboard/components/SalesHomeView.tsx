@@ -192,20 +192,20 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
         roleTitle: 'Chuyên viên Tư vấn & Bán hàng',
         phone: currentUser.phone || '',
         email: currentUser.email || '',
-        branchId: currentBranch?.id || currentUser.branchId || 'BRANCH_1',
-        branchName: currentBranch?.name || 'Showroom Trực Thuộc',
-        assignedBranchIds: currentUser.assignedBranchIds || [currentBranch?.id || 'BRANCH_1'],
-        workplaceAddresses: currentUser.workplaceAddresses || [currentBranch?.address || ''],
+        branchId: currentBranch?.id || currentUser.branchId || '',
+        branchName: currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Showroom Trực Thuộc',
+        assignedBranchIds: currentUser.assignedBranchIds || (currentBranch?.id ? [currentBranch.id] : []),
+        workplaceAddresses: currentUser.workplaceAddresses || (currentBranch?.address ? [currentBranch.address] : []),
         baseSalary: (currentUser as any).baseSalary || 8000000,
         monthlyTargetRevenue: (currentUser as any).kpiTargetRevenue || 150000000,
         monthlyTargetOrders: (currentUser as any).kpiTargetOrders || 30,
         status: 'ACTIVE',
         joinDate: '2025-01-01',
-        allowedWifiSSID: currentBranch?.allowedWifiSSID || 'PHONEHOUSE_5G',
+        allowedWifiSSID: currentBranch?.allowedWifiSSID || '',
         assignedFaceEmbedding: (currentUser as any).assignedFaceEmbedding || false
       }];
     }
-    return INITIAL_STAFF_MEMBERS;
+    return [];
   }, [users, branches, currentUser, currentStaffId, currentStaffName, currentBranch]);
 
   const allCommissions = useMemo(() => {

@@ -273,7 +273,7 @@ export default function App() {
 
   const [branches, setBranches] = useState<StoreBranch[]>(() => {
     const saved = localStorage.getItem('phonehouse_branches');
-    return saved ? JSON.parse(saved) : INITIAL_BRANCHES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [warehouses, setWarehouses] = useState<WarehouseInfo[]>(() => {

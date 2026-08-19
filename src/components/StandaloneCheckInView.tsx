@@ -55,7 +55,7 @@ interface StandaloneCheckInViewProps {
 
 export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   currentUser,
-  branches = INITIAL_BRANCHES,
+  branches = [],
   attendanceRecords = [],
   onCheckInSuccess,
   onNavigateToHR,

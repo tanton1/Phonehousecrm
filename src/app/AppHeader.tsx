@@ -56,7 +56,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           }`}
         >
           <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#ff4b16] shrink-0" />
-          <span className="truncate max-w-[100px] xs:max-w-[130px] sm:max-w-[200px]">{currentBranch.name || 'Chi nhánh'}</span>
+          <span className="truncate max-w-[100px] xs:max-w-[130px] sm:max-w-[200px]">{currentBranch?.name || 'Chi nhánh'}</span>
           {availableBranches.length > 1 && (
             <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-zinc-400 shrink-0" />
           )}
@@ -75,7 +75,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   setIsBranchMenuOpen(false);
                 }}
                 className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-orange-50/60 transition-colors cursor-pointer ${
-                  currentBranch.id === b.id ? 'font-bold text-[#ff4b16] bg-orange-50/80' : 'text-zinc-700'
+                  currentBranch?.id === b.id ? 'font-bold text-[#ff4b16] bg-orange-50/80' : 'text-zinc-700'
                 }`}
               >
                 <div className="flex items-center space-x-2 truncate">
