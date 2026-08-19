@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatConversation, ChatMessage, QuickSnippet } from '../types';
 import { Button } from '../../../shared/ui/Button/Button';
-import { Send, Smartphone, Sparkles, Image, MessageSquare, Zap } from 'lucide-react';
+import { Send, Smartphone, Sparkles, Image, MessageSquare, Zap, ChevronLeft, ShoppingCart, Info } from 'lucide-react';
 
 export interface ChatStreamPanelProps {
   conversation: ChatConversation | null;
   onSendMessage: (convoId: string, text: string) => Promise<void> | void;
+  onBack?: () => void;
+  onOpenInfo?: () => void;
+  onConvertToPOS?: () => void;
 }
 
 const QUICK_SNIPPETS: QuickSnippet[] = [
@@ -17,7 +20,10 @@ const QUICK_SNIPPETS: QuickSnippet[] = [
 
 export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
   conversation,
-  onSendMessage
+  onSendMessage,
+  onBack,
+  onOpenInfo,
+  onConvertToPOS
 }) => {
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -57,23 +63,56 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
   return (
     <div className="bg-white border border-zinc-200/80 rounded-2xl flex flex-col h-full overflow-hidden shadow-2xs">
       {/* 1. Chat Header */}
-      <div className="p-3.5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-orange-100 text-[#ff4b16] font-bold text-xs flex items-center justify-center">
+      <div className="p-3 sm:p-3.5 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50 gap-2">
+        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="lg:hidden p-1.5 -ml-1 rounded-xl hover:bg-zinc-200 text-zinc-600 transition-colors cursor-pointer"
+              title="Quay lại danh sách"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+          )}
+
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-orange-100 text-[#ff4b16] font-bold text-xs flex items-center justify-center shrink-0">
             {conversation.customerName.charAt(0).toUpperCase()}
           </div>
-          <div>
-            <h4 className="text-xs font-bold text-zinc-900">{conversation.customerName}</h4>
-            <p className="text-[10px] text-zinc-400 font-mono">
+          <div className="min-w-0">
+            <h4 className="text-xs font-bold text-zinc-900 truncate">{conversation.customerName}</h4>
+            <p className="text-[10px] text-zinc-400 font-mono truncate">
               Kênh: <span className="font-bold text-zinc-600">{conversation.channel}</span>
               {conversation.customerPhone && ` • SĐT: ${conversation.customerPhone}`}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center space-x-1.5 text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg font-semibold">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span>Đang kết nối</span>
+        <div className="flex items-center space-x-1.5 shrink-0">
+          {onConvertToPOS && (
+            <button
+              onClick={onConvertToPOS}
+              className="lg:hidden flex items-center space-x-1 text-[11px] font-bold bg-[#ff4b16] text-white px-2.5 py-1.5 rounded-xl shadow-xs active:scale-95 cursor-pointer"
+              title="Tạo đơn POS ngay"
+            >
+              <ShoppingCart className="w-3.5 h-3.5" />
+              <span>POS</span>
+            </button>
+          )}
+
+          {onOpenInfo && (
+            <button
+              onClick={onOpenInfo}
+              className="lg:hidden p-1.5 rounded-xl bg-zinc-100 text-zinc-600 hover:bg-zinc-200 transition-colors cursor-pointer"
+              title="Xem thông tin báo giá"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+          )}
+
+          <div className="hidden sm:flex items-center space-x-1.5 text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Online</span>
+          </div>
         </div>
       </div>
 

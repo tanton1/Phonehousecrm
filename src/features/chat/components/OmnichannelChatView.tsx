@@ -68,11 +68,13 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const [selectedConvoId, setSelectedConvoId] = useState<string | null>(
     initialConversations[0]?.id || null
   );
+  const [mobilePanel, setMobilePanel] = useState<'LIST' | 'CHAT' | 'SIDEBAR'>('LIST');
 
   const activeConvo = conversations.find(c => c.id === selectedConvoId) || null;
 
   const handleSelectConversation = (convo: ChatConversation) => {
     setSelectedConvoId(convo.id);
+    setMobilePanel('CHAT');
     // Mark as read
     setConversations(prev =>
       prev.map(c => (c.id === convo.id ? { ...c, unreadCount: 0 } : c))
@@ -135,27 +137,74 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   };
 
   return (
-    <div className="h-[calc(100vh-140px)] min-h-[580px] grid grid-cols-1 lg:grid-cols-[300px_1fr_300px] gap-3.5">
-      {/* Panel 1: Conversation List */}
-      <ConversationListPanel
-        conversations={conversations}
-        selectedConversationId={selectedConvoId}
-        onSelectConversation={handleSelectConversation}
-      />
+    <div className="h-[calc(100vh-140px)] min-h-[580px]">
+      {/* Mobile Master-Detail Views (lg:hidden) */}
+      <div className="lg:hidden h-full">
+        {mobilePanel === 'LIST' && (
+          <ConversationListPanel
+            conversations={conversations}
+            selectedConversationId={selectedConvoId}
+            onSelectConversation={handleSelectConversation}
+          />
+        )}
 
-      {/* Panel 2: Chat Stream */}
-      <ChatStreamPanel
-        conversation={activeConvo}
-        onSendMessage={handleSendMessage}
-      />
+        {mobilePanel === 'CHAT' && (
+          <ChatStreamPanel
+            conversation={activeConvo}
+            onSendMessage={handleSendMessage}
+            onBack={() => setMobilePanel('LIST')}
+            onOpenInfo={() => setMobilePanel('SIDEBAR')}
+            onConvertToPOS={() => {
+              if (activeConvo) onConvertToPOS(activeConvo);
+            }}
+          />
+        )}
 
-      {/* Panel 3: Customer & Quotation Sidebar */}
-      <ChatCustomerSidebar
-        conversation={activeConvo}
-        devices={devices}
-        onSendProductCard={handleSendProductCard}
-        onConvertToPOS={onConvertToPOS}
-      />
+        {mobilePanel === 'SIDEBAR' && (
+          <div className="h-full flex flex-col">
+            <div className="bg-white p-2.5 border-b border-zinc-200 flex items-center justify-between">
+              <button
+                onClick={() => setMobilePanel('CHAT')}
+                className="text-xs font-bold text-[#ff4b16] flex items-center space-x-1 cursor-pointer"
+              >
+                <span>❮ Quay lại đoạn chat</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <ChatCustomerSidebar
+                conversation={activeConvo}
+                devices={devices}
+                onSendProductCard={handleSendProductCard}
+                onConvertToPOS={onConvertToPOS}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Desktop 3-Column Layout (hidden lg:grid) */}
+      <div className="hidden lg:grid grid-cols-[300px_1fr_300px] gap-3.5 h-full">
+        {/* Panel 1: Conversation List */}
+        <ConversationListPanel
+          conversations={conversations}
+          selectedConversationId={selectedConvoId}
+          onSelectConversation={handleSelectConversation}
+        />
+
+        {/* Panel 2: Chat Stream */}
+        <ChatStreamPanel
+          conversation={activeConvo}
+          onSendMessage={handleSendMessage}
+        />
+
+        {/* Panel 3: Customer & Quotation Sidebar */}
+        <ChatCustomerSidebar
+          conversation={activeConvo}
+          devices={devices}
+          onSendProductCard={handleSendProductCard}
+          onConvertToPOS={onConvertToPOS}
+        />
+      </div>
     </div>
   );
 };

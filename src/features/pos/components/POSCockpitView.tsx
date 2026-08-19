@@ -347,7 +347,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
 
         {/* Column 3: Payment, Customer & Checkout */}
-        <div className="w-full">
+        <div className="w-full" id="pos-payment-section">
           <PaymentPanel
             customerName={customerName}
             customerPhone={customerPhone}
@@ -368,7 +368,37 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Thermal Receipt K80 Printable Preview Modal */}
+      {/* 4. Mobile Sticky Bottom Checkout Bar */}
+      {(selectedDevices.length > 0 || selectedAccessories.length > 0) && (
+        <div className="lg:hidden fixed bottom-14 left-2 right-2 z-40 bg-zinc-900/95 backdrop-blur-md text-white p-3 rounded-2xl shadow-2xl border border-zinc-700 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
+          <div className="flex flex-col">
+            <span className="text-[11px] text-zinc-400 font-medium">
+              🛒 {selectedDevices.length + selectedAccessories.reduce((s, a) => s + a.quantity, 0)} món hàng
+            </span>
+            <span className="text-sm font-black text-[#ff4b16]">
+              {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(finalAmount)}
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              if (!isProcessing) {
+                const paymentSection = document.getElementById('pos-payment-section');
+                if (paymentSection) {
+                  paymentSection.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                  handleExecuteCheckout();
+                }
+              }
+            }}
+            disabled={isProcessing}
+            className="bg-[#ff4b16] hover:bg-[#e03e0e] active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-1.5 shadow-md shadow-orange-500/25 transition-all cursor-pointer"
+          >
+            <span>{isProcessing ? 'Đang Xử Lý...' : 'Thanh Toán Ngay ➔'}</span>
+          </button>
+        </div>
+      )}
+
+      {/* 5. Thermal Receipt K80 Printable Preview Modal */}
       {receiptData && (
         <ThermalReceiptK80
           invoice={receiptData}
@@ -376,8 +406,8 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         />
       )}
 
-      {/* 5. Sticky Bottom Hotkeys Bar for Instant Cashier Productivity */}
-      <div className="fixed bottom-0 left-0 right-0 z-40">
+      {/* 6. Sticky Bottom Hotkeys Bar for Instant Cashier Productivity (Desktop) */}
+      <div className="hidden lg:block fixed bottom-0 left-0 right-0 z-40">
         <PosHotkeysBar
           onSearch={() => {
             searchInputRef.current?.focus();
