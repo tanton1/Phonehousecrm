@@ -97,7 +97,7 @@ export const ProductSearchPanel: React.FC<ProductSearchPanelProps> = ({
   };
 
   return (
-    <div className="bg-white border border-zinc-200/60 rounded-2xl p-2.5 sm:p-3.5 flex flex-col h-full shadow-2xs space-y-2.5 overflow-hidden">
+    <div className="bg-white p-3 sm:p-4 flex flex-col h-full space-y-3 overflow-hidden">
       {/* 1. Header & Tab Switcher */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center space-x-1 p-0.5 bg-zinc-100 rounded-xl">

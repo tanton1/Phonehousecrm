@@ -51,7 +51,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   ];
 
   return (
-    <div className="bg-white border border-zinc-200/60 rounded-2xl p-2.5 sm:p-3.5 flex flex-col h-full shadow-2xs space-y-2.5 overflow-hidden">
+    <div className="bg-white p-3 sm:p-4 flex flex-col h-full space-y-3 overflow-hidden">
       {/* 1. Cart Header */}
       <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
         <div className="flex items-center space-x-2.5">

@@ -424,9 +424,9 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const totalItemsCount = selectedDevices.length + selectedAccessories.reduce((s, a) => s + a.quantity, 0);
 
   return (
-    <div className="flex flex-col space-y-2 p-1.5 sm:p-3 max-w-[1600px] mx-auto h-[calc(100vh-64px)] overflow-hidden select-none">
-      {/* 1. Ultra-Compact Slim POS Header Bar (Thu gọn còn 1/3 tiết kiệm tối đa diện tích) */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white rounded-2xl border border-zinc-800 shadow-md shrink-0">
+    <div className="flex flex-col w-full h-[calc(100vh-64px)] overflow-hidden select-none bg-zinc-50">
+      {/* 1. Slim Full-Bleed POS Header Bar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0">
         <div className="flex items-center space-x-2">
           <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-black">
             <Receipt className="w-3.5 h-3.5" />
@@ -454,7 +454,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       </div>
 
       {/* Mobile Segmented Navigation Bar (<1024px) */}
-      <div className="lg:hidden flex items-center p-0.5 bg-zinc-100 rounded-xl border border-zinc-200/80 text-[11px] font-bold shrink-0">
+      <div className="lg:hidden flex items-center p-1 bg-zinc-100 border-b border-zinc-200 text-[11px] font-bold shrink-0">
         <button
           onClick={() => setMobileTab('PRODUCTS')}
           className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
@@ -571,8 +571,8 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
       )}
 
-      {/* 3. Three-Column Responsive Grid Layout (Vừa khít 1 trang màn hình) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr_360px] gap-2.5 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden pb-1 sm:pb-0">
+      {/* 3. Three-Column Responsive Full-Bleed Layout (Tràn viền 2 bên) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr_370px] divide-y lg:divide-y-0 lg:divide-x divide-zinc-200/80 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden bg-white w-full">
         {/* Column 1: Product Search & Inventory Grid */}
         <div className={`w-full h-full min-h-0 flex flex-col ${mobileTab !== 'PRODUCTS' ? 'hidden lg:flex' : 'flex'}`}>
           <ProductSearchPanel
