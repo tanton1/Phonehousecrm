@@ -2,6 +2,7 @@ import { StaffMember, StoreBranch } from '../../types';
 
 export const USER_ROLES = {
   ADMIN: 'ADMIN',
+  REGIONAL_MANAGER: 'REGIONAL_MANAGER',
   MANAGER: 'MANAGER',
   STORE_MANAGER: 'STORE_MANAGER',
   ACCOUNTANT: 'ACCOUNTANT',

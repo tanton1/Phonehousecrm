@@ -6,15 +6,20 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 export function createAttendanceRouter(db: Firestore | null): Router {
   const router = Router();
 
-  // 1. Network & IP Verification Endpoint (DB Authoritative IP Check)
-  router.post('/network-check', async (req: Request, res: Response) => {
+  // Helper to extract client IP safely
+  const getClientIp = (req: Request) => {
     const forwarded = req.headers['x-forwarded-for'];
     let ip = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : req.socket.remoteAddress || '127.0.0.1';
     if (ip.startsWith('::ffff:')) {
       ip = ip.replace('::ffff:', '');
     }
+    return ip;
+  };
 
-    const { branchId } = req.body || {};
+  // 1. Network & IP Verification Endpoint (Requires Auth)
+  router.post('/network-check', authenticateFirebase, async (req: Request, res: Response) => {
+    const ip = getClientIp(req);
+    const branchId = req.body?.branchId || req.user?.branchId;
     const isLocal = ip === '127.0.0.1' || ip === '::1';
 
     let isAllowed = isLocal;
@@ -67,18 +72,22 @@ export function createAttendanceRouter(db: Firestore | null): Router {
   // 2. Authoritative Check-In Endpoint (Requires Firebase Auth Token)
   router.post('/check-in', authenticateFirebase, async (req: Request, res: Response) => {
     try {
-      // Force user identity from verified Token
+      const ip = getClientIp(req);
       const bodyWithAuth = {
         ...req.body,
         staffId: req.user?.uid || req.body.staffId,
-        staffUid: req.user?.uid
+        staffUid: req.user?.uid,
+        branchId: req.body.branchId || req.user?.branchId,
+        clientIp: ip
       };
       const result = await processServerCheckIn(db, bodyWithAuth);
       return res.json({ success: true, data: result });
     } catch (error: any) {
       console.error('[Attendance CheckIn Error]:', error);
       const isConflict = error?.message?.includes('ALREADY_CHECKED_IN');
-      return res.status(isConflict ? 409 : 400).json({
+      const isConfigError = error?.message?.includes('BRANCH_GPS_NOT_CONFIGURED') || error?.message?.includes('BRANCH_NOT_FOUND');
+      const statusCode = isConflict ? 409 : (isConfigError ? 422 : 400);
+      return res.status(statusCode).json({
         success: false,
         error: error?.message || 'Lỗi xử lý điểm danh vào ca.'
       });
@@ -91,7 +100,8 @@ export function createAttendanceRouter(db: Firestore | null): Router {
       const bodyWithAuth = {
         ...req.body,
         staffId: req.user?.uid || req.body.staffId,
-        staffUid: req.user?.uid
+        staffUid: req.user?.uid,
+        branchId: req.body.branchId || req.user?.branchId
       };
       const result = await processServerCheckOut(db, bodyWithAuth);
       return res.json({ success: true, data: result });

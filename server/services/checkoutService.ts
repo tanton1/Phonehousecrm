@@ -1,4 +1,5 @@
 import { Firestore, FieldValue, DocumentReference } from 'firebase-admin/firestore';
+import crypto from 'crypto';
 import { PureIntentCheckoutPayload } from '../validation/checkoutSchema';
 
 export interface CheckoutResult {
@@ -92,7 +93,7 @@ export async function executeAtomicCheckout(
 
     for (const devId of deviceIds) {
       if (!devId) continue;
-      const devRef = db.collection('devices').doc(devId);
+      const devRef: DocumentReference = db.collection('devices').doc(devId);
       const devSnap = await transaction.get(devRef);
       if (!devSnap.exists) {
         throw new Error(`DEVICE_NOT_FOUND: Không tìm thấy thiết bị ID "${devId}" trong cơ sở dữ liệu.`);
@@ -126,7 +127,7 @@ export async function executeAtomicCheckout(
       const quantity = acc.quantity || 1;
       if (!prodId) continue;
 
-      const prodRef = db.collection('products').doc(prodId);
+      const prodRef: DocumentReference = db.collection('products').doc(prodId);
       const prodSnap = await transaction.get(prodRef);
       if (!prodSnap.exists) {
         throw new Error(`PRODUCT_NOT_FOUND: Không tìm thấy phụ kiện ID "${prodId}".`);
@@ -145,10 +146,12 @@ export async function executeAtomicCheckout(
 
     const subTotal = authoritativeDeviceSubtotal + authoritativeAccessorySubtotal;
 
-    // 5. Server Truth: Resolve Discount via DB Voucher
+    // 5. Server Truth: Resolve Discount via DB Voucher with Quota Lock
     let authoritativeDiscount = 0;
+    let voucherRef: DocumentReference | null = null;
+
     if (payload.voucherCode) {
-      const voucherRef = db.collection('vouchers').doc(payload.voucherCode.trim().toUpperCase());
+      voucherRef = db.collection('vouchers').doc(payload.voucherCode.trim().toUpperCase());
       const voucherSnap = await transaction.get(voucherRef);
       if (voucherSnap.exists) {
         const vData = voucherSnap.data()!;
@@ -156,6 +159,15 @@ export async function executeAtomicCheckout(
         const isValidDate = (!vData.expiryDate || new Date(vData.expiryDate) >= now) &&
                             (!vData.startDate || new Date(vData.startDate) <= now);
         const meetsMinOrder = !vData.minOrderAmount || subTotal >= vData.minOrderAmount;
+
+        // Check Voucher Quota & Branch Eligibility
+        if (typeof vData.usageLimit === 'number' && (vData.usedCount || 0) >= vData.usageLimit) {
+          throw new Error('VOUCHER_EXHAUSTED: Voucher khuyến mãi đã hết số lượt sử dụng.');
+        }
+
+        if (Array.isArray(vData.applicableBranchIds) && vData.applicableBranchIds.length > 0 && !vData.applicableBranchIds.includes(branchId)) {
+          throw new Error(`VOUCHER_BRANCH_INELIGIBLE: Voucher không áp dụng cho chi nhánh "${branchId}".`);
+        }
 
         if (isValidDate && meetsMinOrder && vData.active !== false) {
           if (vData.discountType === 'PERCENT') {
@@ -170,26 +182,70 @@ export async function executeAtomicCheckout(
       }
     }
 
-    // 6. Server Truth: Resolve Trade-in Valuation from DB
+    // 6. Server Truth: Resolve Trade-in Valuation from DB with Consumption Lock
     let authoritativeTradeInDeduction = 0;
+    let appraisalRef: DocumentReference | null = null;
+
     if (payload.tradeInAppraisalId) {
-      const appraisalRef = db.collection('tradeInAppraisals').doc(payload.tradeInAppraisalId);
+      appraisalRef = db.collection('tradeInAppraisals').doc(payload.tradeInAppraisalId);
       const appraisalSnap = await transaction.get(appraisalRef);
       if (!appraisalSnap.exists) {
         throw new Error(`TRADE_IN_NOT_FOUND: Phiếu thẩm định thu cũ "${payload.tradeInAppraisalId}" không tồn tại.`);
       }
       const appData = appraisalSnap.data()!;
+
+      // Anti-Reuse Lock: Verify appraisal has not been consumed by another invoice
+      if (appData.status === 'CONSUMED' || appData.usedByInvoiceId) {
+        throw new Error(`TRADE_IN_ALREADY_USED: Phiếu thu cũ "${payload.tradeInAppraisalId}" đã được sử dụng cho hóa đơn ${appData.usedByInvoiceId}.`);
+      }
+
       if (appData.status !== 'accepted' && appData.status !== 'approved' && appData.status !== 'completed') {
         throw new Error(`TRADE_IN_NOT_APPROVED: Phiếu thẩm định thu cũ "${payload.tradeInAppraisalId}" chưa được phê duyệt.`);
       }
-      authoritativeTradeInDeduction = typeof appData.estimatedValue === 'number' ? appData.estimatedValue : 0;
+
+      // Precedence: Approved Final Price > Estimated Value
+      authoritativeTradeInDeduction = typeof appData.approvedPrice === 'number'
+        ? appData.approvedPrice
+        : (typeof appData.finalApprovedPrice === 'number' ? appData.finalApprovedPrice : (typeof appData.estimatedValue === 'number' ? appData.estimatedValue : 0));
     }
 
     const finalAmount = Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction);
-    const invoiceId = payload.invoice?.id || `INV-${Date.now()}`;
-    const invoiceCode = payload.invoice?.invoiceCode || `HD-${Date.now().toString().slice(-6)}`;
 
-    // 7. Mark Devices as Sold
+    // 7. Validate Installment Accounting Invariants
+    let downPayment = 0;
+    let financeAmount = 0;
+    let financePartnerRef: DocumentReference | null = null;
+
+    if (paymentMethod === 'INSTALLMENT') {
+      downPayment = typeof payload.payment?.downPayment === 'number' ? payload.payment.downPayment : 0;
+      if (downPayment > finalAmount) {
+        throw new Error(`DOWN_PAYMENT_EXCEEDS_TOTAL: Số tiền trả trước (${downPayment.toLocaleString('vi-VN')} đ) không được lớn hơn tổng giá trị đơn hàng (${finalAmount.toLocaleString('vi-VN')} đ).`);
+      }
+
+      financeAmount = Math.max(0, finalAmount - downPayment);
+      const financePartnerId = payload.payment?.installmentFinancePartnerId || payload.financeCompanyPartner?.id;
+
+      if (financeAmount > 0) {
+        if (!financePartnerId) {
+          throw new Error('FINANCE_PARTNER_REQUIRED: Bắt buộc chọn Đối tác tài chính giải ngân cho khoản vay trả góp.');
+        }
+        financePartnerRef = db.collection('partners').doc(financePartnerId);
+        const partnerSnap = await transaction.get(financePartnerRef);
+        if (!partnerSnap.exists) {
+          throw new Error(`FINANCE_PARTNER_NOT_FOUND: Công ty tài chính ID "${financePartnerId}" không tồn tại.`);
+        }
+        if (partnerSnap.data()?.status === 'INACTIVE') {
+          throw new Error(`FINANCE_PARTNER_INACTIVE: Đối tác tài chính "${partnerSnap.data()?.name}" đang tạm ngưng hợp tác.`);
+        }
+      }
+    }
+
+    // Secure Non-Colliding ID Generation
+    const newInvRef = db.collection('invoices').doc();
+    const invoiceId = payload.invoice?.id || newInvRef.id;
+    const invoiceCode = payload.invoice?.invoiceCode || `HD-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+
+    // 8. Mark Devices as Sold
     for (const dev of loadedDevices) {
       transaction.update(dev.ref, {
         status: 'sold',
@@ -200,14 +256,30 @@ export async function executeAtomicCheckout(
       });
     }
 
-    // 8. Deduct Accessory Stock
+    // 9. Deduct Accessory Stock
     for (const acc of loadedAccessories) {
       transaction.update(acc.ref, {
         stockQuantity: FieldValue.increment(-acc.quantity)
       });
     }
 
-    // 9. Save Authoritative Invoice Record
+    // 10. Lock Trade-in Appraisal as CONSUMED
+    if (appraisalRef) {
+      transaction.update(appraisalRef, {
+        status: 'CONSUMED',
+        usedByInvoiceId: invoiceId,
+        consumedAt: FieldValue.serverTimestamp()
+      });
+    }
+
+    // 11. Lock Voucher Quota Increment
+    if (voucherRef) {
+      transaction.update(voucherRef, {
+        usedCount: FieldValue.increment(1)
+      });
+    }
+
+    // 12. Save Authoritative Invoice Record
     const invRef = db.collection('invoices').doc(invoiceId);
     const invoiceRecord = {
       id: invoiceId,
@@ -232,7 +304,10 @@ export async function executeAtomicCheckout(
       tradeInDeduction: authoritativeTradeInDeduction,
       finalAmount,
       paymentMethod,
-      paymentFundId: targetFundId,
+      paymentFundId: targetFundId || null,
+      installmentDownPayment: downPayment,
+      installmentFinanceAmount: financeAmount,
+      installmentFinancePartnerId: payload.payment?.installmentFinancePartnerId || null,
       idempotencyKey,
       creatorUid: authenticatedStaff?.uid || 'SYSTEM',
       creatorName: authenticatedStaff?.name || 'Thu Ngân',
@@ -242,25 +317,22 @@ export async function executeAtomicCheckout(
 
     transaction.set(invRef, invoiceRecord);
 
-    // 10. Installment Accounting & Fund Reconciliation
+    // 13. Installment Accounting & Fund Reconciliation
     if (paymentMethod === 'INSTALLMENT') {
-      const downPayment = payload.payment?.downPayment || 0;
-      const financeAmount = Math.max(0, finalAmount - downPayment);
-
       // Down payment into Fund
       if (fundRef && downPayment > 0) {
-        const txId = `TX-${Date.now()}`;
+        const txId = `TX-${crypto.randomUUID().slice(0, 8)}`;
         const txRef = db.collection('cashTransactions').doc(txId);
         transaction.set(txRef, {
           id: txId,
-          code: `PT-${Date.now().toString().slice(-6)}`,
+          code: `PT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
           type: 'RECEIPT',
           category: 'SALES_REVENUE',
           categoryName: 'Thu tiền trả trước đơn trả góp POS',
           amount: downPayment,
           fundId: targetFundId,
-          fundName: fundData.name,
-          fundType: fundData.type,
+          fundName: fundData?.name || 'Quỹ tiền',
+          fundType: fundData?.type || 'CASH',
           date: new Date().toISOString().split('T')[0],
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
@@ -275,32 +347,27 @@ export async function executeAtomicCheckout(
         });
       }
 
-      // Finance Company Receivable
-      const financePartnerId = payload.payment?.installmentFinancePartnerId || payload.financeCompanyPartner?.id;
-      if (financeAmount > 0 && financePartnerId) {
-        const partnerRef = db.collection('partners').doc(financePartnerId);
-        const partnerSnap = await transaction.get(partnerRef);
-        if (partnerSnap.exists) {
-          transaction.update(partnerRef, {
-            outstandingDebt: FieldValue.increment(financeAmount)
-          });
-        }
+      // Finance Company Receivable Increment
+      if (financePartnerRef && financeAmount > 0) {
+        transaction.update(financePartnerRef, {
+          outstandingDebt: FieldValue.increment(financeAmount)
+        });
       }
     } else {
       // Standard Payment: Full finalAmount into Fund
       if (fundRef && finalAmount > 0) {
-        const txId = `TX-${Date.now()}`;
+        const txId = `TX-${crypto.randomUUID().slice(0, 8)}`;
         const txRef = db.collection('cashTransactions').doc(txId);
         transaction.set(txRef, {
           id: txId,
-          code: `PT-${Date.now().toString().slice(-6)}`,
+          code: `PT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
           type: 'RECEIPT',
           category: 'SALES_REVENUE',
           categoryName: 'Thu tiền bán hàng POS',
           amount: finalAmount,
           fundId: targetFundId,
-          fundName: fundData.name,
-          fundType: fundData.type,
+          fundName: fundData?.name || 'Quỹ tiền',
+          fundType: fundData?.type || 'CASH',
           date: new Date().toISOString().split('T')[0],
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
@@ -316,7 +383,7 @@ export async function executeAtomicCheckout(
       }
     }
 
-    // 11. Customer CRM Lifetime Value (LTV) Update
+    // 14. Customer CRM Lifetime Value (LTV) Update
     const customerId = payload.customerId || payload.customerPartner?.id;
     if (customerId) {
       const custRef = db.collection('partners').doc(customerId);
@@ -330,7 +397,7 @@ export async function executeAtomicCheckout(
       }
     }
 
-    // 12. Commit Idempotency Record
+    // 15. Commit Idempotency Record
     if (idempotencyKey) {
       const idemRef = db.collection('checkoutRequests').doc(idempotencyKey);
       transaction.set(idemRef, {
@@ -343,8 +410,8 @@ export async function executeAtomicCheckout(
       });
     }
 
-    // 13. Write Audit Trail Event
-    const auditId = `AUDIT-${Date.now()}`;
+    // 16. Write Audit Trail Event
+    const auditId = `AUDIT-${crypto.randomUUID().slice(0, 8)}`;
     const auditRef = db.collection('auditEvents').doc(auditId);
     transaction.set(auditRef, {
       id: auditId,

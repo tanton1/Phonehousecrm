@@ -1,5 +1,5 @@
 /**
- * POS Checkout Payload Validator - Server Truth Edition
+ * POS Checkout Payload Validator - Server Truth Edition V3
  * Validates and sanitizes checkout intents from client.
  */
 
@@ -17,14 +17,13 @@ export interface PureIntentCheckoutPayload {
   customerPhone?: string;
   payment: {
     method: 'CASH' | 'BANK' | 'INSTALLMENT' | 'CARD';
-    fundId: string;
+    fundId?: string;
     downPayment?: number;
     installmentFinancePartnerId?: string;
     installmentContractCode?: string;
   };
   voucherCode?: string;
   tradeInAppraisalId?: string;
-  tradeInDeduction?: number;
   notes?: string;
   creatorUid?: string;
   creatorName?: string;
@@ -83,18 +82,31 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
     return { isValid: false, error: 'Request body must be a valid JSON object.' };
   }
 
-  // 1. Pure Intent Format
+  // 1. Pure Intent Format (Standard in V3)
   if (Array.isArray(body.deviceIds) && body.payment && body.branchId) {
     if (!body.idempotencyKey || typeof body.idempotencyKey !== 'string') {
       return { isValid: false, error: 'Thiếu idempotencyKey để đảm bảo an toàn giao dịch.' };
     }
-    if (!body.payment.fundId || typeof body.payment.fundId !== 'string') {
+
+    const { method, fundId, downPayment } = body.payment;
+
+    // Validate down payment if provided
+    if (downPayment !== undefined) {
+      if (typeof downPayment !== 'number' || !Number.isFinite(downPayment) || downPayment < 0) {
+        return { isValid: false, error: 'Số tiền trả trước (downPayment) không hợp lệ.' };
+      }
+    }
+
+    // Fund is required for CASH, BANK, CARD, or INSTALLMENT with downPayment > 0
+    const requiresFund = method !== 'INSTALLMENT' || (typeof downPayment === 'number' && downPayment > 0);
+    if (requiresFund && (!fundId || typeof fundId !== 'string')) {
       return { isValid: false, error: 'Thiếu thông tin Quỹ tiền thực hiện (payment.fundId).' };
     }
+
     return { isValid: true, data: body as PureIntentCheckoutPayload };
   }
 
-  // 2. Legacy Format (Backward compatibility)
+  // 2. Legacy Format (Backward compatibility for non-production environments)
   const { invoice } = body;
   if (!invoice || typeof invoice !== 'object') {
     return { isValid: false, error: 'Thiếu đối tượng hóa đơn (invoice) hoặc cấu trúc intent thanh toán.' };

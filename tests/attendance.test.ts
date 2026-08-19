@@ -41,8 +41,7 @@ describe('Sprint 2: Attendance Verification & Geofence Test Suite', () => {
       staffName: 'Lê Văn B',
       branchId: 'CN01',
       userCoords: { latitude: 16.0678, longitude: 108.2208 },
-      faceVerified: false, // AI Face offline
-      networkVerified: true,
+      faceCaptureBase64: '', // No capture -> AI Face offline
       qrScanned: true
     });
 

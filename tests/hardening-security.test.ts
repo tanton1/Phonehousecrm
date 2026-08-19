@@ -30,14 +30,15 @@ describe('Hardening Sprint: Production Security & Server Truth Suite', () => {
         method: 'BANK',
         fundId: 'FUND-VIETQR-01'
       },
-      tradeInDeduction: 5000000
+      tradeInAppraisalId: 'TRD-01'
     };
 
     // Server reads from DB and computes authoritative finalAmount
     const authoritativeDeviceTotal = dbDevice.sellPrice; // 28.500.000
     const authoritativeAccessoryTotal = dbProduct.retailPrice * clientPayload.accessoryLines![0].quantity; // 450.000 * 2 = 900.000
     const subTotal = authoritativeDeviceTotal + authoritativeAccessoryTotal; // 29.400.000
-    const finalAmount = Math.max(0, subTotal - (clientPayload.tradeInDeduction || 0)); // 24.400.000
+    const authoritativeTradeInValuation = 5000000;
+    const finalAmount = Math.max(0, subTotal - authoritativeTradeInValuation); // 24.400.000
 
     expect(subTotal).toBe(29400000);
     expect(finalAmount).toBe(24400000);
