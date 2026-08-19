@@ -97,10 +97,10 @@ export const ProductSearchPanel: React.FC<ProductSearchPanelProps> = ({
   };
 
   return (
-    <div className="bg-white border border-zinc-200/80 rounded-3xl p-3.5 sm:p-4 flex flex-col h-full shadow-2xs space-y-3">
+    <div className="bg-white border border-zinc-200/60 rounded-2xl p-2.5 sm:p-3.5 flex flex-col h-full shadow-2xs space-y-2.5 overflow-hidden">
       {/* 1. Header & Tab Switcher */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center space-x-1.5 p-1 bg-zinc-100 rounded-2xl">
+        <div className="flex items-center space-x-1 p-0.5 bg-zinc-100 rounded-xl">
           <button
             onClick={() => setActiveTab('DEVICES')}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
