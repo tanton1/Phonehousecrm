@@ -401,72 +401,68 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const totalItemsCount = selectedDevices.length + selectedAccessories.reduce((s, a) => s + a.quantity, 0);
 
   return (
-    <div className="flex flex-col space-y-3.5 p-2 sm:p-4 max-w-[1600px] mx-auto min-h-screen pb-24">
-      {/* 1. Header Bar with Brand Recognition & Gradient Styling */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white p-3.5 sm:p-4 rounded-3xl border border-zinc-800 shadow-xl">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center shadow-lg shadow-orange-500/30 font-black">
-            <Receipt className="w-5 h-5" />
+    <div className="flex flex-col space-y-2 p-1.5 sm:p-3 max-w-[1600px] mx-auto h-[calc(100vh-64px)] overflow-hidden select-none">
+      {/* 1. Ultra-Compact Slim POS Header Bar (Thu gọn còn 1/3 tiết kiệm tối đa diện tích) */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white rounded-2xl border border-zinc-800 shadow-md shrink-0">
+        <div className="flex items-center space-x-2">
+          <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-black">
+            <Receipt className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-base sm:text-lg font-black tracking-tight text-white">POS Cockpit Bán Hàng</h1>
-              <span className="px-2.5 py-0.5 text-[10px] font-bold bg-orange-500/20 text-[#ff4b16] border border-orange-500/30 rounded-full">
-                {currentBranch.name}
-              </span>
-            </div>
-            <p className="text-xs text-zinc-400 font-medium mt-0.5">
-              Thu ngân ca trực: <b className="text-zinc-200">{currentUser?.name || 'Chuyên Viên POS'}</b> • <span className="text-emerald-400 font-mono">Đồng bộ K80</span>
-            </p>
-          </div>
+          <span className="text-xs sm:text-sm font-black tracking-tight text-white">POS Thu Ngân</span>
+          <span className="px-2 py-0.2 text-[10px] font-bold bg-orange-500/20 text-[#ff4b16] border border-orange-500/30 rounded-full hidden sm:inline-block">
+            {currentBranch.name}
+          </span>
+          <span className="text-[11px] text-zinc-400 font-medium hidden md:inline-block">
+            • <b className="text-zinc-200">{currentUser?.name || 'Thu Ngân'}</b>
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
           {onNavigateToInvoices && (
             <button
               onClick={onNavigateToInvoices}
-              className="text-xs font-bold text-orange-200 bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/80 px-3.5 py-2 rounded-2xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
+              className="text-[11px] font-bold text-orange-200 bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700/80 px-2.5 py-1 rounded-xl flex items-center space-x-1 transition-all cursor-pointer active:scale-95"
             >
-              <Receipt className="w-4 h-4 text-[#ff4b16]" />
-              <span>Sổ Hóa Đơn</span>
+              <Receipt className="w-3 h-3 text-[#ff4b16]" />
+              <span>Sổ Đơn</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Mobile Segmented Navigation Bar (<1024px) */}
-      <div className="lg:hidden flex items-center p-1 bg-zinc-100 rounded-2xl border border-zinc-200/80 text-xs font-bold">
+      <div className="lg:hidden flex items-center p-0.5 bg-zinc-100 rounded-xl border border-zinc-200/80 text-[11px] font-bold shrink-0">
         <button
           onClick={() => setMobileTab('PRODUCTS')}
-          className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
+          className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
             mobileTab === 'PRODUCTS'
               ? 'bg-zinc-900 text-white shadow-xs'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
-          📱 1. Chọn Hàng
+          📱 Chọn Máy
         </button>
 
         <button
           onClick={() => setMobileTab('CART')}
-          className={`flex-1 py-2 rounded-xl transition-all cursor-pointer relative ${
+          className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer relative ${
             mobileTab === 'CART'
               ? 'bg-zinc-900 text-white shadow-xs'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
-          🛒 2. Giỏ Hàng {totalItemsCount > 0 && <span className="ml-1 px-1.5 py-0.2 rounded-full bg-[#ff4b16] text-white text-[10px]">{totalItemsCount}</span>}
+          🛒 Giỏ Hàng {totalItemsCount > 0 && <span className="ml-1 px-1.5 py-0.2 rounded-full bg-[#ff4b16] text-white text-[9px]">{totalItemsCount}</span>}
         </button>
 
         <button
           onClick={() => setMobileTab('PAYMENT')}
-          className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
+          className={`flex-1 py-1.5 rounded-lg transition-all cursor-pointer ${
             mobileTab === 'PAYMENT'
               ? 'bg-zinc-900 text-white shadow-xs'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
-          💵 3. Thu Tiền
+          💵 Thu Tiền
         </button>
       </div>
 
@@ -552,10 +548,10 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
       )}
 
-      {/* 3. Three-Column Responsive Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_360px] gap-4 items-start pb-12">
+      {/* 3. Three-Column Responsive Grid Layout (Vừa khít 1 trang màn hình) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr_360px] gap-2.5 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden pb-1 sm:pb-0">
         {/* Column 1: Product Search & Inventory Grid */}
-        <div className={`w-full ${mobileTab !== 'PRODUCTS' ? 'hidden lg:block' : 'block'}`}>
+        <div className={`w-full h-full min-h-0 flex flex-col ${mobileTab !== 'PRODUCTS' ? 'hidden lg:flex' : 'flex'}`}>
           <ProductSearchPanel
             devices={devices}
             products={products}
@@ -567,7 +563,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
 
         {/* Column 2: Cart Panel & Warranty */}
-        <div className={`w-full ${mobileTab !== 'CART' ? 'hidden lg:block' : 'block'}`}>
+        <div className={`w-full h-full min-h-0 flex flex-col ${mobileTab !== 'CART' ? 'hidden lg:flex' : 'flex'}`}>
           <CartPanel
             selectedDevices={selectedDevices}
             selectedAccessories={selectedAccessories}
@@ -588,7 +584,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
 
         {/* Column 3: Payment, Customer & Checkout */}
-        <div className={`w-full ${mobileTab !== 'PAYMENT' ? 'hidden lg:block' : 'block'}`} id="pos-payment-section">
+        <div className={`w-full h-full min-h-0 flex flex-col ${mobileTab !== 'PAYMENT' ? 'hidden lg:flex' : 'flex'}`} id="pos-payment-section">
           <PaymentPanel
             customerName={customerName}
             customerPhone={customerPhone}

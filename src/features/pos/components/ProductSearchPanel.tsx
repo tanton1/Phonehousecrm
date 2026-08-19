@@ -209,10 +209,10 @@ export const ProductSearchPanel: React.FC<ProductSearchPanelProps> = ({
       )}
 
       {/* 4. Products Grid / List */}
-      <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-[360px] max-h-[580px] scrollbar-thin scrollbar-thumb-zinc-200">
+      <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-0 scrollbar-thin scrollbar-thumb-zinc-200">
         {activeTab === 'DEVICES' ? (
           filteredDevices.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {filteredDevices.map(dev => (
                 <ProductCard
                   key={dev.id}

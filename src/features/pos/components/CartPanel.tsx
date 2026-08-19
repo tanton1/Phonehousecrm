@@ -75,9 +75,9 @@ export const CartPanel: React.FC<CartPanelProps> = ({
       </div>
 
       {/* 2. Items List */}
-      <div className="flex-1 overflow-y-auto pr-1 space-y-2 min-h-[180px] max-h-[320px] scrollbar-thin scrollbar-thumb-zinc-200">
+      <div className="flex-1 overflow-y-auto pr-1 space-y-1.5 min-h-0 scrollbar-thin scrollbar-thumb-zinc-200">
         {totalItemsCount === 0 ? (
-          <div className="h-44 flex flex-col items-center justify-center text-center p-4 text-zinc-400 space-y-2">
+          <div className="h-32 flex flex-col items-center justify-center text-center p-3 text-zinc-400 space-y-1.5">
             <ShoppingCart className="w-9 h-9 stroke-1 text-zinc-300" />
             <p className="text-xs font-bold text-zinc-600">Giỏ hàng đang trống</p>
             <p className="text-[11px] text-zinc-400 max-w-xs">Chạm vào máy iPhone hoặc phụ kiện ở khung bên trái để bắt đầu lập đơn.</p>
