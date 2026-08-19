@@ -109,6 +109,12 @@ app.use('/api/pos', createPOSCheckoutRouter(adminDb));
 import { createAttendanceRouter } from './server/routes/attendance';
 app.use('/api/attendance', createAttendanceRouter(adminDb));
 
+// -------------------------------------------------------------
+// 3. USER MANAGEMENT & AUTHENTICATION PROVISIONING ROUTER
+// -------------------------------------------------------------
+import { createUsersRouter } from './server/routes/users';
+app.use('/api/users', createUsersRouter(adminDb));
+
 // Secure Server-side Telegram Bot Alert Endpoint (Protects bot token from client exposure)
 app.post('/api/telegram/send-alert', async (req, res) => {
   const { text, chatId } = req.body;

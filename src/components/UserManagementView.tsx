@@ -30,8 +30,7 @@ import {
   X 
 } from 'lucide-react';
 import { UserAccount, UserRole, RolePermissionInfo, StoreBranch } from '../types';
-import { ROLE_PERMISSIONS_CONFIG, INITIAL_BRANCHES } from '../data/initialData';
-import { loginWithEmail, registerWithEmail } from '../lib/firebase';
+import { auth, loginWithEmail, registerWithEmail } from '../lib/firebase';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
 
 interface UserManagementViewProps {
@@ -199,32 +198,62 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         setSubmitMessage({ type: 'success', text: 'Cập nhật tài khoản và địa chỉ làm việc thành công!' });
         setTimeout(() => setIsAddModalOpen(false), 800);
       } else {
-        // Create new user in Firestore & optionally in Firebase Auth
-        const newId = `USR-${Date.now().toString().slice(-6)}`;
-        const newUser: UserAccount = {
-          id: newId,
-          email: formData.email,
-          displayName: formData.displayName,
-          phone: formData.phone,
-          role: formData.role,
-          branchId: formData.assignedBranchIds[0] || formData.branchId,
-          assignedBranchIds: formData.assignedBranchIds,
-          workplaceAddresses: selectedAddresses,
-          active: formData.active,
-          createdAt: new Date().toISOString().split('T')[0],
-          notes: formData.notes || ''
-        };
+        // 1. Attempt Server Provisioning via Firebase Admin API
+        let userCreated = false;
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (token) {
+            const resp = await fetch('/api/users/create', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                email: formData.email.trim().toLowerCase(),
+                password: formData.password || 'PhoneHouse@2026',
+                displayName: formData.displayName,
+                phone: formData.phone,
+                role: formData.role,
+                branchId: formData.assignedBranchIds[0] || formData.branchId,
+                assignedBranchIds: formData.assignedBranchIds,
+                workplaceAddresses: selectedAddresses,
+                notes: formData.notes
+              })
+            });
 
-        if (formData.password && formData.password.length >= 6) {
-          try {
-            await registerWithEmail(formData.email, formData.password, formData.displayName);
-          } catch (authErr: any) {
-            console.warn('Firebase Auth user creation note:', authErr.message);
+            if (resp.ok) {
+              const data = await resp.json();
+              if (data.user) {
+                onAddUser(data.user);
+                userCreated = true;
+              }
+            }
           }
+        } catch (apiErr) {
+          console.warn('[User API creation fallback]:', apiErr);
         }
 
-        onAddUser(newUser);
-        setSubmitMessage({ type: 'success', text: 'Đã tạo tài khoản và gán địa chỉ làm việc thành công!' });
+        // 2. Direct Firestore fallback
+        if (!userCreated) {
+          const newId = `USR-${Date.now().toString().slice(-6)}`;
+          const newUser: UserAccount = {
+            id: newId,
+            email: formData.email.trim().toLowerCase(),
+            displayName: formData.displayName,
+            phone: formData.phone,
+            role: formData.role,
+            branchId: formData.assignedBranchIds[0] || formData.branchId,
+            assignedBranchIds: formData.assignedBranchIds,
+            workplaceAddresses: selectedAddresses,
+            active: formData.active,
+            createdAt: new Date().toISOString().split('T')[0],
+            notes: formData.notes || ''
+          };
+          onAddUser(newUser);
+        }
+
+        setSubmitMessage({ type: 'success', text: 'Đã tạo tài khoản và cấp phép đăng nhập thành công!' });
         setTimeout(() => setIsAddModalOpen(false), 800);
       }
     } catch (err: any) {

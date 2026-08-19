@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { adminAuth } from '../firebaseAdmin';
+import { adminAuth, adminDb } from '../firebaseAdmin';
 
 export interface AuthenticatedUser {
   uid: string;
@@ -53,8 +53,57 @@ export async function authenticateFirebase(
   try {
     const decoded = await adminAuth.verifyIdToken(token);
     
-    // Strict Role Validation: NEVER default to SALES if role claim is missing
-    const userRole = (decoded.role as string) || (decoded['custom:role'] as string);
+    // 2. Resolve Role & Branch from Custom Claims OR Authoritative Firestore User Document
+    let userRole = (decoded.role as string) || (decoded['custom:role'] as string);
+    let branchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || '';
+    let displayName = decoded.name || decoded.email;
+
+    if (!userRole && adminDb) {
+      try {
+        // Look up user document in Firestore by UID
+        let userSnap = await adminDb.collection('users').doc(decoded.uid).get();
+        
+        // If not found by UID, lookup by email
+        if (!userSnap.exists && decoded.email) {
+          const emailQuery = await adminDb
+            .collection('users')
+            .where('email', '==', decoded.email.toLowerCase())
+            .limit(1)
+            .get();
+          if (!emailQuery.empty) {
+            userSnap = emailQuery.docs[0];
+          }
+        }
+
+        if (userSnap.exists) {
+          const uData = userSnap.data()!;
+          if (uData.active === false) {
+            return res.status(403).json({
+              success: false,
+              error: 'USER_INACTIVE',
+              message: 'Tài khoản nhân viên này đã bị tạm khóa.'
+            });
+          }
+
+          userRole = uData.role;
+          branchId = uData.branchId || (uData.assignedBranchIds && uData.assignedBranchIds[0]) || '';
+          displayName = uData.displayName || displayName;
+
+          // Asynchronously sync claims to Firebase Auth for subsequent instant verification
+          if (userRole) {
+            adminAuth.setCustomUserClaims(decoded.uid, {
+              role: userRole.toUpperCase(),
+              branchId
+            }).catch((err) => {
+              console.warn('[Sync Custom Claims Error]:', err.message);
+            });
+          }
+        }
+      } catch (dbErr) {
+        console.warn('[Auth Middleware DB Lookup Error]:', dbErr);
+      }
+    }
+
     if (!userRole) {
       return res.status(403).json({
         success: false,
@@ -63,7 +112,6 @@ export async function authenticateFirebase(
       });
     }
 
-    const branchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || '';
     if (userRole.toUpperCase() !== 'ADMIN' && !branchId) {
       return res.status(403).json({
         success: false,
@@ -77,7 +125,7 @@ export async function authenticateFirebase(
       email: decoded.email,
       role: userRole.toUpperCase(),
       branchId,
-      name: decoded.name || decoded.email
+      name: displayName
     };
     next();
   } catch (error: any) {
