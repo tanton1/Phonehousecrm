@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem } from '../types';
 import { ActivityLog } from "./ActivityLog";
+import { DocumentHeader } from './shared/DocumentHeader';
+import { StatusBadge } from './shared/StatusBadge';
 import { History,  
   FileText, 
   Search, 
@@ -279,23 +281,27 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   }, [invoices, searchQuery, timeFilter, statusFilter]);
 
   // Aggregate totals: Exclude cancelled / refunded from Net Revenue
-  const netRevenue = useMemo(() => {
-    return filteredInvoices
-      .filter(inv => {
-        const s = (inv.status || '').toLowerCase();
-        return s !== 'cancelled' && s !== 'refunded';
-      })
-      .reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+  const validInvoices = useMemo(() => {
+    return filteredInvoices.filter(inv => {
+      const s = (inv.status || '').toLowerCase();
+      return s !== 'cancelled' && s !== 'refunded';
+    });
   }, [filteredInvoices]);
 
-  const cancelledRevenue = useMemo(() => {
-    return filteredInvoices
-      .filter(inv => {
-        const s = (inv.status || '').toLowerCase();
-        return s === 'cancelled' || s === 'refunded';
-      })
-      .reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
-  }, [filteredInvoices]);
+  const netRevenue = useMemo(() => {
+    return validInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+  }, [validInvoices]);
+
+  const paidRevenue = useMemo(() => {
+    return validInvoices.reduce((sum, inv) => {
+      const paid = inv.paidAmount !== undefined ? inv.paidAmount : (inv.finalAmount || inv.totalAmount || 0);
+      return sum + paid;
+    }, 0);
+  }, [validInvoices]);
+
+  const debtRevenue = useMemo(() => {
+    return Math.max(0, netRevenue - paidRevenue);
+  }, [netRevenue, paidRevenue]);
 
   const totalRevenue = netRevenue;
 
@@ -411,14 +417,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   };
 
   // ----------------------------------------------------
-  // RENDER: DETAIL VIEW (Synchronized with POS Flow)
+  // RENDER: DETAIL DRAWER VIEW
   // ----------------------------------------------------
-  if (selectedInvoice) {
+  const renderInvoiceDetail = (selectedInvoice: SalesInvoice) => {
     const summary = getInvoiceSummary(selectedInvoice);
     const invoiceCode = selectedInvoice.invoiceCode || selectedInvoice.id;
-    const rawDate = selectedInvoice.createdDate || selectedInvoice.createdAt || '14/08/2026 15:35';
-    const customerPhone = selectedInvoice.customerPhone || selectedInvoice.phone || '0909 123 456';
-    const customerName = selectedInvoice.customerName || 'Phone House';
+    const rawDate = selectedInvoice.createdDate || selectedInvoice.createdAt || '— Chưa xác định';
+    const customerPhone = selectedInvoice.customerPhone || selectedInvoice.phone || '— Chưa có SĐT';
+    const customerName = selectedInvoice.customerName || 'Khách lẻ vãng lai';
     const statusKey = selectedInvoice.status || 'completed';
     const currentStatusConfig = STATUS_CONFIG[statusKey] || STATUS_CONFIG.completed;
 
@@ -432,7 +438,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       imei?: string;
       color?: string;
       storage?: string;
-      type: 'phone' | 'accessory' | 'service';
+      type: 'phone' | 'accessory' | 'service' | 'tradein' | 'device' | 'repair';
     }
 
     let displayItems: UnifiedItem[] = [];
@@ -489,7 +495,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     const totalQty = displayItems.reduce((sum, it) => sum + (it.quantity || 1), 0);
 
     return (
-      <div className="w-full max-w-2xl mx-auto space-y-3 sm:space-y-4 pb-28 animate-fadeIn">
+      <div className="w-full flex flex-col min-h-full space-y-4 pb-20">
         {/* Firestore Sync Toast Notification */}
         {syncToast && (
           <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 backdrop-blur-md text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 animate-fadeIn border border-white/10">
@@ -498,144 +504,125 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </div>
         )}
 
-        {/* 1. Top Bar: Back, Code, Quick Status Selector & Actions with Dark Obsidian Gradient */}
-        <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white rounded-2xl p-3 sm:p-4 border border-zinc-800 shadow-md flex items-center justify-between sticky top-14 z-20 relative overflow-hidden">
-          <div className="absolute top-0 right-1/4 w-64 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
+        {/* 1. Standard Document Header */}
+        <DocumentHeader
+          icon={Receipt}
+          code={invoiceCode}
+          typeLabel="Hóa Đơn Bán Hàng"
+          date={rawDate}
+          branchName={selectedInvoice.branch || 'Phone House'}
+          statusBadge={
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowStatusPicker(!showStatusPicker)}
+                className={`${currentStatusConfig.bg} ${currentStatusConfig.text} border ${currentStatusConfig.border} text-[11px] font-medium px-2.5 py-0.5 rounded-full flex items-center space-x-1.5 hover:opacity-85 transition-all cursor-pointer shadow-2xs`}
+                title="Nhấn để đổi trạng thái đơn hàng (Đồng bộ Firestore)"
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${currentStatusConfig.dot}`}></span>
+                <span>{currentStatusConfig.label}</span>
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </button>
 
-          <div className="flex items-center space-x-2.5 relative z-10">
-            <button
-              onClick={() => setSelectedInvoice(null)}
-              className="w-8 h-8 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-orange-400 flex items-center justify-center transition-all cursor-pointer border border-zinc-700"
-              title="Quay lại danh sách"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-bold text-white text-base sm:text-lg tracking-tight font-mono">
-                  {invoiceCode}
-                </span>
-
-                {/* Quick Status Button with Dropdown Trigger */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowStatusPicker(!showStatusPicker)}
-                    className={`${currentStatusConfig.bg} ${currentStatusConfig.text} border ${currentStatusConfig.border} text-[11px] font-medium px-2.5 py-0.5 rounded-full flex items-center space-x-1.5 hover:opacity-85 transition-all cursor-pointer shadow-2xs`}
-                    title="Nhấn để đổi trạng thái đơn hàng (Đồng bộ Firestore)"
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${currentStatusConfig.dot}`}></span>
-                    <span>{currentStatusConfig.label}</span>
-                    <ChevronDown className="w-3 h-3 opacity-60" />
-                  </button>
-
-                  {/* Status Picker Dropdown Menu */}
-                  {showStatusPicker && (
-                    <div className="absolute left-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 z-40 animate-fadeIn text-xs text-zinc-900">
-                      <div className="px-3 py-1 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-100">
-                        Chuyển Trạng Thái Đơn:
-                      </div>
-                      {Object.entries(STATUS_CONFIG)
-                        .filter(([key]) => !['cancelled', 'CANCELLED', 'refunded', 'REFUNDED'].includes(key) && key === key.toLowerCase())
-                        .map(([key, cfg]) => {
-                        const Icon = cfg.icon;
-                        const isSelected = key === statusKey;
-                        return (
-                          <button
-                            key={key}
-                            onClick={() => handleQuickChangeStatus(key)}
-                            className={`w-full px-3 py-2 text-left font-medium flex items-center justify-between transition-colors ${
-                              isSelected ? `${cfg.bg} ${cfg.text} font-semibold` : 'text-zinc-700 hover:bg-zinc-50'
-                            }`}
-                          >
-                            <div className="flex items-center space-x-2">
-                              <span className={`w-2 h-2 rounded-full ${cfg.dot}`}></span>
-                              <span>{cfg.label}</span>
-                            </div>
-                            {isSelected && <Check className="w-3.5 h-3.5" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+              {/* Status Picker Dropdown Menu */}
+              {showStatusPicker && (
+                <div className="absolute left-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 z-50 animate-fadeIn text-xs text-zinc-900">
+                  <div className="px-3 py-1 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-100">
+                    Chuyển Trạng Thái Đơn:
+                  </div>
+                  {Object.entries(STATUS_CONFIG)
+                    .filter(([key]) => !['cancelled', 'CANCELLED', 'refunded', 'REFUNDED'].includes(key) && key === key.toLowerCase())
+                    .map(([key, cfg]) => {
+                    const isSelected = key === statusKey;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => handleQuickChangeStatus(key)}
+                        className={`w-full px-3 py-2 text-left font-medium flex items-center justify-between transition-colors ${
+                          isSelected ? `${cfg.bg} ${cfg.text} font-semibold` : 'text-zinc-700 hover:bg-zinc-50'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2">
+                          <span className={`w-2 h-2 rounded-full ${cfg.dot}`}></span>
+                          <span>{cfg.label}</span>
+                        </div>
+                        {isSelected && <Check className="w-3.5 h-3.5" />}
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
-              <p className="text-[11px] text-zinc-400 font-normal mt-0.5 font-mono">
-                {rawDate}
-              </p>
+              )}
             </div>
-          </div>
+          }
+          onPrint={() => setIsPrintModalOpen(true)}
+          onClose={() => setSelectedInvoice(null)}
+          actions={
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMoreDropdown(!showMoreDropdown)}
+                className="p-2 text-zinc-300 hover:text-white hover:bg-zinc-800/80 rounded-xl transition-all cursor-pointer"
+                title="Thao tác khác"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
 
-          {/* Header Action Menu */}
-          <div className="relative z-10">
-            <button
-              onClick={() => setShowMoreDropdown(!showMoreDropdown)}
-              className="w-8 h-8 rounded-xl hover:bg-zinc-800 text-zinc-300 flex items-center justify-center transition-colors cursor-pointer"
-            >
-              <MoreVertical className="w-5 h-5" />
-            </button>
-
-            {showMoreDropdown && (
-              <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 z-30 animate-fadeIn text-xs">
-                <button
-                  onClick={() => {
-                    setShowMoreDropdown(false);
-                    setIsPrintModalOpen(true);
-                  }}
-                  className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-orange-600 flex items-center space-x-2"
-                >
-                  <Printer className="w-4 h-4 text-orange-500" />
-                  <span>In hóa đơn K80</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setShowMoreDropdown(false);
-                    setIsQRModalOpen(true);
-                  }}
-                  className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-orange-600 flex items-center space-x-2"
-                >
-                  <QrCode className="w-4 h-4 text-orange-500" />
-                  <span>Tạo mã VietQR thu tiền</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setShowMoreDropdown(false);
-                    handleCopy(`${window.location.origin}?invoice=${invoiceCode}`, 'link');
-                  }}
-                  className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-orange-600 flex items-center space-x-2"
-                >
-                  <Share2 className="w-4 h-4 text-zinc-400" />
-                  <span>{copiedText === 'link' ? 'Đã sao chép link!' : 'Chia sẻ liên kết'}</span>
-                </button>
-                {(onCancelInvoice || onDeleteInvoice) && (
-                  <button
-                    onClick={async () => {
-                      if (selectedInvoice.status === 'CANCELLED') {
-                        alert('Hóa đơn này đã ở trạng thái ĐÃ HỦY.');
-                        return;
-                      }
-                      const reason = window.prompt(`Nhập lý do hủy/hoàn hóa đơn ${invoiceCode}:`, 'Khách đổi ý trả hàng hoàn tiền');
-                      if (reason !== null && reason.trim()) {
-                        if (onCancelInvoice) {
-                          await onCancelInvoice(selectedInvoice, reason.trim());
-                        } else if (onDeleteInvoice) {
-                          onDeleteInvoice(selectedInvoice.id);
-                        }
-                        setSelectedInvoice(null);
-                      }
-                    }}
-                    className="w-full px-3.5 py-2 text-left font-medium text-rose-600 hover:bg-rose-50 flex items-center space-x-2 border-t border-zinc-100 cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Hủy & Hoàn trả hóa đơn</span>
-                  </button>
+                {showMoreDropdown && (
+                  <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 z-50 animate-fadeIn text-xs text-zinc-900">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreDropdown(false);
+                        setIsQRModalOpen(true);
+                      }}
+                      className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-[#FF4B16] flex items-center space-x-2 cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4 text-[#FF4B16]" />
+                      <span>Tạo mã VietQR thu tiền</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreDropdown(false);
+                        handleCopy(`${window.location.origin}?invoice=${invoiceCode}`, 'link');
+                      }}
+                      className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-[#FF4B16] flex items-center space-x-2 cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4 text-zinc-400" />
+                      <span>{copiedText === 'link' ? 'Đã sao chép link!' : 'Chia sẻ liên kết'}</span>
+                    </button>
+                    {(onCancelInvoice || onDeleteInvoice) && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if ((selectedInvoice.status as string || '').toLowerCase() === 'cancelled') {
+                            alert('Hóa đơn này đã ở trạng thái ĐÃ HỦY.');
+                            return;
+                          }
+                          const reason = window.prompt(`Nhập lý do hủy/hoàn hóa đơn ${invoiceCode}:`, 'Khách đổi ý trả hàng hoàn tiền');
+                          if (reason !== null && reason.trim()) {
+                            if (onCancelInvoice) {
+                              await onCancelInvoice(selectedInvoice, reason.trim());
+                            } else if (onDeleteInvoice) {
+                              onDeleteInvoice(selectedInvoice.id);
+                            }
+                            setSelectedInvoice(null);
+                          }
+                        }}
+                        className="w-full px-3.5 py-2 text-left font-medium text-rose-600 hover:bg-rose-50 flex items-center space-x-2 border-t border-zinc-100 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Hủy & Hoàn trả hóa đơn</span>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
+            }
+          />
 
-        {/* 2. Customer Information Card with Soft Gradient */}
-        <div className="bg-gradient-to-br from-white via-orange-50/20 to-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
+        <div className="p-4 sm:p-5 space-y-4">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold text-sm shadow-sm shadow-orange-500/20">
               <UserIcon className="w-4 h-4" />
@@ -1025,10 +1012,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     </div>
                   )}
 
-                  {(selectedInvoice.tradeInDiscount || selectedInvoice.tradeInDeduction || 0) > 0 && (
+                  {((selectedInvoice.tradeInDiscount || (selectedInvoice as any).tradeInDeduction || 0) > 0) && (
                     <div className="flex justify-between text-orange-600 font-bold">
-                      <span>- Trừ Thu Cũ ({selectedInvoice.tradeInModel || 'Thu cũ đổi mới'}):</span>
-                      <span>-{(selectedInvoice.tradeInDiscount || selectedInvoice.tradeInDeduction || 0).toLocaleString('vi-VN')}đ</span>
+                      <span>- Trừ Thu Cũ ({(selectedInvoice as any).tradeInModel || 'Thu cũ đổi mới'}):</span>
+                      <span>-{((selectedInvoice.tradeInDiscount || (selectedInvoice as any).tradeInDeduction || 0)).toLocaleString('vi-VN')}đ</span>
                     </div>
                   )}
 
@@ -1275,26 +1262,41 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Total Amount Summary Card (Matching screenshot) */}
-      <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
-        <div>
-          <div className="text-xs font-semibold text-zinc-700 flex items-center gap-1">
-            <span>Tổng tiền hàng</span>
-            <ChevronDown className="w-3 h-3 text-zinc-400" />
+      {/* 4. 3 Clean Financial KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs">
+          <div className="text-xs font-bold text-zinc-500 mb-1">Doanh Thu Thuần (Net)</div>
+          <div className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 tracking-tight">
+            {netRevenue.toLocaleString('vi-VN')} <span className="text-xs font-sans font-bold">đ</span>
           </div>
-          <div className="text-xs text-zinc-400 font-normal mt-0.5">
-            {filteredInvoices.length} hóa đơn
+          <div className="text-[11px] text-zinc-400 mt-1">
+            {validInvoices.length} hóa đơn hợp lệ
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
-          <div className="text-right">
-            <div className="text-xl sm:text-2xl font-bold text-zinc-900 font-mono tracking-tight">
-              {totalRevenue.toLocaleString('vi-VN')} <span className="text-xs text-zinc-900 font-bold">đ</span>
-            </div>
+        <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs">
+          <div className="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Đã Thu Thực Tế</span>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-orange-100/90 text-orange-600 flex items-center justify-center shrink-0">
-            <FileText className="w-5 h-5" />
+          <div className="text-xl sm:text-2xl font-bold font-mono text-emerald-700 tracking-tight">
+            {paidRevenue.toLocaleString('vi-VN')} <span className="text-xs font-sans font-bold">đ</span>
+          </div>
+          <div className="text-[11px] text-zinc-400 mt-1">
+            Tiền mặt, VietQR & Chuyển khoản
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs">
+          <div className="text-xs font-bold text-amber-700 mb-1 flex items-center gap-1">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Chờ Thu / Công Nợ</span>
+          </div>
+          <div className="text-xl sm:text-2xl font-bold font-mono text-amber-700 tracking-tight">
+            {debtRevenue.toLocaleString('vi-VN')} <span className="text-xs font-sans font-bold">đ</span>
+          </div>
+          <div className="text-[11px] text-zinc-400 mt-1">
+            Đơn trả góp 0% & Công nợ khách
           </div>
         </div>
       </div>
@@ -1338,27 +1340,28 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     const amount = inv.finalAmount || inv.totalAmount || 0;
                     const st = inv.status || 'completed';
                     const stCfg = STATUS_CONFIG[st] || STATUS_CONFIG.completed;
-                    const isInstallment = inv.paymentMethod?.toLowerCase().includes('trả góp') || (inv as any).isInstallment;
+                    const isInstallment = (inv.paymentMethod || '').toLowerCase().includes('installment') || (inv.paymentMethod || '').includes('Trả góp');
 
                     return (
                       <div
                         key={inv.id}
                         onClick={() => setSelectedInvoice(inv)}
-                        className="p-3.5 sm:p-4 hover:bg-orange-50/20 transition-all cursor-pointer flex items-center justify-between gap-3 group active:bg-orange-50/50"
+                        className={`p-3 sm:p-3.5 flex items-center justify-between hover:bg-orange-50/40 cursor-pointer transition-all group ${
+                          selectedInvoice?.id === inv.id ? 'bg-orange-50/70 border-l-4 border-l-[#FF4B16]' : ''
+                        }`}
                       >
-                        {/* Left: Orange document icon container */}
-                        <div className="w-11 h-11 rounded-2xl bg-orange-50/90 border border-orange-100 flex items-center justify-center text-orange-500 shrink-0 group-hover:scale-105 transition-transform">
-                          <Receipt className="w-5 h-5 text-orange-500" />
-                        </div>
-
-                        {/* Center: Customer name, Code & time, Status tags, Product summary */}
-                        <div className="space-y-1 flex-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                            <h3 className="font-bold text-zinc-900 text-sm sm:text-base truncate group-hover:text-orange-600 transition-colors">
-                              {customerName}
-                            </h3>
-                            <span className="text-xs text-zinc-400 font-mono font-medium">
-                              {invoiceCode} • {timeSnippet}
+                        {/* Left: Time, Customer, Status, Product */}
+                        <div className="space-y-1 min-w-0 flex-1 pr-3">
+                          {/* Code, Time & Customer Name */}
+                          <div className="flex items-center space-x-2">
+                            <span className="text-xs font-bold text-zinc-900 font-mono">
+                              {invoiceCode}
+                            </span>
+                            <span className="text-[11px] text-zinc-400 font-mono">
+                              • {timeSnippet}
+                            </span>
+                            <span className="text-xs text-zinc-700 font-semibold truncate">
+                              • {customerName}
                             </span>
                           </div>
 
@@ -1407,7 +1410,20 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </div>
       )}
 
-      
+      {/* 6. Desktop Right Drawer & Mobile Sheet for Invoice Detail */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 z-50 overflow-hidden flex justify-end animate-in fade-in duration-200">
+          {/* Backdrop overlay */}
+          <div 
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" 
+            onClick={() => setSelectedInvoice(null)}
+          />
+          {/* Drawer / Sheet Panel */}
+          <div className="relative w-full sm:w-[600px] lg:w-[680px] bg-[#FAFAFA] h-full shadow-2xl flex flex-col z-50 border-l border-zinc-200 overflow-y-auto">
+            {renderInvoiceDetail(selectedInvoice)}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

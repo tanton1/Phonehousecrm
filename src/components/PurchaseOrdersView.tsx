@@ -117,15 +117,15 @@ const STATUS_CONFIG: Record<PurchaseOrderStatus, { label: string; bg: string; te
 const PAYMENT_STATUS_CONFIG: Record<PurchasePaymentStatus, { label: string; bg: string; text: string; border: string }> = {
   PAID: {
     label: 'Đã thanh toán',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200'
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200'
   },
   PARTIAL: {
     label: 'Thanh toán một phần',
-    bg: 'bg-orange-50',
-    text: 'text-orange-700',
-    border: 'border-orange-200'
+    bg: 'bg-amber-50',
+    text: 'text-amber-700',
+    border: 'border-amber-200'
   },
   UNPAID: {
     label: 'Còn nợ NCC',

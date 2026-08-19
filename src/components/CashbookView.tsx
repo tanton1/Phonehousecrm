@@ -484,66 +484,119 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     setSelectedTx(newTx);
   };
 
+  const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
+
   return (
     <div className="flex flex-col min-h-screen max-w-[1600px] mx-auto p-2 sm:p-4 space-y-4 text-zinc-900 font-sans">
       
-      {/* 1. Header Bar with Permanent Action Buttons */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-zinc-200/80 shadow-2xs">
+      {/* 1. Standard Page Header with consolidated CTA */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-zinc-200 shadow-2xs">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-2xl bg-[#ff4b16] text-white flex items-center justify-center shadow-sm font-bold shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-[#FF4B16] text-white flex items-center justify-center shadow-md shadow-[#FF4B16]/20 font-bold shrink-0">
             <Wallet className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-lg sm:text-xl font-black text-zinc-900 tracking-tight">Sổ Quỹ Tiền Mặt & Tài Chính</h1>
-              <span className="px-2.5 py-0.5 text-[10px] font-bold bg-orange-50 text-[#ff4b16] border border-orange-200/60 rounded-full">
-                PhoneHouse CRM
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-bold text-zinc-900 tracking-tight">Sổ Quỹ & Ngân Hàng</h1>
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-50 text-[#FF4B16] border border-orange-200 rounded-full">
+                PhoneHouse
               </span>
+              {selectedBranchId && selectedBranchId !== 'ALL' && (
+                <span className="px-2 py-0.5 text-[10px] font-bold bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-full flex items-center gap-1">
+                  <Building2 className="w-3 h-3 text-[#FF4B16]" />
+                  <span>{branches.find(b => b.id === selectedBranchId)?.name || 'Chi nhánh'}</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-zinc-500 font-medium mt-0.5">
-              Quản lý dòng tiền thu chi, tài khoản ngân hàng VietQR và đối soát ca
+              Đối soát thu chi, số dư két tiền mặt và tài khoản VietQR
             </p>
           </div>
         </div>
 
-        {/* Top 4 Prominent Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Consolidated Primary CTA + Transfer button */}
+        <div className="flex items-center gap-2 relative">
           <button
-            onClick={() => handleOpenCreateModal('RECEIPT')}
-            className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
-          >
-            <ArrowDownLeft className="w-4 h-4" />
-            <span>+ Lập Phiếu Thu (F4)</span>
-          </button>
-
-          <button
-            onClick={() => handleOpenCreateModal('PAYMENT')}
-            className="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm shadow-rose-600/20 transition-all cursor-pointer"
-          >
-            <ArrowUpRight className="w-4 h-4" />
-            <span>- Lập Phiếu Chi</span>
-          </button>
-
-          <button
+            type="button"
             onClick={handleOpenTransferModal}
-            className="flex-1 sm:flex-none bg-orange-50 hover:bg-orange-100 text-[#ff4b16] border border-orange-200 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+            className="hidden sm:flex items-center space-x-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs px-3.5 py-2.5 rounded-xl transition-all cursor-pointer"
           >
-            <ArrowRightLeft className="w-4 h-4" />
+            <ArrowRightLeft className="w-4 h-4 text-zinc-600" />
             <span>Chuyển Quỹ</span>
           </button>
 
-          <button
-            onClick={handleOpenReconcileModal}
-            className="flex-1 sm:flex-none bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 transition-all cursor-pointer active:scale-95"
-          >
-            <CheckCircle2 className="w-4 h-4 text-zinc-600" />
-            <span>Đối Soát Ca</span>
-          </button>
+          {/* Primary Action Dropdown */}
+          <div className="relative flex-1 sm:flex-none">
+            <button
+              type="button"
+              onClick={() => setIsActionMenuOpen(!isActionMenuOpen)}
+              className="w-full sm:w-auto bg-[#FF4B16] hover:bg-[#E94112] text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center justify-center space-x-2 shadow-sm shadow-[#FF4B16]/25 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Tạo Chứng Từ</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isActionMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isActionMenuOpen && (
+              <div 
+                className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-zinc-200 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150"
+                onClick={() => setIsActionMenuOpen(false)}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleOpenCreateModal('RECEIPT')}
+                  className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-emerald-700 hover:bg-emerald-50 transition-colors text-left cursor-pointer"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                    <ArrowDownLeft className="w-4 h-4 text-emerald-700" />
+                  </div>
+                  <div>
+                    <span className="block text-zinc-900">+ Lập Phiếu Thu</span>
+                    <span className="text-[10px] text-zinc-400 font-normal">Thu bán hàng, cọc, thu khác (F4)</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleOpenCreateModal('PAYMENT')}
+                  className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors text-left cursor-pointer mt-1"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-rose-100 flex items-center justify-center shrink-0">
+                    <ArrowUpRight className="w-4 h-4 text-rose-700" />
+                  </div>
+                  <div>
+                    <span className="block text-zinc-900">- Lập Phiếu Chi</span>
+                    <span className="text-[10px] text-zinc-400 font-normal">Chi mua máy, nhập kho, lương</span>
+                  </div>
+                </button>
+
+                <div className="my-1 border-t border-zinc-100" />
+
+                <button
+                  type="button"
+                  onClick={handleOpenTransferModal}
+                  className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors text-left cursor-pointer"
+                >
+                  <ArrowRightLeft className="w-4 h-4 text-zinc-500" />
+                  <span>⇄ Chuyển Quỹ Nội Bộ</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenReconcileModal}
+                  className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors text-left cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-zinc-500" />
+                  <span>✓ Đối Soát Số Dư Ca</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* 2. Sticky Tab Navigation Bar */}
-      <div className="bg-white/95 backdrop-blur-md border border-zinc-200/80 rounded-2xl p-1.5 shadow-2xs sticky top-0 z-20 flex items-center justify-between">
+      <div className="bg-white/95 backdrop-blur-md border border-zinc-200 rounded-2xl p-1.5 shadow-2xs sticky top-0 z-20 flex items-center justify-between">
         <div className="flex space-x-1 sm:space-x-2">
           {[
             { id: 'TRANSACTIONS', label: 'Sổ Quỹ Thu Chi', count: transactions.length },
@@ -554,10 +607,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             return (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => setActiveMainTab(tab.id as any)}
                 className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                   isActive
-                    ? 'bg-[#ff4b16] text-white shadow-xs'
+                    ? 'bg-[#FF4B16] text-white shadow-xs'
                     : 'text-zinc-600 hover:bg-zinc-100'
                 }`}
               >
@@ -574,14 +628,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
           })}
         </div>
 
-        <div className="hidden sm:flex items-center space-x-2 text-xs font-bold text-zinc-500 pr-2">
-          <span>Tổng số dư:</span>
-          <span className="font-mono font-black text-zinc-900">
-            {showBalance ? formatCurrency(currentBalance) : '***.***.*** đ'}
+        <div className="hidden sm:flex items-center space-x-2 text-xs font-semibold text-zinc-500 pr-2">
+          <span>Kỳ:</span>
+          <span className="font-mono font-bold text-zinc-800 bg-zinc-100 px-2 py-0.5 rounded-md border border-zinc-200">
+            {dateFilterPeriodLabel}
           </span>
-          <button onClick={() => setShowBalance(!showBalance)} className="p-1 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-700 cursor-pointer">
-            {showBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-          </button>
         </div>
       </div>
 
@@ -589,124 +640,105 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         
         {activeMainTab === 'TRANSACTIONS' && (
           <>
-            {/* 3. Financial Summary Card */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-                <div className="flex items-center space-x-2 text-zinc-500 font-bold text-xs uppercase tracking-wider">
-                  <span>Số dư tổng các quỹ hiện tại</span>
-                  <button onClick={() => setShowBalance(!showBalance)} className="p-1 hover:bg-zinc-100 rounded-full cursor-pointer">
-                    {showBalance ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            {/* 3. Financial KPIs: 4 Clean White Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-zinc-500 font-bold mb-1">
+                  <span>Số Dư Khả Dụng</span>
+                  <button onClick={() => setShowBalance(!showBalance)} className="p-1 hover:bg-zinc-100 rounded-lg text-zinc-400 cursor-pointer">
+                    {showBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs font-bold text-zinc-500">Kỳ hạch toán:</span>
-                  <span className="text-xs font-mono font-bold px-2.5 py-1 bg-zinc-100 text-zinc-800 rounded-lg border border-zinc-200">
-                    {dateFilterPeriodLabel}
+                <p className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 tracking-tight">
+                  {showBalance ? formatCurrency(currentBalance) : '***.***.*** đ'}
+                </p>
+                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
+                  {displayFunds.length} quỹ tại chi nhánh
+                </p>
+              </div>
+
+              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-emerald-700 font-bold mb-1">
+                  <span className="flex items-center gap-1">
+                    <ArrowDownLeft className="w-3.5 h-3.5" />
+                    <span>Tổng Thu Vào (+)</span>
                   </span>
                 </div>
+                <p className="text-xl sm:text-2xl font-bold font-mono text-emerald-700 tracking-tight">
+                  +{showBalance ? formatCurrency(totalIn) : '***'}
+                </p>
+                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
+                  {dateFilterPeriodLabel}
+                </p>
               </div>
 
-              <div className="text-2xl sm:text-3xl font-black text-zinc-900 mb-5 font-mono">
-                {showBalance ? formatCurrency(currentBalance) : '***.***.*** đ'}
+              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-rose-700 font-bold mb-1">
+                  <span className="flex items-center gap-1">
+                    <ArrowUpRight className="w-3.5 h-3.5" />
+                    <span>Tổng Chi Ra (-)</span>
+                  </span>
+                </div>
+                <p className="text-xl sm:text-2xl font-bold font-mono text-rose-700 tracking-tight">
+                  -{showBalance ? formatCurrency(totalOut) : '***'}
+                </p>
+                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
+                  {dateFilterPeriodLabel}
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-zinc-100">
-                <div className="p-3 bg-emerald-50/70 border border-emerald-100 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] text-emerald-700 font-bold mb-0.5">Tổng Thu Vào (+)</p>
-                    <p className="text-base font-black font-mono text-emerald-800">
-                      +{showBalance ? formatCurrency(totalIn) : '***'}
-                    </p>
-                  </div>
-                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                    <ArrowDownLeft className="w-4 h-4" />
-                  </div>
+              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-zinc-600 font-bold mb-1">
+                  <span>Dòng Tiền Thuần (Net)</span>
                 </div>
-
-                <div className="p-3 bg-rose-50/70 border border-rose-100 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] text-rose-700 font-bold mb-0.5">Tổng Chi Ra (-)</p>
-                    <p className="text-base font-black font-mono text-rose-800">
-                      -{showBalance ? formatCurrency(totalOut) : '***'}
-                    </p>
-                  </div>
-                  <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center">
-                    <ArrowUpRight className="w-4 h-4" />
-                  </div>
-                </div>
-
-                <div className="p-3 bg-orange-50/70 border border-orange-100 rounded-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-[11px] text-orange-700 font-bold mb-0.5">Dòng Tiền Thuần (Net)</p>
-                    <p className={`text-base font-black font-mono ${netFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {showBalance ? (netFlow > 0 ? '+' : '') + formatCurrency(netFlow) : '***'}
-                    </p>
-                  </div>
-                  <div className="w-8 h-8 rounded-lg bg-orange-100 text-[#ff4b16] flex items-center justify-center">
-                    <Wallet className="w-4 h-4" />
-                  </div>
-                </div>
+                <p className={`text-xl sm:text-2xl font-bold font-mono tracking-tight ${netFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {showBalance ? (netFlow > 0 ? '+' : '') + formatCurrency(netFlow) : '***'}
+                </p>
+                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
+                  Thu (-) Chi trong kỳ
+                </p>
               </div>
             </div>
 
-            {/* 4. Horizontal Fund Quick-Filter Bar */}
+            {/* 4. Fund Carousel */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold text-zinc-600 uppercase tracking-wider">Tài khoản & Két tiền ({funds.length})</h3>
-                <button onClick={() => setActiveMainTab('ACCOUNTS')} className="text-[#ff4b16] text-xs font-bold hover:underline cursor-pointer">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-bold text-zinc-600 uppercase tracking-wider">Tài khoản & Két tiền ({displayFunds.length})</h3>
+                <button onClick={() => setActiveMainTab('ACCOUNTS')} className="text-[#FF4B16] text-xs font-bold hover:underline cursor-pointer">
                   Quản lý quỹ & tài khoản ›
                 </button>
               </div>
-              <div className="flex space-x-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-200">
-                <div
-                  onClick={() => setSelectedFundFilter('ALL')}
-                  className={`cursor-pointer border rounded-2xl p-3 min-w-[170px] shrink-0 flex flex-col justify-between transition-all ${
-                    selectedFundFilter === 'ALL'
-                      ? 'bg-orange-50 border-[#ff4b16] shadow-2xs ring-1 ring-[#ff4b16]'
-                      : 'bg-white border-zinc-200/80 hover:bg-zinc-50'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2 mb-2">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-zinc-100 text-zinc-700 font-bold">
-                      <Wallet className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-zinc-900 truncate">Tất cả tài khoản</p>
-                      <p className="text-[10px] text-zinc-400 truncate">Tổng số dư</p>
-                    </div>
-                  </div>
-                  <p className="text-xs font-black font-mono text-zinc-900">
-                    {showBalance ? formatCurrency(funds.reduce((sum, f) => sum + (f.currentBalance || 0), 0)) : '***.*** đ'}
-                  </p>
-                </div>
-
-                {funds.map((fund) => {
+              <div className="flex space-x-3 overflow-x-auto pb-1.5 scrollbar-thin scrollbar-thumb-zinc-200">
+                {displayFunds.map((fund) => {
                   const isSelected = selectedFundFilter === fund.id;
                   const balance = fund.currentBalance ?? (fund as any).balance ?? 0;
+                  const assignedBranch = branches.find(b => b.id === fund.branchId);
+                  const branchTag = fund.branchId && fund.branchId !== 'ALL' ? (assignedBranch?.name || fund.branch || 'Chi nhánh') : 'Toàn HT';
+
                   return (
                     <div
                       key={fund.id}
-                      onClick={() => setSelectedFundFilter(fund.id)}
+                      onClick={() => setSelectedFundFilter(selectedFundFilter === fund.id ? 'ALL' : fund.id)}
                       className={`cursor-pointer border rounded-2xl p-3 min-w-[180px] shrink-0 flex flex-col justify-between transition-all ${
                         isSelected
-                          ? 'bg-orange-50 border-[#ff4b16] shadow-2xs ring-1 ring-[#ff4b16]'
-                          : 'bg-white border-zinc-200/80 hover:bg-zinc-50'
+                          ? 'bg-orange-50/50 border-[#FF4B16] shadow-xs ring-1 ring-[#FF4B16]'
+                          : 'bg-white border-zinc-200 hover:bg-zinc-50'
                       }`}
                     >
                       <div className="flex items-center space-x-2 mb-2">
                         <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold ${
-                          fund.type === 'CASH' ? 'bg-orange-100 text-[#ff4b16]' : 'bg-blue-100 text-blue-700'
+                          fund.type === 'CASH' ? 'bg-orange-100 text-[#FF4B16]' : 'bg-blue-100 text-blue-700'
                         }`}>
                           {fund.type === 'CASH' ? <Wallet className="w-3.5 h-3.5" /> : <Building2 className="w-3.5 h-3.5" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-bold text-zinc-900 truncate">{fund.name}</p>
                           <p className="text-[10px] text-zinc-400 truncate">
-                            {fund.type === 'CASH' ? 'Két tiền mặt' : fund.bankName || 'Ngân hàng'}
+                            {fund.type === 'CASH' ? 'Két tiền' : fund.bankName || 'Ngân hàng'} • {branchTag}
                           </p>
                         </div>
                       </div>
-                      <p className="text-xs font-black font-mono text-zinc-900">
+                      <p className="text-xs font-bold font-mono text-zinc-900">
                         {showBalance ? formatCurrency(balance) : '***.*** đ'}
                       </p>
                     </div>
@@ -715,110 +747,191 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
               </div>
             </div>
 
-            {/* 5. Filter & Search Bar */}
-            <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-3">
-              {/* Row 1: Search & Type Filter */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Tìm theo mã phiếu (PT/PC), đối tác, nội dung thu chi..."
-                    className="w-full pl-9 pr-8 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
-                  {[
-                    { id: 'ALL', label: `Tất cả (${transactions.length})` },
-                    { id: 'RECEIPT', label: `Thu (+${transactions.filter(t => t.type === 'RECEIPT').length})`, color: 'text-emerald-700' },
-                    { id: 'PAYMENT', label: `Chi (-${transactions.filter(t => t.type === 'PAYMENT').length})`, color: 'text-rose-700' },
-                    { id: 'RETAIL', label: 'Bán lẻ POS' }
-                  ].map(f => (
-                    <button
-                      key={f.id}
-                      onClick={() => setActiveFilter(f.id as any)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                        activeFilter === f.id
-                          ? 'bg-zinc-900 text-white shadow-2xs'
-                          : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                      }`}
-                    >
-                      <span>{f.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Row 2: Date Filters */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-zinc-100">
-                <div className="flex items-center space-x-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-                  <span className="text-[11px] font-bold text-zinc-400 mr-1 flex items-center shrink-0">
-                    <Calendar className="w-3 h-3 mr-1" />
-                    Thời gian:
-                  </span>
-                  {[
-                    { id: 'THIS_MONTH', label: 'Tháng này' },
-                    { id: 'TODAY', label: 'Hôm nay' },
-                    { id: 'YESTERDAY', label: 'Hôm qua' },
-                    { id: '7DAYS', label: '7 ngày' },
-                    { id: 'LAST_MONTH', label: 'Tháng trước' },
-                    { id: 'ALL', label: 'Tất cả' },
-                    { id: 'CUSTOM', label: 'Tùy chọn...' }
-                  ].map(d => (
-                    <button
-                      key={d.id}
-                      onClick={() => setDateFilterMode(d.id as any)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
-                        dateFilterMode === d.id
-                          ? 'bg-orange-100 text-[#ff4b16] ring-1 ring-[#ff4b16]/30 font-black'
-                          : 'bg-zinc-100/70 text-zinc-600 hover:bg-zinc-200'
-                      }`}
-                    >
-                      {d.label}
-                    </button>
-                  ))}
-                </div>
-
-                {dateFilterMode === 'CUSTOM' && (
-                  <div className="flex items-center space-x-1.5 text-xs bg-zinc-50 p-1.5 rounded-xl border border-zinc-200 animate-in fade-in">
-                    <input
-                      type="date"
-                      value={customStartDate}
-                      onChange={e => setCustomStartDate(e.target.value)}
-                      className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
-                    />
-                    <span className="text-zinc-400 font-bold">-</span>
-                    <input
-                      type="date"
-                      value={customEndDate}
-                      onChange={e => setCustomEndDate(e.target.value)}
-                      className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
-                    />
-                  </div>
+            {/* 5. Unified Clean Filter Bar */}
+            <div className="bg-white p-3 sm:p-4 rounded-2xl border border-zinc-200 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center gap-2.5">
+              {/* Search */}
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Tìm theo mã chứng từ (PT/PC), đối tác, nội dung thu chi..."
+                  className="w-full pl-9 pr-8 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 focus:bg-white focus:outline-none focus:border-[#FF4B16] transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
+
+              {/* Type Filter Dropdown */}
+              <select
+                value={activeFilter}
+                onChange={e => setActiveFilter(e.target.value as any)}
+                className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 focus:bg-white focus:outline-none focus:border-[#FF4B16]"
+              >
+                <option value="ALL">Tất cả thu & chi</option>
+                <option value="RECEIPT">Chỉ xem Thu tiền (+)</option>
+                <option value="PAYMENT">Chỉ xem Chi tiền (-)</option>
+                <option value="RETAIL">Doanh thu bán lẻ POS</option>
+              </select>
+
+              {/* Date Filter Dropdown */}
+              <select
+                value={dateFilterMode}
+                onChange={e => setDateFilterMode(e.target.value as any)}
+                className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 focus:bg-white focus:outline-none focus:border-[#FF4B16]"
+              >
+                <option value="THIS_MONTH">Tháng này ({new Date().getMonth() + 1}/{new Date().getFullYear()})</option>
+                <option value="TODAY">Hôm nay</option>
+                <option value="YESTERDAY">Hôm qua</option>
+                <option value="7DAYS">7 ngày gần nhất</option>
+                <option value="LAST_MONTH">Tháng trước</option>
+                <option value="ALL">Toàn bộ thời gian</option>
+                <option value="CUSTOM">Tùy chọn khoảng ngày...</option>
+              </select>
+
+              {/* Fund Filter Dropdown */}
+              <select
+                value={selectedFundFilter}
+                onChange={e => setSelectedFundFilter(e.target.value)}
+                className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 focus:bg-white focus:outline-none focus:border-[#FF4B16]"
+              >
+                <option value="ALL">Tất cả quỹ & tài khoản</option>
+                {displayFunds.map(f => (
+                  <option key={f.id} value={f.id}>{f.name} ({f.type === 'CASH' ? 'Két' : 'Bank'})</option>
+                ))}
+              </select>
+
+              {dateFilterMode === 'CUSTOM' && (
+                <div className="flex items-center space-x-1.5 text-xs bg-zinc-50 p-1.5 rounded-xl border border-zinc-200">
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={e => setCustomStartDate(e.target.value)}
+                    className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
+                  />
+                  <span className="text-zinc-400 font-bold">-</span>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={e => setCustomEndDate(e.target.value)}
+                    className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
+                  />
+                </div>
+              )}
             </div>
 
-            {/* 6. Transaction Items List */}
+            {/* 6. Transaction Ledger: Desktop Table & Mobile Cards */}
             <div className="space-y-2 pb-12">
               <div className="flex items-center justify-between text-xs font-bold text-zinc-600 px-1">
-                <span>Nhật ký thu chi gần đây ({filteredTransactions.length} chứng từ • Mới nhất lên đầu)</span>
+                <span>Nhật ký thu chi ({filteredTransactions.length} chứng từ)</span>
                 <span className="text-[11px] font-mono text-zinc-400 font-normal">
-                  Hạch toán tự động
+                  Sắp xếp mới nhất lên đầu
                 </span>
               </div>
-              <div className="space-y-2">
+
+              {/* DESKTOP TABLE VIEW (>= lg) */}
+              <div className="hidden lg:block bg-white rounded-2xl border border-zinc-200 shadow-2xs overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-50/80 border-b border-zinc-200 text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-4">Thời gian</th>
+                      <th className="py-3 px-3">Mã CT</th>
+                      <th className="py-3 px-3">Đối tác / Khách</th>
+                      <th className="py-3 px-4">Nội dung diễn giải</th>
+                      <th className="py-3 px-3">Quỹ & Chi nhánh</th>
+                      <th className="py-3 px-3 text-right">Thu (+VNĐ)</th>
+                      <th className="py-3 px-3 text-right">Chi (-VNĐ)</th>
+                      <th className="py-3 px-3 text-center">P&L</th>
+                      <th className="py-3 px-4 text-center">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {filteredTransactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-zinc-400">
+                          <Wallet className="w-8 h-8 mx-auto mb-2 text-zinc-300" />
+                          <p className="font-semibold text-xs text-zinc-500">Không có giao dịch thu chi nào phù hợp</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredTransactions.map((tx) => {
+                        const assignedBranch = branches.find(b => b.id === tx.branchId);
+                        const branchLabel = tx.branchId && tx.branchId !== 'ALL' ? (assignedBranch?.name || 'Chi nhánh') : 'Toàn HT';
+
+                        return (
+                          <tr 
+                            key={tx.id}
+                            onClick={() => {
+                              setSelectedTx(tx);
+                              setIsPrintModalOpen(true);
+                            }}
+                            className="hover:bg-orange-50/30 transition-colors cursor-pointer group"
+                          >
+                            <td className="py-3 px-4 font-mono text-zinc-500 text-[11px] whitespace-nowrap">
+                              {tx.date}
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className="font-mono font-bold px-2 py-0.5 rounded bg-zinc-100 text-zinc-800 border border-zinc-200 text-[11px]">
+                                {tx.code}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 font-semibold text-zinc-900 max-w-[160px] truncate">
+                              {tx.partnerName || 'Khách vãng lai / Đối tác'}
+                            </td>
+                            <td className="py-3 px-4 text-zinc-600 max-w-[220px] truncate font-medium">
+                              {tx.notes || tx.categoryName}
+                            </td>
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5 text-[11px]">
+                                <span className="font-semibold text-zinc-800">{tx.fundName || 'Quỹ tiền'}</span>
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-500 font-medium">
+                                  {branchLabel}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                              {tx.type === 'RECEIPT' ? `+${formatCurrency(tx.amount)}` : '—'}
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-rose-700 whitespace-nowrap">
+                              {tx.type === 'PAYMENT' ? `-${formatCurrency(tx.amount)}` : '—'}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              {tx.isPLAccounted !== false ? (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
+                                  P&L
+                                </span>
+                              ) : (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded">
+                                  Nội bộ
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                type="button"
+                                className="p-1.5 text-zinc-400 hover:text-[#FF4B16] hover:bg-orange-50 rounded-lg transition-colors cursor-pointer"
+                                title="Xem và in phiếu thu/chi"
+                              >
+                                <Printer className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* MOBILE CARDS VIEW (< lg) */}
+              <div className="lg:hidden space-y-2">
                 {filteredTransactions.map(tx => (
                   <div 
                     key={tx.id} 
@@ -826,7 +939,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       setSelectedTx(tx);
                       setIsPrintModalOpen(true);
                     }}
-                    className="bg-white border border-zinc-200/80 rounded-2xl p-3 sm:p-4 flex items-center justify-between hover:shadow-md cursor-pointer transition-all hover:border-orange-200 group"
+                    className="bg-white border border-zinc-200 rounded-2xl p-3 sm:p-4 flex items-center justify-between hover:shadow-md cursor-pointer transition-all hover:border-orange-200 group"
                   >
                     <div className="flex items-center space-x-3 min-w-0 flex-1">
                       <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-xs shrink-0 ${
@@ -843,11 +956,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                             {tx.code}
                           </span>
                           {tx.isPLAccounted !== false ? (
-                            <span className="hidden sm:inline text-[9px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded">
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
                               P&L
                             </span>
                           ) : (
-                            <span className="hidden sm:inline text-[9px] font-bold px-1.5 py-0.2 bg-zinc-100 text-zinc-500 rounded">
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 bg-zinc-100 text-zinc-500 rounded">
                               Luân chuyển
                             </span>
                           )}
@@ -868,8 +981,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-3 shrink-0 ml-3">
-                      <p className={`font-black font-mono text-sm sm:text-base ${
+                    <div className="flex items-center space-x-2 shrink-0 ml-2">
+                      <p className={`font-bold font-mono text-xs sm:text-sm ${
                         tx.type === 'RECEIPT' ? 'text-emerald-700' : 'text-rose-700'
                       }`}>
                         {tx.type === 'RECEIPT' ? '+' : '-'}{formatCurrency(tx.amount)}

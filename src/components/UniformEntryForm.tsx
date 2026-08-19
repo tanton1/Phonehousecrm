@@ -3,7 +3,7 @@ import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { 
   Search, Check, Box, X, Store, Hash, DollarSign, Plus, Trash2, MapPin, ChevronDown,
   Building2, CreditCard, Coins, ArrowRight, ShieldCheck, QrCode, Sparkles, Smartphone,
-  CheckCircle2, PackagePlus, Receipt, Layers
+  CheckCircle2, PackagePlus, Receipt, Layers, Package, ScanLine, Wallet
 } from 'lucide-react';
 import { 
   DeviceItem, Partner, StoreBranch, WarehouseInfo, FundAccount, PurchaseOrder, MasterCatalogItem, UserAccount
@@ -275,24 +275,28 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-zinc-950 via-[#1a1714] to-zinc-950 backdrop-blur-md flex flex-col h-screen w-screen overflow-hidden select-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex flex-col h-screen w-screen overflow-hidden select-none animate-in fade-in duration-200">
       
-      <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0 shadow-sm relative overflow-hidden">
-        <div className="absolute top-0 left-1/4 w-96 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
+      {/* 1. Dark Document Header with Subtle Orange Glow */}
+      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0 shadow-md relative overflow-hidden">
+        <div className="absolute top-0 right-1/4 w-96 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
         
         <div className="flex items-center space-x-3 relative z-10">
-          <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold shadow-md shadow-orange-500/30">
+          <div className="w-8 h-8 rounded-xl bg-[#FF4B16] text-white flex items-center justify-center font-bold shadow-md shadow-[#FF4B16]/20 shrink-0">
             <PackagePlus className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-sm font-bold tracking-tight text-white uppercase">Phiếu Nhập Hàng Kho</span>
-              <span className="px-2 py-0.2 text-[10px] font-mono font-semibold bg-[#ff4b16]/20 text-[#ff4b16] border border-[#ff4b16]/30 rounded-full">
+              <span className="px-2 py-0.2 text-[10px] font-mono font-semibold bg-[#FF4B16]/20 text-[#FF4B16] border border-[#FF4B16]/30 rounded-full">
                 Mã: PN-{Date.now().toString().slice(-6)}
               </span>
+              <span className="hidden sm:inline-block px-2 py-0.2 text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-full">
+                PhoneHouse CRM
+              </span>
             </div>
-            <span className="text-[11px] text-zinc-400 font-normal hidden sm:inline-block">
-              Nhập máy theo danh sách IMEI & cập nhật giá vốn tức thì
+            <span className="text-[11px] text-zinc-400 font-normal hidden sm:inline-block mt-0.5">
+              Nhập hàng theo IMEI, đối soát kiểm định KCS & cập nhật tồn kho tức thì
             </span>
           </div>
         </div>
@@ -301,7 +305,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 hover:bg-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1.5 hover:bg-zinc-800 rounded-xl text-zinc-400 hover:text-white transition-colors cursor-pointer border border-zinc-800"
             title="Đóng phiếu nhập (Esc)"
           >
             <X className="w-5 h-5" />
@@ -309,33 +313,37 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         </div>
       </div>
 
-      <div className="lg:hidden flex items-center p-1 bg-gradient-to-r from-zinc-100 via-orange-50/30 to-zinc-100 border-b border-zinc-200 text-xs font-semibold shrink-0">
+      {/* 2. Mobile Step Tabs with Professional Lucide Icons */}
+      <div className="lg:hidden flex items-center p-1.5 bg-zinc-100 border-b border-zinc-200 text-xs font-semibold shrink-0 gap-1">
         <button
           type="button"
           onClick={() => setMobileTab('CATALOG')}
-          className={`flex-1 py-1.5 rounded-lg transition-all ${
-            mobileTab === 'CATALOG' ? 'bg-zinc-900 text-white shadow-xs' : 'text-zinc-600'
+          className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+            mobileTab === 'CATALOG' ? 'bg-zinc-900 text-white shadow-xs' : 'text-zinc-600 hover:bg-zinc-200'
           }`}
         >
-          📱 1. Chọn SKU
+          <Package className="w-3.5 h-3.5" />
+          <span>1. Chọn SKU</span>
         </button>
         <button
           type="button"
           onClick={() => setMobileTab('ITEMS')}
-          className={`flex-1 py-1.5 rounded-lg transition-all ${
-            mobileTab === 'ITEMS' ? 'bg-zinc-900 text-white shadow-xs' : 'text-zinc-600'
+          className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+            mobileTab === 'ITEMS' ? 'bg-zinc-900 text-white shadow-xs' : 'text-zinc-600 hover:bg-zinc-200'
           }`}
         >
-          📝 2. Nhập IMEI ({totalQuantity})
+          <ScanLine className="w-3.5 h-3.5" />
+          <span>2. IMEI ({totalQuantity})</span>
         </button>
         <button
           type="button"
           onClick={() => setMobileTab('PAYMENT')}
-          className={`flex-1 py-1.5 rounded-lg transition-all ${
-            mobileTab === 'PAYMENT' ? 'bg-[#ff4b16] text-white shadow-xs' : 'text-zinc-600'
+          className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
+            mobileTab === 'PAYMENT' ? 'bg-[#FF4B16] text-white shadow-xs' : 'text-zinc-600 hover:bg-zinc-200'
           }`}
         >
-          💵 3. NCC & Nhập Kho
+          <Wallet className="w-3.5 h-3.5" />
+          <span>3. Nhập Kho</span>
         </button>
       </div>
 
