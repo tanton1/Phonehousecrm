@@ -115,8 +115,10 @@ app.use('/api/attendance', createAttendanceRouter(adminDb));
 import { createUsersRouter } from './server/routes/users';
 app.use('/api/users', createUsersRouter(adminDb));
 
+import { authenticateFirebase } from './server/middleware/authenticateFirebase';
+
 // Secure Server-side Telegram Bot Alert Endpoint (Protects bot token from client exposure)
-app.post('/api/telegram/send-alert', async (req, res) => {
+app.post('/api/telegram/send-alert', authenticateFirebase, async (req, res) => {
   const { text, chatId } = req.body;
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const targetChatId = chatId || process.env.TELEGRAM_CHAT_ID;
@@ -294,20 +296,67 @@ app.post('/api/telegram/webhook', async (req, res) => {
     }
   }
 
-  // Synthesize answer
+  // 100% Real Live Metrics from Firestore (Zero hardcoded metrics)
+  let todayRevenue = 0;
+  let todayInvoicesCount = 0;
+  let inStockDevicesCount = 0;
+  let totalFunds = 0;
+  let cashFunds = 0;
+  let bankFunds = 0;
+  let pendingWarrantiesCount = 0;
+
+  try {
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const invoicesSnap = await adminDb.collection('invoices').get();
+    invoicesSnap.forEach(d => {
+      const data = d.data();
+      const dateStr = data.createdAt ? (typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate().toISOString().split('T')[0] : String(data.createdAt).split('T')[0]) : '';
+      if (dateStr === todayStr && data.status !== 'cancelled') {
+        todayRevenue += (data.finalAmount || data.totalAmount || 0);
+        todayInvoicesCount++;
+      }
+    });
+
+    const devicesSnap = await adminDb.collection('devices').where('status', '==', 'in_stock').get();
+    inStockDevicesCount = devicesSnap.size;
+
+    const fundsSnap = await adminDb.collection('funds').get();
+    fundsSnap.forEach(d => {
+      const data = d.data();
+      const bal = data.currentBalance || 0;
+      totalFunds += bal;
+      if (data.type === 'CASH' || (data.name && data.name.toLowerCase().includes('tiền mặt'))) {
+        cashFunds += bal;
+      } else {
+        bankFunds += bal;
+      }
+    });
+
+    const warrantySnap = await adminDb.collection('warrantyTickets').get();
+    warrantySnap.forEach(d => {
+      const data = d.data();
+      if (['received', 'inspecting', 'waiting_parts', 'repairing', 'PENDING', 'IN_PROGRESS', 'WAITING_FOR_PARTS'].includes(data.status)) {
+        pendingWarrantiesCount++;
+      }
+    });
+  } catch (err) {
+    console.warn('Realtime metrics fetch error for Telegram:', err);
+  }
+
+  // Synthesize genuine answer
   const responseHtml = `
 <b>🤖 TRỢ LÝ GIÁM ĐỐC PHONEHOUSE AI</b>
 👋 <i>Chào ${senderName}!</i>
 
 ❓ <b>Nội dung tra cứu:</b> <i>"${queryText || 'Báo cáo nhanh'}"</i>
 
-💰 <b>Doanh thu hôm nay:</b> <code>128.500.000 đ</code> (5 hóa đơn POS)
-📱 <b>Tồn kho sẵn hàng:</b> <b>42 cây máy</b> (16 Pro Max: 8 cây, 15 Pro Max: 12 cây)
-💼 <b>Số dư các quỹ:</b> <code>485.200.000 đ</code> (Tiền mặt: 85.2M, VietQR: 400M)
-🔧 <b>Bảo hành & Kỹ thuật:</b> <b>6 phiếu</b> (4 máy đã xong, 2 máy đang xử lý)
-👥 <b>Nhân sự có mặt:</b> <b>18/18 nhân viên</b>
+💰 <b>Doanh thu hôm nay:</b> <code>${todayRevenue.toLocaleString('vi-VN')} đ</code> (${todayInvoicesCount} hóa đơn)
+📱 <b>Tồn kho sẵn bán:</b> <b>${inStockDevicesCount} cây máy</b>
+💼 <b>Số dư các quỹ:</b> <code>${totalFunds.toLocaleString('vi-VN')} đ</code> (Két: ${(cashFunds / 1_000_000).toFixed(1)}Tr • NH: ${(bankFunds / 1_000_000).toFixed(1)}Tr)
+🔧 <b>Bảo hành & Sửa chữa:</b> <b>${pendingWarrantiesCount} phiếu</b>
 
-🎙️ <i>Bạn có thể tiếp tục hỏi hoặc gửi tin nhắn thoại bất kỳ lúc nào!</i>
+🎙️ <i>Dữ liệu thời gian thực được đồng bộ trực tiếp từ hệ thống PhoneHouse CRM.</i>
 `.trim();
 
   try {

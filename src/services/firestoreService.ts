@@ -1024,148 +1024,66 @@ export async function processCheckoutTransaction(params: {
   invoice: SalesInvoice;
   devicesToSell: DeviceItem[];
   accessoriesToSell: { product: ProductItem; quantity: number }[];
-  cashTx: CashTransaction | null;
-  tradeInDevice: DeviceItem | null;
-  customerPartner: Partner | null;
-  financeCompanyPartner: Partner | null;
+  cashTx?: CashTransaction | null;
+  tradeInDevice?: DeviceItem | null;
+  customerPartner?: Partner | null;
+  financeCompanyPartner?: Partner | null;
   fundToUpdate?: FundAccount | null;
+  payments?: Array<{
+    method: 'CASH' | 'BANK' | 'CARD' | 'INSTALLMENT' | 'DEBT';
+    amount: number;
+    fundId?: string;
+    bankName?: string;
+    accountNumber?: string;
+  }>;
+  idempotencyKey?: string;
 }) {
-  // 1. Primary Execution: Server-side Atomic runTransaction() (handles concurrency & fund privilege safely)
-  try {
-    const idToken = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (idToken) {
-      headers['Authorization'] = `Bearer ${idToken}`;
-    }
-    headers['x-staff-uid'] = auth.currentUser?.uid || 'staff-pos';
-    headers['x-staff-role'] = 'SALES';
-    headers['x-staff-branch-id'] = params.invoice.branchId || 'CN01';
+  const idToken = await auth.currentUser?.getIdToken().catch(() => null);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (idToken) {
+    headers['Authorization'] = `Bearer ${idToken}`;
+  }
+  headers['x-staff-uid'] = auth.currentUser?.uid || 'staff-pos';
+  headers['x-staff-role'] = 'SALES';
+  headers['x-staff-branch-id'] = params.invoice.branchId || 'CN01';
 
-    const response = await fetch('/api/pos/checkout', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        invoice: cleanDataForFirestore(params.invoice),
-        devicesToSell: params.devicesToSell,
-        accessoriesToSell: params.accessoriesToSell,
-        cashTx: params.cashTx ? cleanDataForFirestore(params.cashTx) : null,
-        tradeInDevice: params.tradeInDevice ? cleanDataForFirestore(params.tradeInDevice) : null,
-        customerPartner: params.customerPartner ? cleanDataForFirestore(params.customerPartner) : null,
-        financeCompanyPartner: params.financeCompanyPartner ? cleanDataForFirestore(params.financeCompanyPartner) : null,
-        fundToUpdate: params.fundToUpdate ? cleanDataForFirestore(params.fundToUpdate) : null
-      })
-    });
+  const payload = {
+    idempotencyKey: params.idempotencyKey || `POS-${params.invoice.id}-${Date.now()}`,
+    branchId: params.invoice.branchId || 'CN01',
+    deviceIds: params.devicesToSell.map(d => d.id),
+    accessoryLines: params.accessoriesToSell.map(a => ({
+      productId: a.product.id,
+      quantity: a.quantity
+    })),
+    customerId: params.customerPartner?.id,
+    customerName: params.invoice.customerName,
+    customerPhone: params.invoice.customerPhone || params.invoice.phone,
+    payment: {
+      method: params.invoice.paymentMethod?.includes('Trả góp') ? 'INSTALLMENT' : params.invoice.paymentMethod?.includes('QR') ? 'BANK' : params.invoice.paymentMethod?.includes('thẻ') ? 'CARD' : 'CASH',
+      fundId: params.invoice.paymentFundId,
+      downPayment: params.invoice.downPayment || 0
+    },
+    payments: params.payments || (params.invoice.splitPayments as any),
+    notes: params.invoice.notes,
+    invoice: cleanDataForFirestore(params.invoice),
+    devicesToSell: params.devicesToSell,
+    accessoriesToSell: params.accessoriesToSell,
+    customerPartner: params.customerPartner ? cleanDataForFirestore(params.customerPartner) : null,
+    financeCompanyPartner: params.financeCompanyPartner ? cleanDataForFirestore(params.financeCompanyPartner) : null
+  };
 
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success) {
-        return result.data;
-      }
-    }
-  } catch (apiError: any) {
-    console.warn('Backend checkout API unavailable, executing client writeBatch:', apiError?.message || apiError);
+  const response = await fetch('/api/pos/checkout', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+
+  const result = await response.json();
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || `Thanh toán thất bại (Mã lỗi: ${response.status})`);
   }
 
-  // 2. Client-side fallback (for offline or local testing)
-  const batch = writeBatch(db);
-
-  try {
-    // 1. Check & Mark Devices as Sold (use set with merge: true so it works even if device was newly seeded)
-    for (const d of params.devicesToSell) {
-      const devRef = doc(db, DEVICES_COL, d.id);
-      batch.set(devRef, cleanDataForFirestore({
-        ...d,
-        status: 'sold',
-        soldDate: new Date().toISOString(),
-        customerName: params.invoice.customerName,
-        customerPhone: params.invoice.customerPhone
-      }), { merge: true });
-    }
-
-    // 2. Decrease Accessory Stock
-    for (const acc of params.accessoriesToSell) {
-      const prodRef = doc(db, PRODUCTS_COL, acc.product.id);
-      const newStock = Math.max(0, (acc.product.stockQuantity || 0) - acc.quantity);
-      batch.set(prodRef, cleanDataForFirestore({
-        ...acc.product,
-        stockQuantity: newStock
-      }), { merge: true });
-    }
-
-    // 3. Create SalesInvoice
-    const invRef = doc(db, INVOICES_COL, params.invoice.id);
-    batch.set(invRef, cleanDataForFirestore(params.invoice));
-
-    // 4. Create CashTransaction (if any)
-    if (params.cashTx) {
-      const txRef = doc(db, CASH_TRANSACTIONS_COL, params.cashTx.id);
-      batch.set(txRef, cleanDataForFirestore(params.cashTx));
-    }
-
-    // 5. Update Fund Balance
-    if (params.fundToUpdate && params.cashTx && params.cashTx.amount > 0) {
-      const fundRef = doc(db, FUNDS_COL, params.fundToUpdate.id);
-      batch.set(fundRef, cleanDataForFirestore({
-        ...params.fundToUpdate,
-        currentBalance: (params.fundToUpdate.currentBalance || 0) + params.cashTx.amount
-      }), { merge: true });
-    }
-
-    // 6. Create Trade-In Device (if any)
-    if (params.tradeInDevice) {
-      const trdRef = doc(db, DEVICES_COL, params.tradeInDevice.id);
-      batch.set(trdRef, cleanDataForFirestore(params.tradeInDevice));
-    }
-
-    // 7. Partner/Debt Accounting
-    const debtIncrease = (params.invoice.installmentDisbursementStatus === 'PENDING' && params.invoice.installmentExpectedAmount) 
-      ? params.invoice.installmentExpectedAmount 
-      : 0;
-
-    if (debtIncrease > 0) {
-      if (params.financeCompanyPartner) {
-        const fcRef = doc(db, PARTNERS_COL, params.financeCompanyPartner.id);
-        const newTx = {
-          id: `TX-${Date.now().toString().slice(-6)}`,
-          date: new Date().toISOString().split('T')[0],
-          type: 'DEBT_INCREASE' as const,
-          amount: debtIncrease,
-          note: `Mua trả góp đơn ${params.invoice.invoiceCode || params.invoice.id} - ${params.invoice.customerName}`,
-          referenceId: params.invoice.id
-        };
-        batch.set(fcRef, cleanDataForFirestore({
-          ...params.financeCompanyPartner,
-          outstandingDebt: (params.financeCompanyPartner.outstandingDebt || 0) + debtIncrease,
-          debtTransactions: [newTx, ...(params.financeCompanyPartner.debtTransactions || [])]
-        }), { merge: true });
-      }
-      
-      if (params.customerPartner) {
-        const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
-        batch.set(custRef, cleanDataForFirestore({
-          ...params.customerPartner,
-          type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
-          totalSpent: (params.customerPartner.totalSpent || 0) + (params.invoice.finalAmount || 0)
-        }), { merge: true });
-      }
-    } else {
-      if (params.customerPartner) {
-        const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
-        batch.set(custRef, cleanDataForFirestore({
-          ...params.customerPartner,
-          type: params.customerPartner.type === 'SUPPLIER' ? 'BOTH' : params.customerPartner.type,
-          totalSpent: (params.customerPartner.totalSpent || 0) + (params.invoice.finalAmount || 0)
-        }), { merge: true });
-      }
-    }
-
-    await batch.commit();
-    return true;
-  } catch (error) {
-    console.error('Client writeBatch error in checkout:', error);
-    handleFirestoreError(error, OperationType.UPDATE, 'checkout_transaction');
-    throw error;
-  }
+  return result.data;
 }
 
 // ----------------- INVOICE CANCELLATION & REFUND ATOMIC REVERSAL -----------------

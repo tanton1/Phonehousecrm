@@ -181,6 +181,26 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       return;
     }
 
+    // Collect and validate duplicate IMEIs within the form
+    const duplicateImeis: string[] = [];
+    const seenImeis = new Set<string>();
+
+    for (const item of data.items) {
+      const imeis = item.imeisInput.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
+      for (const imei of imeis) {
+        if (seenImeis.has(imei)) {
+          duplicateImeis.push(imei);
+        } else {
+          seenImeis.add(imei);
+        }
+      }
+    }
+
+    if (duplicateImeis.length > 0) {
+      alert(`Phát hiện IMEI bị trùng lặp trong phiếu nhập: ${duplicateImeis.slice(0, 5).join(', ')}${duplicateImeis.length > 5 ? '...' : ''}. Vui lòng kiểm tra lại!`);
+      return;
+    }
+
     const supplier = suppliers.find(s => s.id === data.supplierId);
     if (!supplier) {
       alert('Vui lòng chọn nhà cung cấp!');

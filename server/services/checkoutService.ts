@@ -5,6 +5,7 @@ import { PureIntentCheckoutPayload } from '../validation/checkoutSchema';
 export interface CheckoutResult {
   success: boolean;
   invoiceId: string;
+  invoice?: any;
   finalAmount?: number;
   alreadyProcessed?: boolean;
   idempotencyKey?: string;
@@ -51,36 +52,44 @@ export async function executeAtomicCheckout(
     }
 
     const branchId = payload.branchId || payload.invoice?.branchId || authenticatedStaff?.branchId || 'CN01';
-    const paymentMethod = isPureIntent ? payload.payment.method : payload.invoice?.paymentMethod;
-    const targetFundId = isPureIntent ? payload.payment.fundId : (payload.fundToUpdate?.id || payload.invoice?.paymentFundId);
+    const isMultiPayment = Array.isArray(payload.payments) && payload.payments.length > 0;
+    const paymentMethod = isMultiPayment
+      ? 'Đa phương thức'
+      : isPureIntent
+      ? payload.payment?.method || 'CASH'
+      : payload.invoice?.paymentMethod || 'Tiền mặt';
 
-    // 2. Fetch & Validate Fund Authoritatively (Branch match & Type compatibility)
-    let fundData: any = null;
-    let fundRef: DocumentReference | null = null;
+    // 2. Fetch & Validate Funds Authoritatively
+    const fundMap = new Map<string, { ref: DocumentReference; data: any }>();
+    const requiredFundIds = new Set<string>();
 
-    if (targetFundId) {
-      fundRef = db.collection('funds').doc(targetFundId);
-      const fundSnap = await transaction.get(fundRef);
-      if (!fundSnap.exists) {
-        throw new Error(`INVALID_FUND: Quỹ tiền ID "${targetFundId}" không tồn tại trên hệ thống.`);
+    if (isMultiPayment) {
+      for (const p of payload.payments) {
+        if (p.fundId && p.amount > 0) {
+          requiredFundIds.add(p.fundId);
+        }
       }
-      fundData = fundSnap.data();
-      if (fundData.status === 'INACTIVE' || fundData.active === false) {
-        throw new Error(`INACTIVE_FUND: Quỹ tiền "${fundData.name}" đang bị khóa, không thể thực hiện thanh toán.`);
+    } else {
+      const targetFundId = isPureIntent ? payload.payment?.fundId : (payload.fundToUpdate?.id || payload.invoice?.paymentFundId);
+      if (targetFundId) {
+        requiredFundIds.add(targetFundId);
       }
+    }
 
-      // Validate branch match
-      if (fundData.branchId && fundData.branchId !== 'ALL' && fundData.branchId !== branchId) {
-        throw new Error(`FUND_BRANCH_MISMATCH: Quỹ tiền "${fundData.name}" thuộc chi nhánh "${fundData.branchId}", không khớp chi nhánh bán "${branchId}".`);
+    for (const fId of requiredFundIds) {
+      const fRef = db.collection('funds').doc(fId);
+      const fSnap = await transaction.get(fRef);
+      if (!fSnap.exists) {
+        throw new Error(`INVALID_FUND: Quỹ tiền ID "${fId}" không tồn tại trên hệ thống.`);
       }
-
-      // Validate payment method compatibility
-      const allowedTypes = ALLOWED_FUND_TYPES_BY_METHOD[paymentMethod] || [];
-      const fundTypeUpper = (fundData.type || '').toUpperCase();
-      const isTypeCompatible = allowedTypes.length === 0 || allowedTypes.some(t => fundTypeUpper.includes(t));
-      if (!isTypeCompatible) {
-        throw new Error(`INVALID_FUND_TYPE: Phương thức "${paymentMethod}" không tương thích với loại quỹ "${fundData.type}".`);
+      const fData = fSnap.data()!;
+      if (fData.status === 'INACTIVE' || fData.active === false) {
+        throw new Error(`INACTIVE_FUND: Quỹ tiền "${fData.name}" đang bị khóa, không thể thực hiện thanh toán.`);
       }
+      if (fData.branchId && fData.branchId !== 'ALL' && fData.branchId !== branchId) {
+        throw new Error(`FUND_BRANCH_MISMATCH: Quỹ tiền "${fData.name}" thuộc chi nhánh "${fData.branchId}", không khớp chi nhánh bán "${branchId}".`);
+      }
+      fundMap.set(fId, { ref: fRef, data: fData });
     }
 
     // 3. Fetch & Validate Devices (Authoritative Status & Pricing from DB)
@@ -125,7 +134,7 @@ export async function executeAtomicCheckout(
 
     for (const acc of accessoryLines) {
       const prodId = acc.productId || acc.product?.id;
-      const quantity = acc.quantity || 1;
+      const quantity = typeof acc.quantity === 'number' && Number.isInteger(acc.quantity) && acc.quantity > 0 ? acc.quantity : 1;
       if (!prodId) continue;
 
       const prodRef: DocumentReference = db.collection('products').doc(prodId);
@@ -253,25 +262,32 @@ export async function executeAtomicCheckout(
 
     const finalAmount = Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction);
 
-    // 7. Validate Installment Accounting Invariants (Chặn downPayment < 0 & check Partner Type)
+    // 7. Validate Payment Sum & Invariants
     let downPayment = 0;
     let financeAmount = 0;
     let financePartnerRef: DocumentReference | null = null;
+    let debtAmount = 0;
 
-    if (paymentMethod === 'INSTALLMENT') {
+    if (isMultiPayment) {
+      const totalPaymentsSum = payload.payments.reduce((s: number, p: any) => s + (p.amount || 0), 0);
+      if (totalPaymentsSum !== finalAmount) {
+        throw new Error(`PAYMENT_AMOUNT_MISMATCH: Tổng các khoản thanh toán (${totalPaymentsSum.toLocaleString('vi-VN')} đ) không khớp với giá trị đơn hàng (${finalAmount.toLocaleString('vi-VN')} đ).`);
+      }
+      const debtLine = payload.payments.find((p: any) => p.method === 'DEBT' || p.method === 'INSTALLMENT');
+      debtAmount = debtLine?.amount || 0;
+    } else if (paymentMethod === 'INSTALLMENT') {
       downPayment = typeof payload.payment?.downPayment === 'number' ? payload.payment.downPayment : 0;
 
-      // Invariant: Non-negative and finite downPayment
       if (!Number.isFinite(downPayment) || downPayment < 0) {
         throw new Error('INVALID_DOWN_PAYMENT: Số tiền trả trước không hợp lệ (không được là số âm).');
       }
 
-      // Invariant: downPayment cannot exceed total final amount
       if (downPayment > finalAmount) {
         throw new Error(`DOWN_PAYMENT_EXCEEDS_TOTAL: Số tiền trả trước (${downPayment.toLocaleString('vi-VN')} đ) không được lớn hơn tổng giá trị đơn hàng (${finalAmount.toLocaleString('vi-VN')} đ).`);
       }
 
       financeAmount = Math.max(0, finalAmount - downPayment);
+      debtAmount = financeAmount;
       const financePartnerId = payload.payment?.installmentFinancePartnerId || payload.financeCompanyPartner?.id;
 
       if (financeAmount > 0) {
@@ -288,7 +304,6 @@ export async function executeAtomicCheckout(
           throw new Error(`FINANCE_PARTNER_INACTIVE: Đối tác tài chính "${partnerData.name}" đang tạm ngưng hợp tác.`);
         }
 
-        // Validate Partner Category/Type
         const partnerType = (partnerData.type || partnerData.category || '').toUpperCase();
         if (partnerType && !partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP')) {
           throw new Error(`INVALID_FINANCE_PARTNER_TYPE: Đối tác "${partnerData.name}" không phải là công ty tài chính trả góp.`);
@@ -357,7 +372,7 @@ export async function executeAtomicCheckout(
 
     // 12. Save Authoritative Invoice Record
     const invRef = db.collection('invoices').doc(invoiceId);
-    const invoiceRecord = {
+    const invoiceRecord: any = {
       id: invoiceId,
       invoiceCode,
       branchId,
@@ -367,8 +382,26 @@ export async function executeAtomicCheckout(
         id: d.id,
         imei: d.data.imei,
         model: d.data.model,
-        sellPrice: d.authoritativePrice
+        sellPrice: d.authoritativePrice,
+        color: d.data.color,
+        storage: d.data.storage
       })),
+      items: [
+        ...loadedDevices.map(d => ({
+          model: d.data.model,
+          imei: d.data.imei,
+          price: d.authoritativePrice,
+          color: d.data.color,
+          storage: d.data.storage
+        })),
+        ...loadedAccessories.map(a => ({
+          model: a.data.name,
+          imei: '',
+          price: a.authoritativePrice,
+          color: '',
+          storage: ''
+        }))
+      ],
       accessories: loadedAccessories.map(a => ({
         productId: a.id,
         name: a.data.name,
@@ -379,8 +412,10 @@ export async function executeAtomicCheckout(
       discountAmount: authoritativeDiscount,
       tradeInDeduction: authoritativeTradeInDeduction,
       finalAmount,
+      paidAmount: finalAmount - debtAmount,
+      debtAmount,
       paymentMethod,
-      paymentFundId: targetFundId || null,
+      splitPayments: isMultiPayment ? payload.payments : undefined,
       installmentDownPayment: downPayment,
       installmentFinanceAmount: financeAmount,
       installmentFinancePartnerId: payload.payment?.installmentFinancePartnerId || null,
@@ -393,10 +428,44 @@ export async function executeAtomicCheckout(
 
     transaction.set(invRef, invoiceRecord);
 
-    // 13. Installment Accounting & Fund Reconciliation
-    if (paymentMethod === 'INSTALLMENT') {
-      // Down payment into Fund
-      if (fundRef && downPayment > 0) {
+    // 13. Atomic Ledger & Fund Allocations (Supports Multiple Funds Simultaneously)
+    if (isMultiPayment) {
+      for (const p of payload.payments) {
+        if (p.amount > 0 && p.fundId) {
+          const fundInfo = fundMap.get(p.fundId);
+          if (fundInfo) {
+            const txId = `TX-${crypto.randomUUID().slice(0, 8)}`;
+            const txRef = db.collection('cashTransactions').doc(txId);
+            transaction.set(txRef, {
+              id: txId,
+              code: `PT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+              type: 'RECEIPT',
+              category: 'SALES_REVENUE',
+              categoryName: `Thu bán hàng POS (${p.method || 'Đa kênh'})`,
+              amount: p.amount,
+              fundId: p.fundId,
+              fundName: fundInfo.data.name || 'Quỹ tiền',
+              fundType: fundInfo.data.type || 'CASH',
+              date: new Date().toISOString().split('T')[0],
+              partnerName: invoiceRecord.customerName,
+              partnerPhone: invoiceRecord.customerPhone,
+              referenceCode: invoiceCode,
+              status: 'COMPLETED',
+              creator: authenticatedStaff?.name || 'Thu Ngân'
+            });
+
+            transaction.update(fundInfo.ref, {
+              currentBalance: FieldValue.increment(p.amount),
+              totalIncome: FieldValue.increment(p.amount)
+            });
+          }
+        }
+      }
+    } else if (paymentMethod === 'INSTALLMENT') {
+      const targetFundId = isPureIntent ? payload.payment?.fundId : (payload.fundToUpdate?.id || payload.invoice?.paymentFundId);
+      const fundInfo = targetFundId ? fundMap.get(targetFundId) : null;
+
+      if (fundInfo && downPayment > 0) {
         const txId = `TX-${crypto.randomUUID().slice(0, 8)}`;
         const txRef = db.collection('cashTransactions').doc(txId);
         transaction.set(txRef, {
@@ -407,8 +476,8 @@ export async function executeAtomicCheckout(
           categoryName: 'Thu tiền trả trước đơn trả góp POS',
           amount: downPayment,
           fundId: targetFundId,
-          fundName: fundData?.name || 'Quỹ tiền',
-          fundType: fundData?.type || 'CASH',
+          fundName: fundInfo.data.name || 'Quỹ tiền',
+          fundType: fundInfo.data.type || 'CASH',
           date: new Date().toISOString().split('T')[0],
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
@@ -417,21 +486,22 @@ export async function executeAtomicCheckout(
           creator: authenticatedStaff?.name || 'Thu Ngân'
         });
 
-        transaction.update(fundRef, {
+        transaction.update(fundInfo.ref, {
           currentBalance: FieldValue.increment(downPayment),
           totalIncome: FieldValue.increment(downPayment)
         });
       }
 
-      // Finance Company Receivable Increment
       if (financePartnerRef && financeAmount > 0) {
         transaction.update(financePartnerRef, {
           outstandingDebt: FieldValue.increment(financeAmount)
         });
       }
     } else {
-      // Standard Payment: Full finalAmount into Fund
-      if (fundRef && finalAmount > 0) {
+      const targetFundId = isPureIntent ? payload.payment?.fundId : (payload.fundToUpdate?.id || payload.invoice?.paymentFundId);
+      const fundInfo = targetFundId ? fundMap.get(targetFundId) : null;
+
+      if (fundInfo && finalAmount > 0) {
         const txId = `TX-${crypto.randomUUID().slice(0, 8)}`;
         const txRef = db.collection('cashTransactions').doc(txId);
         transaction.set(txRef, {
@@ -442,8 +512,8 @@ export async function executeAtomicCheckout(
           categoryName: 'Thu tiền bán hàng POS',
           amount: finalAmount,
           fundId: targetFundId,
-          fundName: fundData?.name || 'Quỹ tiền',
-          fundType: fundData?.type || 'CASH',
+          fundName: fundInfo.data.name || 'Quỹ tiền',
+          fundType: fundInfo.data.type || 'CASH',
           date: new Date().toISOString().split('T')[0],
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
@@ -452,7 +522,7 @@ export async function executeAtomicCheckout(
           creator: authenticatedStaff?.name || 'Thu Ngân'
         });
 
-        transaction.update(fundRef, {
+        transaction.update(fundInfo.ref, {
           currentBalance: FieldValue.increment(finalAmount),
           totalIncome: FieldValue.increment(finalAmount)
         });
@@ -467,6 +537,7 @@ export async function executeAtomicCheckout(
       if (custSnap.exists) {
         transaction.update(custRef, {
           totalSpent: FieldValue.increment(finalAmount),
+          outstandingDebt: FieldValue.increment(debtAmount),
           lastInvoiceId: invoiceId,
           lastPurchaseDate: FieldValue.serverTimestamp()
         });
@@ -509,8 +580,13 @@ export async function executeAtomicCheckout(
     return {
       success: true,
       invoiceId,
+      invoice: {
+        ...invoiceRecord,
+        createdAt: new Date().toISOString()
+      },
       finalAmount,
       idempotencyKey
     };
   });
 }
+

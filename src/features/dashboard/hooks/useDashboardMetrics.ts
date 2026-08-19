@@ -26,6 +26,8 @@ export interface DashboardMetricsResult {
   monthOrderCount: number;
   inStockDeviceCount: number;
   inStockTotalValue: number;
+  inStockCostValue: number;
+  inStockSellingValue: number;
   totalCashFundBalance: number;
   totalBankFundBalance: number;
   activeLeadsCount: number;
@@ -92,10 +94,12 @@ export function calculateDashboardMetrics(params: UseDashboardMetricsParams): Da
   const monthRevenue = monthInvoices.reduce((sum, inv) => sum + (inv.finalAmount || 0), 0);
   const monthOrderCount = monthInvoices.length;
 
-  // 3. Stock metrics
+  // 3. Stock metrics: Separate Vốn Tồn Kho (buyPrice) vs Giá Bán Dự Kiến (sellPrice)
   const inStockDevices = branchDevices.filter(d => d.status === 'in_stock');
   const inStockDeviceCount = inStockDevices.length;
-  const inStockTotalValue = inStockDevices.reduce((sum, d) => sum + (d.buyPrice || d.sellPrice || 0), 0);
+  const inStockCostValue = inStockDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+  const inStockSellingValue = inStockDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
+  const inStockTotalValue = inStockCostValue > 0 ? inStockCostValue : inStockSellingValue;
 
   // Aging stock (> 30 days)
   const thirtyDaysAgo = new Date();
@@ -112,12 +116,16 @@ export function calculateDashboardMetrics(params: UseDashboardMetricsParams): Da
     .filter(f => f.type === 'BANK')
     .reduce((sum, f) => sum + (f.currentBalance || 0), 0);
 
-  // 5. CRM & Warranty
+  // 5. CRM & Warranty (Handling lowercase schema status codes)
   const activeLeads = branchLeads.filter(l => l.status !== 'won' && l.status !== 'lost');
   const uncontactedLeads = activeLeads.filter(l => l.status === 'new');
 
-  const activeWarranties = branchWarranties.filter(w => w.status !== 'delivered');
-  const urgentWarranties = activeWarranties.filter(w => w.status === 'ready');
+  const activeWarranties = branchWarranties.filter(w => 
+    w.status !== 'delivered' && (w.status as string) !== 'cancelled'
+  );
+  const urgentWarranties = activeWarranties.filter(w => 
+    w.status === 'ready' || w.status === 'inspecting' || w.status === 'repairing'
+  );
 
   // 6. Action Queue Items (Prioritized by urgency)
   const actionQueue: ActionQueueItem[] = [];
@@ -208,6 +216,8 @@ export function calculateDashboardMetrics(params: UseDashboardMetricsParams): Da
     monthOrderCount,
     inStockDeviceCount,
     inStockTotalValue,
+    inStockCostValue,
+    inStockSellingValue,
     totalCashFundBalance,
     totalBankFundBalance,
     activeLeadsCount: activeLeads.length,

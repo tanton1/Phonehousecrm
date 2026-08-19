@@ -43,37 +43,28 @@ export function useCheckout() {
         statusMessage: 'Đang ghi nhận phiếu thu & số dư Quỹ vào sổ cái...'
       }));
 
-      try {
-        await processCheckoutTransaction({
-          invoice: payload.invoice,
-          devicesToSell: payload.devicesToSell,
-          accessoriesToSell: payload.accessoriesToSell,
-          cashTx: payload.cashTx,
-          tradeInDevice: payload.tradeInDevice,
-          customerPartner: payload.customerPartner,
-          financeCompanyPartner: payload.financeCompanyPartner,
-          fundToUpdate: payload.fundToUpdate
-        });
-      } catch (firestoreErr: any) {
-        console.warn('Backend/Firestore transaction fallback mode:', firestoreErr?.message || firestoreErr);
-        // Persist to localStorage directly as resilient fallback
-        try {
-          const localInvoices = JSON.parse(localStorage.getItem('istore_invoices') || localStorage.getItem('phonehouse_invoices') || '[]');
-          const updated = [payload.invoice, ...localInvoices.filter((i: any) => i.id !== payload.invoice.id)];
-          localStorage.setItem('istore_invoices', JSON.stringify(updated));
-          localStorage.setItem('phonehouse_invoices', JSON.stringify(updated));
-        } catch (e) {
-          console.error('LocalStorage write error:', e);
-        }
-      }
+      const result = await processCheckoutTransaction({
+        invoice: payload.invoice,
+        devicesToSell: payload.devicesToSell,
+        accessoriesToSell: payload.accessoriesToSell,
+        cashTx: payload.cashTx,
+        tradeInDevice: payload.tradeInDevice,
+        customerPartner: payload.customerPartner,
+        financeCompanyPartner: payload.financeCompanyPartner,
+        fundToUpdate: payload.fundToUpdate,
+        payments: payload.invoice?.splitPayments as any,
+        idempotencyKey: payload.idempotencyKey
+      });
 
-      // Step 4: Success
+      const canonicalInvoice = result?.invoice || payload.invoice;
+
+      // Step 4: Success with Authoritative Server Invoice
       setCheckoutInfo({
         state: 'SUCCESS',
         progressStep: 4,
-        statusMessage: `Xuất hóa đơn thành công! Mã đơn: ${payload.invoice.invoiceCode || payload.invoice.id}`,
+        statusMessage: `Xuất hóa đơn thành công! Mã đơn: ${canonicalInvoice.invoiceCode || canonicalInvoice.id}`,
         error: null,
-        createdInvoice: payload.invoice
+        createdInvoice: canonicalInvoice
       });
 
       return true;

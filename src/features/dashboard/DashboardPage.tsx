@@ -35,6 +35,7 @@ import {
 
 import { TechHomeView } from './components/TechHomeView';
 import { AccountantHomeView } from './components/AccountantHomeView';
+import { SalesHomeView } from './components/SalesHomeView';
 
 export interface DashboardPageProps {
   invoices: SalesInvoice[];
@@ -66,7 +67,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const currentBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
   const currentBranchName = branches.find(b => b.id === selectedBranchId)?.name || 'Toàn Hệ Thống PhoneHouse';
 
-  // 1. Role-Adaptive Home for TECHNICIANS
+  // 1. Role-Adaptive Home for SALES
+  if (currentUser?.role === 'SALES' || currentUser?.role === 'SALE') {
+    return (
+      <SalesHomeView
+        invoices={invoices}
+        devices={devices}
+        leads={leads}
+        currentBranch={currentBranch}
+        currentUser={currentUser}
+        onNavigateTab={onNavigateTab}
+      />
+    );
+  }
+
+  // 2. Role-Adaptive Home for TECHNICIANS
   if (currentUser?.role === 'TECHNICIAN' || currentUser?.role === 'TECH' || currentUser?.role === 'TECH_LEAD') {
     return (
       <TechHomeView
@@ -79,7 +94,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     );
   }
 
-  // 2. Role-Adaptive Home for ACCOUNTANTS
+  // 3. Role-Adaptive Home for ACCOUNTANTS
   if (currentUser?.role === 'ACCOUNTANT') {
     return (
       <AccountantHomeView
@@ -93,7 +108,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     );
   }
 
-  // 3. Shared State for Filters & Action Tabs
+  // 4. Shared State for Filters & Action Tabs
   type DateFilterType = 'today' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
   const [dateFilter, setDateFilter] = useState<DateFilterType>('this_month');
   const [kpiCardIndex, setKpiCardIndex] = useState(0);
@@ -108,28 +123,23 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     const todayStr = now.toISOString().split('T')[0];
     const thisMonthStr = todayStr.substring(0, 7);
 
-    // Last Month
+    // Calculate last month YYYY-MM
     const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthStr = lastMonthDate.toISOString().substring(0, 7);
+    const lastMonthStr = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
 
-    // This Week (Monday to Sunday)
-    const dayOfWeek = now.getDay(); // 0 is Sun, 1 is Mon...
-    const diffToMon = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
+    // This week Monday to Sunday
+    const dayOfWeek = now.getDay();
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     const monThisWeek = new Date(now);
-    monThisWeek.setDate(now.getDate() + diffToMon);
-    monThisWeek.setHours(0, 0, 0, 0);
-
+    monThisWeek.setDate(now.getDate() + diffToMonday);
     const sunThisWeek = new Date(monThisWeek);
     sunThisWeek.setDate(monThisWeek.getDate() + 6);
-    sunThisWeek.setHours(23, 59, 59, 999);
 
-    // Last Week (Monday to Sunday)
+    // Last week Monday to Sunday
     const monLastWeek = new Date(monThisWeek);
     monLastWeek.setDate(monThisWeek.getDate() - 7);
-
     const sunLastWeek = new Date(monLastWeek);
     sunLastWeek.setDate(monLastWeek.getDate() + 6);
-    sunLastWeek.setHours(23, 59, 59, 999);
 
     const formatD = (d: Date) => d.toISOString().split('T')[0];
 
@@ -148,7 +158,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     };
   }, []);
 
-  // 4. Dynamic Filter for Invoices (100% Real Data, excluding cancelled)
+  // 5. Dynamic Filter for Invoices (100% Real Data, excluding cancelled)
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
       if (inv.status === 'cancelled') return false;
@@ -175,28 +185,53 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
   const totalInvoicesCount = filteredInvoices.length;
 
-  // Real Gross Profit
-  const grossProfit = useMemo(() => {
-    return filteredInvoices.reduce((sum, inv) => {
-      let cost = 0;
+  // Real Gross Profit Calculation (Excluding fabricated 20% margin)
+  const { grossProfit, missingCostCount } = useMemo(() => {
+    let profit = 0;
+    let missingCount = 0;
+
+    for (const inv of filteredInvoices) {
+      let invCost = 0;
+      let hasValidCost = false;
+
       if (inv.detailedItems && inv.detailedItems.length > 0) {
-        cost = inv.detailedItems.reduce((c, it) => c + ((it.buyPrice || it.unitPrice * 0.8) * (it.quantity || 1)), 0);
-      } else {
-        cost = (inv.finalAmount || inv.totalAmount || 0) * 0.8;
+        for (const it of inv.detailedItems) {
+          if (typeof (it as any).buyPrice === 'number' && (it as any).buyPrice > 0) {
+            invCost += (it as any).buyPrice * (it.quantity || 1);
+            hasValidCost = true;
+          }
+        }
+      } else if (inv.devices && inv.devices.length > 0) {
+        for (const dev of inv.devices) {
+          const matchedDevice = devices.find(d => d.imei === dev.imei || d.id === (dev as any).id);
+          if (matchedDevice && typeof matchedDevice.buyPrice === 'number' && matchedDevice.buyPrice > 0) {
+            invCost += matchedDevice.buyPrice;
+            hasValidCost = true;
+          }
+        }
       }
-      return sum + Math.max(0, (inv.finalAmount || inv.totalAmount || 0) - cost);
-    }, 0);
-  }, [filteredInvoices]);
 
-  const profitMargin = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 100) : 0;
+      if (hasValidCost) {
+        profit += Math.max(0, (inv.finalAmount || inv.totalAmount || 0) - invCost);
+      } else {
+        missingCount++;
+      }
+    }
 
-  // Funds and Inventory
+    return { grossProfit: profit, missingCostCount: missingCount };
+  }, [filteredInvoices, devices]);
+
+  const profitMargin = totalRevenue > 0 && grossProfit > 0 ? Math.round((grossProfit / totalRevenue) * 100) : 0;
+
+  // Funds and Inventory: Distinct Vốn Tồn Kho vs Giá Trị Bán Dự Kiến
   const totalFunds = funds.reduce((sum, f) => sum + (f.currentBalance || 0), 0);
   const cashFundTotal = funds.filter(f => f.type === 'CASH' || f.name?.toLowerCase().includes('tiền mặt')).reduce((s, f) => s + (f.currentBalance || 0), 0);
   const bankFundTotal = totalFunds - cashFundTotal;
 
   const inStockDevices = devices.filter(d => d.status === 'in_stock');
-  const totalStockValue = inStockDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
+  const totalStockCost = inStockDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+  const totalStockRetailValue = inStockDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
+  const potentialStockProfit = Math.max(0, totalStockRetailValue - totalStockCost);
 
   // 100% Real Aging Stock (> 30 days)
   const agingDevices = inStockDevices.filter(d => {
@@ -205,9 +240,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     return diffDays > 30;
   });
 
-  // Real Appointments & Active Leads
+  // Real Appointments & Active Warranties (Handling all schema status codes)
   const myAppointments = leads.filter(l => l.status === 'appointment_scheduled');
-  const pendingWarranties = warrantyTickets.filter(w => w.status === 'PENDING' || w.status === 'IN_PROGRESS' || w.status === 'WAITING_FOR_PARTS');
+  const pendingWarranties = warrantyTickets.filter(w => 
+    ['received', 'inspecting', 'waiting_parts', 'repairing', 'PENDING', 'IN_PROGRESS', 'WAITING_FOR_PARTS'].includes(w.status || '')
+  );
   const totalActionCount = myAppointments.length + agingDevices.length + pendingWarranties.length;
 
   // 5. Dynamic Revenue Bar Chart Calculation Adapting to Every Filter (Today, This Week, Last Week, This Month, Last Month)
@@ -401,11 +438,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       bg: 'bg-gradient-to-br from-zinc-900 to-zinc-950'
     },
     {
-      title: 'Giá trị kho sẵn bán',
+      title: 'Vốn tồn kho hiện tại',
       hint: `${inStockDevices.length} máy sẵn sàng`,
-      mainNumber: (totalStockValue / 1_000_000_000).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      unit: 'tỷ đồng',
-      bottomInfo: `📱 ${inStockDevices.length} máy iPhone sẵn xuất quầy`,
+      mainNumber: (totalStockCost / 1_000_000_000).toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      unit: 'tỷ VNĐ',
+      bottomInfo: `🏷️ Giá bán: ${(totalStockRetailValue / 1_000_000_000).toFixed(2)} Tỷ • LN tiềm năng: ${(potentialStockProfit / 1_000_000).toFixed(0)}Tr`,
       bg: 'bg-gradient-to-br from-zinc-900 to-zinc-950'
     }
   ];
@@ -566,15 +603,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
           <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-1">
             <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
-              <span>Giá Trị Kho Sẵn Bán</span>
+              <span>Vốn Tồn Kho Hiện Tại</span>
               <span className="px-1.5 py-0.5 rounded-md bg-zinc-100 text-zinc-700 font-mono font-bold text-[10px]">
                 {inStockDevices.length} máy sẵn sàng
               </span>
             </div>
             <div className="text-2xl font-black font-mono tracking-tight text-zinc-950">
-              {(totalStockValue / 1_000_000_000).toFixed(2)} <span className="text-xs font-sans text-zinc-500 font-bold">Tỷ VNĐ</span>
+              {(totalStockCost / 1_000_000_000).toFixed(2)} <span className="text-xs font-sans text-zinc-500 font-bold">Tỷ VNĐ</span>
             </div>
-            <span className="text-[11px] text-zinc-400 block font-medium">Toàn bộ hàng trong kho chi nhánh</span>
+            <span className="text-[11px] text-zinc-400 block font-medium">
+              Giá bán: {(totalStockRetailValue / 1_000_000_000).toFixed(2)} Tỷ • LN tiềm năng: {(potentialStockProfit / 1_000_000).toFixed(0)}Tr
+            </span>
           </div>
         </div>
 
