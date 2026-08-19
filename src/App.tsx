@@ -319,6 +319,22 @@ export default function App() {
 
   // Modals & Triggers
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
+
+  // Dynamic Workspace Mode Synchronization based on Logged-in User Role
+  useEffect(() => {
+    if (!currentUser) {
+      setWorkspaceMode('ADMIN');
+      return;
+    }
+    const role = currentUser.role?.toUpperCase();
+    if (role === 'TECHNICIAN') {
+      setWorkspaceMode('TECH');
+    } else if (role === 'SALES') {
+      setWorkspaceMode('SALES');
+    } else {
+      setWorkspaceMode('ADMIN');
+    }
+  }, [currentUser]);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
   const [isExecutiveAIOpen, setIsExecutiveAIOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
@@ -1408,7 +1424,7 @@ export default function App() {
 
   return (
     <>
-      {Boolean((import.meta as any).env?.DEV) && (
+      {Boolean((import.meta as any).env?.DEV || currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER') && (
         <RoleSwitcher currentMode={workspaceMode} onModeChange={setWorkspaceMode} />
       )}
 

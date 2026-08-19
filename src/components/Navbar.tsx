@@ -199,6 +199,54 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const [hoveredCluster, setHoveredCluster] = useState<string | null>(null);
 
+  const userRole = currentUser?.role?.toUpperCase() || 'SALES';
+
+  const visibleClusters = useMemo(() => {
+    return navClusters
+      .filter((cluster) => {
+        if (userRole === 'ADMIN' || userRole === 'MANAGER') return true;
+        if (userRole === 'SALES') {
+          return ['dashboard', 'sales_group', 'inventory_group', 'hr_system_group'].includes(cluster.id);
+        }
+        if (userRole === 'TECHNICIAN') {
+          return ['technical_group', 'inventory_group', 'hr_system_group'].includes(cluster.id);
+        }
+        if (userRole === 'ACCOUNTANT') {
+          return ['dashboard', 'sales_group', 'finance_group', 'inventory_group', 'hr_system_group'].includes(cluster.id);
+        }
+        return ['dashboard', 'sales_group'].includes(cluster.id);
+      })
+      .map((cluster) => {
+        if (userRole === 'ADMIN' || userRole === 'MANAGER') return cluster;
+
+        if (cluster.id === 'hr_system_group') {
+          return {
+            ...cluster,
+            subItems: cluster.subItems?.filter(sub => ['hr-attendance', 'sop-management'].includes(sub.id))
+          };
+        }
+        if (cluster.id === 'sales_group' && userRole === 'ACCOUNTANT') {
+          return {
+            ...cluster,
+            subItems: cluster.subItems?.filter(sub => ['invoices', 'crm'].includes(sub.id))
+          };
+        }
+        if (cluster.id === 'inventory_group' && userRole === 'TECHNICIAN') {
+          return {
+            ...cluster,
+            subItems: cluster.subItems?.filter(sub => ['products', 'transfers'].includes(sub.id))
+          };
+        }
+        if (cluster.id === 'inventory_group' && userRole === 'SALES') {
+          return {
+            ...cluster,
+            subItems: cluster.subItems?.filter(sub => ['inventory', 'products', 'master-catalog'].includes(sub.id))
+          };
+        }
+        return cluster;
+      });
+  }, [userRole, navClusters]);
+
   return (
     <>
       {/* Top Desktop & Mobile Header Bar */}
@@ -329,7 +377,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="hidden md:block bg-zinc-50/90 border-t border-zinc-200/80 px-4 sm:px-6 lg:px-8 relative">
           <div className="max-w-7xl mx-auto flex items-center justify-between py-1.5">
             <div className="flex items-center space-x-1">
-              {navClusters.map((cluster) => {
+              {visibleClusters.map((cluster) => {
                 const Icon = cluster.icon;
                 const isClusterActive = cluster.matchIds.includes(activeTab);
                 const hasSub = cluster.subItems && cluster.subItems.length > 0;
