@@ -11,8 +11,8 @@ export interface TechHomeViewProps {
 }
 
 export const TechHomeView: React.FC<TechHomeViewProps> = ({
-  warrantyTickets,
-  devices,
+  warrantyTickets = [],
+  devices = [],
   currentBranch,
   currentUser,
   onNavigateTab

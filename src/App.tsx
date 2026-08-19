@@ -2,7 +2,7 @@ import { MapPin, Sparkles } from "lucide-react";
 import { GeofenceBackgroundTracker } from "./components/GeofenceBackgroundTracker";
 import { INITIAL_TODAY_ATTENDANCE_LIST } from "./data/attendanceData";
 import { RoleSwitcher, WorkspaceMode } from './components/RoleSwitcher';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   INITIAL_DEVICES, 
   INITIAL_LEADS, 
@@ -407,6 +407,42 @@ export default function App() {
   const activeBranchId = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER' 
     ? (currentUser.role === 'MANAGER' && selectedBranchId === 'ALL' ? currentUser.branchId : selectedBranchId)
     : (currentUser?.branchId || (currentUser as any)?.branch);
+
+  const resolvedCurrentBranch = useMemo<StoreBranch>(() => {
+    const userBranch = currentUser?.branchId || (currentUser as any)?.branch;
+    if (userBranch && branches && branches.length > 0) {
+      const found = branches.find(b => 
+        b.id === userBranch || 
+        b.code === userBranch || 
+        b.warehouseId === userBranch ||
+        (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase())) ||
+        (b.systemType && b.systemType.toLowerCase() === userBranch.toLowerCase())
+      );
+      if (found) return found;
+    }
+    if (selectedBranchId && selectedBranchId !== 'ALL' && branches && branches.length > 0) {
+      const found = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
+      if (found) return found;
+    }
+    if (branches && branches.length > 0) {
+      return branches[0];
+    }
+    return {
+      id: '',
+      code: '',
+      name: (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chi Nhánh Showroom',
+      address: '',
+      phone: '',
+      email: '',
+      manager: '',
+      openingHours: '',
+      warehouseId: '',
+      systemType: 'PHONEHOUSE',
+      isActive: true,
+      isHeadquarter: false,
+      notes: ''
+    };
+  }, [branches, selectedBranchId, currentUser]);
 
   // Filtered Data based on Active Branch
   const filteredDevices = activeBranchId === 'ALL' || !activeBranchId 
@@ -1521,7 +1557,7 @@ export default function App() {
           assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
           isActive: currentUser.active
         } : null}
-        currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
+        currentBranch={resolvedCurrentBranch}
         branches={branches}
         onSelectBranch={(b) => setSelectedBranchId(b.id)}
         onLogout={() => {
@@ -1759,7 +1795,7 @@ export default function App() {
               onClose={() => setIsCreateLeadModalOpen(false)}
               branches={branches}
               staffList={users as any}
-              currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
+              currentBranch={resolvedCurrentBranch}
               currentUser={currentUser ? {
                 id: currentUser.id,
                 uid: currentUser.id,
@@ -1815,7 +1851,7 @@ export default function App() {
         {activeTab === 'tradein' && (
           <TradeInCockpitView
             devices={filteredDevices}
-            currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
+            currentBranch={resolvedCurrentBranch}
             currentUser={currentUser ? {
               id: currentUser.id,
               uid: currentUser.id,
@@ -1888,7 +1924,7 @@ export default function App() {
             products={products}
             funds={funds}
             partners={partners}
-            currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
+            currentBranch={resolvedCurrentBranch}
             currentUser={currentUser ? {
               id: currentUser.id,
               uid: currentUser.id,

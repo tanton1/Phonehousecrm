@@ -53,13 +53,13 @@ export interface DashboardPageProps {
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
-  invoices,
-  devices,
-  leads,
-  warrantyTickets,
-  funds,
-  partners,
-  branches,
+  invoices = [],
+  devices = [],
+  leads = [],
+  warrantyTickets = [],
+  funds = [],
+  partners = [],
+  branches = [],
   users = [],
   selectedBranchId,
   currentUser,

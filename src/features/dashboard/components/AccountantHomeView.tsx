@@ -12,14 +12,14 @@ export interface AccountantHomeViewProps {
 }
 
 export const AccountantHomeView: React.FC<AccountantHomeViewProps> = ({
-  invoices,
-  funds,
-  partners,
+  invoices = [],
+  funds = [],
+  partners = [],
   currentBranch,
   currentUser,
   onNavigateTab
 }) => {
-  const totalFundsBalance = funds.reduce((sum, f) => sum + (f.balance || 0), 0);
+  const totalFundsBalance = funds.reduce((sum, f) => sum + (f.currentBalance || (f as any).balance || 0), 0);
   const supplierDebtTotal = partners.filter(p => p.type === 'supplier').reduce((sum, p) => sum + (p.debt || 0), 0);
   const pendingInstallments = invoices.filter(inv => inv.isInstallment && inv.status !== 'cancelled');
   const pendingInstallmentsAmount = pendingInstallments.reduce((sum, inv) => sum + (inv.financeAmount || 0), 0);
