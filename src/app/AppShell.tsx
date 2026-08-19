@@ -51,8 +51,12 @@ export const AppShell: React.FC<AppShellProps> = ({
           onOpenQuickSearch={onOpenQuickSearch}
         />
 
-        <main className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6 pb-20 lg:pb-6 scrollbar-thin scrollbar-thumb-zinc-200">
-          <div className="max-w-7xl mx-auto w-full">
+        <main className="flex-1 overflow-y-auto p-2 sm:p-4 lg:p-5 pb-20 lg:pb-6 scrollbar-thin scrollbar-thumb-zinc-200">
+          <div className={`${
+            ['pos', 'chat', 'crm', 'warranty', 'tradein', 'funds', 'inventory'].includes(activeTab)
+              ? 'w-full max-w-[1700px] mx-auto'
+              : 'max-w-7xl mx-auto w-full'
+          }`}>
             {children}
           </div>
         </main>

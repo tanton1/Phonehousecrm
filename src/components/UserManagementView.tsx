@@ -212,7 +212,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           workplaceAddresses: selectedAddresses,
           active: formData.active,
           createdAt: new Date().toISOString().split('T')[0],
-          notes: formData.notes || `Mật khẩu khởi tạo: ${formData.password || '123456'}`
+          notes: formData.notes || ''
         };
 
         if (formData.password && formData.password.length >= 6) {
@@ -273,111 +273,59 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner: Admin Pre-configured Credentials Highlight Card */}
-      <div className="bg-gradient-to-r from-orange-600 via-orange-600 to-orange-500 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-80 h-80 bg-white/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="inline-flex items-center space-x-2 bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-xs font-semibold">
-              <ShieldAlert className="w-3.5 h-3.5 text-orange-200" />
-              <span>Tài Khoản Root Admin Cấp Cao Đã Thiết Lập</span>
-            </div>
-            <h2 className="text-xl md:text-2xl font-bold tracking-tight">
-              Tài Khoản Quản Trị Hệ Thống: Nhật Tân
-            </h2>
-            <p className="text-xs md:text-sm text-orange-100 max-w-2xl">
-              Hệ thống đã tự động cấu hình và gán quyền Quản Trị Viên Tối Cao (Root Admin) cho tài khoản này. Bạn có thể sử dụng thông tin bên dưới để đăng nhập hoặc phân quyền thêm nhân sự.
-            </p>
+      {/* Professional Header */}
+      <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-700 flex items-center justify-center text-white shadow-sm shadow-indigo-500/25">
+            <Users className="w-5 h-5" />
           </div>
-
-          <div className="bg-white/10 backdrop-blur-md p-3.5 rounded-xl border border-white/20 space-y-2 text-xs w-full md:w-auto">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-orange-100">Email Admin:</span>
-              <div className="flex items-center space-x-1.5 font-mono font-bold">
-                <span className="text-white">nhattank16.1@gmail.com</span>
-                <button 
-                  onClick={() => handleCopy('nhattank16.1@gmail.com', 'admin-email')}
-                  className="p-1 hover:bg-white/20 rounded transition-colors"
-                  title="Sao chép email"
-                >
-                  {copiedField === 'admin-email' ? <Check className="w-3.5 h-3.5 text-orange-300" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-orange-100">Mật khẩu:</span>
-              <div className="flex items-center space-x-1.5 font-mono font-bold">
-                <span className="text-orange-200">Tan889603$</span>
-                <button 
-                  onClick={() => handleCopy('Tan889603$', 'admin-pass')}
-                  className="p-1 hover:bg-white/20 rounded transition-colors"
-                  title="Sao chép mật khẩu"
-                >
-                  {copiedField === 'admin-pass' ? <Check className="w-3.5 h-3.5 text-orange-300" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-4 pt-1 border-t border-white/15">
-              <span className="text-orange-100">Quyền hạn:</span>
-              <span className="bg-orange-400/30 text-orange-100 px-2 py-0.5 rounded font-bold">
-                ROOT_ADMIN (Toàn quyền)
+          <div>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-lg font-bold text-slate-900 tracking-tight">Quản Lý Người Dùng & Phân Quyền</h1>
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full">
+                RBAC Matrix V1
               </span>
             </div>
+            <p className="text-xs text-slate-500 font-medium">
+              Quản lý tài khoản nhân viên, gán vai trò và cấu hình ma trận phân quyền chi nhánh.
+            </p>
           </div>
         </div>
+
+        <button
+          onClick={handleOpenAdd}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>Tạo Tài Khoản Mới</span>
+        </button>
       </div>
 
-      {/* Tabs & Actions Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-3.5 rounded-2xl border border-orange-100 shadow-2xs">
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-1.5 ${
-              activeTab === 'users' 
-                ? 'bg-orange-500 text-white shadow-sm' 
-                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Danh Sách Người Dùng ({users.length})</span>
-          </button>
+      {/* Tabs Bar */}
+      <div className="flex items-center space-x-2 bg-white p-2 rounded-2xl border border-slate-200/80 shadow-xs">
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer ${
+            activeTab === 'users' 
+              ? 'bg-indigo-600 text-white shadow-sm' 
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          <span>Danh Sách Người Dùng ({users.length})</span>
+        </button>
 
-          <button
-            onClick={() => setActiveTab('matrix')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-1.5 ${
-              activeTab === 'matrix' 
-                ? 'bg-orange-500 text-white shadow-sm' 
-                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Ma Trận Phân Quyền (RBAC)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('auth-test')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-1.5 ${
-              activeTab === 'auth-test' 
-                ? 'bg-orange-500 text-white shadow-sm' 
-                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-            }`}
-          >
-            <Key className="w-3.5 h-3.5" />
-            <span>Thử Nghiệm Đăng Nhập</span>
-          </button>
-        </div>
-
-        {activeTab === 'users' && (
-          <button
-            onClick={handleOpenAdd}
-            className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-bold px-4 py-2 rounded-xl flex items-center justify-center space-x-1.5 shadow-md shadow-orange-500/20 transition-all cursor-pointer"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Tạo Tài Khoản Mới</span>
-          </button>
-        )}
+        <button
+          onClick={() => setActiveTab('matrix')}
+          className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer ${
+            activeTab === 'matrix' 
+              ? 'bg-indigo-600 text-white shadow-sm' 
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Ma Trận Phân Quyền Chi Tiết (RBAC)</span>
+        </button>
       </div>
 
       {/* TAB 1: USER LIST */}
@@ -650,89 +598,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         </div>
       )}
 
-      {/* TAB 3: AUTH TEST & LOGIN PANEL */}
-      {activeTab === 'auth-test' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl p-5 border border-zinc-200/80 shadow-2xs space-y-4">
-            <div>
-              <h3 className="font-bold text-zinc-800 text-sm flex items-center gap-2">
-                <Key className="w-4 h-4 text-orange-600" />
-                Kiểm Tra Đăng Nhập Email / Mật Khẩu
-              </h3>
-              <p className="text-xs text-zinc-500 mt-0.5">
-                Xác thực trực tiếp với Firebase Authentication
-              </p>
-            </div>
-
-            <form onSubmit={handleTestLogin} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-700 mb-1">Email Đăng Nhập</label>
-                <input
-                  type="email"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-zinc-200 rounded-xl focus:border-orange-500 focus:outline-hidden font-mono"
-                  placeholder="admin@istore.vn"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-700 mb-1">Mật Khẩu</label>
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  className="w-full px-3 py-2 text-xs border border-zinc-200 rounded-xl focus:border-orange-500 focus:outline-hidden font-mono"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs py-2.5 rounded-xl transition-colors shadow-sm"
-              >
-                Xác Thực Đăng Nhập
-              </button>
-            </form>
-
-            {loginStatus && (
-              <div className={`p-3 rounded-xl text-xs font-medium ${
-                loginStatus.startsWith('✅') ? 'bg-orange-50 text-orange-800 border border-orange-200' :
-                loginStatus.startsWith('❌') ? 'bg-rose-50 text-rose-800 border border-rose-200' :
-                'bg-orange-50 text-orange-800 border border-orange-200'
-              }`}>
-                {loginStatus}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 rounded-2xl p-5 text-white shadow-lg space-y-4">
-            <div className="flex items-center space-x-2 text-orange-400 text-xs font-bold">
-              <Sparkles className="w-4 h-4" />
-              <span>Chính Sách Bảo Mật Tài Khoản</span>
-            </div>
-
-            <h4 className="text-base font-bold">Bảo Mật Đa Tầng Cửa Hàng Điện Thoại</h4>
-
-            <ul className="space-y-2.5 text-xs text-zinc-300">
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
-                <span><strong>Ẩn Giá Nhập:</strong> Nhân viên bán hàng chỉ thấy giá niêm yết bán lẻ và mức chiết khấu cho phép, bảo mật tuyệt đối biên lợi nhuận của cửa hàng.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
-                <span><strong>Chống Gian Lận Thu Cũ:</strong> Mức giá thu máy cũ trên 15 triệu bắt buộc phải có tài khoản Cửa Hàng Trưởng (Manager) hoặc Admin duyệt.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
-                <span><strong>Đồng Bộ Đám Mây:</strong> Toàn bộ thao tác tạo tài khoản và phân cấp được đồng bộ ngay tức khắc lên Firebase Cloud Firestore.</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-      )}
+      {/* End Tabs Content */}
 
       {/* CREATE / EDIT USER MODAL */}
       {isAddModalOpen && (
