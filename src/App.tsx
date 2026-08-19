@@ -1603,7 +1603,7 @@ export default function App() {
           <InventoryView
             catalogItems={catalogItems}
             currentUser={currentUser}
-            devices={filteredDevices}
+            devices={devices}
             branches={branches}
             warehouses={warehouses}
             partners={partners}
@@ -1612,6 +1612,8 @@ export default function App() {
             warrantyTickets={warrantyTickets}
             invoices={invoices}
             users={filteredUsers}
+            selectedBranchId={selectedBranchId}
+            onSelectBranchId={setSelectedBranchId}
             onAddDevice={handleAddDevice}
             onAddMultipleDevices={handleAddMultipleDevices}
             onAddPurchaseOrder={handleAddPurchaseOrder}

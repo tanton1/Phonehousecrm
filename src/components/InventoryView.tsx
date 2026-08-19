@@ -7,12 +7,12 @@ import {
   WAREHOUSE_LIST, 
   Partner, 
   FundAccount, 
-  CashTransaction,
-  StockTransferSlip,
-  WarrantyTicket,
-  SalesInvoice,
-  UserAccount,
-  PurchaseOrder
+  CashTransaction, 
+  StockTransferSlip, 
+  WarrantyTicket, 
+  SalesInvoice, 
+  UserAccount, 
+  PurchaseOrder 
 } from '../types';
 import { 
   Smartphone, 
@@ -51,7 +51,10 @@ import {
   LayoutGrid,
   Table2,
   Battery,
-  Zap
+  Zap,
+  AlertTriangle,
+  Clock,
+  ArrowUpRight
 } from 'lucide-react';
 import {
   BarChart,
@@ -76,6 +79,8 @@ interface InventoryViewProps {
   warrantyTickets?: WarrantyTicket[];
   invoices?: SalesInvoice[];
   users?: UserAccount[];
+  selectedBranchId?: string;
+  onSelectBranchId?: (branchId: string) => void;
   onAddDevice: (device: DeviceItem) => void;
   onAddMultipleDevices?: (devices: DeviceItem[]) => void;
   onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void;
@@ -90,7 +95,6 @@ interface InventoryViewProps {
   currentUser?: UserAccount | null;
 }
 
-
 export const InventoryView: React.FC<InventoryViewProps> = ({
   devices,
   branches = [],
@@ -101,6 +105,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   warrantyTickets = [],
   invoices = [],
   users = [],
+  selectedBranchId = 'ALL',
+  onSelectBranchId,
   onAddDevice,
   onAddMultipleDevices,
   onAddPurchaseOrder,
@@ -114,11 +120,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   catalogItems = [],
   currentUser
 }) => {
+  // 1. Branch / Store filter: 'ALL' = Toàn hệ thống (Gộp tất cả shop)
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>(selectedBranchId || 'ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeries, setSelectedSeries] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [selectedCondition, setSelectedCondition] = useState('ALL');
-  const [selectedWarehouseFilter, setSelectedWarehouseFilter] = useState('ALL');
   const [showCostPrice, setShowCostPrice] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
@@ -132,36 +139,109 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
-  const [quickFilter, setQuickFilter] = useState<'ALL' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
+  const [quickFilter, setQuickFilter] = useState<'ALL' | 'IN_STOCK_ONLY' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
 
-  // In stock devices
+  // Handle branch switch sync
+  const handleBranchSelect = (branchId: string) => {
+    setSelectedBranchFilter(branchId);
+    onSelectBranchId?.(branchId);
+  };
+
+  // Helper to match device with branch/warehouse
+  const getDeviceBranch = (dev: DeviceItem): { id: string; name: string; shortName: string } => {
+    if (dev.branchId) {
+      const b = branches.find(item => item.id === dev.branchId);
+      if (b) return { id: b.id, name: b.name, shortName: b.name.replace('Phone House ', '').replace('PhoneHouse ', '') };
+    }
+    if (dev.warehouse) {
+      const w = warehouses.find(item => item.id === dev.warehouse);
+      if (w) {
+        if (w.parentWarehouseId) {
+          const b = branches.find(item => item.id === w.parentWarehouseId);
+          if (b) return { id: b.id, name: b.name, shortName: b.name.replace('Phone House ', '').replace('PhoneHouse ', '') };
+        }
+        return { id: w.id, name: w.name, shortName: w.name };
+      }
+      if (dev.warehouse.includes('XSTORE') || dev.warehouse.includes('Đống Đa')) {
+        return { id: 'CN02', name: 'PhoneHouse XStore (181 Tây Sơn)', shortName: 'Đống Đa' };
+      }
+      if (dev.warehouse.includes('TONG') || dev.warehouse.includes('Tổng')) {
+        return { id: 'WH_TONG', name: 'Kho Tổng Trung Tâm', shortName: 'Kho Tổng' };
+      }
+    }
+    return { id: 'CN01', name: 'PhoneHouse Cầu Giấy (136 Cầu Giấy)', shortName: 'Cầu Giấy' };
+  };
+
+  // Active warehouse options
+  const activeWarehouses = useMemo(() => {
+    if (warehouses && warehouses.length > 0) return warehouses;
+    return WAREHOUSE_LIST;
+  }, [warehouses]);
+
+  // Branch Stock Counts (For Branch Tabs)
+  const branchStockCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: 0 };
+    devices.forEach(d => {
+      if (d.status === 'in_stock') {
+        counts.ALL = (counts.ALL || 0) + 1;
+        const branchInfo = getDeviceBranch(d);
+        counts[branchInfo.id] = (counts[branchInfo.id] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [devices, branches, warehouses]);
+
+  // 1. Branch-Filtered Base List
+  const branchScopedDevices = useMemo(() => {
+    if (selectedBranchFilter === 'ALL' || !selectedBranchFilter) {
+      return devices;
+    }
+    return devices.filter(d => {
+      const branchInfo = getDeviceBranch(d);
+      return branchInfo.id === selectedBranchFilter || d.branchId === selectedBranchFilter || d.warehouse === selectedBranchFilter;
+    });
+  }, [devices, selectedBranchFilter, branches, warehouses]);
+
+  // In stock devices within selected scope
   const inStockDevices = useMemo(() => {
-    return devices.filter(d => d.status === 'in_stock');
-  }, [devices]);
+    return branchScopedDevices.filter(d => d.status === 'in_stock');
+  }, [branchScopedDevices]);
 
   // Distinct models in stock
   const distinctModelsCount = useMemo(() => {
     return new Set(inStockDevices.map(d => d.model)).size;
   }, [inStockDevices]);
 
-  // Total stock sell value
-  const totalStockValue = useMemo(() => {
+  // Total stock cost and selling value (100% Real calculation)
+  const totalStockCostValue = useMemo(() => {
+    return inStockDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+  }, [inStockDevices]);
+
+  const totalStockSellingValue = useMemo(() => {
     return inStockDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
   }, [inStockDevices]);
 
-  // Value formatted in Million (tr)
-  const totalStockValueTr = useMemo(() => {
-    if (totalStockValue >= 1000000) {
-      const trVal = (totalStockValue / 1000000);
-      return trVal % 1 === 0 ? `${trVal}tr` : `${trVal.toFixed(1).replace('.', ',')}tr`;
-    }
-    return `${totalStockValue.toLocaleString('vi-VN')} đ`;
-  }, [totalStockValue]);
+  const potentialGrossProfit = Math.max(0, totalStockSellingValue - totalStockCostValue);
+
+  // 100% Real Aging Stock (> 30 days)
+  const thirtyDaysAgoStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  }, []);
+
+  const agingDevices = useMemo(() => {
+    return inStockDevices.filter(d => d.receivedDate && d.receivedDate < thirtyDaysAgoStr);
+  }, [inStockDevices, thirtyDaysAgoStr]);
+
+  const agingStockCost = useMemo(() => {
+    return agingDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+  }, [agingDevices]);
 
   // Condition breakdown
   const conditionStats = useMemo(() => {
     const total = inStockDevices.length || 1;
-    const likeNew = inStockDevices.filter(d => d.condition === 'Like New 99%').length;
+    const likeNew = inStockDevices.filter(d => d.condition === 'Like New 99%' || d.condition?.includes('99%')).length;
     const newSeal = inStockDevices.filter(d => d.condition === 'New Seal').length;
     const other = inStockDevices.length - likeNew - newSeal;
 
@@ -177,7 +257,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Model stock data for chart
   const modelStockData = useMemo(() => {
-    const modelMap: { [model: string]: { model: string; shortModel: string; totalCount: number; newSeal: number; likeNew: number; otherCondition: number } } = {};
+    const modelMap: Record<string, { model: string; shortModel: string; totalCount: number; newSeal: number; likeNew: number; otherCondition: number }> = {};
     inStockDevices.forEach(d => {
       const modelName = d.model || 'Khác';
       if (!modelMap[modelName]) {
@@ -192,50 +272,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       }
       modelMap[modelName].totalCount += 1;
       if (d.condition === 'New Seal') modelMap[modelName].newSeal += 1;
-      else if (d.condition === 'Like New 99%') modelMap[modelName].likeNew += 1;
+      else if (d.condition === 'Like New 99%' || d.condition?.includes('99%')) modelMap[modelName].likeNew += 1;
       else modelMap[modelName].otherCondition += 1;
     });
 
     return Object.values(modelMap).sort((a, b) => b.totalCount - a.totalCount);
   }, [inStockDevices]);
 
-  // Active warehouse options
-  const activeWarehouses = useMemo(() => {
-    if (warehouses && warehouses.length > 0) return warehouses;
-    return WAREHOUSE_LIST;
-  }, [warehouses]);
-
-  // Form State for new device
-  const [formData, setFormData] = useState<Partial<DeviceItem>>({
-    model: 'iPhone 16 Pro Max',
-    storage: '256GB',
-    color: 'Titan Sa Mạc (Desert)',
-    region: 'VN/A (Chính hãng)',
-    batteryHealth: 100,
-    condition: 'New Seal',
-    buyPrice: 31000000,
-    sellPrice: 34500000,
-    status: 'in_stock',
-    warehouse: 'KHO_PHONEHOUSE',
-    branch: 'Phone House Cầu Giấy (136 Cầu Giấy)',
-    supplier: 'FPT Synnex Distro',
-    warrantyPeriodMonths: 12,
-    icloudStatus: 'Clean / Đã Thoát',
-    screenStatus: 'Zin Màn Keng',
-    imei: '',
-    serialNo: '',
-    notes: ''
-  });
-
-  // Filtered devices
+  // Filtered devices with all user criteria
   const filteredDevices = useMemo(() => {
-    return devices.filter(d => {
+    return branchScopedDevices.filter(d => {
+      const q = searchTerm.toLowerCase().trim();
       const matchesSearch = 
-        d.imei.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.serialNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.model.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.color.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (d.customerName && d.customerName.toLowerCase().includes(searchTerm.toLowerCase()));
+        !q ||
+        d.imei.toLowerCase().includes(q) ||
+        (d.serialNo && d.serialNo.toLowerCase().includes(q)) ||
+        d.model.toLowerCase().includes(q) ||
+        d.color.toLowerCase().includes(q) ||
+        (d.supplier && d.supplier.toLowerCase().includes(q)) ||
+        (d.customerName && d.customerName.toLowerCase().includes(q));
 
       const matchesSeries = 
         selectedSeries === 'ALL' ||
@@ -243,27 +298,24 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         (selectedSeries === '15' && d.model.includes('15')) ||
         (selectedSeries === '14' && d.model.includes('14')) ||
         (selectedSeries === '13' && d.model.includes('13')) ||
-        (selectedSeries === '12' && d.model.includes('12'));
+        (selectedSeries === '12' && d.model.includes('12')) ||
+        (selectedSeries === 'OTHER' && !['16', '15', '14', '13', '12'].some(v => d.model.includes(v)));
 
       const matchesStatus = selectedStatus === 'ALL' || d.status === selectedStatus;
       const matchesCondition = selectedCondition === 'ALL' || d.condition === selectedCondition;
       const matchesChartModel = !selectedChartModel || d.model === selectedChartModel;
-      
-      const matchesWarehouse = 
-        selectedWarehouseFilter === 'ALL' || 
-        d.warehouse === selectedWarehouseFilter ||
-        (selectedWarehouseFilter === 'KHO_PHONEHOUSE' && (!d.warehouse || d.warehouse.includes('PHONEHOUSE') || d.warehouse.includes('Cầu Giấy'))) ||
-        (selectedWarehouseFilter === 'KHO_XSTORE' && (d.warehouse?.includes('XSTORE') || d.warehouse?.includes('Đống Đa'))) ||
-        (selectedWarehouseFilter === 'KHO_TONG' && (d.warehouse?.includes('TONG') || d.warehouse?.includes('Tổng')));
 
+      if (quickFilter === 'IN_STOCK_ONLY' && d.status !== 'in_stock') return false;
       if (quickFilter === 'HIGH_BATTERY' && (d.batteryHealth || 0) < 90) return false;
       if (quickFilter === 'LIKE_NEW' && !d.condition.includes('99%')) return false;
       if (quickFilter === 'NEW_ARRIVALS' && !d.condition.includes('New Seal')) return false;
+      if (quickFilter === 'AGING_STOCK' && (!d.receivedDate || d.receivedDate >= thirtyDaysAgoStr)) return false;
 
-      return matchesSearch && matchesSeries && matchesStatus && matchesCondition && matchesChartModel && matchesWarehouse;
+      return matchesSearch && matchesSeries && matchesStatus && matchesCondition && matchesChartModel;
     });
-  }, [devices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, selectedWarehouseFilter, quickFilter]);
+  }, [branchScopedDevices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, quickFilter, thirtyDaysAgoStr]);
 
+  // Group devices by Model + Storage + Color for Grouped Table View
   const groupedDevices = useMemo(() => {
     const groups: Record<string, {
       id: string;
@@ -273,8 +325,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       devices: DeviceItem[];
       minPrice: number;
       maxPrice: number;
+      minCost: number;
+      maxCost: number;
       inStockCount: number;
       totalCount: number;
+      branchBreakdown: Record<string, number>;
     }> = {};
 
     filteredDevices.forEach(d => {
@@ -288,8 +343,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           devices: [],
           minPrice: d.sellPrice,
           maxPrice: d.sellPrice,
+          minCost: d.buyPrice || 0,
+          maxCost: d.buyPrice || 0,
           inStockCount: 0,
-          totalCount: 0
+          totalCount: 0,
+          branchBreakdown: {}
         };
       }
       
@@ -298,11 +356,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       
       if (d.sellPrice < groups[key].minPrice) groups[key].minPrice = d.sellPrice;
       if (d.sellPrice > groups[key].maxPrice) groups[key].maxPrice = d.sellPrice;
-      if (d.status === 'in_stock') groups[key].inStockCount += 1;
+      if (d.buyPrice && d.buyPrice < groups[key].minCost) groups[key].minCost = d.buyPrice;
+      if (d.buyPrice && d.buyPrice > groups[key].maxCost) groups[key].maxCost = d.buyPrice;
+      
+      if (d.status === 'in_stock') {
+        groups[key].inStockCount += 1;
+        const bInfo = getDeviceBranch(d);
+        groups[key].branchBreakdown[bInfo.shortName] = (groups[key].branchBreakdown[bInfo.shortName] || 0) + 1;
+      }
     });
 
     return Object.values(groups).sort((a, b) => b.model.localeCompare(a.model) || b.inStockCount - a.inStockCount);
-  }, [filteredDevices]);
+  }, [filteredDevices, branches, warehouses]);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => 
@@ -316,65 +381,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     setTimeout(() => setCopiedImei(null), 2000);
   };
 
-  const handleGenerateImei = () => {
-    const randomImei = '35' + Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
-    const randomSerial = 'F' + Math.random().toString(36).substring(2, 10).toUpperCase();
-    setFormData(prev => ({ ...prev, imei: randomImei, serialNo: randomSerial }));
-  };
-
-  const handleSaveNewDevice = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.imei || !formData.model) {
-      alert('Vui lòng nhập đầy đủ IMEI và Dòng máy!');
-      return;
-    }
-
-    const newDevice: DeviceItem = {
-      id: `DEV-${Date.now().toString().slice(-4)}`,
-      imei: formData.imei,
-      serialNo: formData.serialNo || 'SN-' + Date.now().toString().slice(-6),
-      model: formData.model || 'iPhone 16 Pro Max',
-      storage: formData.storage || '256GB',
-      color: formData.color || 'Titan Sa Mạc (Desert)',
-      region: formData.region || 'VN/A (Chính hãng)',
-      batteryHealth: Number(formData.batteryHealth) || 100,
-      condition: (formData.condition as any) || 'New Seal',
-      buyPrice: Number(formData.buyPrice) || 31000000,
-      sellPrice: Number(formData.sellPrice) || 34500000,
-      status: (formData.status as any) || 'in_stock',
-      warehouse: formData.warehouse || 'KHO_PHONEHOUSE',
-      branch: formData.branch || 'Phone House Cầu Giấy (136 Cầu Giấy)',
-      supplier: formData.supplier || 'FPT Synnex',
-      receivedDate: new Date().toISOString().split('T')[0],
-      warrantyPeriodMonths: Number(formData.warrantyPeriodMonths) || 12,
-      icloudStatus: (formData.icloudStatus as any) || 'Clean / Đã Thoát',
-      screenStatus: (formData.screenStatus as any) || 'Zin Màn Keng',
-      notes: formData.notes || ''
-    };
-
-    onAddDevice(newDevice);
-    setIsAddModalOpen(false);
-  };
-
   const getStatusBadge = (status: DeviceItem['status']) => {
     switch (status) {
       case 'in_stock':
         return (
-          <span className="bg-orange-50 text-orange-600 border border-orange-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block animate-pulse" />
+          <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/80 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
             <span>Sẵn hàng</span>
           </span>
         );
       case 'reserved':
         return (
-          <span className="bg-orange-50 text-orange-600 border border-orange-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
-            <span>Đã giữ cọc</span>
+          <span className="bg-amber-50 text-amber-700 border border-amber-200/80 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+            <span>Đã cọc</span>
           </span>
         );
       case 'sold':
         return (
-          <span className="bg-zinc-100 text-zinc-500 border border-zinc-200 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
+          <span className="bg-zinc-100 text-zinc-500 border border-zinc-200 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 inline-block" />
             <span>Đã bán</span>
           </span>
@@ -382,150 +407,222 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       case 'warranty':
       case 'repairing':
         return (
-          <span className="bg-rose-50 text-rose-600 border border-rose-200/60 font-medium text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
+          <span className="bg-rose-50 text-rose-600 border border-rose-200 font-bold text-[10px] px-2 py-0.5 rounded-full flex items-center space-x-1 shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 inline-block" />
             <span>Bảo hành</span>
           </span>
         );
+      default:
+        return null;
     }
   };
 
   return (
-    <div className="w-full space-y-3 sm:space-y-4 pb-12">
+    <div className="w-full space-y-4 pb-16">
       
-      {/* 1. Header Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-0.5">
+      {/* 1. Header Action Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
         <div>
           <div className="flex items-center space-x-2">
-            <h2 className="text-xl sm:text-2xl font-extrabold text-zinc-900 tracking-tight">Kho IMEI</h2>
-            <span className="bg-orange-50 text-[#F94A1F] border border-orange-200/60 text-xs font-bold px-2.5 py-0.5 rounded-full">
-              {inStockDevices.length} máy
+            <h1 className="text-xl sm:text-2xl font-black text-zinc-950 tracking-tight">
+              Quản Lý Kho IMEI & Tồn Kho
+            </h1>
+            <span className="bg-orange-50 text-[#ff4b16] border border-orange-200 text-xs font-bold px-2.5 py-0.5 rounded-full">
+              {inStockDevices.length} máy sẵn sàng
             </span>
           </div>
           <p className="text-xs text-zinc-500 font-medium mt-0.5">
-            Giá trị tồn kho: <span className="font-bold text-zinc-800 font-mono">{totalStockValue.toLocaleString('vi-VN')} đ</span>
+            Đồng bộ theo thời gian thực từng IMEI và trạng thái chi nhánh.
           </p>
         </div>
 
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setIsAnalysisModalOpen(true)}
-            className="bg-orange-50 hover:bg-orange-100 text-[#F94A1F] border border-orange-200 text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
+            className="bg-white hover:bg-orange-50/60 text-zinc-700 hover:text-[#ff4b16] border border-zinc-200/80 text-xs font-bold px-3.5 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
           >
-            <ArrowLeftRight className="w-4 h-4" />
-            <span>Phân Tích Kho vs Chi Nhánh</span>
+            <ArrowLeftRight className="w-4 h-4 text-[#ff4b16]" />
+            <span>Phân Tích Chi Nhánh</span>
           </button>
 
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="bg-[#F94A1F] hover:bg-[#e03d14] text-white text-xs sm:text-sm font-bold px-3.5 sm:px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+            className="bg-gradient-to-r from-orange-500 to-[#ff4b16] hover:brightness-110 text-white text-xs font-bold px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-md shadow-orange-500/25 transition-all cursor-pointer active:scale-95"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Nhập máy / IMEI</span>
+            <span>Nhập Hàng / IMEI</span>
           </button>
         </div>
       </div>
 
-      {/* 2. Top Overview Card (4 Cols matching screenshot) */}
-      <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-zinc-100/90 shadow-2xs space-y-3">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 divide-y lg:divide-y-0 lg:divide-x divide-zinc-100">
+      {/* 2. Omni-Branch Cockpit Bar: Gộp Tất Cả Shop vs Từng Chi Nhánh */}
+      <div className="bg-white p-2 rounded-2xl border border-zinc-200/70 shadow-2xs">
+        <div className="flex items-center space-x-2 overflow-x-auto pb-0.5 scrollbar-none">
           
-          {/* Col 1: Máy tồn */}
-          <div className="flex items-center space-x-3 pt-1 lg:pt-0">
-            <div className="w-10 h-10 rounded-full bg-orange-50 text-[#F94A1F] flex items-center justify-center shrink-0">
-              <Smartphone className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl sm:text-2xl font-extrabold text-zinc-900 leading-none">{inStockDevices.length}</div>
-              <div className="text-xs text-zinc-500 font-medium mt-1">Máy tồn</div>
-            </div>
-          </div>
-
-          {/* Col 2: Model */}
-          <div className="flex items-center space-x-3 pt-2 lg:pt-0 lg:pl-4">
-            <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
-              <Box className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl sm:text-2xl font-extrabold text-zinc-900 leading-none">{distinctModelsCount}</div>
-              <div className="text-xs text-zinc-500 font-medium mt-1">Model</div>
-            </div>
-          </div>
-
-          {/* Col 3: Giá trị tồn */}
-          <div className="flex items-center space-x-3 pt-2 lg:pt-0 lg:pl-4">
-            <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
-              <Layers className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xl sm:text-2xl font-extrabold text-zinc-900 leading-none">{totalStockValueTr}</div>
-              <div className="text-xs text-zinc-500 font-medium mt-1">Giá trị tồn</div>
-            </div>
-          </div>
-
-          {/* Col 4: Condition breakdown */}
-          <div className="flex items-center space-x-3 pt-2 lg:pt-0 lg:pl-4">
-            <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center shrink-0">
-              <PieChart className="w-5 h-5" />
-            </div>
-            <div className="text-[11px] space-y-1 text-zinc-600 font-medium w-full">
-              <div className="flex items-center justify-between">
-                <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />
-                  <span>Like New 99%</span>
-                </span>
-                <span className="font-bold text-zinc-900 font-mono ml-2">{conditionStats.likeNewCount} ({conditionStats.likeNewPct}%)</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-orange-400 inline-block" />
-                  <span>New Seal</span>
-                </span>
-                <span className="font-bold text-zinc-900 font-mono ml-2">{conditionStats.newSealCount} ({conditionStats.newSealPct}%)</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-zinc-400 inline-block" />
-                  <span>Ngoại hình khác</span>
-                </span>
-                <span className="font-bold text-zinc-900 font-mono ml-2">{conditionStats.otherCount} ({conditionStats.otherPct}%)</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Bottom Link: Xem báo cáo chi tiết */}
-        <div className="pt-2 border-t border-zinc-100/80 text-center">
+          {/* Option: Gộp Tất Cả Các Shop */}
           <button
-            onClick={() => setIsChartExpanded(!isChartExpanded)}
-            className="text-xs font-semibold text-zinc-600 hover:text-[#F94A1F] transition-colors inline-flex items-center space-x-1 cursor-pointer"
+            onClick={() => handleBranchSelect('ALL')}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
+              selectedBranchFilter === 'ALL'
+                ? 'bg-zinc-950 text-white shadow-md'
+                : 'bg-zinc-100/70 text-zinc-700 hover:bg-zinc-200/70'
+            }`}
           >
-            <span>{isChartExpanded ? 'Thu gọn báo cáo' : 'Xem báo cáo chi tiết'}</span>
-            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isChartExpanded ? 'rotate-90 text-[#F94A1F]' : ''}`} />
+            <Building2 className={`w-4 h-4 ${selectedBranchFilter === 'ALL' ? 'text-[#ff4b16]' : 'text-zinc-500'}`} />
+            <span>🏢 Toàn Hệ Thống (Gộp tất cả shop)</span>
+            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-black ${
+              selectedBranchFilter === 'ALL' ? 'bg-[#ff4b16] text-white' : 'bg-zinc-200 text-zinc-800'
+            }`}>
+              {branchStockCounts.ALL || inStockDevices.length} máy
+            </span>
           </button>
+
+          {/* Dynamically List Branches */}
+          {branches.map(b => {
+            const count = branchStockCounts[b.id] || 0;
+            const isSelected = selectedBranchFilter === b.id;
+            return (
+              <button
+                key={b.id}
+                onClick={() => handleBranchSelect(b.id)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
+                  isSelected
+                    ? 'bg-[#ff4b16] text-white shadow-md shadow-orange-500/25'
+                    : 'bg-zinc-100/70 text-zinc-700 hover:bg-orange-50 hover:text-[#ff4b16]'
+                }`}
+              >
+                <Warehouse className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-[#ff4b16]'}`} />
+                <span>{b.name}</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-black ${
+                  isSelected ? 'bg-white text-[#ff4b16]' : 'bg-zinc-200 text-zinc-800'
+                }`}>
+                  {count} máy
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Extended Chart Analytics Section */}
+      {/* 3. 4 Cockpit Executive KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        
+        {/* Card 1: Máy Sẵn Xuất Quầy */}
+        <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
+            <span>Máy Sẵn Xuất Quầy</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-mono font-bold text-[10px]">
+              {distinctModelsCount} Model
+            </span>
+          </div>
+          <div className="text-2xl font-black font-mono tracking-tight text-zinc-950 flex items-baseline space-x-1.5">
+            <span>{inStockDevices.length}</span>
+            <span className="text-xs font-sans text-zinc-500 font-bold">cây máy</span>
+          </div>
+          <span className="text-[11px] text-zinc-500 block font-medium">
+            🔥 Seal: <b className="text-zinc-800 font-mono">{conditionStats.newSealCount}</b> • ✨ 99%: <b className="text-zinc-800 font-mono">{conditionStats.likeNewCount}</b>
+          </span>
+        </div>
+
+        {/* Card 2: Vốn Tồn Kho (Cost Value with Privacy Eye) */}
+        <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
+            <span>Vốn Tồn Kho Hiện Tại</span>
+            <button
+              onClick={() => setShowCostPrice(!showCostPrice)}
+              className="text-zinc-400 hover:text-zinc-700 p-0.5 rounded cursor-pointer"
+              title={showCostPrice ? 'Ẩn giá vốn' : 'Hiện giá vốn'}
+            >
+              {showCostPrice ? <EyeOff className="w-3.5 h-3.5 text-zinc-600" /> : <Eye className="w-3.5 h-3.5 text-[#ff4b16]" />}
+            </button>
+          </div>
+          <div className="text-2xl font-black font-mono tracking-tight text-zinc-950">
+            {showCostPrice ? (
+              <>
+                {(totalStockCostValue / 1_000_000_000).toFixed(2)} <span className="text-xs font-sans text-zinc-500 font-bold">Tỷ VNĐ</span>
+              </>
+            ) : (
+              <span className="tracking-widest text-zinc-400">•••••••• đ</span>
+            )}
+          </div>
+          <span className="text-[11px] text-zinc-400 block font-medium truncate">
+            {showCostPrice ? `Tổng vốn: ${totalStockCostValue.toLocaleString('vi-VN')} đ` : 'Chế độ riêng tư tại quầy bán'}
+          </span>
+        </div>
+
+        {/* Card 3: Giá Trị Bán Dự Kiến & Lợi Nhuận Tiềm Năng */}
+        <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
+            <span>Giá Trị Bán Dự Kiến</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 font-mono font-bold text-[10px]">
+              LN: +{(potentialGrossProfit / 1_000_000).toFixed(0)}Tr
+            </span>
+          </div>
+          <div className="text-2xl font-black font-mono tracking-tight text-zinc-950">
+            {(totalStockSellingValue / 1_000_000_000).toFixed(2)} <span className="text-xs font-sans text-zinc-500 font-bold">Tỷ VNĐ</span>
+          </div>
+          <span className="text-[11px] text-emerald-600 block font-medium">
+            Doanh thu tiềm năng khi xuất hết kho
+          </span>
+        </div>
+
+        {/* Card 4: Cảnh Báo Đọng Vốn (>30 Ngày) */}
+        <div className={`p-4 rounded-2xl border shadow-2xs space-y-1.5 ${
+          agingDevices.length > 0 ? 'bg-rose-50/50 border-rose-200/80' : 'bg-white border-zinc-200/70'
+        }`}>
+          <div className="flex items-center justify-between text-xs font-medium">
+            <span className={agingDevices.length > 0 ? 'text-rose-700 font-bold' : 'text-zinc-500'}>
+              Tồn Kho &gt; 30 Ngày
+            </span>
+            {agingDevices.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-md bg-rose-500 text-white font-mono font-bold text-[10px]">
+                Cần xả hàng
+              </span>
+            )}
+          </div>
+          <div className={`text-2xl font-black font-mono tracking-tight ${agingDevices.length > 0 ? 'text-rose-600' : 'text-zinc-950'}`}>
+            {agingDevices.length} <span className="text-xs font-sans font-bold">máy</span>
+          </div>
+          <span className={`text-[11px] block font-medium ${agingDevices.length > 0 ? 'text-rose-600' : 'text-zinc-400'}`}>
+            {agingDevices.length > 0 ? `Đọng vốn ~${(agingStockCost / 1_000_000).toFixed(0)} triệu đồng` : '✅ Tốc độ xoay vòng kho rất tốt'}
+          </span>
+        </div>
+      </div>
+
+      {/* 4. Chart Analytics Toggle Bar */}
+      <div className="bg-white rounded-2xl p-3 border border-zinc-200/70 shadow-2xs flex items-center justify-between">
+        <button
+          onClick={() => setIsChartExpanded(!isChartExpanded)}
+          className="text-xs font-bold text-zinc-700 hover:text-[#ff4b16] transition-colors flex items-center space-x-2 cursor-pointer"
+        >
+          <BarChart3 className="w-4 h-4 text-[#ff4b16]" />
+          <span>{isChartExpanded ? 'Thu gọn biểu đồ cơ cấu kho' : 'Xem biểu đồ phân phối Model & Tình trạng máy'}</span>
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isChartExpanded ? 'rotate-180 text-[#ff4b16]' : ''}`} />
+        </button>
+
+        <span className="text-[11px] text-zinc-400 font-medium">
+          Dữ liệu thời gian thực {selectedBranchFilter === 'ALL' ? 'Toàn hệ thống' : 'Chi nhánh đang chọn'}
+        </span>
+      </div>
+
+      {/* Extended Chart Analytics */}
       {isChartExpanded && (
-        <div className="bg-white rounded-3xl p-4 border border-zinc-100/90 shadow-2xs space-y-3">
-          <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
-            <div className="flex items-center space-x-2">
-              <BarChart3 className="w-4 h-4 text-[#F94A1F]" />
-              <h3 className="text-xs sm:text-sm font-bold text-zinc-900">Phân Phối Tồn Kho Theo Model & Tình Trạng</h3>
-            </div>
+        <div className="bg-white rounded-3xl p-5 border border-zinc-200/70 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+            <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">
+              Phân Phối Tồn Kho Theo Model (Seal / 99% / Khác)
+            </h3>
             {selectedChartModel && (
               <button
                 onClick={() => setSelectedChartModel(null)}
-                className="text-[11px] bg-orange-50 text-[#F94A1F] px-2 py-0.5 rounded-full font-bold"
+                className="text-[11px] bg-orange-50 text-[#ff4b16] px-2.5 py-1 rounded-xl font-bold cursor-pointer"
               >
                 Xóa lọc ({selectedChartModel}) ✕
               </button>
             )}
           </div>
 
-          <div className="h-56 w-full pt-1">
+          <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={modelStockData}
@@ -545,9 +642,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     if (active && payload && payload.length) {
                       const d = payload[0].payload;
                       return (
-                        <div className="bg-zinc-900 text-white p-2.5 rounded-xl shadow-xl text-xs space-y-1 font-sans">
-                          <div className="font-bold text-orange-400 border-b border-zinc-700 pb-1">{d.model} ({d.totalCount} máy)</div>
-                          <div>New Seal: <strong className="text-orange-300">{d.newSeal}</strong></div>
+                        <div className="bg-zinc-900 text-white p-3 rounded-2xl shadow-xl text-xs space-y-1.5">
+                          <div className="font-bold text-[#ff4b16] border-b border-zinc-700 pb-1">{d.model} ({d.totalCount} máy)</div>
+                          <div>New Seal: <strong className="text-amber-400">{d.newSeal}</strong></div>
                           <div>Like New 99%: <strong className="text-orange-400">{d.likeNew}</strong></div>
                           {d.otherCondition > 0 && <div>Khác: <strong>{d.otherCondition}</strong></div>}
                         </div>
@@ -557,60 +654,69 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   }}
                 />
                 <Bar name="New Seal" dataKey="newSeal" stackId="a" fill="#f59e0b" cursor="pointer" />
-                <Bar name="Like New 99%" dataKey="likeNew" stackId="a" fill="#ea580c" cursor="pointer" />
-                <Bar name="Ngoại hình khác" dataKey="otherCondition" stackId="a" fill="#a1a1aa" radius={[4, 4, 0, 0]} cursor="pointer" />
+                <Bar name="Like New 99%" dataKey="likeNew" stackId="a" fill="#ff4b16" cursor="pointer" />
+                <Bar name="Khác" dataKey="otherCondition" stackId="a" fill="#a1a1aa" radius={[4, 4, 0, 0]} cursor="pointer" />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
 
-      {/* 3. Search & Category Filters Bar */}
-      <div className="space-y-2">
+      {/* 5. Command Bar: Search, Quick Chips & View Switcher */}
+      <div className="space-y-2.5">
         
-        {/* Search Input Box & View Switcher */}
+        {/* Search Bar + Mode Switcher */}
         <div className="flex items-center space-x-2">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Tìm IMEI, Serial, model, màu sắc..."
+              placeholder="Tìm nhanh 4-6 số cuối IMEI, Serial, Model, Màu sắc, Nhà cung cấp..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-zinc-100/80 border border-transparent rounded-2xl pl-8 pr-3 py-1.5 text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-orange-500 transition-all font-medium"
+              className="w-full bg-white border border-zinc-200/80 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16] focus:ring-1 focus:ring-[#ff4b16] shadow-2xs font-medium transition-all"
             />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* View Switcher (Table vs Cards) */}
-          <div className="flex items-center bg-zinc-100/80 p-1 rounded-2xl border border-zinc-200/50">
+          {/* View Mode (Grouped Table vs Cards) */}
+          <div className="flex items-center bg-white p-1 rounded-2xl border border-zinc-200/80 shadow-2xs shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`p-1.5 rounded-xl transition-all ${
-                viewMode === 'table' ? 'bg-white text-[#F94A1F] shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                viewMode === 'table' ? 'bg-zinc-950 text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
               }`}
-              title="Xem dạng Bảng"
+              title="Xem dạng Gom nhóm Model"
             >
               <Table2 className="w-4 h-4" />
             </button>
             <button
               type="button"
               onClick={() => setViewMode('cards')}
-              className={`p-1.5 rounded-xl transition-all ${
-                viewMode === 'cards' ? 'bg-white text-[#F94A1F] shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+              className={`p-2 rounded-xl transition-all cursor-pointer ${
+                viewMode === 'cards' ? 'bg-zinc-950 text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
               }`}
-              title="Xem dạng Thẻ Ảnh"
+              title="Xem dạng Thẻ Máy"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
           </div>
 
+          {/* Toggle Advanced Filters */}
           <button
             onClick={() => setShowFilterDrawer(!showFilterDrawer)}
-            className={`p-2.5 rounded-2xl border transition-all cursor-pointer ${
+            className={`p-2.5 rounded-2xl border transition-all cursor-pointer shrink-0 ${
               showFilterDrawer 
-                ? 'bg-[#F94A1F] text-white border-transparent' 
-                : 'bg-zinc-100/80 hover:bg-zinc-200/80 text-zinc-700 border-transparent'
+                ? 'bg-[#ff4b16] text-white border-transparent' 
+                : 'bg-white text-zinc-700 border-zinc-200/80 hover:bg-zinc-50 shadow-2xs'
             }`}
             title="Bộ lọc nâng cao"
           >
@@ -618,22 +724,49 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </button>
         </div>
 
-        {/* Quick Filter Chips (1 Chạm) */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
+        {/* Series Pill Tabs */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
           {[
-            { id: 'ALL', label: 'Tất Cả', icon: null },
-            { id: 'HIGH_BATTERY', label: '🔋 Pin Trâu (≥90%)', icon: null },
-            { id: 'LIKE_NEW', label: '✨ Like New 99%', icon: null },
-            { id: 'NEW_ARRIVALS', label: '🔥 New Seal', icon: null }
+            { id: 'ALL', label: 'Tất cả model' },
+            { id: '16', label: 'iPhone 16 Series' },
+            { id: '15', label: 'iPhone 15 Series' },
+            { id: '14', label: 'iPhone 14 Series' },
+            { id: '13', label: 'iPhone 13 Series' },
+            { id: '12', label: 'iPhone 12 Series' },
+            { id: 'OTHER', label: 'Dòng khác' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setSelectedSeries(item.id)}
+              className={`text-xs px-3.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
+                selectedSeries === item.id
+                  ? 'bg-zinc-950 text-white shadow-xs'
+                  : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/70'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {/* 1-Tap Quick Filter Chips */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+          {[
+            { id: 'ALL', label: 'Tất cả' },
+            { id: 'IN_STOCK_ONLY', label: '⚡ Sẵn hàng xuất quầy' },
+            { id: 'NEW_ARRIVALS', label: '🔥 New Seal' },
+            { id: 'LIKE_NEW', label: '✨ Like New 99%' },
+            { id: 'HIGH_BATTERY', label: '🔋 Pin Trâu (≥90%)' },
+            { id: 'AGING_STOCK', label: '⏳ Tồn lâu (>30N)' }
           ].map((chip) => (
             <button
               key={chip.id}
               type="button"
               onClick={() => setQuickFilter(chip.id as any)}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 quickFilter === chip.id
-                  ? 'bg-orange-500 text-white shadow-xs'
-                  : 'bg-white hover:bg-orange-50 text-zinc-600 border border-zinc-200/80'
+                  ? 'bg-[#ff4b16] text-white shadow-xs'
+                  : 'bg-white hover:bg-orange-50 text-zinc-600 border border-zinc-200/70'
               }`}
             >
               {chip.label}
@@ -641,32 +774,32 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           ))}
         </div>
 
-        {/* Filter Drawer if Toggled */}
+        {/* Advanced Filter Drawer */}
         {showFilterDrawer && (
-          <div className="bg-white rounded-2xl p-3 border border-zinc-200/80 shadow-xs grid grid-cols-2 gap-2 text-xs">
+          <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-sm grid grid-cols-2 gap-3 text-xs animate-in fade-in zoom-in-95 duration-150">
             <div>
-              <label className="block text-[11px] font-bold text-zinc-600 mb-1">Trạng thái máy</label>
+              <label className="block text-[11px] font-bold text-zinc-600 mb-1.5">Trạng thái máy</label>
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-2.5 py-1.5 font-semibold text-zinc-800"
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
               >
                 <option value="ALL">Tất cả trạng thái</option>
                 <option value="in_stock">Sẵn hàng (Trong kho)</option>
                 <option value="reserved">Đã giữ cọc</option>
-                <option value="sold">Đã bán</option>
-                <option value="warranty">Bảo hành</option>
+                <option value="sold">Đã xuất bán</option>
+                <option value="warranty">Đang bảo hành / sửa chữa</option>
               </select>
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-zinc-600 mb-1">Tình trạng ngoại hình</label>
+              <label className="block text-[11px] font-bold text-zinc-600 mb-1.5">Tình trạng ngoại quan</label>
               <select
                 value={selectedCondition}
                 onChange={(e) => setSelectedCondition(e.target.value)}
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-2.5 py-1.5 font-semibold text-zinc-800"
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
               >
-                <option value="ALL">Mọi ngoại hình</option>
+                <option value="ALL">Mọi tình trạng</option>
                 <option value="New Seal">New Seal</option>
                 <option value="Like New 99%">Like New 99%</option>
                 <option value="98% Cấn Nhẹ">98% Cấn Nhẹ</option>
@@ -675,114 +808,37 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
           </div>
         )}
-
-        {/* Category Series Filter Pills Row */}
-        <div className="flex items-center justify-between gap-1.5 pt-0.5">
-          <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-0.5">
-            {[
-              { id: 'ALL', label: 'Tất cả model' },
-              { id: '16', label: 'iPhone 16' },
-              { id: '15', label: 'iPhone 15' },
-              { id: '14', label: 'iPhone 14' },
-              { id: '13', label: 'iPhone 13' },
-              { id: '12', label: 'iPhone 12' },
-            ].map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setSelectedSeries(item.id)}
-                className={`text-xs px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                  selectedSeries === item.id
-                    ? 'bg-[#F94A1F] text-white shadow-2xs font-bold'
-                    : 'bg-zinc-100/90 text-zinc-700 hover:bg-zinc-200/80'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={() => setShowFilterDrawer(!showFilterDrawer)}
-            className="text-xs bg-zinc-100 hover:bg-zinc-200 text-zinc-700 px-3 py-1.5 rounded-xl font-semibold flex items-center space-x-1 shrink-0 cursor-pointer"
-          >
-            <Filter className="w-3.5 h-3.5" />
-            <span>Bộ lọc</span>
-          </button>
-        </div>
-
-        {/* Warehouse Filter Pills Row */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-1 bg-orange-50/50 p-1.5 rounded-2xl border border-orange-100/70">
-          <span className="text-[11px] font-extrabold text-orange-900 px-2 flex items-center space-x-1 shrink-0">
-            <Warehouse className="w-3.5 h-3.5 text-orange-600" />
-            <span>Kho hàng:</span>
-          </span>
-          <button
-            onClick={() => setSelectedWarehouseFilter('ALL')}
-            className={`text-xs px-2.5 py-1 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
-              selectedWarehouseFilter === 'ALL'
-                ? 'bg-orange-600 text-white shadow-xs'
-                : 'bg-white text-zinc-700 hover:bg-orange-100/80 border border-orange-200/50'
-            }`}
-          >
-            Tất cả kho ({inStockDevices.length})
-          </button>
-          {activeWarehouses.map((w) => {
-            const countInW = inStockDevices.filter(d => 
-              d.warehouse === w.id || 
-              (w.id === 'KHO_PHONEHOUSE' && (!d.warehouse || d.warehouse.includes('PHONEHOUSE') || d.warehouse.includes('Cầu Giấy'))) ||
-              (w.id === 'KHO_XSTORE' && (d.warehouse?.includes('XSTORE') || d.warehouse?.includes('Đống Đa'))) ||
-              (w.id === 'KHO_TONG' && (d.warehouse?.includes('TONG') || d.warehouse?.includes('Tổng')))
-            ).length;
-            return (
-              <button
-                key={w.id}
-                onClick={() => setSelectedWarehouseFilter(w.id)}
-                className={`text-xs px-2.5 py-1 rounded-xl font-bold whitespace-nowrap transition-all flex items-center space-x-1 cursor-pointer ${
-                  selectedWarehouseFilter === w.id
-                    ? 'bg-orange-600 text-white shadow-xs'
-                    : 'bg-white text-zinc-700 hover:bg-orange-100/80 border border-orange-200/50'
-                }`}
-              >
-                <span>{w.name}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                  selectedWarehouseFilter === w.id ? 'bg-white text-orange-600' : 'bg-orange-100 text-orange-800'
-                }`}>
-                  {countInW}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
       </div>
 
-      {/* 4. List of Devices: Card Grid View OR Grouped Table View */}
+      {/* 6. List of Devices: Grouped Model View OR Cards Grid View */}
       {viewMode === 'cards' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {filteredDevices.length === 0 ? (
-            <div className="col-span-full p-8 text-center bg-white rounded-3xl border border-zinc-100 text-zinc-500 text-xs">
-              Không tìm thấy cây máy nào khớp điều kiện tìm kiếm.
+            <div className="col-span-full p-12 text-center bg-white rounded-3xl border border-zinc-200/70 text-zinc-400 text-xs font-medium">
+              Không tìm thấy cây máy nào khớp với điều kiện tìm kiếm.
             </div>
           ) : (
             filteredDevices.map((device) => {
               const battery = device.batteryHealth || 100;
-              const batteryColor = battery >= 90 ? 'text-green-600 bg-green-50 border-green-200' : battery >= 80 ? 'text-amber-600 bg-amber-50 border-amber-200' : 'text-rose-600 bg-rose-50 border-rose-200';
+              const batteryColor = battery >= 90 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : battery >= 80 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-rose-700 bg-rose-50 border-rose-200';
+              const branchInfo = getDeviceBranch(device);
+              const isAging = device.receivedDate && device.receivedDate < thirtyDaysAgoStr;
               
               return (
                 <div 
                   key={device.id}
-                  className="bg-white rounded-3xl p-4 border border-zinc-100 shadow-2xs hover:border-orange-300 hover:shadow-md transition-all flex flex-col justify-between space-y-3 relative group"
+                  className="bg-white rounded-3xl p-4 border border-zinc-200/70 shadow-2xs hover:border-orange-300 hover:shadow-md transition-all flex flex-col justify-between space-y-3 relative group"
                 >
                   <div className="flex items-start space-x-3">
                     <DeviceImageThumbnail model={device.model} color={device.color} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 truncate">
-                          {device.warehouse || 'Kho Tổng'}
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff4b16] bg-orange-50 px-2 py-0.5 rounded-lg border border-orange-100 truncate">
+                          🏪 {branchInfo.shortName}
                         </span>
                         {getStatusBadge(device.status)}
                       </div>
-                      <h4 className="font-extrabold text-zinc-900 text-sm tracking-tight truncate group-hover:text-[#F94A1F] transition-colors mt-0.5">
+                      <h4 className="font-black text-zinc-950 text-sm tracking-tight truncate group-hover:text-[#ff4b16] transition-colors mt-1">
                         {device.model}
                       </h4>
                       <p className="text-xs text-zinc-500 font-medium">
@@ -797,21 +853,32 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       <Battery className="w-3 h-3" />
                       <span>Pin {battery}%</span>
                     </span>
-                    <span className="bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-lg border border-zinc-200 font-mono">
+                    <span className="bg-zinc-100 text-zinc-800 px-2 py-0.5 rounded-lg border border-zinc-200 font-mono">
                       IMEI: *{device.imei.slice(-6)}
                     </span>
-                    <span className="bg-orange-50 text-orange-700 px-2 py-0.5 rounded-lg border border-orange-200">
+                    <span className="bg-orange-50 text-orange-800 px-2 py-0.5 rounded-lg border border-orange-200">
                       {device.condition}
                     </span>
+                    {isAging && (
+                      <span className="bg-rose-50 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200 font-bold flex items-center space-x-1">
+                        <Clock className="w-3 h-3" />
+                        <span>Tồn lâu</span>
+                      </span>
+                    )}
                   </div>
 
                   {/* Price & Quick Actions */}
-                  <div className="pt-2 border-t border-zinc-100 flex items-center justify-between">
+                  <div className="pt-2.5 border-t border-zinc-100 flex items-center justify-between">
                     <div>
                       <div className="text-[10px] text-zinc-400 font-bold uppercase">Giá Niêm Yết:</div>
-                      <div className="text-sm font-black text-[#F94A1F] font-mono">
+                      <div className="text-sm font-black text-[#ff4b16] font-mono">
                         {(device.sellPrice || 0).toLocaleString('vi-VN')} đ
                       </div>
+                      {showCostPrice && (
+                        <div className="text-[10px] text-zinc-400 font-mono">
+                          Vốn: {(device.buyPrice || 0).toLocaleString('vi-VN')} đ
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center space-x-1">
@@ -819,7 +886,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onQuickSell(device)}
-                          className="px-3 py-1.5 bg-[#F94A1F] hover:bg-[#e03d14] text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                          className="px-3 py-1.5 bg-[#ff4b16] hover:bg-[#e03d14] text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
                           title="Bán ngay trên POS"
                         >
                           <ShoppingCart className="w-3.5 h-3.5" />
@@ -830,7 +897,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         type="button"
                         onClick={() => setSelectedDeviceForDetail(device)}
                         className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors cursor-pointer"
-                        title="Xem chi tiết"
+                        title="Xem chi tiết máy"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -844,214 +911,256 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       ) : (
         <div className="space-y-3">
           {groupedDevices.length === 0 ? (
-            <div className="p-8 text-center bg-white rounded-3xl border border-zinc-100 text-zinc-500 text-xs">
-              Không tìm thấy cây máy nào khớp điều kiện tìm kiếm.
+            <div className="p-12 text-center bg-white rounded-3xl border border-zinc-200/70 text-zinc-400 text-xs font-medium">
+              Không tìm thấy cây máy nào khớp với điều kiện tìm kiếm.
             </div>
           ) : (
             groupedDevices.map((group) => {
-            const isExpanded = expandedGroups.includes(group.id);
-            const priceRange = group.minPrice === group.maxPrice 
-              ? `${group.minPrice.toLocaleString('vi-VN')} đ`
-              : `${group.minPrice.toLocaleString('vi-VN')} đ - ${group.maxPrice.toLocaleString('vi-VN')} đ`;
-              
-            return (
-              <div 
-                key={group.id} 
-                className="bg-white rounded-3xl p-3.5 sm:p-4 border border-zinc-100/90 shadow-2xs hover:border-orange-200/80 transition-all space-y-3 relative"
-              >
-                {/* Group Summary Row */}
+              const isExpanded = expandedGroups.includes(group.id);
+              const priceRange = group.minPrice === group.maxPrice 
+                ? `${group.minPrice.toLocaleString('vi-VN')} đ`
+                : `${group.minPrice.toLocaleString('vi-VN')} đ - ${group.maxPrice.toLocaleString('vi-VN')} đ`;
+
+              const branchDistributionStr = Object.entries(group.branchBreakdown)
+                .map(([name, count]) => `${name}: ${count}`)
+                .join(' • ');
+
+              return (
                 <div 
-                  className="flex gap-3 items-center cursor-pointer group"
-                  onClick={() => toggleGroup(group.id)}
+                  key={group.id} 
+                  className="bg-white rounded-3xl p-4 border border-zinc-200/70 shadow-2xs hover:border-orange-300 transition-all space-y-3 relative"
                 >
-                  <DeviceImageThumbnail model={group.model} color={group.color} />
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-1.5">
-                      <h3 className="font-extrabold text-zinc-900 text-sm sm:text-base tracking-tight truncate group-hover:text-[#F94A1F] transition-colors">
-                        {group.model} {group.storage}
-                      </h3>
-                      <div className="bg-orange-50 text-[#F94A1F] border border-orange-200/60 font-bold text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full shrink-0">
-                        {group.inStockCount} Sẵn / {group.totalCount} Tổng
+                  {/* Group Summary Row */}
+                  <div 
+                    className="flex gap-3.5 items-center cursor-pointer group"
+                    onClick={() => toggleGroup(group.id)}
+                  >
+                    <DeviceImageThumbnail model={group.model} color={group.color} />
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3 className="font-black text-zinc-950 text-sm sm:text-base tracking-tight truncate group-hover:text-[#ff4b16] transition-colors">
+                            {group.model} {group.storage}
+                          </h3>
+                          <p className="text-xs text-zinc-500 font-medium">
+                            Màu: <strong className="text-zinc-800">{group.color}</strong>
+                          </p>
+                        </div>
+                        
+                        <div className="bg-orange-50 text-[#ff4b16] border border-orange-200 font-black text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full shrink-0">
+                          {group.inStockCount} Sẵn / {group.totalCount} Tổng
+                        </div>
                       </div>
-                    </div>
-                    <p className="text-xs text-zinc-500 font-medium">
-                      Màu: <strong className="text-zinc-800">{group.color}</strong>
-                    </p>
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="text-[#F94A1F] font-extrabold text-sm sm:text-base tracking-tight font-mono">
-                        {priceRange}
-                      </div>
-                      <div className="text-zinc-400 hover:text-[#F94A1F] transition-colors flex items-center text-xs font-bold space-x-1">
-                        <span>{isExpanded ? 'Thu gọn' : 'Xem chi tiết'}</span>
-                        <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180 text-[#F94A1F]' : ''}`} />
+
+                      {/* Cross-Store Stock Distribution Badge */}
+                      {branchDistributionStr && (
+                        <div className="mt-1.5 flex items-center space-x-1 text-[11px] text-zinc-600 font-bold bg-zinc-50 px-2.5 py-1 rounded-xl border border-zinc-100 w-fit">
+                          <Warehouse className="w-3.5 h-3.5 text-[#ff4b16] shrink-0" />
+                          <span>Phân bổ shop:</span>
+                          <span className="text-zinc-900 font-mono">{branchDistributionStr}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-2">
+                        <div>
+                          <span className="text-[#ff4b16] font-black text-sm sm:text-base tracking-tight font-mono">
+                            {priceRange}
+                          </span>
+                          {showCostPrice && group.minCost > 0 && (
+                            <span className="text-[10px] text-zinc-400 font-mono ml-2">
+                              (Vốn: {group.minCost.toLocaleString('vi-VN')} đ)
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-zinc-400 hover:text-[#ff4b16] transition-colors flex items-center text-xs font-bold space-x-1">
+                          <span>{isExpanded ? 'Thu gọn' : `Xem ${group.devices.length} cây máy`}</span>
+                          <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180 text-[#ff4b16]' : ''}`} />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Individual Devices (Expanded State) */}
-                {isExpanded && (
-                  <div className="pt-3 border-t border-zinc-100/80 space-y-2.5">
-                    {group.devices.map(device => (
-                      <div key={device.id} className="bg-zinc-50/80 rounded-2xl p-3 border border-zinc-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative">
-                        <div className="space-y-1.5 flex-1 min-w-0">
-                          <div className="flex items-center space-x-2">
-                            {getStatusBadge(device.status)}
-                            <span className="text-xs font-mono font-bold text-zinc-800">IMEI: {device.imei.slice(-6)}</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCopyImei(device.imei);
-                              }}
-                              className="text-zinc-400 hover:text-[#F94A1F] transition-colors cursor-pointer"
-                              title="Sao chép IMEI"
-                            >
-                              {copiedImei === device.imei ? (
-                                <Check className="w-3.5 h-3.5 text-orange-500" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-lg ${
-                              device.condition === 'New Seal'
-                                ? 'bg-orange-50 text-orange-700 border border-orange-100'
-                                : device.condition === 'Like New 99%'
-                                ? 'bg-orange-50 text-orange-600 border border-orange-100'
-                                : 'bg-orange-50 text-orange-700 border border-orange-100'
-                            }`}>
-                              {device.condition}
-                            </span>
-                            <span className="bg-orange-50 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-lg border border-orange-200/80 flex items-center space-x-1">
-                              <Warehouse className="w-3 h-3 text-orange-500 inline" />
-                              <span>
-                                {device.warehouse === 'KHO_XSTORE' 
-                                  ? 'Kho Xstore (Đống Đa)' 
-                                  : device.warehouse === 'KHO_TONG' 
-                                  ? 'Kho Tổng' 
-                                  : 'Kho Cầu Giấy'}
-                              </span>
-                            </span>
-                            <span className="bg-white text-zinc-700 text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-zinc-200/80">
-                              Pin {device.batteryHealth}%
-                            </span>
-                            <span className="bg-white text-zinc-700 text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-zinc-200/80">
-                              {device.region}
-                            </span>
-                            {device.supplier && (
-                              <span className="bg-zinc-100 text-zinc-700 text-[10px] font-medium px-2 py-0.5 rounded-lg border border-zinc-200">
-                                NCC: {device.supplier}
-                              </span>
-                            )}
-                    
-                            {device.images && device.images.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPreviewingPhoto(device.images![0]);
-                                }}
-                                className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-orange-100 text-orange-950 text-[10px] font-bold border border-orange-300 hover:bg-orange-200 transition-colors cursor-pointer"
-                                title="Xem ảnh thực tế chụp máy"
-                              >
-                                <Camera className="w-3 h-3 text-[#F94A1F]" />
-                                <span>📸 {device.images.length} Ảnh</span>
-                              </button>
-                            )}
-                    
-                          </div>
-                        </div>
+                  {/* Individual IMEI Devices (Expanded State) */}
+                  {isExpanded && (
+                    <div className="pt-3 border-t border-zinc-100 space-y-2.5">
+                      {group.devices.map(device => {
+                        const branchInfo = getDeviceBranch(device);
+                        const isAging = device.receivedDate && device.receivedDate < thirtyDaysAgoStr;
+                        const battery = device.batteryHealth || 100;
+                        const batteryColor = battery >= 90 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : battery >= 80 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-rose-700 bg-rose-50 border-rose-200';
 
-                        <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 border-zinc-200/60 pt-2 sm:pt-0">
-                          <div className="text-right">
-                            <div className="text-[#F94A1F] font-extrabold text-sm font-mono">
-                              {device.sellPrice.toLocaleString('vi-VN')} đ
+                        return (
+                          <div 
+                            key={device.id} 
+                            className="bg-zinc-50/80 rounded-2xl p-3 border border-zinc-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative"
+                          >
+                            <div className="space-y-1.5 flex-1 min-w-0">
+                              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                                {getStatusBadge(device.status)}
+                                
+                                {/* Branch Tag */}
+                                <span className="bg-white text-zinc-800 border border-zinc-200/80 text-[10px] font-bold px-2 py-0.5 rounded-lg flex items-center space-x-1">
+                                  <Warehouse className="w-3 h-3 text-[#ff4b16]" />
+                                  <span>{branchInfo.shortName}</span>
+                                </span>
+
+                                <span className="text-xs font-mono font-bold text-zinc-900">
+                                  IMEI: {device.imei}
+                                </span>
+
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCopyImei(device.imei);
+                                  }}
+                                  className="text-zinc-400 hover:text-[#ff4b16] transition-colors cursor-pointer"
+                                  title="Sao chép IMEI"
+                                >
+                                  {copiedImei === device.imei ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-orange-50 text-orange-800 border border-orange-100">
+                                  {device.condition}
+                                </span>
+
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${batteryColor}`}>
+                                  Pin {battery}%
+                                </span>
+
+                                <span className="bg-white text-zinc-700 text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-zinc-200/80 font-mono">
+                                  {device.region}
+                                </span>
+
+                                {device.supplier && (
+                                  <span className="bg-zinc-100 text-zinc-600 text-[10px] font-medium px-2 py-0.5 rounded-lg border border-zinc-200">
+                                    NCC: {device.supplier}
+                                  </span>
+                                )}
+
+                                {isAging && (
+                                  <span className="bg-rose-50 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-lg border border-rose-200 flex items-center space-x-1">
+                                    <Clock className="w-3 h-3" />
+                                    <span>Tồn &gt;30N</span>
+                                  </span>
+                                )}
+
+                                {device.images && device.images.length > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPreviewingPhoto(device.images![0]);
+                                    }}
+                                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-orange-100 text-orange-950 text-[10px] font-bold border border-orange-300 hover:bg-orange-200 transition-colors cursor-pointer"
+                                    title="Xem ảnh chụp thực tế"
+                                  >
+                                    <Camera className="w-3 h-3 text-[#ff4b16]" />
+                                    <span>📸 {device.images.length} Ảnh</span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                            {showCostPrice && (
-                              <div className="text-[10px] text-zinc-400 font-mono">Vốn: {device.buyPrice.toLocaleString('vi-VN')}đ</div>
-                            )}
-                    
-                          </div>
 
-                          <div className="flex items-center space-x-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedDeviceForDetail(device);
-                              }}
-                              className="px-2.5 py-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200/80 rounded-lg text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer shadow-2xs"
-                              title="Xem Chi Tiết, Lịch Sử & Timeline Máy"
-                            >
-                              <History className="w-3.5 h-3.5 text-orange-600" />
-                              <span>Lịch Sử</span>
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedDeviceForBarcode(device);
-                              }}
-                              className="p-1.5 bg-white text-zinc-600 hover:text-[#F94A1F] border border-zinc-200 hover:border-orange-200 rounded-lg cursor-pointer transition-colors"
-                              title="In Tem Barcode"
-                            >
-                              <Printer className="w-3.5 h-3.5" />
-                            </button>
-                            {device.status === 'in_stock' && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onQuickSell(device);
-                                }}
-                                className="bg-white hover:bg-orange-50 text-[#F94A1F] border border-orange-200/90 text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1 shadow-2xs transition-all cursor-pointer"
-                              >
-                                <ShoppingCart className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Bán</span>
-                              </button>
-                            )}
-                    
-                            <div className="relative">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setActiveMenuDeviceId(activeMenuDeviceId === device.id ? null : device.id);
-                                }}
-                                className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg transition-colors cursor-pointer"
-                              >
-                                <MoreVertical className="w-4 h-4" />
-                              </button>
-                              {activeMenuDeviceId === device.id && (
-                                <div className="absolute right-0 top-8 w-32 bg-white border border-zinc-200 rounded-xl shadow-xl z-20 p-1 space-y-0.5 text-xs text-left">
+                            {/* Price & Action Row */}
+                            <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 border-zinc-200 pt-2 sm:pt-0">
+                              <div className="text-right">
+                                <div className="text-[#ff4b16] font-black text-sm font-mono">
+                                  {(device.sellPrice || 0).toLocaleString('vi-VN')} đ
+                                </div>
+                                {showCostPrice && (
+                                  <div className="text-[10px] text-zinc-400 font-mono">
+                                    Vốn: {(device.buyPrice || 0).toLocaleString('vi-VN')} đ
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center space-x-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedDeviceForDetail(device);
+                                  }}
+                                  className="px-2.5 py-1.5 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-xl text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer shadow-2xs"
+                                  title="Xem Chi Tiết & Lịch Sử Máy"
+                                >
+                                  <History className="w-3.5 h-3.5 text-[#ff4b16]" />
+                                  <span>Lịch Sử</span>
+                                </button>
+
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedDeviceForBarcode(device);
+                                  }}
+                                  className="p-1.5 bg-white text-zinc-600 hover:text-[#ff4b16] border border-zinc-200 rounded-xl cursor-pointer transition-colors shadow-2xs"
+                                  title="In Tem Barcode"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                </button>
+
+                                {device.status === 'in_stock' && (
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      onDeleteDevice(device.id);
-                                      setActiveMenuDeviceId(null);
+                                      onQuickSell(device);
                                     }}
-                                    className="w-full px-3 py-1.5 hover:bg-rose-50 text-rose-600 rounded-lg flex items-center space-x-2 font-medium cursor-pointer"
+                                    className="bg-[#ff4b16] hover:bg-[#e03d14] text-white text-[11px] font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                                    title="Bán ngay trên POS"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    <span>Xóa máy</span>
+                                    <ShoppingCart className="w-3.5 h-3.5" />
+                                    <span>Bán</span>
                                   </button>
+                                )}
+
+                                <div className="relative">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveMenuDeviceId(activeMenuDeviceId === device.id ? null : device.id);
+                                    }}
+                                    className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-xl transition-colors cursor-pointer"
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+                                  {activeMenuDeviceId === device.id && (
+                                    <div className="absolute right-0 top-8 w-32 bg-white border border-zinc-200 rounded-xl shadow-xl z-20 p-1 space-y-0.5 text-xs text-left">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onDeleteDevice(device.id);
+                                          setActiveMenuDeviceId(null);
+                                        }}
+                                        className="w-full px-3 py-1.5 hover:bg-rose-50 text-rose-600 rounded-lg flex items-center space-x-2 font-medium cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Xóa máy</span>
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                      
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-        
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
       )}
 
-      {/* MODAL: Nhập Hàng Mới Siêu Nâng Cấp */}
+      {/* MODAL: Nhập Hàng Mới Uniform Entry Form */}
       <UniformEntryForm 
         currentUser={currentUser}
         catalogItems={catalogItems}
@@ -1097,7 +1206,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               />
             </div>
             <div className="p-3 bg-zinc-800 text-center text-xs text-zinc-400">
-              Ảnh kiểm định ngoại quan khi nhập hàng được nén tự động và lưu trữ an toàn.
+              Ảnh kiểm định ngoại quan khi nhập hàng được lưu trữ an toàn.
             </div>
           </div>
         </div>
@@ -1108,17 +1217,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-orange-200 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl p-5 space-y-4">
             <div className="flex justify-between items-center border-b border-zinc-200 pb-3">
-              <span className="font-extrabold text-sm text-zinc-900">Tem Nhãn Mã Vạch K80</span>
+              <span className="font-black text-sm text-zinc-950">Tem Nhãn Mã Vạch K80</span>
               <button onClick={() => setSelectedDeviceForBarcode(null)} className="text-zinc-400 hover:text-zinc-600 font-bold">✕</button>
             </div>
 
-            {/* Virtual Thermal Sticker */}
             <div className="bg-zinc-50 text-black p-4 rounded-xl border border-zinc-300 text-center font-sans space-y-2 shadow-inner">
-              <div className="font-black text-sm tracking-tight text-[#F94A1F]">PHONE HOUSE • APPLE PREMIUM</div>
+              <div className="font-black text-sm tracking-tight text-[#ff4b16]">PHONE HOUSE • APPLE PREMIUM</div>
               <div className="font-bold text-xs">{selectedDeviceForBarcode.model} {selectedDeviceForBarcode.storage}</div>
               <div className="text-[10px] text-zinc-600">{selectedDeviceForBarcode.color} • {selectedDeviceForBarcode.region} • Pin {selectedDeviceForBarcode.batteryHealth}%</div>
 
-              {/* Barcode lines */}
               <div className="py-2 flex flex-col items-center">
                 <div className="h-10 w-48 bg-repeat-x flex items-center justify-center border-y border-black font-mono tracking-widest text-[10px] font-bold">
                   ||| | |||| | ||| |||| | |||
@@ -1127,14 +1234,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               </div>
 
               <div className="text-sm font-black text-zinc-900 pt-1 border-t border-dashed border-zinc-300">
-                {selectedDeviceForBarcode.sellPrice.toLocaleString('vi-VN')} đ
+                {(selectedDeviceForBarcode.sellPrice || 0).toLocaleString('vi-VN')} đ
               </div>
             </div>
 
             <div className="flex space-x-2">
               <button
                 onClick={() => window.print()}
-                className="flex-1 py-2.5 bg-[#F94A1F] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
+                className="flex-1 py-2.5 bg-[#ff4b16] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
               >
                 In Tem Máy
               </button>
@@ -1149,25 +1256,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       )}
 
-      {/* MODAL: Chi Tiết Máy & Lịch Sử Timeline Toàn Diện (Transfers, KCS, Bảo Hành, Bàn Giao) */}
+      {/* MODAL: Chi Tiết Máy & Lịch Sử Timeline Toàn Diện */}
       {selectedDeviceForDetail && (
         <DeviceDetailModal
-        device={selectedDeviceForDetail}
-        isOpen={true}
-        onClose={() => setSelectedDeviceForDetail(null)}
-        transfers={transfers}
-        warrantyTickets={warrantyTickets}
-        invoices={invoices}
-        warehouses={warehouses}
-        users={users}
-        onUpdateDevice={onUpdateDevice}
-        onQuickSell={onQuickSell}
-        onOpenTransferModal={onOpenTransferModal}
-        onPrintBarcode={(dev) => {
-          setSelectedDeviceForDetail(null);
-          setSelectedDeviceForBarcode(dev);
-        }}
-      />
+          device={selectedDeviceForDetail}
+          isOpen={true}
+          onClose={() => setSelectedDeviceForDetail(null)}
+          transfers={transfers}
+          warrantyTickets={warrantyTickets}
+          invoices={invoices}
+          warehouses={warehouses}
+          users={users}
+          onUpdateDevice={onUpdateDevice}
+          onQuickSell={onQuickSell}
+          onOpenTransferModal={onOpenTransferModal}
+          onPrintBarcode={(dev) => {
+            setSelectedDeviceForDetail(null);
+            setSelectedDeviceForBarcode(dev);
+          }}
+        />
       )}
     </div>
   );
