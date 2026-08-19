@@ -54,13 +54,15 @@ export const AppShell: React.FC<AppShellProps> = ({
         <main className={`flex-1 ${
           activeTab === 'pos'
             ? 'p-0 overflow-hidden'
-            : 'overflow-y-auto p-2 sm:p-4 lg:p-5 pb-20 lg:pb-6 scrollbar-thin scrollbar-thumb-zinc-200'
+            : activeTab === 'dashboard'
+              ? 'p-0 overflow-y-auto'
+              : 'overflow-y-auto p-2 sm:p-4 lg:p-5 pb-20 lg:pb-6 scrollbar-thin scrollbar-thumb-zinc-200'
         }`}>
           <div className={`${
-            activeTab === 'pos'
-              ? 'w-full h-full'
-              : ['chat', 'crm', 'warranty', 'tradein', 'funds', 'inventory'].includes(activeTab)
-                ? 'w-full max-w-[1700px] mx-auto'
+            activeTab === 'pos' || activeTab === 'dashboard'
+              ? 'w-full h-full max-w-none'
+              : ['chat', 'crm', 'warranty', 'tradein', 'funds', 'inventory', 'purchase-orders'].includes(activeTab)
+                ? 'w-full max-w-none px-2 sm:px-4'
                 : 'max-w-7xl mx-auto w-full'
           }`}>
             {children}

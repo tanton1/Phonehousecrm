@@ -433,9 +433,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     <div className="w-full min-h-screen bg-[#f8f9fa] text-zinc-900 select-none font-sans">
       
       {/* ========================================================================= */}
-      {/* 🖥️ DESKTOP HUD EXECUTIVE VIEW (>= 1024px) - Bố cục Chuyên Nghiệp Máy Tính */}
+      {/* 🖥️ DESKTOP HUD EXECUTIVE VIEW (>= 1024px) - Bố cục Chuyên Nghiệp Máy Tính (Tràn viền) */}
       {/* ========================================================================= */}
-      <div className="hidden lg:block max-w-[1600px] mx-auto p-5 space-y-5 pb-20">
+      <div className="hidden lg:block w-full max-w-none px-4 sm:px-6 lg:px-8 py-5 space-y-5 pb-20">
         {/* Top Command Bar Desktop */}
         <div className="flex items-center justify-between bg-white px-5 py-3.5 rounded-2xl border border-zinc-200/70 shadow-2xs">
           <div className="flex items-center space-x-3">
