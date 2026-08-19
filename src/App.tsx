@@ -2100,10 +2100,12 @@ export default function App() {
         {activeTab === 'sales-workspace' && (
           <SalesWorkspaceView
             currentUser={currentUser}
+            users={users}
             devices={filteredDevices}
             branches={branches}
             invoices={filteredInvoices}
             leads={filteredLeads}
+            warrantyTickets={filteredWarrantyTickets}
             warehouses={warehouses}
             storeSettings={storeSettings}
             onCreateInvoice={handleCreateInvoice}

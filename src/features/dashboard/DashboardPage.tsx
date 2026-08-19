@@ -67,8 +67,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const currentBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
   const currentBranchName = branches.find(b => b.id === selectedBranchId)?.name || 'Toàn Hệ Thống PhoneHouse';
 
+  const userRoleUpper = (currentUser?.role || (currentUser as any)?.roleLevel || '').toUpperCase();
+
   // 1. Role-Adaptive Home for SALES (Integrated Cockpit & KPI Center)
-  if (currentUser?.role === 'SALES' || currentUser?.role === 'SALE') {
+  if (userRoleUpper.includes('SALE') || userRoleUpper === 'SELLER' || userRoleUpper === 'NVBH') {
     return (
       <SalesHomeView
         invoices={invoices}
@@ -86,7 +88,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }
 
   // 2. Role-Adaptive Home for TECHNICIANS
-  if (currentUser?.role === 'TECHNICIAN' || currentUser?.role === 'TECH' || currentUser?.role === 'TECH_LEAD') {
+  if (userRoleUpper.includes('TECH') || userRoleUpper.includes('KỸ THUẬT') || userRoleUpper === 'KTV') {
     return (
       <TechHomeView
         warrantyTickets={warrantyTickets}
@@ -99,7 +101,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   }
 
   // 3. Role-Adaptive Home for ACCOUNTANTS
-  if (currentUser?.role === 'ACCOUNTANT') {
+  if (userRoleUpper.includes('ACCOUNT') || userRoleUpper.includes('KẾ TOÁN')) {
     return (
       <AccountantHomeView
         invoices={invoices}

@@ -520,16 +520,16 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
               {/* Commission Total */}
               <div>
                 <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-400">
-                  +{dualWallet.grandTotalCommission.toLocaleString('vi-VN')} <span className="text-sm font-sans">đ</span>
+                  +{(dualWallet?.totalGrossCommission || 0).toLocaleString('vi-VN')} <span className="text-sm font-sans">đ</span>
                 </span>
                 <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-zinc-800/80 text-[11px] font-mono">
                   <div className="bg-zinc-950/60 p-2 rounded-xl border border-zinc-800">
                     <span className="text-zinc-500 block text-[10px]">Hoa hồng Máy</span>
-                    <span className="text-white font-bold">+{dualWallet.salesWallet.deviceCommission.toLocaleString('vi-VN')} đ</span>
+                    <span className="text-white font-bold">+{(dualWallet?.salesWallet?.deviceCommission || 0).toLocaleString('vi-VN')} đ</span>
                   </div>
                   <div className="bg-zinc-950/60 p-2 rounded-xl border border-zinc-800">
                     <span className="text-zinc-500 block text-[10px]">Phụ kiện & Dịch vụ</span>
-                    <span className="text-amber-400 font-bold">+{(dualWallet.salesWallet.accessoryCommission + dualWallet.salesWallet.carePackageCommission).toLocaleString('vi-VN')} đ</span>
+                    <span className="text-amber-400 font-bold">+{(Number(dualWallet?.salesWallet?.accessoryCommission || 0) + Number(dualWallet?.salesWallet?.carePackageCommission || 0)).toLocaleString('vi-VN')} đ</span>
                   </div>
                 </div>
               </div>
