@@ -65,6 +65,8 @@ import {
   Cell
 } from 'recharts';
 
+import { UserAccount } from '../../../types';
+
 export interface SalesHomeViewProps {
   invoices: SalesInvoice[];
   devices: DeviceItem[];
@@ -73,6 +75,7 @@ export interface SalesHomeViewProps {
   funds?: FundAccount[];
   partners?: Partner[];
   branches?: StoreBranch[];
+  users?: UserAccount[];
   currentBranch?: StoreBranch;
   currentUser?: StaffMember | null;
   onNavigateTab: (tabId: string) => void;
@@ -87,6 +90,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
   funds = [],
   partners = [],
   branches = [],
+  users = [],
   currentBranch,
   currentUser,
   onNavigateTab,
@@ -120,16 +124,18 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
   // 3. Current User Identification & Invoices Filter
   const currentStaffId = currentUser?.id || (currentUser as any)?.uid || 'STAFF_001';
   const currentStaffName = currentUser?.name || (currentUser as any)?.displayName || 'Chuyên Viên Sales';
+  const currentStaffEmail = (currentUser?.email || (currentUser as any)?.sellerEmail || '').toLowerCase();
 
   const myInvoices = useMemo(() => {
     return invoices.filter(inv => {
       if (!currentUser) return true;
       const staffNameLower = currentStaffName.toLowerCase();
       const matchSeller = (inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || '').toLowerCase();
-      const matchCashierId = inv.cashierId === currentStaffId || inv.sellerId === currentStaffId;
-      return matchCashierId || matchSeller.includes(staffNameLower) || staffNameLower.includes(matchSeller);
+      const matchCashierId = inv.cashierId === currentStaffId || inv.sellerId === currentStaffId || (inv as any).salesStaffId === currentStaffId;
+      const matchEmail = currentStaffEmail && (inv as any).sellerEmail?.toLowerCase() === currentStaffEmail;
+      return matchCashierId || matchEmail || (staffNameLower && (matchSeller.includes(staffNameLower) || staffNameLower.includes(matchSeller)));
     });
-  }, [invoices, currentUser, currentStaffId, currentStaffName]);
+  }, [invoices, currentUser, currentStaffId, currentStaffName, currentStaffEmail]);
 
   // Scoped Invoices
   const scopedInvoices = useMemo(() => {
@@ -149,7 +155,58 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
   }, [myInvoices, timeScope, todayStr, currentMonthStr]);
 
   // 4. Commission Engine & Dual Wallet Calculation
-  const staffList = useMemo(() => INITIAL_STAFF_MEMBERS, []);
+  const staffList = useMemo<StaffMember[]>(() => {
+    if (users && users.length > 0) {
+      return users.map(u => {
+        const branchObj = branches.find(b => b.id === u.branchId || b.code === u.branchId);
+        return {
+          id: u.id,
+          code: (u as any).code || `NV-${u.id.slice(-3)}`,
+          name: u.displayName || (u as any).name || 'Nhân viên',
+          avatar: u.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          role: (u.role === 'ADMIN' ? 'STORE_MANAGER' : (u.role === 'TECHNICIAN' || u.role === 'TECH' || u.role === 'TECH_LEAD') ? 'TECHNICIAN' : 'SALES') as any,
+          roleTitle: (u as any).roleTitle || (u.role === 'ADMIN' ? 'Quản lý Showroom' : u.role === 'TECHNICIAN' ? 'Kỹ Thuật Viên' : 'Chuyên viên Tư vấn & Bán hàng'),
+          phone: u.phone || '',
+          email: u.email || '',
+          branchId: u.branchId || branchObj?.id || 'BRANCH_1',
+          branchName: branchObj?.name || 'Showroom Trực Thuộc',
+          assignedBranchIds: u.assignedBranchIds || (u.branchId ? [u.branchId] : ['BRANCH_1']),
+          workplaceAddresses: u.workplaceAddresses || [branchObj?.address || ''],
+          baseSalary: u.baseSalary || (u.role === 'ADMIN' ? 12000000 : 8000000),
+          monthlyTargetRevenue: u.kpiTargetRevenue || 150000000,
+          monthlyTargetOrders: u.kpiTargetOrders || 30,
+          status: u.active ? 'ACTIVE' : 'INACTIVE',
+          joinDate: u.createdAt || '2025-01-01',
+          allowedWifiSSID: branchObj?.allowedWifiSSID || 'PHONEHOUSE_5G',
+          assignedFaceEmbedding: u.assignedFaceEmbedding || false
+        };
+      });
+    }
+    if (currentUser) {
+      return [{
+        id: currentStaffId,
+        code: (currentUser as any).code || 'NV-001',
+        name: currentStaffName,
+        avatar: (currentUser as any).avatar || (currentUser as any).avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        role: 'SALES' as any,
+        roleTitle: 'Chuyên viên Tư vấn & Bán hàng',
+        phone: currentUser.phone || '',
+        email: currentUser.email || '',
+        branchId: currentBranch?.id || currentUser.branchId || 'BRANCH_1',
+        branchName: currentBranch?.name || 'Showroom Trực Thuộc',
+        assignedBranchIds: currentUser.assignedBranchIds || [currentBranch?.id || 'BRANCH_1'],
+        workplaceAddresses: currentUser.workplaceAddresses || [currentBranch?.address || ''],
+        baseSalary: (currentUser as any).baseSalary || 8000000,
+        monthlyTargetRevenue: (currentUser as any).kpiTargetRevenue || 150000000,
+        monthlyTargetOrders: (currentUser as any).kpiTargetOrders || 30,
+        status: 'ACTIVE',
+        joinDate: '2025-01-01',
+        allowedWifiSSID: currentBranch?.allowedWifiSSID || 'PHONEHOUSE_5G',
+        assignedFaceEmbedding: (currentUser as any).assignedFaceEmbedding || false
+      }];
+    }
+    return INITIAL_STAFF_MEMBERS;
+  }, [users, branches, currentUser, currentStaffId, currentStaffName, currentBranch]);
 
   const allCommissions = useMemo(() => {
     return syncCommissionsFromAllSources(invoices, warrantyTickets, staffList);
@@ -288,7 +345,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
     }));
   }, [scopedInvoices, currentMonthStr, currentDay]);
 
-  // Product Structure Mix
+  // Product Structure Mix (Calculated 100% strictly from actual invoices)
   const productMixData = useMemo(() => {
     let sealCount = 0;
     let likeNewCount = 0;
@@ -297,19 +354,11 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
     scopedInvoices.forEach(inv => {
       (inv.items || inv.devices || []).forEach((item: any) => {
         const name = (item.model || item.name || '').toLowerCase();
-        if (name.includes('seal') || name.includes('mới')) sealCount++;
+        if (name.includes('seal') || name.includes('mới') || name.includes('new')) sealCount++;
         else likeNewCount++;
       });
       accessoryCount += (inv.accessories?.length || 0);
     });
-
-    if (sealCount === 0 && likeNewCount === 0 && accessoryCount === 0) {
-      return [
-        { name: 'Máy 99% Like New', value: 65, color: '#f97316' },
-        { name: 'Máy New Seal', value: 25, color: '#3b82f6' },
-        { name: 'Phụ kiện / Gói bảo hành', value: 10, color: '#10b981' }
-      ];
-    }
 
     return [
       { name: 'Máy 99% Like New', value: likeNewCount, color: '#f97316' },
@@ -318,36 +367,56 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
     ].filter(i => i.value > 0);
   }, [scopedInvoices]);
 
-  // 9. Showroom Leaderboard
+  // 9. Showroom Leaderboard (Calculated strictly from real invoices and actual commission engine)
   const showroomLeaderboard = useMemo(() => {
-    const staffRevenueMap: Record<string, { name: string; revenue: number; orders: number }> = {};
+    const staffStatsMap: Record<string, { name: string; revenue: number; orders: number; commission: number }> = {};
 
     invoices.forEach(inv => {
       const dateStr = inv.createdAt || '';
       if (dateStr.startsWith(currentMonthStr) && inv.status !== 'cancelled') {
         const staffName = inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || 'NV Bán Hàng';
-        if (!staffRevenueMap[staffName]) {
-          staffRevenueMap[staffName] = { name: staffName, revenue: 0, orders: 0 };
+        if (!staffStatsMap[staffName]) {
+          staffStatsMap[staffName] = { name: staffName, revenue: 0, orders: 0, commission: 0 };
         }
-        staffRevenueMap[staffName].revenue += (inv.finalAmount || inv.totalAmount || 0);
-        staffRevenueMap[staffName].orders += 1;
+        staffStatsMap[staffName].revenue += (inv.finalAmount || inv.totalAmount || 0);
+        staffStatsMap[staffName].orders += 1;
       }
     });
 
-    const ranking = Object.values(staffRevenueMap).sort((a, b) => b.revenue - a.revenue);
+    // Sum commissions from engine for each staff in this month
+    allCommissions.forEach(comm => {
+      if (comm.status === 'REVERSED') return;
+      const commDate = comm.occurredAt || '';
+      if (commDate.startsWith(currentMonthStr)) {
+        const empName = comm.employeeName || 'NV Bán Hàng';
+        if (staffStatsMap[empName]) {
+          staffStatsMap[empName].commission += comm.commissionAmount;
+        }
+      }
+    });
+
+    const ranking = Object.values(staffStatsMap).sort((a, b) => b.revenue - a.revenue);
     if (ranking.length === 0) {
       return [
-        { name: currentStaffName, revenue: scopedRevenue, orders: scopedInvoices.length, rank: 1 }
+        { 
+          name: currentStaffName, 
+          revenue: scopedRevenue, 
+          orders: scopedInvoices.length, 
+          commission: dualWallet?.totalGrossCommission || 0,
+          rank: 1 
+        }
       ];
     }
     return ranking.map((r, idx) => ({ ...r, rank: idx + 1 }));
-  }, [invoices, currentMonthStr, currentStaffName, scopedRevenue, scopedInvoices.length]);
+  }, [invoices, allCommissions, currentMonthStr, currentStaffName, scopedRevenue, scopedInvoices.length, dualWallet]);
 
   const handleCopyImei = (imei: string) => {
     navigator.clipboard.writeText(imei);
     setCopiedImei(imei);
     setTimeout(() => setCopiedImei(null), 2000);
   };
+
+  const currentBranchDisplayName = currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chi Nhánh Showroom';
 
   return (
     <div className="space-y-5 pb-32 text-zinc-900 select-none animate-in fade-in duration-300">
@@ -367,7 +436,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                 SALES COCKPIT & KPI HUB
               </span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-50 text-[#ff4b16] border border-orange-100">
-                {currentBranch?.name || 'Showroom PhoneHouse'}
+                {currentBranchDisplayName}
               </span>
             </div>
             <h2 className="text-sm sm:text-base font-black text-zinc-900 flex items-center space-x-1.5">
@@ -665,40 +734,50 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                   </h3>
                 </div>
 
-                <div className="h-44 w-full flex items-center justify-center">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={productMixData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={45}
-                        outerRadius={65}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {productMixData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ backgroundColor: '#18181b', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '10px' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div className="space-y-1.5 text-xs font-medium border-t border-zinc-100 pt-2.5">
-                  {productMixData.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-[11px]">
-                      <div className="flex items-center space-x-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                        <span className="text-zinc-600 truncate">{item.name}</span>
-                      </div>
-                      <span className="font-mono font-bold text-zinc-900">{item.value} món</span>
+                {productMixData.length === 0 ? (
+                  <div className="h-44 w-full flex flex-col items-center justify-center text-center p-4 text-zinc-400">
+                    <Package className="w-8 h-8 text-zinc-300 mb-1.5 stroke-[1.5]" />
+                    <span className="text-xs font-bold text-zinc-600">Chưa có sản phẩm phát sinh</span>
+                    <span className="text-[10px] text-zinc-400">Cơ cấu sẽ cập nhật tự động khi phát sinh hóa đơn bán</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="h-44 w-full flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={productMixData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={45}
+                            outerRadius={65}
+                            paddingAngle={5}
+                            dataKey="value"
+                          >
+                            {productMixData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{ backgroundColor: '#18181b', borderRadius: '10px', border: 'none', color: '#fff', fontSize: '10px' }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
                     </div>
-                  ))}
-                </div>
+
+                    <div className="space-y-1.5 text-xs font-medium border-t border-zinc-100 pt-2.5">
+                      {productMixData.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-[11px]">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                            <span className="text-zinc-600 truncate">{item.name}</span>
+                          </div>
+                          <span className="font-mono font-bold text-zinc-900">{item.value} món</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -902,7 +981,12 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                       })
                       .map((inv) => {
                         const itemsCount = inv.items?.length || inv.devices?.length || 1;
-                        const estComm = Math.round((inv.finalAmount || inv.totalAmount || 0) * 0.012 + itemsCount * 50000);
+                        
+                        // Exact commission calculation from transactions or items
+                        const invComms = allCommissions.filter(c => c.invoiceId === inv.id || c.sourceId === inv.id);
+                        const realComm = invComms.length > 0 
+                          ? invComms.reduce((sum, c) => sum + c.commissionAmount, 0)
+                          : (inv.items || []).reduce((sum: number, it: any) => sum + (it.salesCommission || it.commission || 0), 0);
 
                         return (
                           <tr key={inv.id} className="hover:bg-zinc-50/70 transition-colors">
@@ -925,7 +1009,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                               {(inv.finalAmount || inv.totalAmount || 0).toLocaleString('vi-VN')} đ
                             </td>
                             <td className="py-3 px-3 text-right font-mono font-black text-emerald-600">
-                              +{estComm.toLocaleString('vi-VN')} đ
+                              +{realComm.toLocaleString('vi-VN')} đ
                             </td>
                             <td className="py-3 px-3 text-center">
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -950,7 +1034,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                 <Trophy className="w-5 h-5 text-amber-500" />
                 <div>
                   <h3 className="text-xs sm:text-sm font-black text-zinc-900 uppercase">
-                    Bảng Vinh Danh Doanh Số Showroom Tháng {new Date().getMonth() + 1}
+                    Bảng Vinh Danh Doanh Số - {currentBranchDisplayName} (Tháng {new Date().getMonth() + 1})
                   </h3>
                   <p className="text-[11px] text-zinc-500">
                     Bảng xếp hạng thi đua doanh số nội bộ giữa các chuyên viên tư vấn tại showroom.
@@ -958,7 +1042,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                 </div>
               </div>
               <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                Showroom Cup
+                {currentBranch?.code || currentBranch?.shortName || 'Showroom Cup'}
               </span>
             </div>
 
@@ -1012,7 +1096,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                         {staff.revenue.toLocaleString('vi-VN')} đ
                       </span>
                       <span className="text-[10px] font-bold text-emerald-600 font-mono">
-                        +{Math.round(staff.revenue * 0.012).toLocaleString('vi-VN')} đ hoa hồng
+                        +{staff.commission.toLocaleString('vi-VN')} đ hoa hồng
                       </span>
                     </div>
                   </div>

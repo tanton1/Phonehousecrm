@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { SalesInvoice, DeviceItem, Lead, WarrantyTicket, FundAccount, Partner, StoreBranch, StaffMember } from '../../types';
+import { SalesInvoice, DeviceItem, Lead, WarrantyTicket, FundAccount, Partner, StoreBranch, StaffMember, UserAccount } from '../../types';
 import { 
   Phone, 
   Bell, 
@@ -45,6 +45,7 @@ export interface DashboardPageProps {
   funds: FundAccount[];
   partners: Partner[];
   branches: StoreBranch[];
+  users?: UserAccount[];
   selectedBranchId?: string;
   currentUser?: StaffMember | null;
   onNavigateTab: (tabId: string) => void;
@@ -59,13 +60,47 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   funds,
   partners,
   branches,
+  users = [],
   selectedBranchId,
   currentUser,
   onNavigateTab,
   onOpenAICopilot
 }) => {
-  const currentBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
-  const currentBranchName = branches.find(b => b.id === selectedBranchId)?.name || 'Toàn Hệ Thống PhoneHouse';
+  // Resolve current branch dynamically based on logged-in user's assigned branch
+  const currentBranch = useMemo(() => {
+    const userBranch = currentUser?.branchId || (currentUser as any)?.branch;
+    if (userBranch) {
+      const found = branches.find(b => 
+        b.id === userBranch || 
+        b.code === userBranch || 
+        b.warehouseId === userBranch ||
+        b.name.toLowerCase().includes(userBranch.toLowerCase()) ||
+        (b.systemType && b.systemType.toLowerCase() === userBranch.toLowerCase())
+      );
+      if (found) return found;
+    }
+    if (selectedBranchId && selectedBranchId !== 'ALL') {
+      const found = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
+      if (found) return found;
+    }
+    return branches[0] || {
+      id: 'BRANCH_1',
+      code: 'CN-01',
+      name: 'Chi Nhánh Showroom',
+      address: '',
+      phone: '',
+      email: '',
+      manager: '',
+      openingHours: '',
+      warehouseId: 'KHO_PHONEHOUSE',
+      systemType: 'PHONEHOUSE',
+      isActive: true,
+      isHeadquarter: true,
+      notes: ''
+    };
+  }, [branches, currentUser, selectedBranchId]);
+
+  const currentBranchName = currentBranch?.name || 'Toàn Hệ Thống PhoneHouse';
 
   const userRoleUpper = (currentUser?.role || (currentUser as any)?.roleLevel || '').toUpperCase();
 
@@ -80,6 +115,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         funds={funds}
         partners={partners}
         branches={branches}
+        users={users}
         currentBranch={currentBranch}
         currentUser={currentUser}
         onNavigateTab={onNavigateTab}

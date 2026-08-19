@@ -406,7 +406,7 @@ export default function App() {
 
   const activeBranchId = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER' 
     ? (currentUser.role === 'MANAGER' && selectedBranchId === 'ALL' ? currentUser.branchId : selectedBranchId)
-    : currentUser?.branchId;
+    : (currentUser?.branchId || (currentUser as any)?.branch);
 
   // Filtered Data based on Active Branch
   const filteredDevices = activeBranchId === 'ALL' || !activeBranchId 
@@ -414,7 +414,7 @@ export default function App() {
     : devices.filter(d => 
         d.branchId === activeBranchId || 
         (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.parentWarehouseId === activeBranchId) ||
-        (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.systemType === branches.find(b => b.id === activeBranchId)?.systemType)
+        (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.systemType === branches.find(b => b.id === activeBranchId || b.code === activeBranchId)?.systemType)
       );
 
   const filteredLeads = activeBranchId === 'ALL' || !activeBranchId 
@@ -432,8 +432,14 @@ export default function App() {
   const filteredInvoices = activeBranchId === 'ALL' || !activeBranchId 
     ? invoices 
     : invoices.filter(i => {
-        const currentBranchName = branches.find(b => b.id === activeBranchId)?.name;
-        return i.branch === currentBranchName || !i.branch; // Assuming invoice.branch holds the branch name currently
+        const br = branches.find(b => b.id === activeBranchId || b.code === activeBranchId);
+        const currentBranchName = br?.name;
+        const currentSysType = br?.systemType;
+        return i.branchId === activeBranchId || 
+               i.branch === currentBranchName || 
+               (currentSysType && (i.branch?.toLowerCase().includes(currentSysType.toLowerCase()) || (i as any).systemType === currentSysType)) ||
+               (br?.warehouseId && i.warehouseId === br.warehouseId) ||
+               !i.branch;
       });
 
   const filteredCashTransactions = activeBranchId === 'ALL' || !activeBranchId 
@@ -1546,17 +1552,24 @@ export default function App() {
             funds={funds}
             partners={partners}
             branches={branches}
+            users={users}
             selectedBranchId={selectedBranchId}
             currentUser={currentUser ? {
               id: currentUser.id,
               uid: currentUser.id,
               name: currentUser.displayName,
+              displayName: currentUser.displayName,
               email: currentUser.email,
               role: currentUser.role,
-              branchId: currentUser.branchId || 'CN01',
-              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
-              isActive: currentUser.active
-            } : null}
+              branchId: currentUser.branchId,
+              branch: (currentUser as any).branch,
+              assignedBranchIds: currentUser.assignedBranchIds || (currentUser.branchId ? [currentUser.branchId] : []),
+              isActive: currentUser.active,
+              kpiTargetRevenue: currentUser.kpiTargetRevenue,
+              kpiTargetOrders: currentUser.kpiTargetOrders,
+              kpiTargetWarranty: currentUser.kpiTargetWarranty,
+              baseSalary: currentUser.baseSalary
+            } as any : null}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
           />
