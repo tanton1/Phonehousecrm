@@ -4,7 +4,7 @@ import { getAuthorizedNavigation, isItemAuthorized } from '../src/app/permission
 
 describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
   it('Case 1: Navigation groups structure contract', () => {
-    expect(NAVIGATION_GROUPS.length).toBeGreaterThanOrEqual(6);
+    expect(NAVIGATION_GROUPS.length).toBe(7);
     expect(MOBILE_PRIMARY_TABS.length).toBe(5);
   });
 
@@ -12,15 +12,18 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     const adminGroups = getAuthorizedNavigation('ADMIN');
     expect(adminGroups.length).toBe(NAVIGATION_GROUPS.length);
 
-    // Verify admin can see Funds and Users
+    // Verify admin can see Funds, Users, Store Settings, Master Catalog, Payroll
     const allItemIds = adminGroups.flatMap(g => g.items.map(i => i.id));
     expect(allItemIds).toContain('funds');
     expect(allItemIds).toContain('partners');
     expect(allItemIds).toContain('users');
     expect(allItemIds).toContain('purchase-orders');
+    expect(allItemIds).toContain('store-settings');
+    expect(allItemIds).toContain('master-catalog');
+    expect(allItemIds).toContain('payroll');
   });
 
-  it('Case 3: Sales nhân viên chỉ thấy các tab Bán hàng/Kho/CRM, không thấy Sổ quỹ hay Phân quyền', () => {
+  it('Case 3: Sales nhân viên chỉ thấy các tab Bán hàng/Kho/CRM/Điểm danh, không thấy Sổ quỹ hay Phân quyền', () => {
     const salesGroups = getAuthorizedNavigation('SALES');
     const salesItemIds = salesGroups.flatMap(g => g.items.map(i => i.id));
 
@@ -29,21 +32,24 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(salesItemIds).toContain('invoices');
     expect(salesItemIds).toContain('inventory');
     expect(salesItemIds).toContain('crm');
-    expect(salesItemIds).toContain('attendance');
+    expect(salesItemIds).toContain('checkin-portal');
 
     // Blocked for Sales
     expect(salesItemIds).not.toContain('funds');
     expect(salesItemIds).not.toContain('users');
     expect(salesItemIds).not.toContain('purchase-orders');
     expect(salesItemIds).not.toContain('spare-parts');
+    expect(salesItemIds).not.toContain('store-settings');
   });
 
-  it('Case 4: Kỹ thuật viên (TECH) chỉ thấy Kho Linh Kiện và Tiếp Nhận Sửa Chữa', () => {
+  it('Case 4: Kỹ thuật viên (TECH) chỉ thấy Kho Linh Kiện, Chuyển kho và Tiếp Nhận Sửa Chữa', () => {
     const techGroups = getAuthorizedNavigation('TECH');
     const techItemIds = techGroups.flatMap(g => g.items.map(i => i.id));
 
     expect(techItemIds).toContain('warranty');
     expect(techItemIds).toContain('spare-parts');
+    expect(techItemIds).toContain('tech-workspace');
+    expect(techItemIds).toContain('checkin-portal');
     expect(techItemIds).not.toContain('funds');
     expect(techItemIds).not.toContain('users');
   });

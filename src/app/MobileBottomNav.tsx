@@ -18,7 +18,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   const navGroups = getAuthorizedNavigation(userRole);
 
   const handleTabClick = (tabId: string) => {
-    if (tabId === 'menu') {
+    if (tabId === 'menu' || tabId === 'more') {
       setIsMoreDrawerOpen(true);
     } else {
       onSelectTab(tabId);
