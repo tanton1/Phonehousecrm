@@ -1505,27 +1505,19 @@ export default function App() {
           )}
 
           {activeTab === 'dashboard' && (
-            <DashboardPage
-              invoices={filteredInvoices}
+            <DashboardView
               devices={filteredDevices}
               leads={filteredLeads}
+              tradeIns={filteredTradeIns}
               warrantyTickets={filteredWarrantyTickets}
-              funds={funds}
-              partners={partners}
-              branches={branches}
-              selectedBranchId={selectedBranchId}
-              currentUser={currentUser ? {
-                id: currentUser.id,
-                uid: currentUser.id,
-                name: currentUser.displayName,
-                email: currentUser.email,
-                role: currentUser.role,
-                branchId: currentUser.branchId || 'CN01',
-                assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
-                isActive: currentUser.active
-              } : null}
-              onNavigateTab={(tab) => setActiveTab(tab)}
-              onOpenAICopilot={() => setIsAICopilotOpen(true)}
+              invoices={filteredInvoices}
+              onNavigate={(tab) => setActiveTab(tab)}
+              onOpenPOS={() => {
+                setPosPreSelectedDevice(null);
+                setActiveTab('pos');
+              }}
+              onOpenTradeIn={() => setActiveTab('tradein')}
+              onOpenNewDevice={() => setActiveTab('inventory')}
             />
           )}
 
@@ -1790,10 +1782,23 @@ export default function App() {
 
           {activeTab === 'more' && (
             <MoreHubView
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
               currentUser={currentUser}
-              branches={branches}
+              onSelectTab={(tabId) => setActiveTab(tabId)}
+              onOpenPOSModal={() => {
+                setPosPreSelectedDevice(null);
+                setActiveTab('pos');
+              }}
+              onOpenNewDeviceModal={() => setActiveTab('inventory')}
+              onOpenAICopilot={() => setIsAICopilotOpen(true)}
+              onOpenLoginModal={() => setIsLoginModalOpen(true)}
+              onLogout={() => {
+                setCurrentUser(null);
+                localStorage.removeItem('phonehouse_active_user');
+                setActiveTab('login');
+              }}
+              partners={partners}
+              invoices={filteredInvoices}
+              devices={filteredDevices}
             />
           )}
 
