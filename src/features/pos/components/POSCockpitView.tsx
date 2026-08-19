@@ -397,23 +397,26 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     }
   };
 
+  const [mobileTab, setMobileTab] = useState<'PRODUCTS' | 'CART' | 'PAYMENT'>('PRODUCTS');
+  const totalItemsCount = selectedDevices.length + selectedAccessories.reduce((s, a) => s + a.quantity, 0);
+
   return (
-    <div className="flex flex-col space-y-3 p-2 sm:p-4 max-w-[1600px] mx-auto min-h-screen">
-      {/* 1. Header Bar with Brand Recognition */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
+    <div className="flex flex-col space-y-3.5 p-2 sm:p-4 max-w-[1600px] mx-auto min-h-screen pb-24">
+      {/* 1. Header Bar with Brand Recognition & Gradient Styling */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white p-3.5 sm:p-4 rounded-3xl border border-zinc-800 shadow-xl">
         <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-[#ff4b16] text-white flex items-center justify-center shadow-sm font-bold">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center shadow-lg shadow-orange-500/30 font-black">
             <Receipt className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h1 className="text-base font-bold text-zinc-900 tracking-tight">Bán Hàng POS Thu Ngân</h1>
-              <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-50 text-[#ff4b16] border border-orange-200/60 rounded-full">
+              <h1 className="text-base sm:text-lg font-black tracking-tight text-white">POS Cockpit Bán Hàng</h1>
+              <span className="px-2.5 py-0.5 text-[10px] font-bold bg-orange-500/20 text-[#ff4b16] border border-orange-500/30 rounded-full">
                 {currentBranch.name}
               </span>
             </div>
-            <p className="text-xs text-zinc-500 font-medium">
-              Thu ngân: <b className="text-zinc-700">{currentUser?.name || 'Chưa đăng nhập'}</b>
+            <p className="text-xs text-zinc-400 font-medium mt-0.5">
+              Thu ngân ca trực: <b className="text-zinc-200">{currentUser?.name || 'Chuyên Viên POS'}</b> • <span className="text-emerald-400 font-mono">Đồng bộ K80</span>
             </p>
           </div>
         </div>
@@ -422,18 +425,54 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           {onNavigateToInvoices && (
             <button
               onClick={onNavigateToInvoices}
-              className="text-xs font-semibold text-[#ff4b16] bg-orange-50 hover:bg-orange-100 border border-orange-200 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
+              className="text-xs font-bold text-orange-200 bg-zinc-800/90 hover:bg-zinc-800 border border-zinc-700/80 px-3.5 py-2 rounded-2xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
             >
-              <Receipt className="w-3.5 h-3.5" />
-              <span>Lịch Sử Hóa Đơn</span>
+              <Receipt className="w-4 h-4 text-[#ff4b16]" />
+              <span>Sổ Hóa Đơn</span>
             </button>
           )}
         </div>
       </div>
 
+      {/* Mobile Segmented Navigation Bar (<1024px) */}
+      <div className="lg:hidden flex items-center p-1 bg-zinc-100 rounded-2xl border border-zinc-200/80 text-xs font-bold">
+        <button
+          onClick={() => setMobileTab('PRODUCTS')}
+          className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
+            mobileTab === 'PRODUCTS'
+              ? 'bg-zinc-900 text-white shadow-xs'
+              : 'text-zinc-500 hover:text-zinc-800'
+          }`}
+        >
+          📱 1. Chọn Hàng
+        </button>
+
+        <button
+          onClick={() => setMobileTab('CART')}
+          className={`flex-1 py-2 rounded-xl transition-all cursor-pointer relative ${
+            mobileTab === 'CART'
+              ? 'bg-zinc-900 text-white shadow-xs'
+              : 'text-zinc-500 hover:text-zinc-800'
+          }`}
+        >
+          🛒 2. Giỏ Hàng {totalItemsCount > 0 && <span className="ml-1 px-1.5 py-0.2 rounded-full bg-[#ff4b16] text-white text-[10px]">{totalItemsCount}</span>}
+        </button>
+
+        <button
+          onClick={() => setMobileTab('PAYMENT')}
+          className={`flex-1 py-2 rounded-xl transition-all cursor-pointer ${
+            mobileTab === 'PAYMENT'
+              ? 'bg-zinc-900 text-white shadow-xs'
+              : 'text-zinc-500 hover:text-zinc-800'
+          }`}
+        >
+          💵 3. Thu Tiền
+        </button>
+      </div>
+
       {/* 2. Success Banner If Just Checked Out */}
       {checkoutInfo.state === 'SUCCESS' && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
           <div className="flex items-center space-x-2 text-emerald-800 text-xs font-bold">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{checkoutInfo.statusMessage}</span>
@@ -449,7 +488,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
 
       {/* Error Banner If Checkout Failed */}
       {checkoutInfo.state === 'FAILED' && (
-        <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
           <div className="flex items-center space-x-2 text-rose-800 text-xs font-bold">
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{checkoutInfo.error || 'Thanh toán thất bại. Vui lòng kiểm tra lại.'}</span>
@@ -466,7 +505,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       {/* Discount Voucher Dialog */}
       {isDiscountModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-zinc-200 space-y-4">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl border border-zinc-200 space-y-4">
             <h3 className="text-sm font-bold text-zinc-900">Áp Dụng Chiết Khấu / Voucher</h3>
             <div className="space-y-3 text-xs">
               <div>
@@ -476,7 +515,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
                   value={discountAmount || ''}
                   onChange={(e) => setDiscountAmount(Number(e.target.value) || 0)}
                   placeholder="Nhập số tiền..."
-                  className="w-full h-10 px-3 border border-zinc-300 rounded-xl font-bold text-sm text-[#ff4b16] focus:outline-none focus:border-[#ff4b16]"
+                  className="w-full h-11 px-3 border border-zinc-300 rounded-2xl font-bold text-sm text-[#ff4b16] focus:outline-none focus:border-[#ff4b16]"
                   autoFocus
                 />
               </div>
@@ -486,7 +525,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
                     key={amt}
                     type="button"
                     onClick={() => setDiscountAmount(amt)}
-                    className="flex-1 py-1.5 bg-zinc-100 hover:bg-orange-50 hover:text-[#ff4b16] rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
+                    className="flex-1 py-2 bg-zinc-100 hover:bg-orange-50 hover:text-[#ff4b16] rounded-xl text-[11px] font-bold transition-colors cursor-pointer"
                   >
                     +{(amt/1000).toLocaleString()}k
                   </button>
@@ -497,14 +536,14 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
               <button
                 type="button"
                 onClick={() => setDiscountAmount(0)}
-                className="px-3 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl font-bold text-xs cursor-pointer"
+                className="px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-2xl font-bold text-xs cursor-pointer"
               >
                 Xóa giảm
               </button>
               <button
                 type="button"
                 onClick={() => setIsDiscountModalOpen(false)}
-                className="flex-1 py-2 bg-[#ff4b16] hover:bg-[#e03e0e] text-white rounded-xl font-bold text-xs cursor-pointer"
+                className="flex-1 py-2.5 bg-[#ff4b16] hover:bg-[#e03e0e] text-white rounded-2xl font-bold text-xs cursor-pointer shadow-md shadow-orange-500/25"
               >
                 Xác Nhận
               </button>
@@ -513,10 +552,10 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
       )}
 
-      {/* 3. Three-Column Desktop Grid Layout */}
+      {/* 3. Three-Column Responsive Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_360px] gap-4 items-start pb-12">
         {/* Column 1: Product Search & Inventory Grid */}
-        <div className="w-full">
+        <div className={`w-full ${mobileTab !== 'PRODUCTS' ? 'hidden lg:block' : 'block'}`}>
           <ProductSearchPanel
             devices={devices}
             products={products}
@@ -528,7 +567,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
 
         {/* Column 2: Cart Panel & Warranty */}
-        <div className="w-full">
+        <div className={`w-full ${mobileTab !== 'CART' ? 'hidden lg:block' : 'block'}`}>
           <CartPanel
             selectedDevices={selectedDevices}
             selectedAccessories={selectedAccessories}
@@ -540,19 +579,16 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
             onUpdateAccessoryQty={handleUpdateAccessoryQty}
             onRemoveAccessory={handleRemoveAccessory}
             onSelectWarranty={setWarrantyPackage}
-            onOpenDiscountModal={() => {
-              const disc = window.prompt('Nhập số tiền giảm giá (VNĐ):', discountAmount.toString());
-              if (disc !== null) setDiscountAmount(parseInt(disc.replace(/\D/g, ''), 10) || 0);
-            }}
+            onOpenDiscountModal={() => setIsDiscountModalOpen(true)}
             onOpenTradeInModal={() => {
-              alert('Tính năng định giá máy thu cũ (Sprint 13).');
+              alert('Vui lòng chọn tính năng Thu Cũ Đổi Mới từ danh mục hoặc tạo phiếu thẩm định.');
             }}
             onClearCart={handleClearCart}
           />
         </div>
 
         {/* Column 3: Payment, Customer & Checkout */}
-        <div className="w-full" id="pos-payment-section">
+        <div className={`w-full ${mobileTab !== 'PAYMENT' ? 'hidden lg:block' : 'block'}`} id="pos-payment-section">
           <PaymentPanel
             customerName={customerName}
             customerPhone={customerPhone}
@@ -575,31 +611,30 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       </div>
 
       {/* 4. Mobile Sticky Bottom Checkout Bar */}
-      {(selectedDevices.length > 0 || selectedAccessories.length > 0) && (
-        <div className="lg:hidden fixed bottom-14 left-2 right-2 z-40 bg-zinc-900/95 backdrop-blur-md text-white p-3 rounded-2xl shadow-2xl border border-zinc-700 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
-          <div className="flex flex-col">
+      {totalItemsCount > 0 && (
+        <div className="lg:hidden fixed bottom-3 left-2 right-2 z-40 bg-zinc-950/95 backdrop-blur-xl text-white p-3 rounded-3xl shadow-2xl border border-zinc-800 flex items-center justify-between animate-in slide-in-from-bottom-2 duration-200">
+          <div className="flex flex-col pl-1">
             <span className="text-[11px] text-zinc-400 font-medium">
-              🛒 {selectedDevices.length + selectedAccessories.reduce((s, a) => s + a.quantity, 0)} món hàng
+              🛒 {totalItemsCount} món hàng
             </span>
-            <span className="text-sm font-black text-[#ff4b16]">
-              {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(finalAmount)}
+            <span className="text-sm sm:text-base font-black font-mono text-[#ff4b16]">
+              {finalAmount.toLocaleString('vi-VN')} đ
             </span>
           </div>
           <button
             onClick={() => {
-              if (!isProcessing) {
-                const paymentSection = document.getElementById('pos-payment-section');
-                if (paymentSection) {
-                  paymentSection.scrollIntoView({ behavior: 'smooth' });
-                } else {
-                  handleExecuteCheckout();
-                }
+              if (mobileTab === 'PRODUCTS') {
+                setMobileTab('CART');
+              } else if (mobileTab === 'CART') {
+                setMobileTab('PAYMENT');
+              } else {
+                handleExecuteCheckout();
               }
             }}
             disabled={isProcessing}
-            className="bg-[#ff4b16] hover:bg-[#e03e0e] active:scale-95 text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center space-x-1.5 shadow-md shadow-orange-500/25 transition-all cursor-pointer"
+            className="bg-gradient-to-r from-orange-500 to-[#ff4b16] hover:brightness-110 active:scale-95 text-white font-black text-xs px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-lg shadow-orange-500/30 transition-all cursor-pointer"
           >
-            <span>{isProcessing ? 'Đang Xử Lý...' : 'Thanh Toán Ngay ➔'}</span>
+            <span>{isProcessing ? 'Đang Xử Lý...' : mobileTab === 'PAYMENT' ? 'Xuất Đơn (F9) ➔' : 'Tiếp Tục ➔'}</span>
           </button>
         </div>
       )}
