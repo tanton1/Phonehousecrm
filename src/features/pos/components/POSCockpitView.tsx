@@ -4,7 +4,10 @@ import { ProductSearchPanel } from './ProductSearchPanel';
 import { CartPanel } from './CartPanel';
 import { PaymentPanel } from './PaymentPanel';
 import { useCheckout } from '../hooks/useCheckout';
-import { Receipt, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Receipt, Sparkles, CheckCircle2, Printer } from 'lucide-react';
+import { ThermalReceiptK80 } from './ThermalReceiptK80';
+import { usePosHotkeys } from '../hooks/usePosHotkeys';
+import { PosHotkeysBar } from './PosHotkeysBar';
 
 export interface POSCockpitViewProps {
   devices: DeviceItem[];
@@ -43,11 +46,14 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   });
   const [downPaymentAmount, setDownPaymentAmount] = useState(0);
 
-  // 3. Refs for Keyboard Shortcuts
+  // 3. Thermal Receipt Preview State
+  const [receiptData, setReceiptData] = useState<any | null>(null);
+
+  // 4. Refs for Keyboard Shortcuts
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const phoneInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 4. Hook for Atomic Checkout
+  // 5. Hook for Atomic Checkout
   const { checkoutInfo, runCheckout, resetCheckout, isProcessing } = useCheckout();
 
   // Calculations
@@ -59,76 +65,85 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const totalAmount = devicesTotal + accessoriesTotal;
   const finalAmount = Math.max(0, totalAmount - discountAmount - tradeInDeduction);
 
-  // Keyboard Shortcuts listener (F2, F4, F8, F9)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F2') {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      } else if (e.key === 'F4') {
-        e.preventDefault();
-        phoneInputRef.current?.focus();
-      } else if (e.key === 'F8') {
-        e.preventDefault();
-        const disc = window.prompt('Nhập số tiền chiết khấu / giảm giá (VNĐ):', discountAmount.toString());
-        if (disc !== null) {
-          setDiscountAmount(parseInt(disc.replace(/\D/g, ''), 10) || 0);
-        }
-      } else if (e.key === 'F9') {
-        e.preventDefault();
+  // Helper to switch payment methods via F8 hotkey
+  const handleCyclePaymentMethod = () => {
+    const methods: Array<'Tiền mặt' | 'Chuyển khoản QR' | 'Quẹt thẻ POS' | 'Trả góp qua Cty Tài Chính (HD/Home/Mpos)'> = [
+      'Tiền mặt',
+      'Chuyển khoản QR',
+      'Quẹt thẻ POS',
+      'Trả góp qua Cty Tài Chính (HD/Home/Mpos)'
+    ];
+    const currentIndex = methods.indexOf(paymentMethod);
+    const nextIndex = (currentIndex + 1) % methods.length;
+    setPaymentMethod(methods[nextIndex]);
+  };
+
+  // 6. Register Cashier Hotkeys (F2, F4, F7, F8, F9, Esc)
+  usePosHotkeys({
+    onSearchFocus: () => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    },
+    onCustomerOpen: () => {
+      phoneInputRef.current?.focus();
+      phoneInputRef.current?.select();
+    },
+    onVoucherOpen: () => {
+      const disc = window.prompt('Nhập số tiền giảm giá / Voucher (VNĐ):', discountAmount.toString());
+      if (disc !== null) setDiscountAmount(parseInt(disc.replace(/\D/g, ''), 10) || 0);
+    },
+    onPaymentSwitch: handleCyclePaymentMethod,
+    onCheckoutSubmit: () => {
+      if (!isProcessing && (selectedDevices.length > 0 || selectedAccessories.length > 0)) {
         handleExecuteCheckout();
       }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    },
+    onEscape: () => {
+      if (receiptData) {
+        setReceiptData(null);
+      }
+    }
   });
 
-  // Cart actions
+  // Handlers
   const handleToggleSelectDevice = (device: DeviceItem) => {
     setSelectedDevices(prev => {
       const exists = prev.some(d => d.id === device.id);
       if (exists) {
         return prev.filter(d => d.id !== device.id);
-      } else {
-        return [...prev, device];
       }
+      return [...prev, device];
     });
   };
 
   const handleAddAccessory = (product: ProductItem) => {
     setSelectedAccessories(prev => {
-      const existingIndex = prev.findIndex(a => a.product.id === product.id);
-      if (existingIndex > -1) {
+      const existsIndex = prev.findIndex(item => item.product.id === product.id);
+      if (existsIndex >= 0) {
         const next = [...prev];
-        next[existingIndex].quantity += 1;
+        next[existsIndex].quantity += 1;
         return next;
-      } else {
-        return [...prev, { product, quantity: 1 }];
       }
+      return [...prev, { product, quantity: 1 }];
     });
-  };
-
-  const handleUpdateAccessoryQty = (productId: string, delta: number) => {
-    setSelectedAccessories(prev => {
-      return prev
-        .map(acc => {
-          if (acc.product.id === productId) {
-            const nextQty = acc.quantity + delta;
-            return nextQty > 0 ? { ...acc, quantity: nextQty } : null;
-          }
-          return acc;
-        })
-        .filter(Boolean) as { product: ProductItem; quantity: number }[];
-    });
-  };
-
-  const handleRemoveAccessory = (productId: string) => {
-    setSelectedAccessories(prev => prev.filter(a => a.product.id !== productId));
   };
 
   const handleRemoveDevice = (deviceId: string) => {
     setSelectedDevices(prev => prev.filter(d => d.id !== deviceId));
+  };
+
+  const handleUpdateAccessoryQty = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      handleRemoveAccessory(productId);
+      return;
+    }
+    setSelectedAccessories(prev =>
+      prev.map(item => (item.product.id === productId ? { ...item, quantity } : item))
+    );
+  };
+
+  const handleRemoveAccessory = (productId: string) => {
+    setSelectedAccessories(prev => prev.filter(item => item.product.id !== productId));
   };
 
   const handleClearCart = () => {
@@ -137,127 +152,144 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setDiscountAmount(0);
     setTradeInDeduction(0);
     setTradeInDevice(null);
+    resetCheckout();
   };
 
-  // Checkout Execution
   const handleExecuteCheckout = async () => {
     if (selectedDevices.length === 0 && selectedAccessories.length === 0) {
-      alert('Vui lòng chọn ít nhất 1 cây máy hoặc 1 phụ kiện vào giỏ hàng.');
+      alert('Giỏ hàng đang trống. Vui lòng chọn máy hoặc phụ kiện.');
       return;
     }
 
-    if (isProcessing) return;
-
-    const fundToUse = funds.find(f => f.id === selectedFundId) || null;
-    const invoiceId = `INV-${Date.now().toString().slice(-6)}`;
-    const invoiceCode = `HD-${new Date().toISOString().slice(2, 7).replace('-', '')}-${Date.now().toString().slice(-4)}`;
-
     const isInstallment = paymentMethod.includes('Trả góp');
-    const actualDownPayment = isInstallment ? downPaymentAmount : finalAmount;
-    const installmentDebt = isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : 0;
-
-    const newInvoice: SalesInvoice = {
-      id: invoiceId,
-      invoiceCode,
-      customerName: customerName.trim() || 'Khách Vãng Lai',
-      customerPhone: customerPhone.trim(),
-      status: 'completed',
-      branchId: currentBranch.id,
-      branch: currentBranch.name,
-      devices: selectedDevices.map(d => ({
-        model: d.model,
-        imei: d.imei,
-        price: d.sellPrice || 0,
-        color: d.color,
-        storage: d.storage
-      })),
-      accessories: selectedAccessories.map(a => ({
-        name: a.product.name,
-        price: a.product.price || a.product.salePrice || 0,
-        quantity: a.quantity
-      })),
-      warrantyPackage,
-      totalAmount,
-      discountAmount,
-      tradeInDeduction,
-      finalAmount,
-      paidAmount: actualDownPayment,
-      debtAmount: installmentDebt,
-      paymentMethod,
-      paymentFundId: fundToUse?.id,
-      installmentDisbursementStatus: isInstallment ? 'PENDING' : undefined,
-      installmentExpectedAmount: isInstallment ? installmentDebt : undefined,
-      cashier: currentUser?.displayName || 'Thu Ngân',
-      createdAt: new Date().toISOString()
-    };
-
-    let cashTx: CashTransaction | null = null;
-    if (actualDownPayment > 0 && fundToUse) {
-      cashTx = {
-        id: `TX-${Date.now()}`,
-        code: `PT-${Date.now().toString().slice(-6)}`,
-        type: 'RECEIPT',
-        category: 'SALES_REVENUE',
-        categoryName: 'Thu tiền bán hàng POS',
-        amount: actualDownPayment,
-        fundId: fundToUse.id,
-        fundType: fundToUse.type,
-        fundName: fundToUse.name,
-        date: new Date().toISOString().split('T')[0],
-        partnerName: newInvoice.customerName,
-        partnerPhone: newInvoice.customerPhone,
-        status: 'COMPLETED',
-        notes: `Thu tiền đơn hàng ${invoiceCode}`,
-        referenceCode: invoiceCode,
-        branchId: currentBranch.id,
-        creator: currentUser?.displayName || 'Thu Ngân'
-      };
+    if (isInstallment && downPaymentAmount > finalAmount) {
+      alert('Số tiền trả trước không thể lớn hơn tổng giá trị đơn hàng.');
+      return;
     }
 
-    const customerPartner = partners.find(p => p.phone === customerPhone) || null;
-    const financeCompanyPartner = partners.find(p => p.name.includes('Home Credit') || p.name.includes('Tài Chính')) || partners[0] || null;
+    const currentFund = funds.find(f => f.id === selectedFundId);
+    const invoiceCode = `HD-${Date.now().toString().slice(-6)}`;
+    const invoiceId = `INV-${Date.now()}`;
 
-    const success = await runCheckout({
-      invoice: newInvoice,
-      devicesToSell: selectedDevices,
-      accessoriesToSell: selectedAccessories,
-      cashTx,
-      tradeInDevice,
-      customerPartner,
-      financeCompanyPartner: isInstallment ? financeCompanyPartner : null,
-      fundToUpdate: fundToUse
-    });
+    // Map Payment Method to Backend Standard
+    const backendPaymentMethod = isInstallment
+      ? 'INSTALLMENT'
+      : paymentMethod.includes('QR')
+      ? 'BANK'
+      : paymentMethod.includes('thẻ')
+      ? 'CARD'
+      : 'CASH';
 
-    if (success) {
-      handleClearCart();
+    // Prepare Items for K80 Receipt
+    const receiptItems = [
+      ...selectedDevices.map(d => ({
+        id: d.id,
+        name: d.model,
+        imei: d.imei,
+        quantity: 1,
+        unitPrice: d.sellPrice || 0,
+        totalPrice: d.sellPrice || 0,
+        isDevice: true
+      })),
+      ...selectedAccessories.map(acc => ({
+        id: acc.product.id,
+        name: acc.product.name,
+        quantity: acc.quantity,
+        unitPrice: acc.product.price || acc.product.salePrice || 0,
+        totalPrice: (acc.product.price || acc.product.salePrice || 0) * acc.quantity,
+        isDevice: false
+      }))
+    ];
+
+    // Form Pure Intent Payload
+    const purePayload = {
+      idempotencyKey: `POS-${invoiceId}-${Date.now()}`,
+      branchId: currentBranch.id,
+      warehouseId: 'WH01',
+      deviceIds: selectedDevices.map(d => d.id),
+      accessoryLines: selectedAccessories.map(acc => ({
+        productId: acc.product.id,
+        quantity: acc.quantity
+      })),
+      customerId: undefined,
+      customerName: customerName || 'Khách vãng lai',
+      customerPhone: customerPhone || '',
+      payment: {
+        method: backendPaymentMethod as any,
+        fundId: selectedFundId,
+        downPayment: isInstallment ? downPaymentAmount : undefined
+      },
+      discountAmount,
+      tradeInDeduction
+    };
+
+    const result = await runCheckout(purePayload);
+
+    if (result.success) {
+      // Trigger K80 Thermal Receipt Modal
+      setReceiptData({
+        id: invoiceId,
+        invoiceCode,
+        createdAt: new Date().toISOString(),
+        branchName: currentBranch.name,
+        branchAddress: currentBranch.address,
+        branchPhone: currentBranch.phone,
+        creatorName: currentUser?.name || 'Thu Ngân',
+        customerName: customerName || 'Khách vãng lai',
+        customerPhone,
+        items: receiptItems,
+        subTotal: totalAmount,
+        discountAmount,
+        tradeInDeduction,
+        finalAmount,
+        paymentMethod: backendPaymentMethod,
+        downPayment: isInstallment ? downPaymentAmount : undefined,
+        financeAmount: isInstallment ? Math.max(0, finalAmount - downPaymentAmount) : undefined,
+        financePartnerName: isInstallment ? 'Home Credit / HD Saison' : undefined
+      });
+
+      // Clear Cart after success
+      setSelectedDevices([]);
+      setSelectedAccessories([]);
+      setDiscountAmount(0);
+      setTradeInDeduction(0);
       setCustomerName('');
       setCustomerPhone('');
     }
   };
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto space-y-4">
-      {/* 1. Cockpit Header Bar */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center space-x-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ff4b16] animate-pulse" />
-          <h2 className="text-sm font-black uppercase tracking-wider text-zinc-800">
-            Bàn Thu Ngân POS Cockpit (3 Cột)
-          </h2>
-          <span className="text-xs text-zinc-400 font-medium hidden sm:inline-block">
-            • Chi nhánh {currentBranch.name}
-          </span>
+    <div className="flex flex-col space-y-3 p-2 sm:p-4 max-w-[1600px] mx-auto min-h-screen">
+      {/* 1. Header Bar with Cockpit Indicators */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+        <div className="flex items-center space-x-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center shadow-sm">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-base font-bold text-slate-800 tracking-tight">Bán Hàng POS & Cockpit Thu Ngân</h1>
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/60 rounded-full">
+                V1 Enterprise
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 font-medium">
+              Chi nhánh: <b className="text-slate-700">{currentBranch.name}</b> • Thu ngân: <b className="text-slate-700">{currentUser?.name || 'Chưa đăng nhập'}</b>
+            </p>
+          </div>
         </div>
 
-        {onNavigateToInvoices && (
-          <button
-            onClick={onNavigateToInvoices}
-            className="text-xs font-semibold text-[#ff4b16] bg-orange-50 hover:bg-orange-100 border border-orange-200 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs"
-          >
-            <Receipt className="w-3.5 h-3.5" />
-            <span>Lịch Sử Hóa Đơn</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onNavigateToInvoices && (
+            <button
+              onClick={onNavigateToInvoices}
+              className="text-xs font-semibold text-[#ff4b16] bg-orange-50 hover:bg-orange-100 border border-orange-200 px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              <span>Lịch Sử Hóa Đơn</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 2. Success Banner If Just Checked Out */}
@@ -277,7 +309,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       )}
 
       {/* 3. Three-Column Desktop Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_360px] gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr_360px] gap-4 items-start pb-12">
         {/* Column 1: Product Search & Inventory Grid */}
         <div className="w-full">
           <ProductSearchPanel
@@ -334,6 +366,38 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
             phoneInputRef={phoneInputRef}
           />
         </div>
+      </div>
+
+      {/* 4. Thermal Receipt K80 Printable Preview Modal */}
+      {receiptData && (
+        <ThermalReceiptK80
+          invoice={receiptData}
+          onClose={() => setReceiptData(null)}
+        />
+      )}
+
+      {/* 5. Sticky Bottom Hotkeys Bar for Instant Cashier Productivity */}
+      <div className="fixed bottom-0 left-0 right-0 z-40">
+        <PosHotkeysBar
+          onSearch={() => {
+            searchInputRef.current?.focus();
+            searchInputRef.current?.select();
+          }}
+          onCustomer={() => {
+            phoneInputRef.current?.focus();
+            phoneInputRef.current?.select();
+          }}
+          onVoucher={() => {
+            const disc = window.prompt('Nhập số tiền giảm giá / Voucher (VNĐ):', discountAmount.toString());
+            if (disc !== null) setDiscountAmount(parseInt(disc.replace(/\D/g, ''), 10) || 0);
+          }}
+          onPayment={handleCyclePaymentMethod}
+          onCheckout={() => {
+            if (!isProcessing && (selectedDevices.length > 0 || selectedAccessories.length > 0)) {
+              handleExecuteCheckout();
+            }
+          }}
+        />
       </div>
     </div>
   );

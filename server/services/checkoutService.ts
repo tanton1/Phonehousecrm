@@ -114,13 +114,14 @@ export async function executeAtomicCheckout(
       loadedDevices.push({ id: devId, ref: devRef, data: devData, authoritativePrice: price });
     }
 
-    // 4. Fetch & Validate Accessories (Authoritative Stock & Pricing from DB)
+    // 4. Fetch & Validate Accessories (Authoritative Multi-Branch Stock & Pricing from DB)
     const accessoryLines: any[] = isPureIntent
       ? (payload.accessoryLines || [])
       : (payload.accessoriesToSell || []);
 
     const loadedAccessories: any[] = [];
     let authoritativeAccessorySubtotal = 0;
+    const warehouseId = payload.warehouseId || payload.invoice?.warehouseId || 'WH01';
 
     for (const acc of accessoryLines) {
       const prodId = acc.productId || acc.product?.id;
@@ -133,15 +134,36 @@ export async function executeAtomicCheckout(
         throw new Error(`PRODUCT_NOT_FOUND: Không tìm thấy phụ kiện ID "${prodId}".`);
       }
       const prodData = prodSnap.data()!;
-      const currentStock = typeof prodData.stockQuantity === 'number' ? prodData.stockQuantity : 0;
 
-      if (currentStock < quantity) {
-        throw new Error(`INSUFFICIENT_STOCK: Phụ kiện "${prodData.name}" chỉ còn ${currentStock} cái (yêu cầu ${quantity}).`);
+      // Check Branch/Warehouse Specific Balance
+      const balanceId = `${branchId}_${warehouseId}_${prodId}`;
+      const balanceRef: DocumentReference = db.collection('inventoryBalances').doc(balanceId);
+      const balanceSnap = await transaction.get(balanceRef);
+
+      let availableStock = typeof prodData.stockQuantity === 'number' ? prodData.stockQuantity : 0;
+      let hasSpecificBalance = false;
+
+      if (balanceSnap.exists) {
+        const balData = balanceSnap.data()!;
+        availableStock = typeof balData.available === 'number' ? balData.available : balData.onHand || 0;
+        hasSpecificBalance = true;
+      }
+
+      if (availableStock < quantity) {
+        throw new Error(`INSUFFICIENT_STOCK: Phụ kiện "${prodData.name}" tại chi nhánh ${branchId} chỉ còn ${availableStock} cái (yêu cầu ${quantity}).`);
       }
 
       const price = typeof prodData.retailPrice === 'number' ? prodData.retailPrice : (prodData.sellPrice || 0);
       authoritativeAccessorySubtotal += price * quantity;
-      loadedAccessories.push({ id: prodId, ref: prodRef, data: prodData, quantity, authoritativePrice: price });
+      loadedAccessories.push({
+        id: prodId,
+        ref: prodRef,
+        balanceRef,
+        hasSpecificBalance,
+        data: prodData,
+        quantity,
+        authoritativePrice: price
+      });
     }
 
     const subTotal = authoritativeDeviceSubtotal + authoritativeAccessorySubtotal;
@@ -290,11 +312,31 @@ export async function executeAtomicCheckout(
       });
     }
 
-    // 9. Deduct Accessory Stock
+    // 9. Deduct Accessory Stock (Global & Branch specific)
     for (const acc of loadedAccessories) {
       transaction.update(acc.ref, {
         stockQuantity: FieldValue.increment(-acc.quantity)
       });
+
+      if (acc.hasSpecificBalance) {
+        transaction.update(acc.balanceRef, {
+          onHand: FieldValue.increment(-acc.quantity),
+          available: FieldValue.increment(-acc.quantity),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      } else {
+        transaction.set(acc.balanceRef, {
+          id: acc.balanceRef.id,
+          branchId,
+          warehouseId,
+          productId: acc.id,
+          productName: acc.data.name,
+          onHand: Math.max(0, (acc.data.stockQuantity || 0) - acc.quantity),
+          available: Math.max(0, (acc.data.stockQuantity || 0) - acc.quantity),
+          reserved: 0,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
     }
 
     // 10. Lock Trade-in Appraisal as CONSUMED
