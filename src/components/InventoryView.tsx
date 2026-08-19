@@ -54,7 +54,8 @@ import {
   Zap,
   AlertTriangle,
   Clock,
-  ArrowUpRight
+  ArrowUpRight,
+  MapPin
 } from 'lucide-react';
 import {
   BarChart,
@@ -120,8 +121,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   catalogItems = [],
   currentUser
 }) => {
-  // 1. Branch / Store filter: 'ALL' = Toàn hệ thống (Gộp tất cả shop)
-  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>(selectedBranchId || 'ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeries, setSelectedSeries] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
@@ -141,35 +140,38 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'IN_STOCK_ONLY' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
 
-  // Handle branch switch sync
-  const handleBranchSelect = (branchId: string) => {
-    setSelectedBranchFilter(branchId);
-    onSelectBranchId?.(branchId);
-  };
-
-  // Helper to match device with branch/warehouse
-  const getDeviceBranch = (dev: DeviceItem): { id: string; name: string; shortName: string } => {
+  // 1. Accurate Device to Branch Resolver
+  const getDeviceBranchInfo = (dev: DeviceItem): { id: string; name: string; shortName: string } => {
+    // A. Match direct branchId
     if (dev.branchId) {
       const b = branches.find(item => item.id === dev.branchId);
-      if (b) return { id: b.id, name: b.name, shortName: b.name.replace('Phone House ', '').replace('PhoneHouse ', '') };
+      if (b) return { id: b.id, name: b.name, shortName: b.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
     }
+    // B. Match warehouseId linked to branch or parent warehouse
     if (dev.warehouse) {
+      const b = branches.find(item => item.warehouseId === dev.warehouse || item.id === dev.warehouse);
+      if (b) return { id: b.id, name: b.name, shortName: b.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
+      
       const w = warehouses.find(item => item.id === dev.warehouse);
       if (w) {
         if (w.parentWarehouseId) {
-          const b = branches.find(item => item.id === w.parentWarehouseId);
-          if (b) return { id: b.id, name: b.name, shortName: b.name.replace('Phone House ', '').replace('PhoneHouse ', '') };
+          const pb = branches.find(item => item.id === w.parentWarehouseId || item.warehouseId === w.parentWarehouseId);
+          if (pb) return { id: pb.id, name: pb.name, shortName: pb.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
         }
-        return { id: w.id, name: w.name, shortName: w.name };
-      }
-      if (dev.warehouse.includes('XSTORE') || dev.warehouse.includes('Đống Đa')) {
-        return { id: 'CN02', name: 'PhoneHouse XStore (181 Tây Sơn)', shortName: 'Đống Đa' };
-      }
-      if (dev.warehouse.includes('TONG') || dev.warehouse.includes('Tổng')) {
-        return { id: 'WH_TONG', name: 'Kho Tổng Trung Tâm', shortName: 'Kho Tổng' };
+        return { id: w.id, name: w.name, shortName: w.shortName || w.name };
       }
     }
-    return { id: 'CN01', name: 'PhoneHouse Cầu Giấy (136 Cầu Giấy)', shortName: 'Cầu Giấy' };
+    // C. Match branch string field
+    if (dev.branch) {
+      const b = branches.find(item => item.name === dev.branch || dev.branch?.includes(item.name) || item.name.includes(dev.branch!));
+      if (b) return { id: b.id, name: b.name, shortName: b.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
+      return { id: 'custom', name: dev.branch, shortName: dev.branch.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
+    }
+    // D. Default to primary branch
+    const defaultBranch = branches[0];
+    return defaultBranch 
+      ? { id: defaultBranch.id, name: defaultBranch.name, shortName: defaultBranch.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() }
+      : { id: 'CN01', name: 'Chi Nhánh 1', shortName: 'CN1' };
   };
 
   // Active warehouse options
@@ -178,41 +180,41 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     return WAREHOUSE_LIST;
   }, [warehouses]);
 
-  // Branch Stock Counts (For Branch Tabs)
+  // Real Branch In-Stock Counts for Branch Bar
   const branchStockCounts = useMemo(() => {
     const counts: Record<string, number> = { ALL: 0 };
     devices.forEach(d => {
       if (d.status === 'in_stock') {
         counts.ALL = (counts.ALL || 0) + 1;
-        const branchInfo = getDeviceBranch(d);
+        const branchInfo = getDeviceBranchInfo(d);
         counts[branchInfo.id] = (counts[branchInfo.id] || 0) + 1;
       }
     });
     return counts;
   }, [devices, branches, warehouses]);
 
-  // 1. Branch-Filtered Base List
+  // 2. Base Scoped Devices based on global selectedBranchId
   const branchScopedDevices = useMemo(() => {
-    if (selectedBranchFilter === 'ALL' || !selectedBranchFilter) {
+    if (selectedBranchId === 'ALL' || !selectedBranchId) {
       return devices;
     }
     return devices.filter(d => {
-      const branchInfo = getDeviceBranch(d);
-      return branchInfo.id === selectedBranchFilter || d.branchId === selectedBranchFilter || d.warehouse === selectedBranchFilter;
+      const bInfo = getDeviceBranchInfo(d);
+      return bInfo.id === selectedBranchId || d.branchId === selectedBranchId || d.warehouse === selectedBranchId;
     });
-  }, [devices, selectedBranchFilter, branches, warehouses]);
+  }, [devices, selectedBranchId, branches, warehouses]);
 
-  // In stock devices within selected scope
+  // In-stock devices in current scope
   const inStockDevices = useMemo(() => {
     return branchScopedDevices.filter(d => d.status === 'in_stock');
   }, [branchScopedDevices]);
 
-  // Distinct models in stock
+  // Distinct models count
   const distinctModelsCount = useMemo(() => {
     return new Set(inStockDevices.map(d => d.model)).size;
   }, [inStockDevices]);
 
-  // Total stock cost and selling value (100% Real calculation)
+  // Accurate Financial Calculations
   const totalStockCostValue = useMemo(() => {
     return inStockDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
   }, [inStockDevices]);
@@ -223,7 +225,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   const potentialGrossProfit = Math.max(0, totalStockSellingValue - totalStockCostValue);
 
-  // 100% Real Aging Stock (> 30 days)
+  // Aging Stock (> 30 days)
   const thirtyDaysAgoStr = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
@@ -279,7 +281,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     return Object.values(modelMap).sort((a, b) => b.totalCount - a.totalCount);
   }, [inStockDevices]);
 
-  // Filtered devices with all user criteria
+  // Filtered devices with Search, Series, Condition, Quick Filters
   const filteredDevices = useMemo(() => {
     return branchScopedDevices.filter(d => {
       const q = searchTerm.toLowerCase().trim();
@@ -315,7 +317,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     });
   }, [branchScopedDevices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, quickFilter, thirtyDaysAgoStr]);
 
-  // Group devices by Model + Storage + Color for Grouped Table View
+  // Group devices by Model + Storage + Color
   const groupedDevices = useMemo(() => {
     const groups: Record<string, {
       id: string;
@@ -361,7 +363,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       
       if (d.status === 'in_stock') {
         groups[key].inStockCount += 1;
-        const bInfo = getDeviceBranch(d);
+        const bInfo = getDeviceBranchInfo(d);
         groups[key].branchBreakdown[bInfo.shortName] = (groups[key].branchBreakdown[bInfo.shortName] || 0) + 1;
       }
     });
@@ -417,37 +419,49 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     }
   };
 
+  // Currency Formatter Helper
+  const formatCompactVND = (num: number) => {
+    if (num >= 1_000_000_000) {
+      return `${(num / 1_000_000_000).toFixed(2)} Tỷ`;
+    }
+    if (num >= 1_000_000) {
+      return `${(num / 1_000_000).toFixed(1).replace('.0', '')} Tr`;
+    }
+    return num.toLocaleString('vi-VN') + ' đ';
+  };
+
   return (
-    <div className="w-full space-y-4 pb-16">
+    <div className="w-full space-y-3.5 sm:space-y-4 pb-20">
       
       {/* 1. Header Action Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-0.5">
         <div>
           <div className="flex items-center space-x-2">
-            <h1 className="text-xl sm:text-2xl font-black text-zinc-950 tracking-tight">
-              Quản Lý Kho IMEI & Tồn Kho
+            <h1 className="text-lg sm:text-2xl font-black text-zinc-950 tracking-tight">
+              Quản Lý Kho IMEI
             </h1>
-            <span className="bg-orange-50 text-[#ff4b16] border border-orange-200 text-xs font-bold px-2.5 py-0.5 rounded-full">
+            <span className="bg-orange-50 text-[#ff4b16] border border-orange-200 text-xs font-black px-2.5 py-0.5 rounded-full">
               {inStockDevices.length} máy sẵn sàng
             </span>
           </div>
-          <p className="text-xs text-zinc-500 font-medium mt-0.5">
-            Đồng bộ theo thời gian thực từng IMEI và trạng thái chi nhánh.
+          <p className="text-[11px] sm:text-xs text-zinc-500 font-medium mt-0.5">
+            Dữ liệu định danh 100% thời gian thực theo từng cây IMEI.
           </p>
         </div>
 
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setIsAnalysisModalOpen(true)}
-            className="bg-white hover:bg-orange-50/60 text-zinc-700 hover:text-[#ff4b16] border border-zinc-200/80 text-xs font-bold px-3.5 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
+            className="bg-white hover:bg-orange-50 text-zinc-700 hover:text-[#ff4b16] border border-zinc-200/80 text-xs font-bold px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
           >
-            <ArrowLeftRight className="w-4 h-4 text-[#ff4b16]" />
-            <span>Phân Tích Chi Nhánh</span>
+            <ArrowLeftRight className="w-3.5 h-3.5 text-[#ff4b16]" />
+            <span className="hidden sm:inline">Phân Tích Chi Nhánh</span>
+            <span className="sm:hidden">Phân Tích</span>
           </button>
 
           <button
             onClick={() => setIsAddModalOpen(true)}
-            className="bg-gradient-to-r from-orange-500 to-[#ff4b16] hover:brightness-110 text-white text-xs font-bold px-4 py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-md shadow-orange-500/25 transition-all cursor-pointer active:scale-95"
+            className="bg-gradient-to-r from-orange-500 to-[#ff4b16] hover:brightness-110 text-white text-xs font-black px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl flex items-center space-x-1.5 shadow-md shadow-orange-500/25 transition-all cursor-pointer active:scale-95"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Nhập Hàng / IMEI</span>
@@ -455,160 +469,162 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       </div>
 
-      {/* 2. Omni-Branch Cockpit Bar: Gộp Tất Cả Shop vs Từng Chi Nhánh */}
-      <div className="bg-white p-2 rounded-2xl border border-zinc-200/70 shadow-2xs">
-        <div className="flex items-center space-x-2 overflow-x-auto pb-0.5 scrollbar-none">
-          
-          {/* Option: Gộp Tất Cả Các Shop */}
-          <button
-            onClick={() => handleBranchSelect('ALL')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
-              selectedBranchFilter === 'ALL'
-                ? 'bg-zinc-950 text-white shadow-md'
-                : 'bg-zinc-100/70 text-zinc-700 hover:bg-zinc-200/70'
-            }`}
-          >
-            <Building2 className={`w-4 h-4 ${selectedBranchFilter === 'ALL' ? 'text-[#ff4b16]' : 'text-zinc-500'}`} />
-            <span>🏢 Toàn Hệ Thống (Gộp tất cả shop)</span>
-            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-black ${
-              selectedBranchFilter === 'ALL' ? 'bg-[#ff4b16] text-white' : 'bg-zinc-200 text-zinc-800'
-            }`}>
-              {branchStockCounts.ALL || inStockDevices.length} máy
-            </span>
-          </button>
+      {/* 2. Unified Branch Switcher Bar */}
+      {branches.length > 0 && (
+        <div className="bg-white p-1.5 sm:p-2 rounded-2xl border border-zinc-200/80 shadow-2xs">
+          <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+            
+            {/* Option: Gộp Tất Cả Các Shop */}
+            <button
+              onClick={() => onSelectBranchId?.('ALL')}
+              className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 cursor-pointer ${
+                selectedBranchId === 'ALL'
+                  ? 'bg-zinc-950 text-white shadow-sm'
+                  : 'bg-zinc-100/70 text-zinc-700 hover:bg-zinc-200/70'
+              }`}
+            >
+              <Building2 className={`w-3.5 h-3.5 ${selectedBranchId === 'ALL' ? 'text-[#ff4b16]' : 'text-zinc-500'}`} />
+              <span>Toàn Hệ Thống (Gộp tất cả)</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-black ${
+                selectedBranchId === 'ALL' ? 'bg-[#ff4b16] text-white' : 'bg-zinc-200 text-zinc-800'
+              }`}>
+                {branchStockCounts.ALL || devices.filter(d => d.status === 'in_stock').length}
+              </span>
+            </button>
 
-          {/* Dynamically List Branches */}
-          {branches.map(b => {
-            const count = branchStockCounts[b.id] || 0;
-            const isSelected = selectedBranchFilter === b.id;
-            return (
-              <button
-                key={b.id}
-                onClick={() => handleBranchSelect(b.id)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-2 cursor-pointer ${
-                  isSelected
-                    ? 'bg-[#ff4b16] text-white shadow-md shadow-orange-500/25'
-                    : 'bg-zinc-100/70 text-zinc-700 hover:bg-orange-50 hover:text-[#ff4b16]'
-                }`}
-              >
-                <Warehouse className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-[#ff4b16]'}`} />
-                <span>{b.name}</span>
-                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-black ${
-                  isSelected ? 'bg-white text-[#ff4b16]' : 'bg-zinc-200 text-zinc-800'
-                }`}>
-                  {count} máy
-                </span>
-              </button>
-            );
-          })}
+            {/* Individual Branches */}
+            {branches.map(b => {
+              const count = branchStockCounts[b.id] || 0;
+              const isSelected = selectedBranchId === b.id;
+              const shortName = b.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim();
+
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => onSelectBranchId?.(b.id)}
+                  className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center space-x-1.5 cursor-pointer ${
+                    isSelected
+                      ? 'bg-[#ff4b16] text-white shadow-md shadow-orange-500/25'
+                      : 'bg-zinc-100/70 text-zinc-700 hover:bg-orange-50 hover:text-[#ff4b16]'
+                  }`}
+                >
+                  <MapPin className={`w-3.5 h-3.5 ${isSelected ? 'text-white' : 'text-[#ff4b16]'}`} />
+                  <span>{shortName}</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full font-black ${
+                    isSelected ? 'bg-white text-[#ff4b16]' : 'bg-zinc-200 text-zinc-800'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* 3. 4 Cockpit Executive KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {/* 3. 4 Cockpit Executive KPI Cards (Redesigned & Mobile Optimized) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
         
-        {/* Card 1: Máy Sẵn Xuất Quầy */}
-        <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
-            <span>Máy Sẵn Xuất Quầy</span>
-            <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-mono font-bold text-[10px]">
+        {/* Card 1: Máy Sẵn Bán */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
+            <span className="truncate">Sẵn Xuất Quầy</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-mono font-bold text-[10px] shrink-0">
               {distinctModelsCount} Model
             </span>
           </div>
-          <div className="text-2xl font-black font-mono tracking-tight text-zinc-950 flex items-baseline space-x-1.5">
+          <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-zinc-950 flex items-baseline space-x-1">
             <span>{inStockDevices.length}</span>
-            <span className="text-xs font-sans text-zinc-500 font-bold">cây máy</span>
+            <span className="text-xs font-sans text-zinc-400 font-medium">máy</span>
           </div>
-          <span className="text-[11px] text-zinc-500 block font-medium">
-            🔥 Seal: <b className="text-zinc-800 font-mono">{conditionStats.newSealCount}</b> • ✨ 99%: <b className="text-zinc-800 font-mono">{conditionStats.likeNewCount}</b>
-          </span>
+          <div className="text-[10px] sm:text-[11px] text-zinc-500 font-medium truncate pt-0.5 border-t border-zinc-100">
+            🔥 Seal: <b className="text-zinc-900 font-mono">{conditionStats.newSealCount}</b> • ✨ 99%: <b className="text-zinc-900 font-mono">{conditionStats.likeNewCount}</b>
+          </div>
         </div>
 
-        {/* Card 2: Vốn Tồn Kho (Cost Value with Privacy Eye) */}
-        <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
-            <span>Vốn Tồn Kho Hiện Tại</span>
+        {/* Card 2: Vốn Tồn Kho */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
+            <span className="truncate">Vốn Tồn Kho</span>
             <button
               onClick={() => setShowCostPrice(!showCostPrice)}
-              className="text-zinc-400 hover:text-zinc-700 p-0.5 rounded cursor-pointer"
+              className="text-zinc-400 hover:text-zinc-700 p-0.5 rounded cursor-pointer shrink-0"
               title={showCostPrice ? 'Ẩn giá vốn' : 'Hiện giá vốn'}
             >
               {showCostPrice ? <EyeOff className="w-3.5 h-3.5 text-zinc-600" /> : <Eye className="w-3.5 h-3.5 text-[#ff4b16]" />}
             </button>
           </div>
-          <div className="text-2xl font-black font-mono tracking-tight text-zinc-950">
+          <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-zinc-950 truncate">
             {showCostPrice ? (
-              <>
-                {(totalStockCostValue / 1_000_000_000).toFixed(2)} <span className="text-xs font-sans text-zinc-500 font-bold">Tỷ VNĐ</span>
-              </>
+              formatCompactVND(totalStockCostValue)
             ) : (
-              <span className="tracking-widest text-zinc-400">•••••••• đ</span>
+              <span className="tracking-widest text-zinc-400 text-base sm:text-lg">•••••••• đ</span>
             )}
           </div>
-          <span className="text-[11px] text-zinc-400 block font-medium truncate">
-            {showCostPrice ? `Tổng vốn: ${totalStockCostValue.toLocaleString('vi-VN')} đ` : 'Chế độ riêng tư tại quầy bán'}
-          </span>
+          <div className="text-[10px] sm:text-[11px] text-zinc-400 font-medium truncate pt-0.5 border-t border-zinc-100">
+            {showCostPrice ? `Vốn nhập: ${totalStockCostValue.toLocaleString('vi-VN')} đ` : 'Chạm 👁️ để mở khóa giá'}
+          </div>
         </div>
 
-        {/* Card 3: Giá Trị Bán Dự Kiến & Lợi Nhuận Tiềm Năng */}
-        <div className="bg-white p-4 rounded-2xl border border-zinc-200/70 shadow-2xs space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-zinc-500 font-medium">
-            <span>Giá Trị Bán Dự Kiến</span>
-            <span className="px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 font-mono font-bold text-[10px]">
-              LN: +{(potentialGrossProfit / 1_000_000).toFixed(0)}Tr
+        {/* Card 3: Giá Trị Bán & Lợi Nhuận */}
+        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
+          <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
+            <span className="truncate">Giá Trị Bán</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 font-mono font-bold text-[10px] shrink-0">
+              LN: +{formatCompactVND(potentialGrossProfit)}
             </span>
           </div>
-          <div className="text-2xl font-black font-mono tracking-tight text-zinc-950">
-            {(totalStockSellingValue / 1_000_000_000).toFixed(2)} <span className="text-xs font-sans text-zinc-500 font-bold">Tỷ VNĐ</span>
+          <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-zinc-950 truncate">
+            {formatCompactVND(totalStockSellingValue)}
           </div>
-          <span className="text-[11px] text-emerald-600 block font-medium">
-            Doanh thu tiềm năng khi xuất hết kho
-          </span>
+          <div className="text-[10px] sm:text-[11px] text-emerald-600 font-bold truncate pt-0.5 border-t border-zinc-100">
+            Lợi nhuận dự kiến: +{potentialGrossProfit.toLocaleString('vi-VN')} đ
+          </div>
         </div>
 
-        {/* Card 4: Cảnh Báo Đọng Vốn (>30 Ngày) */}
-        <div className={`p-4 rounded-2xl border shadow-2xs space-y-1.5 ${
-          agingDevices.length > 0 ? 'bg-rose-50/50 border-rose-200/80' : 'bg-white border-zinc-200/70'
+        {/* Card 4: Tồn Kho >30 Ngày */}
+        <div className={`p-3.5 sm:p-4 rounded-2xl border shadow-2xs space-y-1.5 flex flex-col justify-between ${
+          agingDevices.length > 0 ? 'bg-rose-50/50 border-rose-200/80' : 'bg-white border-zinc-200/80'
         }`}>
-          <div className="flex items-center justify-between text-xs font-medium">
-            <span className={agingDevices.length > 0 ? 'text-rose-700 font-bold' : 'text-zinc-500'}>
-              Tồn Kho &gt; 30 Ngày
+          <div className="flex items-center justify-between text-xs font-bold">
+            <span className={agingDevices.length > 0 ? 'text-rose-700' : 'text-zinc-500'}>
+              Tồn &gt;30 Ngày
             </span>
             {agingDevices.length > 0 && (
-              <span className="px-1.5 py-0.5 rounded-md bg-rose-500 text-white font-mono font-bold text-[10px]">
-                Cần xả hàng
+              <span className="px-1.5 py-0.5 rounded-md bg-rose-500 text-white font-mono font-bold text-[10px] shrink-0">
+                Cần xả
               </span>
             )}
           </div>
-          <div className={`text-2xl font-black font-mono tracking-tight ${agingDevices.length > 0 ? 'text-rose-600' : 'text-zinc-950'}`}>
-            {agingDevices.length} <span className="text-xs font-sans font-bold">máy</span>
+          <div className={`text-xl sm:text-2xl font-black font-mono tracking-tight ${agingDevices.length > 0 ? 'text-rose-600' : 'text-zinc-950'}`}>
+            {agingDevices.length} <span className="text-xs font-sans font-medium text-zinc-400">máy</span>
           </div>
-          <span className={`text-[11px] block font-medium ${agingDevices.length > 0 ? 'text-rose-600' : 'text-zinc-400'}`}>
-            {agingDevices.length > 0 ? `Đọng vốn ~${(agingStockCost / 1_000_000).toFixed(0)} triệu đồng` : '✅ Tốc độ xoay vòng kho rất tốt'}
-          </span>
+          <div className={`text-[10px] sm:text-[11px] font-medium truncate pt-0.5 border-t ${agingDevices.length > 0 ? 'border-rose-200/60 text-rose-600 font-bold' : 'border-zinc-100 text-zinc-400'}`}>
+            {agingDevices.length > 0 ? `Đọng vốn ~${(agingStockCost / 1_000_000).toFixed(0)}Tr VNĐ` : '✅ Vòng quay kho tốt'}
+          </div>
         </div>
       </div>
 
       {/* 4. Chart Analytics Toggle Bar */}
-      <div className="bg-white rounded-2xl p-3 border border-zinc-200/70 shadow-2xs flex items-center justify-between">
+      <div className="bg-white rounded-2xl p-2.5 sm:p-3 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
         <button
           onClick={() => setIsChartExpanded(!isChartExpanded)}
-          className="text-xs font-bold text-zinc-700 hover:text-[#ff4b16] transition-colors flex items-center space-x-2 cursor-pointer"
+          className="text-xs font-bold text-zinc-700 hover:text-[#ff4b16] transition-colors flex items-center space-x-1.5 cursor-pointer"
         >
           <BarChart3 className="w-4 h-4 text-[#ff4b16]" />
-          <span>{isChartExpanded ? 'Thu gọn biểu đồ cơ cấu kho' : 'Xem biểu đồ phân phối Model & Tình trạng máy'}</span>
+          <span>{isChartExpanded ? 'Thu gọn biểu đồ' : 'Biểu đồ cơ cấu Model & Ngoại hình'}</span>
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isChartExpanded ? 'rotate-180 text-[#ff4b16]' : ''}`} />
         </button>
 
-        <span className="text-[11px] text-zinc-400 font-medium">
-          Dữ liệu thời gian thực {selectedBranchFilter === 'ALL' ? 'Toàn hệ thống' : 'Chi nhánh đang chọn'}
+        <span className="text-[10px] sm:text-[11px] text-zinc-400 font-medium truncate">
+          {selectedBranchId === 'ALL' ? 'Toàn hệ thống' : 'Chi nhánh đang lọc'}
         </span>
       </div>
 
       {/* Extended Chart Analytics */}
       {isChartExpanded && (
-        <div className="bg-white rounded-3xl p-5 border border-zinc-200/70 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs space-y-3">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
             <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">
               Phân Phối Tồn Kho Theo Model (Seal / 99% / Khác)
             </h3>
@@ -622,11 +638,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             )}
           </div>
 
-          <div className="h-64 w-full">
+          <div className="h-60 sm:h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={modelStockData}
-                margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
+                margin={{ top: 10, right: 10, left: -25, bottom: 20 }}
                 onClick={(data: any) => {
                   if (data && data.activePayload && data.activePayload[0]) {
                     const clickedModel = data.activePayload[0].payload.model;
@@ -663,23 +679,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       )}
 
       {/* 5. Command Bar: Search, Quick Chips & View Switcher */}
-      <div className="space-y-2.5">
+      <div className="space-y-2">
         
         {/* Search Bar + Mode Switcher */}
-        <div className="flex items-center space-x-2">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        <div className="flex items-center space-x-1.5 sm:space-x-2">
+          <div className="relative flex-1 min-w-0">
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Tìm nhanh 4-6 số cuối IMEI, Serial, Model, Màu sắc, Nhà cung cấp..."
+              placeholder="Tìm IMEI, Serial, Model, Màu sắc, NCC..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white border border-zinc-200/80 rounded-2xl pl-10 pr-9 py-2.5 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16] focus:ring-1 focus:ring-[#ff4b16] shadow-2xs font-medium transition-all"
+              className="w-full bg-white border border-zinc-200/80 rounded-xl pl-8 pr-8 py-2 text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16] shadow-2xs font-medium transition-all"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -687,21 +703,21 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
 
           {/* View Mode (Grouped Table vs Cards) */}
-          <div className="flex items-center bg-white p-1 rounded-2xl border border-zinc-200/80 shadow-2xs shrink-0">
+          <div className="flex items-center bg-white p-0.5 sm:p-1 rounded-xl border border-zinc-200/80 shadow-2xs shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`p-2 rounded-xl transition-all cursor-pointer ${
+              className={`p-1.5 sm:p-2 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'table' ? 'bg-zinc-950 text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
               }`}
-              title="Xem dạng Gom nhóm Model"
+              title="Xem dạng Bảng Gom Model"
             >
               <Table2 className="w-4 h-4" />
             </button>
             <button
               type="button"
               onClick={() => setViewMode('cards')}
-              className={`p-2 rounded-xl transition-all cursor-pointer ${
+              className={`p-1.5 sm:p-2 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'cards' ? 'bg-zinc-950 text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
               }`}
               title="Xem dạng Thẻ Máy"
@@ -710,10 +726,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </button>
           </div>
 
-          {/* Toggle Advanced Filters */}
+          {/* Advanced Filters Button */}
           <button
             onClick={() => setShowFilterDrawer(!showFilterDrawer)}
-            className={`p-2.5 rounded-2xl border transition-all cursor-pointer shrink-0 ${
+            className={`p-2 rounded-xl border transition-all cursor-pointer shrink-0 ${
               showFilterDrawer 
                 ? 'bg-[#ff4b16] text-white border-transparent' 
                 : 'bg-white text-zinc-700 border-zinc-200/80 hover:bg-zinc-50 shadow-2xs'
@@ -725,7 +741,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
 
         {/* Series Pill Tabs */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5 scrollbar-none">
           {[
             { id: 'ALL', label: 'Tất cả model' },
             { id: '16', label: 'iPhone 16 Series' },
@@ -738,10 +754,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <button
               key={item.id}
               onClick={() => setSelectedSeries(item.id)}
-              className={`text-xs px-3.5 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
+              className={`text-xs px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition-all cursor-pointer ${
                 selectedSeries === item.id
                   ? 'bg-zinc-950 text-white shadow-xs'
-                  : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/70'
+                  : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80'
               }`}
             >
               {item.label}
@@ -750,7 +766,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
 
         {/* 1-Tap Quick Filter Chips */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs scrollbar-none">
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5 text-xs scrollbar-none">
           {[
             { id: 'ALL', label: 'Tất cả' },
             { id: 'IN_STOCK_ONLY', label: '⚡ Sẵn hàng xuất quầy' },
@@ -763,10 +779,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               key={chip.id}
               type="button"
               onClick={() => setQuickFilter(chip.id as any)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                 quickFilter === chip.id
                   ? 'bg-[#ff4b16] text-white shadow-xs'
-                  : 'bg-white hover:bg-orange-50 text-zinc-600 border border-zinc-200/70'
+                  : 'bg-white hover:bg-orange-50 text-zinc-600 border border-zinc-200/80'
               }`}
             >
               {chip.label}
@@ -776,13 +792,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
         {/* Advanced Filter Drawer */}
         {showFilterDrawer && (
-          <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-sm grid grid-cols-2 gap-3 text-xs animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl p-3 sm:p-4 border border-zinc-200 shadow-sm grid grid-cols-2 gap-2.5 text-xs animate-in fade-in zoom-in-95 duration-150">
             <div>
-              <label className="block text-[11px] font-bold text-zinc-600 mb-1.5">Trạng thái máy</label>
+              <label className="block text-[11px] font-bold text-zinc-600 mb-1">Trạng thái máy</label>
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-2.5 py-1.5 font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
               >
                 <option value="ALL">Tất cả trạng thái</option>
                 <option value="in_stock">Sẵn hàng (Trong kho)</option>
@@ -793,11 +809,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-zinc-600 mb-1.5">Tình trạng ngoại quan</label>
+              <label className="block text-[11px] font-bold text-zinc-600 mb-1">Tình trạng ngoại quan</label>
               <select
                 value={selectedCondition}
                 onChange={(e) => setSelectedCondition(e.target.value)}
-                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+                className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-2.5 py-1.5 font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
               >
                 <option value="ALL">Mọi tình trạng</option>
                 <option value="New Seal">New Seal</option>
@@ -812,81 +828,83 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       {/* 6. List of Devices: Grouped Model View OR Cards Grid View */}
       {viewMode === 'cards' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredDevices.length === 0 ? (
-            <div className="col-span-full p-12 text-center bg-white rounded-3xl border border-zinc-200/70 text-zinc-400 text-xs font-medium">
+            <div className="col-span-full p-10 text-center bg-white rounded-3xl border border-zinc-200/80 text-zinc-400 text-xs font-medium">
               Không tìm thấy cây máy nào khớp với điều kiện tìm kiếm.
             </div>
           ) : (
             filteredDevices.map((device) => {
               const battery = device.batteryHealth || 100;
               const batteryColor = battery >= 90 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : battery >= 80 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-rose-700 bg-rose-50 border-rose-200';
-              const branchInfo = getDeviceBranch(device);
+              const branchInfo = getDeviceBranchInfo(device);
               const isAging = device.receivedDate && device.receivedDate < thirtyDaysAgoStr;
               
               return (
                 <div 
                   key={device.id}
-                  className="bg-white rounded-3xl p-4 border border-zinc-200/70 shadow-2xs hover:border-orange-300 hover:shadow-md transition-all flex flex-col justify-between space-y-3 relative group"
+                  className="bg-white rounded-2xl sm:rounded-3xl p-3.5 border border-zinc-200/80 shadow-2xs hover:border-orange-300 hover:shadow-md transition-all flex flex-col justify-between space-y-2.5 relative group"
                 >
-                  <div className="flex items-start space-x-3">
-                    <DeviceImageThumbnail model={device.model} color={device.color} />
+                  <div className="flex items-start space-x-2.5">
+                    <div className="shrink-0">
+                      <DeviceImageThumbnail model={device.model} color={device.color} />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff4b16] bg-orange-50 px-2 py-0.5 rounded-lg border border-orange-100 truncate">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff4b16] bg-orange-50 px-2 py-0.5 rounded-md border border-orange-100 truncate">
                           🏪 {branchInfo.shortName}
                         </span>
                         {getStatusBadge(device.status)}
                       </div>
-                      <h4 className="font-black text-zinc-950 text-sm tracking-tight truncate group-hover:text-[#ff4b16] transition-colors mt-1">
+                      <h4 className="font-black text-zinc-950 text-xs sm:text-sm tracking-tight truncate group-hover:text-[#ff4b16] transition-colors mt-1">
                         {device.model}
                       </h4>
-                      <p className="text-xs text-zinc-500 font-medium">
+                      <p className="text-[11px] text-zinc-500 font-medium truncate">
                         {device.storage} • {device.color}
                       </p>
                     </div>
                   </div>
 
                   {/* Device Specs Chips */}
-                  <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
-                    <span className={`px-2 py-0.5 rounded-lg border flex items-center gap-1 ${batteryColor}`}>
+                  <div className="flex flex-wrap gap-1 text-[10px] font-bold">
+                    <span className={`px-2 py-0.5 rounded-md border flex items-center gap-1 ${batteryColor}`}>
                       <Battery className="w-3 h-3" />
                       <span>Pin {battery}%</span>
                     </span>
-                    <span className="bg-zinc-100 text-zinc-800 px-2 py-0.5 rounded-lg border border-zinc-200 font-mono">
-                      IMEI: *{device.imei.slice(-6)}
+                    <span className="bg-zinc-100 text-zinc-800 px-2 py-0.5 rounded-md border border-zinc-200 font-mono">
+                      *{device.imei.slice(-6)}
                     </span>
-                    <span className="bg-orange-50 text-orange-800 px-2 py-0.5 rounded-lg border border-orange-200">
+                    <span className="bg-orange-50 text-orange-800 px-2 py-0.5 rounded-md border border-orange-200">
                       {device.condition}
                     </span>
                     {isAging && (
-                      <span className="bg-rose-50 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200 font-bold flex items-center space-x-1">
+                      <span className="bg-rose-50 text-rose-700 px-2 py-0.5 rounded-md border border-rose-200 font-bold flex items-center space-x-1">
                         <Clock className="w-3 h-3" />
-                        <span>Tồn lâu</span>
+                        <span>Tồn &gt;30N</span>
                       </span>
                     )}
                   </div>
 
                   {/* Price & Quick Actions */}
-                  <div className="pt-2.5 border-t border-zinc-100 flex items-center justify-between">
-                    <div>
+                  <div className="pt-2 border-t border-zinc-100 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
                       <div className="text-[10px] text-zinc-400 font-bold uppercase">Giá Niêm Yết:</div>
-                      <div className="text-sm font-black text-[#ff4b16] font-mono">
+                      <div className="text-xs sm:text-sm font-black text-[#ff4b16] font-mono truncate">
                         {(device.sellPrice || 0).toLocaleString('vi-VN')} đ
                       </div>
                       {showCostPrice && (
-                        <div className="text-[10px] text-zinc-400 font-mono">
+                        <div className="text-[10px] text-zinc-400 font-mono truncate">
                           Vốn: {(device.buyPrice || 0).toLocaleString('vi-VN')} đ
                         </div>
                       )}
                     </div>
 
-                    <div className="flex items-center space-x-1">
+                    <div className="flex items-center space-x-1 shrink-0">
                       {device.status === 'in_stock' && (
                         <button
                           type="button"
                           onClick={() => onQuickSell(device)}
-                          className="px-3 py-1.5 bg-[#ff4b16] hover:bg-[#e03d14] text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                          className="px-2.5 py-1.5 bg-[#ff4b16] hover:bg-[#e03d14] text-white rounded-xl text-xs font-bold flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
                           title="Bán ngay trên POS"
                         >
                           <ShoppingCart className="w-3.5 h-3.5" />
@@ -909,9 +927,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2.5 sm:space-y-3">
           {groupedDevices.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-zinc-200/70 text-zinc-400 text-xs font-medium">
+            <div className="p-10 text-center bg-white rounded-3xl border border-zinc-200/80 text-zinc-400 text-xs font-medium">
               Không tìm thấy cây máy nào khớp với điều kiện tìm kiếm.
             </div>
           ) : (
@@ -921,62 +939,67 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 ? `${group.minPrice.toLocaleString('vi-VN')} đ`
                 : `${group.minPrice.toLocaleString('vi-VN')} đ - ${group.maxPrice.toLocaleString('vi-VN')} đ`;
 
-              const branchDistributionStr = Object.entries(group.branchBreakdown)
-                .map(([name, count]) => `${name}: ${count}`)
-                .join(' • ');
+              // Show cross-store breakdown when viewing all branches or when multiple branches exist
+              const branchEntries = Object.entries(group.branchBreakdown);
+              const showBreakdown = selectedBranchId === 'ALL' && branchEntries.length > 0;
 
               return (
                 <div 
                   key={group.id} 
-                  className="bg-white rounded-3xl p-4 border border-zinc-200/70 shadow-2xs hover:border-orange-300 transition-all space-y-3 relative"
+                  className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-4 border border-zinc-200/80 shadow-2xs hover:border-orange-300 transition-all space-y-2.5 relative"
                 >
                   {/* Group Summary Row */}
                   <div 
-                    className="flex gap-3.5 items-center cursor-pointer group"
+                    className="flex gap-2.5 sm:gap-3.5 items-center cursor-pointer group"
                     onClick={() => toggleGroup(group.id)}
                   >
-                    <DeviceImageThumbnail model={group.model} color={group.color} />
+                    <div className="shrink-0">
+                      <DeviceImageThumbnail model={group.model} color={group.color} />
+                    </div>
                     
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="font-black text-zinc-950 text-sm sm:text-base tracking-tight truncate group-hover:text-[#ff4b16] transition-colors">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <div className="min-w-0">
+                          <h3 className="font-black text-zinc-950 text-xs sm:text-base tracking-tight truncate group-hover:text-[#ff4b16] transition-colors">
                             {group.model} {group.storage}
                           </h3>
-                          <p className="text-xs text-zinc-500 font-medium">
+                          <p className="text-[11px] sm:text-xs text-zinc-500 font-medium truncate">
                             Màu: <strong className="text-zinc-800">{group.color}</strong>
                           </p>
                         </div>
                         
-                        <div className="bg-orange-50 text-[#ff4b16] border border-orange-200 font-black text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full shrink-0">
+                        <div className="self-start sm:self-auto bg-orange-50 text-[#ff4b16] border border-orange-200 font-black text-[10px] sm:text-xs px-2 py-0.5 rounded-full shrink-0">
                           {group.inStockCount} Sẵn / {group.totalCount} Tổng
                         </div>
                       </div>
 
-                      {/* Cross-Store Stock Distribution Badge */}
-                      {branchDistributionStr && (
-                        <div className="mt-1.5 flex items-center space-x-1 text-[11px] text-zinc-600 font-bold bg-zinc-50 px-2.5 py-1 rounded-xl border border-zinc-100 w-fit">
-                          <Warehouse className="w-3.5 h-3.5 text-[#ff4b16] shrink-0" />
-                          <span>Phân bổ shop:</span>
-                          <span className="text-zinc-900 font-mono">{branchDistributionStr}</span>
+                      {/* Cross-Store Stock Distribution Badge (Wrapping safe) */}
+                      {showBreakdown && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] sm:text-[11px] text-zinc-600 font-bold">
+                          <span className="text-zinc-400 font-normal">Tại shop:</span>
+                          {branchEntries.map(([bName, bCount]) => (
+                            <span key={bName} className="bg-zinc-100 text-zinc-800 px-1.5 py-0.2 rounded-md border border-zinc-200 font-mono">
+                              {bName}: <b>{bCount}</b>
+                            </span>
+                          ))}
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between pt-2">
-                        <div>
-                          <span className="text-[#ff4b16] font-black text-sm sm:text-base tracking-tight font-mono">
+                      <div className="flex items-center justify-between pt-1.5">
+                        <div className="min-w-0">
+                          <span className="text-[#ff4b16] font-black text-xs sm:text-base tracking-tight font-mono truncate block sm:inline">
                             {priceRange}
                           </span>
                           {showCostPrice && group.minCost > 0 && (
-                            <span className="text-[10px] text-zinc-400 font-mono ml-2">
+                            <span className="text-[10px] text-zinc-400 font-mono sm:ml-2">
                               (Vốn: {group.minCost.toLocaleString('vi-VN')} đ)
                             </span>
                           )}
                         </div>
 
-                        <div className="text-zinc-400 hover:text-[#ff4b16] transition-colors flex items-center text-xs font-bold space-x-1">
-                          <span>{isExpanded ? 'Thu gọn' : `Xem ${group.devices.length} cây máy`}</span>
-                          <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180 text-[#ff4b16]' : ''}`} />
+                        <div className="text-zinc-400 hover:text-[#ff4b16] transition-colors flex items-center text-[11px] sm:text-xs font-bold space-x-1 shrink-0">
+                          <span>{isExpanded ? 'Thu gọn' : `Xem ${group.devices.length} cây`}</span>
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180 text-[#ff4b16]' : ''}`} />
                         </div>
                       </div>
                     </div>
@@ -984,9 +1007,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
                   {/* Individual IMEI Devices (Expanded State) */}
                   {isExpanded && (
-                    <div className="pt-3 border-t border-zinc-100 space-y-2.5">
+                    <div className="pt-2.5 border-t border-zinc-100 space-y-2">
                       {group.devices.map(device => {
-                        const branchInfo = getDeviceBranch(device);
+                        const branchInfo = getDeviceBranchInfo(device);
                         const isAging = device.receivedDate && device.receivedDate < thirtyDaysAgoStr;
                         const battery = device.batteryHealth || 100;
                         const batteryColor = battery >= 90 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : battery >= 80 ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-rose-700 bg-rose-50 border-rose-200';
@@ -994,15 +1017,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         return (
                           <div 
                             key={device.id} 
-                            className="bg-zinc-50/80 rounded-2xl p-3 border border-zinc-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative"
+                            className="bg-zinc-50/80 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 border border-zinc-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2 relative"
                           >
-                            <div className="space-y-1.5 flex-1 min-w-0">
-                              <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <div className="space-y-1 flex-1 min-w-0">
+                              <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                                 {getStatusBadge(device.status)}
                                 
                                 {/* Branch Tag */}
-                                <span className="bg-white text-zinc-800 border border-zinc-200/80 text-[10px] font-bold px-2 py-0.5 rounded-lg flex items-center space-x-1">
-                                  <Warehouse className="w-3 h-3 text-[#ff4b16]" />
+                                <span className="bg-white text-zinc-800 border border-zinc-200/80 text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center space-x-1">
+                                  <MapPin className="w-3 h-3 text-[#ff4b16]" />
                                   <span>{branchInfo.shortName}</span>
                                 </span>
 
@@ -1015,7 +1038,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                     e.stopPropagation();
                                     handleCopyImei(device.imei);
                                   }}
-                                  className="text-zinc-400 hover:text-[#ff4b16] transition-colors cursor-pointer"
+                                  className="text-zinc-400 hover:text-[#ff4b16] transition-colors cursor-pointer p-0.5"
                                   title="Sao chép IMEI"
                                 >
                                   {copiedImei === device.imei ? (
@@ -1026,27 +1049,27 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                 </button>
                               </div>
 
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-orange-50 text-orange-800 border border-orange-100">
+                              <div className="flex items-center gap-1 flex-wrap text-[10px]">
+                                <span className="font-bold px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-800 border border-orange-100">
                                   {device.condition}
                                 </span>
 
-                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${batteryColor}`}>
+                                <span className={`font-bold px-1.5 py-0.5 rounded-md border ${batteryColor}`}>
                                   Pin {battery}%
                                 </span>
 
-                                <span className="bg-white text-zinc-700 text-[10px] font-semibold px-2 py-0.5 rounded-lg border border-zinc-200/80 font-mono">
+                                <span className="bg-white text-zinc-700 font-semibold px-1.5 py-0.5 rounded-md border border-zinc-200/80 font-mono">
                                   {device.region}
                                 </span>
 
                                 {device.supplier && (
-                                  <span className="bg-zinc-100 text-zinc-600 text-[10px] font-medium px-2 py-0.5 rounded-lg border border-zinc-200">
+                                  <span className="bg-zinc-100 text-zinc-600 font-medium px-1.5 py-0.5 rounded-md border border-zinc-200 truncate max-w-[150px]">
                                     NCC: {device.supplier}
                                   </span>
                                 )}
 
                                 {isAging && (
-                                  <span className="bg-rose-50 text-rose-700 text-[10px] font-bold px-2 py-0.5 rounded-lg border border-rose-200 flex items-center space-x-1">
+                                  <span className="bg-rose-50 text-rose-700 font-bold px-1.5 py-0.5 rounded-md border border-rose-200 flex items-center space-x-1">
                                     <Clock className="w-3 h-3" />
                                     <span>Tồn &gt;30N</span>
                                   </span>
@@ -1059,7 +1082,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                       e.stopPropagation();
                                       setPreviewingPhoto(device.images![0]);
                                     }}
-                                    className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-orange-100 text-orange-950 text-[10px] font-bold border border-orange-300 hover:bg-orange-200 transition-colors cursor-pointer"
+                                    className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-orange-100 text-orange-950 font-bold border border-orange-300 hover:bg-orange-200 transition-colors cursor-pointer"
                                     title="Xem ảnh chụp thực tế"
                                   >
                                     <Camera className="w-3 h-3 text-[#ff4b16]" />
@@ -1070,25 +1093,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             </div>
 
                             {/* Price & Action Row */}
-                            <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto border-t sm:border-t-0 border-zinc-200 pt-2 sm:pt-0">
-                              <div className="text-right">
-                                <div className="text-[#ff4b16] font-black text-sm font-mono">
+                            <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto border-t sm:border-t-0 border-zinc-200/60 pt-1.5 sm:pt-0">
+                              <div className="text-left sm:text-right min-w-0">
+                                <div className="text-[#ff4b16] font-black text-xs sm:text-sm font-mono truncate">
                                   {(device.sellPrice || 0).toLocaleString('vi-VN')} đ
                                 </div>
                                 {showCostPrice && (
-                                  <div className="text-[10px] text-zinc-400 font-mono">
+                                  <div className="text-[10px] text-zinc-400 font-mono truncate">
                                     Vốn: {(device.buyPrice || 0).toLocaleString('vi-VN')} đ
                                   </div>
                                 )}
                               </div>
 
-                              <div className="flex items-center space-x-1">
+                              <div className="flex items-center space-x-1 shrink-0">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setSelectedDeviceForDetail(device);
                                   }}
-                                  className="px-2.5 py-1.5 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-xl text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer shadow-2xs"
+                                  className="px-2 py-1 bg-white hover:bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-lg text-[10px] sm:text-[11px] font-bold flex items-center space-x-1 transition-all cursor-pointer shadow-2xs"
                                   title="Xem Chi Tiết & Lịch Sử Máy"
                                 >
                                   <History className="w-3.5 h-3.5 text-[#ff4b16]" />
@@ -1100,7 +1123,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                     e.stopPropagation();
                                     setSelectedDeviceForBarcode(device);
                                   }}
-                                  className="p-1.5 bg-white text-zinc-600 hover:text-[#ff4b16] border border-zinc-200 rounded-xl cursor-pointer transition-colors shadow-2xs"
+                                  className="p-1 bg-white text-zinc-600 hover:text-[#ff4b16] border border-zinc-200 rounded-lg cursor-pointer transition-colors shadow-2xs"
                                   title="In Tem Barcode"
                                 >
                                   <Printer className="w-3.5 h-3.5" />
@@ -1112,10 +1135,10 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                       e.stopPropagation();
                                       onQuickSell(device);
                                     }}
-                                    className="bg-[#ff4b16] hover:bg-[#e03d14] text-white text-[11px] font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
+                                    className="bg-[#ff4b16] hover:bg-[#e03d14] text-white text-[10px] sm:text-[11px] font-black px-2.5 py-1 rounded-lg flex items-center space-x-1 shadow-xs transition-all cursor-pointer active:scale-95"
                                     title="Bán ngay trên POS"
                                   >
-                                    <ShoppingCart className="w-3.5 h-3.5" />
+                                    <ShoppingCart className="w-3 h-3" />
                                     <span>Bán</span>
                                   </button>
                                 )}
@@ -1126,7 +1149,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                       e.stopPropagation();
                                       setActiveMenuDeviceId(activeMenuDeviceId === device.id ? null : device.id);
                                     }}
-                                    className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-xl transition-colors cursor-pointer"
+                                    className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg transition-colors cursor-pointer"
                                   >
                                     <MoreVertical className="w-4 h-4" />
                                   </button>
