@@ -341,13 +341,36 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       status: 'COMPLETED'
     } : null;
 
+    let customerPartner: Partner | null = null;
+    if (customerPhone.trim()) {
+      const existingPartner = partners?.find(p => p.phone === customerPhone.trim());
+      if (existingPartner) {
+        customerPartner = existingPartner;
+      } else {
+        // Auto create customer
+        customerPartner = {
+          id: `CUST-${customerPhone.replace(/\D/g, '') || Date.now().toString()}`,
+          name: customerName.trim() || `Khách ${customerPhone}`,
+          phone: customerPhone.trim(),
+          type: 'CUSTOMER',
+          branchId: currentBranch.id,
+          createdAt: new Date().toISOString(),
+          customerTier: 'STANDARD',
+          loyaltyPoints: Math.floor(finalAmount / 100000),
+          totalSpent: finalAmount,
+          outstandingDebt: 0
+        };
+        onAddPartner?.(customerPartner);
+      }
+    }
+
     const payload = {
       invoice: newInvoice,
       devicesToSell: selectedDevices,
       accessoriesToSell: selectedAccessories,
       cashTx,
       tradeInDevice: tradeInDevice,
-      customerPartner: null,
+      customerPartner: customerPartner,
       financeCompanyPartner: null,
       fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.currentBalance + (isInstallment ? downPaymentAmount : finalAmount) } : null,
       idempotencyKey: `POS-${invoiceId}-${Date.now()}`
@@ -468,7 +491,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
 
       {/* 2. Success Banner If Just Checked Out */}
       {checkoutInfo.state === 'SUCCESS' && (
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200 shrink-0">
           <div className="flex items-center space-x-2 text-emerald-800 text-xs font-bold">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{checkoutInfo.statusMessage}</span>
@@ -484,7 +507,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
 
       {/* Error Banner If Checkout Failed */}
       {checkoutInfo.state === 'FAILED' && (
-        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200 shrink-0">
           <div className="flex items-center space-x-2 text-rose-800 text-xs font-bold">
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{checkoutInfo.error || 'Thanh toán thất bại. Vui lòng kiểm tra lại.'}</span>
@@ -602,6 +625,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
             isProcessing={isProcessing}
             onExecuteCheckout={handleExecuteCheckout}
             phoneInputRef={phoneInputRef}
+            partners={partners}
           />
         </div>
       </div>

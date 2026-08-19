@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { FundAccount, Partner } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
-import { User, Phone, Wallet, CreditCard, Receipt, Loader2, CheckCircle2, ShieldCheck, Plus, QrCode, ArrowRight, Coins, Building } from 'lucide-react';
+import { User, Phone, Wallet, CreditCard, Receipt, Loader2, CheckCircle2, ShieldCheck, Plus, QrCode, ArrowRight, Coins, Building, Search, Star, Check } from 'lucide-react';
 
 export interface PaymentPanelProps {
   customerName: string;
@@ -20,6 +20,8 @@ export interface PaymentPanelProps {
   isProcessing: boolean;
   onExecuteCheckout: () => void;
   phoneInputRef?: React.RefObject<HTMLInputElement | null>;
+  partners?: Partner[];
+  onSelectCustomer?: (partner: Partner) => void;
 }
 
 export const PaymentPanel: React.FC<PaymentPanelProps> = ({
@@ -38,11 +40,42 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   onChangeDownPayment,
   isProcessing,
   onExecuteCheckout,
-  phoneInputRef
+  phoneInputRef,
+  partners = [],
+  onSelectCustomer
 }) => {
   const [cashGiven, setCashGiven] = useState<number>(finalAmount);
   const [selectedFinanceCompany, setSelectedFinanceCompany] = useState('Home Credit');
   const [showQRModal, setShowQRModal] = useState(false);
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+
+  // Search existing customers
+  const matchingCustomers = useMemo(() => {
+    const qPhone = customerPhone.trim().toLowerCase();
+    const qName = customerName.trim().toLowerCase();
+    if (!qPhone && !qName) return [];
+    if (qPhone.length < 2 && qName.length < 2) return [];
+
+    return partners.filter(p => {
+      const isCust = p.type === 'CUSTOMER' || p.type === 'BOTH' || p.category === 'CUSTOMER';
+      const matchPhone = qPhone && p.phone?.toLowerCase().includes(qPhone);
+      const matchName = qName && p.name?.toLowerCase().includes(qName);
+      return isCust && (matchPhone || matchName);
+    }).slice(0, 5);
+  }, [partners, customerPhone, customerName]);
+
+  // Check if exactly matched
+  const matchedCustomer = useMemo(() => {
+    if (!customerPhone) return null;
+    return partners.find(p => p.phone === customerPhone.trim()) || null;
+  }, [partners, customerPhone]);
+
+  const handlePickCustomer = (cust: Partner) => {
+    onChangeCustomerPhone(cust.phone || '');
+    onChangeCustomerName(cust.name || '');
+    setIsCustomerDropdownOpen(false);
+    onSelectCustomer?.(cust);
+  };
 
   const paymentMethods = [
     { id: 'Tiền mặt', label: 'Tiền Mặt', icon: Wallet },
@@ -86,16 +119,15 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   const vietQrUrl = `https://img.vietqr.io/image/970407-1903678999999-compact2.png?amount=${finalAmount}&addInfo=PhoneHouse%20POS%20${customerPhone || 'DonHang'}&accountName=PHONEHOUSE%20RETAIL`;
 
   return (
-    <div className="bg-white border border-zinc-200/80 rounded-3xl p-3.5 sm:p-4 flex flex-col h-full shadow-2xs space-y-4">
+    <div className="bg-white border border-zinc-200/80 rounded-3xl p-3.5 sm:p-4 flex flex-col h-full shadow-2xs space-y-3.5">
       {/* 1. Header */}
-      <div className="flex items-center justify-between border-b border-zinc-100 pb-2.5">
+      <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
         <div className="flex items-center space-x-2">
-          <div className="w-8 h-8 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-black">
-            <Coins className="w-4 h-4" />
+          <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-black">
+            <Coins className="w-3.5 h-3.5" />
           </div>
           <div>
             <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">Thu Tiền Khách Hàng</h3>
-            <span className="text-[10px] text-zinc-400 font-medium">Hạch toán sổ quỹ tự động</span>
           </div>
         </div>
         <span className="text-[10px] font-mono text-zinc-400">
@@ -103,10 +135,18 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
         </span>
       </div>
 
-      {/* 2. Customer Information */}
-      <div className="space-y-2">
+      {/* 2. Customer Information with Instant Auto-Complete Search */}
+      <div className="space-y-1.5 relative">
         <div className="flex items-center justify-between text-xs font-bold text-zinc-700">
-          <span>Khách Hàng Mua Máy</span>
+          <div className="flex items-center space-x-1.5">
+            <span>Khách Hàng</span>
+            {matchedCustomer && (
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-0.5">
+                <Star className="w-2.5 h-2.5 fill-emerald-500 text-emerald-500" />
+                <span>Khách Cũ ({(matchedCustomer as any).customerTier || (matchedCustomer as any).tier || 'Thành Viên'})</span>
+              </span>
+            )}
+          </div>
           <div className="flex items-center space-x-2">
             <span className="text-[10px] text-zinc-400 font-mono">F4: SĐT</span>
             {onOpenCreateCustomerModal && (
@@ -116,14 +156,15 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
                 className="text-[11px] font-bold text-[#ff4b16] hover:underline flex items-center space-x-0.5 cursor-pointer"
                 title="Tạo hồ sơ khách hàng mới"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-3 h-3" />
                 <span>Thêm mới</span>
               </button>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 relative">
+          {/* Phone Input with Live Dropdown */}
           <div className="relative">
             <Phone className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-3 pointer-events-none" />
             <input
@@ -131,21 +172,68 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
               type="tel"
               placeholder="SĐT khách hàng (F4)..."
               value={customerPhone}
-              onChange={e => onChangeCustomerPhone(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 bg-zinc-50 border border-zinc-200 rounded-2xl text-xs font-mono font-bold focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
+              onFocus={() => setIsCustomerDropdownOpen(true)}
+              onChange={e => {
+                onChangeCustomerPhone(e.target.value);
+                setIsCustomerDropdownOpen(true);
+              }}
+              className="w-full h-9 pl-8 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-bold focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
             />
           </div>
 
+          {/* Name Input */}
           <div className="relative">
             <User className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-3 pointer-events-none" />
             <input
               type="text"
               placeholder="Tên khách hàng..."
               value={customerName}
-              onChange={e => onChangeCustomerName(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 bg-zinc-50 border border-zinc-200 rounded-2xl text-xs font-semibold focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
+              onFocus={() => setIsCustomerDropdownOpen(true)}
+              onChange={e => {
+                onChangeCustomerName(e.target.value);
+                setIsCustomerDropdownOpen(true);
+              }}
+              className="w-full h-9 pl-8 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
             />
           </div>
+
+          {/* Autocomplete Dropdown */}
+          {isCustomerDropdownOpen && matchingCustomers.length > 0 && (
+            <div className="absolute top-10 left-0 right-0 z-30 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-3 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
+                <span>Tìm thấy {matchingCustomers.length} khách hàng cũ:</span>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomerDropdownOpen(false)}
+                  className="text-zinc-400 hover:text-zinc-600 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {matchingCustomers.map(cust => (
+                <div
+                  key={cust.id}
+                  onClick={() => handlePickCustomer(cust)}
+                  className="px-3 py-2 hover:bg-orange-50/70 transition-colors cursor-pointer flex items-center justify-between group border-b border-zinc-50 last:border-0"
+                >
+                  <div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs font-bold text-zinc-900 group-hover:text-[#ff4b16] transition-colors">{cust.name}</span>
+                      <span className="text-[9px] font-bold font-mono px-1 rounded bg-zinc-100 text-zinc-600">{(cust as any).customerTier || (cust as any).tier || 'Thành Viên'}</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-zinc-500">{cust.phone}</span>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold text-emerald-700 block">
+                      {(cust as any).loyaltyPoints || (cust as any).accumulatedPoints ? `${(cust as any).loyaltyPoints || (cust as any).accumulatedPoints} điểm` : 'Đã từng mua'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

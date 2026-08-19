@@ -834,45 +834,33 @@ export default function App() {
     cashTx: CashTransaction | null,
     updatedFund: FundAccount | null
   ) => {
-    // 1. Add invoice to state & Firestore
-    setInvoices(prev => [invoice, ...prev]);
-    addInvoiceToFirestore(invoice);
+    // 1. Add invoice to state (deduplicated by id, Firestore write is handled atomically in processCheckoutTransaction)
+    setInvoices(prev => [invoice, ...prev.filter(i => i.id !== invoice.id)]);
 
-    // 2. Mark sold devices in state & Firestore
+    // 2. Mark sold devices in state
     const soldIds = devicesSold.map(d => d.id);
     setDevices(prev => prev.map(d => soldIds.includes(d.id) ? { ...d, status: 'sold' as const, customerName: invoice.customerName, customerPhone: invoice.customerPhone } : d));
-    devicesSold.forEach(d => {
-      updateDeviceInFirestore({
-        ...d,
-        status: 'sold',
-        customerName: invoice.customerName,
-        customerPhone: invoice.customerPhone
-      });
-    });
 
-    // 3. Decrease accessory stock in state & Firestore
+    // 3. Decrease accessory stock in state
     if (accessoriesSold.length > 0) {
       setProducts(prev => prev.map(p => {
         const soldItem = accessoriesSold.find(acc => acc.product.id === p.id);
         if (soldItem) {
           const updatedProd = { ...p, stockQuantity: Math.max(0, p.stockQuantity - soldItem.quantity) };
-          updateProductInFirestore(updatedProd);
           return updatedProd;
         }
         return p;
       }));
     }
 
-    // 4. Record cash transaction in state & Firestore
+    // 4. Record cash transaction in state (deduplicated by id)
     if (cashTx) {
-      setCashTransactions(prev => [cashTx, ...prev]);
-      addCashTransactionToFirestore(cashTx);
+      setCashTransactions(prev => [cashTx, ...prev.filter(t => t.id !== cashTx.id)]);
     }
 
-    // 5. Update fund balance in state & Firestore
+    // 5. Update fund balance in state
     if (updatedFund) {
       setFunds(prev => prev.map(f => f.id === updatedFund.id ? { ...f, currentBalance: (f.currentBalance || 0) + (cashTx?.amount || 0) } : f));
-      updateFundInFirestore(updatedFund);
     }
   };
 
