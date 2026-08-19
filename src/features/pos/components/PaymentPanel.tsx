@@ -117,6 +117,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
       </div>
 
       {/* 4. Target Fund Account Picker */}
+      {/* 4. Target Fund Account Picker */}
       <div className="space-y-1.5">
         <span className="text-xs font-bold text-zinc-700 block">Nguồn Tiền / Quỹ Thu</span>
         <select
@@ -124,11 +125,14 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           onChange={e => onSelectFundId(e.target.value)}
           className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16] focus:bg-white transition-all"
         >
-          {funds.map(f => (
-            <option key={f.id} value={f.id}>
-              {f.name} (Số dư: {f.currentBalance.toLocaleString('vi-VN')}đ)
-            </option>
-          ))}
+          {funds.map(f => {
+            const balance = f.currentBalance ?? (f as any).balance ?? 0;
+            return (
+              <option key={f.id} value={f.id}>
+                {f.name} (Số dư: {balance.toLocaleString('vi-VN')}đ)
+              </option>
+            );
+          })}
         </select>
       </div>
 
@@ -164,9 +168,9 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           isLoading={isProcessing}
           onClick={onExecuteCheckout}
           leftIcon={<Receipt className="w-4 h-4" />}
-          className="w-full"
+          className="w-full font-bold shadow-md shadow-orange-500/20"
         >
-          Xác Nhận Xuất Đơn (F9)
+          {isProcessing ? 'Đang Xuất Đơn...' : 'Xác Nhận Xuất Đơn (F9)'}
         </Button>
       </div>
     </div>

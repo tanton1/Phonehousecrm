@@ -819,6 +819,39 @@ export default function App() {
     }
   };
 
+  const handlePOSCheckoutSuccess = (
+    invoice: SalesInvoice,
+    devicesSold: DeviceItem[],
+    accessoriesSold: { product: ProductItem; quantity: number }[],
+    cashTx: CashTransaction | null,
+    updatedFund: FundAccount | null
+  ) => {
+    // 1. Add invoice to state
+    setInvoices(prev => [invoice, ...prev]);
+
+    // 2. Mark sold devices
+    const soldIds = devicesSold.map(d => d.id);
+    setDevices(prev => prev.map(d => soldIds.includes(d.id) ? { ...d, status: 'sold', customerName: invoice.customerName, customerPhone: invoice.customerPhone } : d));
+
+    // 3. Decrease accessory stock
+    if (accessoriesSold.length > 0) {
+      setProducts(prev => prev.map(p => {
+        const soldItem = accessoriesSold.find(acc => acc.product.id === p.id);
+        return soldItem ? { ...p, stockQuantity: Math.max(0, p.stockQuantity - soldItem.quantity) } : p;
+      }));
+    }
+
+    // 4. Record cash transaction
+    if (cashTx) {
+      setCashTransactions(prev => [cashTx, ...prev]);
+    }
+
+    // 5. Update fund balance
+    if (updatedFund) {
+      setFunds(prev => prev.map(f => f.id === updatedFund.id ? { ...f, currentBalance: (f.currentBalance || 0) + (cashTx?.amount || 0) } : f));
+    }
+  };
+
   const handleUpdateInvoice = (invoice: SalesInvoice) => {
     setInvoices(invoices.map(inv => (inv.id === invoice.id ? invoice : inv)));
     updateInvoiceInFirestore(invoice);
@@ -1743,6 +1776,7 @@ export default function App() {
             initialCustomer={posCustomerContext}
             tradeInAppraisal={posTradeInContext}
             onNavigateToInvoices={() => setActiveTab('invoices')}
+            onCheckoutSuccess={handlePOSCheckoutSuccess}
           />
         )}
 

@@ -4,7 +4,7 @@ import { ProductSearchPanel } from './ProductSearchPanel';
 import { CartPanel } from './CartPanel';
 import { PaymentPanel } from './PaymentPanel';
 import { useCheckout } from '../hooks/useCheckout';
-import { Receipt, Sparkles, CheckCircle2, Printer } from 'lucide-react';
+import { Receipt, Sparkles, CheckCircle2, AlertCircle, Printer } from 'lucide-react';
 import { ThermalReceiptK80 } from './ThermalReceiptK80';
 import { usePosHotkeys } from '../hooks/usePosHotkeys';
 import { PosHotkeysBar } from './PosHotkeysBar';
@@ -20,6 +20,13 @@ export interface POSCockpitViewProps {
   initialCustomer?: { name?: string; phone?: string } | null;
   tradeInAppraisal?: any | null;
   onNavigateToInvoices?: () => void;
+  onCheckoutSuccess?: (
+    invoice: SalesInvoice,
+    devicesSold: DeviceItem[],
+    accessoriesSold: { product: ProductItem; quantity: number }[],
+    cashTx: CashTransaction | null,
+    updatedFund: FundAccount | null
+  ) => void;
 }
 
 export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
@@ -32,7 +39,8 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   preSelectedDevice,
   initialCustomer,
   tradeInAppraisal,
-  onNavigateToInvoices
+  onNavigateToInvoices,
+  onCheckoutSuccess
 }) => {
   // 1. Cart State
   const [selectedDevices, setSelectedDevices] = useState<DeviceItem[]>([]);
@@ -166,13 +174,15 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setSelectedDevices(prev => prev.filter(d => d.id !== deviceId));
   };
 
-  const handleUpdateAccessoryQty = (productId: string, quantity: number) => {
-    if (quantity <= 0) {
-      handleRemoveAccessory(productId);
-      return;
-    }
+  const handleUpdateAccessoryQty = (productId: string, delta: number) => {
     setSelectedAccessories(prev =>
-      prev.map(item => item.product.id === productId ? { ...item, quantity } : item)
+      prev.map(item => {
+        if (item.product.id === productId) {
+          const newQty = item.quantity + delta;
+          return newQty > 0 ? { ...item, quantity: newQty } : null;
+        }
+        return item;
+      }).filter(Boolean) as { product: ProductItem; quantity: number }[]
     );
   };
 
@@ -201,7 +211,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       return;
     }
 
-    const currentFund = funds.find(f => f.id === selectedFundId);
+    const currentFund = funds.find(f => f.id === selectedFundId) || funds[0];
     const invoiceCode = `HD-${Date.now().toString().slice(-6)}`;
     const invoiceId = `INV-${Date.now()}`;
 
@@ -292,13 +302,22 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       tradeInDevice: tradeInDevice,
       customerPartner: null,
       financeCompanyPartner: null,
-      fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.balance + (isInstallment ? downPaymentAmount : finalAmount) } : null,
+      fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.currentBalance + (isInstallment ? downPaymentAmount : finalAmount) } : null,
       idempotencyKey: `POS-${invoiceId}-${Date.now()}`
     };
 
     const isSuccess = await runCheckout(payload as any);
 
     if (isSuccess) {
+      // Notify parent app state
+      onCheckoutSuccess?.(
+        newInvoice,
+        selectedDevices,
+        selectedAccessories,
+        cashTx,
+        currentFund ? { ...currentFund, currentBalance: (currentFund.currentBalance || 0) + (isInstallment ? downPaymentAmount : finalAmount) } : null
+      );
+
       // Trigger K80 Thermal Receipt Modal
       setReceiptData({
         id: invoiceId,
@@ -375,6 +394,22 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           <button
             onClick={resetCheckout}
             className="text-xs font-bold text-emerald-700 hover:underline cursor-pointer"
+          >
+            Đóng
+          </button>
+        </div>
+      )}
+
+      {/* Error Banner If Checkout Failed */}
+      {checkoutInfo.state === 'FAILED' && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
+          <div className="flex items-center space-x-2 text-rose-800 text-xs font-bold">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{checkoutInfo.error || 'Thanh toán thất bại. Vui lòng kiểm tra lại.'}</span>
+          </div>
+          <button
+            onClick={resetCheckout}
+            className="text-xs font-bold text-rose-700 hover:underline cursor-pointer"
           >
             Đóng
           </button>
