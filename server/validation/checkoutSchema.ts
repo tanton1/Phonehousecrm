@@ -1,10 +1,13 @@
 /**
- * POS Checkout Payload Validator - Server Truth Edition V3
- * Validates and sanitizes checkout intents from client.
+ * POS Checkout Payload Validator - Server Truth Edition V3.1
+ * Strictly validates and sanitizes checkout intents from client.
  */
 
+export const ALLOWED_PAYMENT_METHODS = ['CASH', 'BANK', 'CARD', 'INSTALLMENT', 'DEBT'] as const;
+export type PaymentMethodType = typeof ALLOWED_PAYMENT_METHODS[number];
+
 export interface SplitPaymentLine {
-  method: 'CASH' | 'BANK' | 'CARD' | 'INSTALLMENT' | 'DEBT';
+  method: PaymentMethodType;
   amount: number;
   fundId?: string;
   bankName?: string;
@@ -32,6 +35,8 @@ export interface PureIntentCheckoutPayload {
     installmentContractCode?: string;
   };
   payments?: SplitPaymentLine[];
+  installmentFinancePartnerId?: string;
+  installmentContractCode?: string;
   voucherCode?: string;
   tradeInAppraisalId?: string;
   notes?: string;
@@ -126,25 +131,68 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
 
     // Multi-Payment (Split Tender) Validation
     if (Array.isArray(body.payments) && body.payments.length > 0) {
+      let installmentCount = 0;
+      let debtCount = 0;
+
       for (const p of body.payments) {
         if (!p || typeof p !== 'object') {
           return { isValid: false, error: 'Khoản thanh toán trong mảng payments không hợp lệ.' };
         }
+        // Strict runtime enum check for payment method (P0 fix)
+        if (!p.method || !ALLOWED_PAYMENT_METHODS.includes(p.method as PaymentMethodType)) {
+          return { 
+            isValid: false, 
+            error: `Phương thức thanh toán "${p.method}" không hợp lệ. Chỉ chấp nhận: ${ALLOWED_PAYMENT_METHODS.join(', ')}.` 
+          };
+        }
         if (typeof p.amount !== 'number' || !Number.isFinite(p.amount) || p.amount < 0) {
           return { isValid: false, error: 'Số tiền thanh toán phải là số dương hợp lệ.' };
         }
+
+        if (p.method === 'INSTALLMENT') installmentCount++;
+        if (p.method === 'DEBT') debtCount++;
+
         const requiresFund = p.method !== 'DEBT' && p.method !== 'INSTALLMENT';
         if (p.amount > 0 && requiresFund && (!p.fundId || typeof p.fundId !== 'string')) {
           return { isValid: false, error: `Khoản thanh toán "${p.method}" (${p.amount.toLocaleString('vi-VN')} đ) bắt buộc phải chọn tài khoản/két nhận tiền.` };
         }
       }
+
+      // Invariant: Max 1 Installment contract and Max 1 Debt line per invoice
+      if (installmentCount > 1) {
+        return { isValid: false, error: 'Mỗi đơn hàng chỉ được phép có tối đa 1 khoản vay trả góp qua công ty tài chính.' };
+      }
+      if (debtCount > 1) {
+        return { isValid: false, error: 'Mỗi đơn hàng chỉ được phép có tối đa 1 khoản ghi nợ khách hàng.' };
+      }
+
+      // Invariant: Installment in multi-payment requires finance partner (P1 fix)
+      if (installmentCount > 0) {
+        const financePartnerId = body.installmentFinancePartnerId || body.payment?.installmentFinancePartnerId;
+        if (!financePartnerId || typeof financePartnerId !== 'string') {
+          return { isValid: false, error: 'Bắt buộc chọn Đối tác tài chính giải ngân cho khoản vay trả góp (installmentFinancePartnerId).' };
+        }
+      }
     } else if (body.payment) {
       // Single Payment Method Validation
-      const { method, fundId, downPayment } = body.payment;
+      const { method, fundId, downPayment, installmentFinancePartnerId } = body.payment;
+
+      if (!method || (!ALLOWED_PAYMENT_METHODS.includes(method as any) && method !== 'SPLIT')) {
+        return { 
+          isValid: false, 
+          error: `Phương thức thanh toán "${method}" không hợp lệ. Chỉ chấp nhận: ${ALLOWED_PAYMENT_METHODS.join(', ')} hoặc SPLIT.` 
+        };
+      }
 
       if (downPayment !== undefined) {
         if (typeof downPayment !== 'number' || !Number.isFinite(downPayment) || downPayment < 0) {
           return { isValid: false, error: 'Số tiền trả trước (downPayment) không hợp lệ.' };
+        }
+      }
+
+      if (method === 'INSTALLMENT') {
+        if (!installmentFinancePartnerId && !body.installmentFinancePartnerId) {
+          return { isValid: false, error: 'Bắt buộc chọn Đối tác tài chính giải ngân cho đơn trả góp.' };
         }
       }
 
@@ -177,4 +225,5 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
 
   return { isValid: true, data: body as LegacyCheckoutPayload };
 }
+
 

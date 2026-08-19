@@ -12,10 +12,10 @@ export interface CheckoutResult {
 }
 
 const ALLOWED_FUND_TYPES_BY_METHOD: Record<string, string[]> = {
-  CASH: ['CASH', 'TIỀN MẶT', 'KÉT TIỀN'],
-  BANK: ['BANK', 'VIETQR', 'NGÂN HÀNG', 'TÀI KHOẢN NGÂN HÀNG'],
-  CARD: ['CARD', 'POS_CARD', 'QUẸT THẺ POS', 'CÀ THẺ'],
-  INSTALLMENT: ['CASH', 'BANK', 'VIETQR', 'KÉT TIỀN', 'NGÂN HÀNG'] // Cho khoản trả trước (Down payment)
+  CASH: ['CASH', 'TIỀN MẶT', 'KÉT TIỀN', 'TIEN_MAT'],
+  BANK: ['BANK', 'VIETQR', 'NGÂN HÀNG', 'TÀI KHOẢN NGÂN HÀNG', 'NGAN_HANG'],
+  CARD: ['CARD', 'POS_CARD', 'QUẸT THẺ POS', 'CÀ THẺ', 'POS_MACHINE', 'QUET_THE'],
+  INSTALLMENT: ['CASH', 'BANK', 'VIETQR', 'KÉT TIỀN', 'NGÂN HÀNG', 'TIỀN MẶT', 'TIEN_MAT'] // Cho khoản trả trước (Down payment)
 };
 
 export async function executeAtomicCheckout(
@@ -32,13 +32,31 @@ export async function executeAtomicCheckout(
 
   const idempotencyKey = payload.idempotencyKey || payload.invoice?.idempotencyKey || payload.invoice?.id;
 
+  // Canonical Payload Hash Calculation (Protects against same idempotencyKey with altered payload)
+  const canonicalPayloadObj = {
+    deviceIds: (payload.deviceIds || payload.devicesToSell?.map((d: any) => d.id) || []).sort(),
+    accessoryLines: (payload.accessoryLines || payload.accessoriesToSell || []).map((a: any) => ({
+      productId: a.productId || a.product?.id,
+      quantity: a.quantity
+    })).sort((a: any, b: any) => String(a.productId).localeCompare(String(b.productId))),
+    payments: payload.payments,
+    payment: payload.payment,
+    branchId: payload.branchId || payload.invoice?.branchId,
+    voucherCode: payload.voucherCode?.trim().toUpperCase(),
+    tradeInAppraisalId: payload.tradeInAppraisalId
+  };
+  const currentPayloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayloadObj)).digest('hex');
+
   return await db.runTransaction(async (transaction) => {
-    // 1. Real Idempotency Check via checkoutRequests/{idempotencyKey}
+    // 1. Real Idempotency Check with Payload Hash Verification
     if (idempotencyKey) {
       const idemRef: DocumentReference = db.collection('checkoutRequests').doc(idempotencyKey);
       const idemSnap = await transaction.get(idemRef);
       if (idemSnap.exists) {
         const data = idemSnap.data();
+        if (data?.payloadHash && data.payloadHash !== currentPayloadHash) {
+          throw new Error('IDEMPOTENCY_PAYLOAD_MISMATCH: Idempotency key này đã được sử dụng trước đó cho một giỏ hàng/thanh toán có nội dung khác.');
+        }
         if (data?.status === 'COMPLETED') {
           return {
             success: true,
@@ -59,7 +77,7 @@ export async function executeAtomicCheckout(
       ? payload.payment?.method || 'CASH'
       : payload.invoice?.paymentMethod || 'Tiền mặt';
 
-    // 2. Fetch & Validate Funds Authoritatively
+    // 2. Fetch & Validate Funds Authoritatively (Including Runtime Method-to-Fund Type Matching)
     const fundMap = new Map<string, { ref: DocumentReference; data: any }>();
     const requiredFundIds = new Set<string>();
 
@@ -90,6 +108,36 @@ export async function executeAtomicCheckout(
         throw new Error(`FUND_BRANCH_MISMATCH: Quỹ tiền "${fData.name}" thuộc chi nhánh "${fData.branchId}", không khớp chi nhánh bán "${branchId}".`);
       }
       fundMap.set(fId, { ref: fRef, data: fData });
+    }
+
+    // P0.2 Fix: Strict Runtime Verification of ALLOWED_FUND_TYPES_BY_METHOD for each payment line
+    if (isMultiPayment) {
+      for (const p of payload.payments) {
+        if (p.fundId && p.amount > 0) {
+          const fundInfo = fundMap.get(p.fundId);
+          if (fundInfo) {
+            const allowedTypes = ALLOWED_FUND_TYPES_BY_METHOD[p.method] || [];
+            const fundTypeUpper = (fundInfo.data.type || '').toUpperCase();
+            const fundNameUpper = (fundInfo.data.name || '').toUpperCase();
+            const isMatch = allowedTypes.some(t => fundTypeUpper.includes(t) || fundNameUpper.includes(t));
+            if (!isMatch) {
+              throw new Error(`INVALID_FUND_TYPE: Phương thức "${p.method}" không thể nạp vào quỹ "${fundInfo.data.name}" (Loại quỹ: ${fundInfo.data.type || 'Không xác định'}).`);
+            }
+          }
+        }
+      }
+    } else if (payload.payment?.fundId) {
+      const fundInfo = fundMap.get(payload.payment.fundId);
+      if (fundInfo) {
+        const method = payload.payment.method || 'CASH';
+        const allowedTypes = ALLOWED_FUND_TYPES_BY_METHOD[method] || [];
+        const fundTypeUpper = (fundInfo.data.type || '').toUpperCase();
+        const fundNameUpper = (fundInfo.data.name || '').toUpperCase();
+        const isMatch = allowedTypes.some(t => fundTypeUpper.includes(t) || fundNameUpper.includes(t));
+        if (!isMatch) {
+          throw new Error(`INVALID_FUND_TYPE: Phương thức "${method}" không thể nạp vào quỹ "${fundInfo.data.name}" (Loại quỹ: ${fundInfo.data.type || 'Không xác định'}).`);
+        }
+      }
     }
 
     // 3. Fetch & Validate Devices (Authoritative Status & Pricing from DB)
@@ -262,7 +310,7 @@ export async function executeAtomicCheckout(
 
     const finalAmount = Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction);
 
-    // 7. Validate Payment Sum & Invariants
+    // 7. Validate Payment Sum, Installment Partner & Multi-Debt Invariants
     let downPayment = 0;
     let financeAmount = 0;
     let financePartnerRef: DocumentReference | null = null;
@@ -273,8 +321,34 @@ export async function executeAtomicCheckout(
       if (totalPaymentsSum !== finalAmount) {
         throw new Error(`PAYMENT_AMOUNT_MISMATCH: Tổng các khoản thanh toán (${totalPaymentsSum.toLocaleString('vi-VN')} đ) không khớp với giá trị đơn hàng (${finalAmount.toLocaleString('vi-VN')} đ).`);
       }
-      const debtLine = payload.payments.find((p: any) => p.method === 'DEBT' || p.method === 'INSTALLMENT');
-      debtAmount = debtLine?.amount || 0;
+
+      // P1.1 Fix: Calculate debtAmount via filter().reduce() over all DEBT & INSTALLMENT lines
+      const debtLines = payload.payments.filter((p: any) => p.method === 'DEBT' || p.method === 'INSTALLMENT');
+      debtAmount = debtLines.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+
+      // P1.1 Fix: Strict Verification for Multi-Payment Installment Line
+      const installmentLine = payload.payments.find((p: any) => p.method === 'INSTALLMENT');
+      if (installmentLine && installmentLine.amount > 0) {
+        financeAmount = installmentLine.amount;
+        const financePartnerId = payload.installmentFinancePartnerId || payload.payment?.installmentFinancePartnerId || payload.financeCompanyPartner?.id;
+        if (!financePartnerId) {
+          throw new Error('FINANCE_PARTNER_REQUIRED: Bắt buộc chọn Đối tác tài chính giải ngân cho khoản vay trả góp.');
+        }
+        financePartnerRef = db.collection('partners').doc(financePartnerId);
+        const partnerSnap = await transaction.get(financePartnerRef);
+        if (!partnerSnap.exists) {
+          throw new Error(`FINANCE_PARTNER_NOT_FOUND: Công ty tài chính ID "${financePartnerId}" không tồn tại.`);
+        }
+        const partnerData = partnerSnap.data()!;
+        if (partnerData.status === 'INACTIVE') {
+          throw new Error(`FINANCE_PARTNER_INACTIVE: Đối tác tài chính "${partnerData.name}" đang tạm ngưng hợp tác.`);
+        }
+
+        const partnerType = (partnerData.type || partnerData.category || '').toUpperCase();
+        if (partnerType && !partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP') && !partnerType.includes('TRA_GOP')) {
+          throw new Error(`INVALID_FINANCE_PARTNER_TYPE: Đối tác "${partnerData.name}" không phải là công ty tài chính trả góp.`);
+        }
+      }
     } else if (paymentMethod === 'INSTALLMENT') {
       downPayment = typeof payload.payment?.downPayment === 'number' ? payload.payment.downPayment : 0;
 
@@ -288,7 +362,7 @@ export async function executeAtomicCheckout(
 
       financeAmount = Math.max(0, finalAmount - downPayment);
       debtAmount = financeAmount;
-      const financePartnerId = payload.payment?.installmentFinancePartnerId || payload.financeCompanyPartner?.id;
+      const financePartnerId = payload.installmentFinancePartnerId || payload.payment?.installmentFinancePartnerId || payload.financeCompanyPartner?.id;
 
       if (financeAmount > 0) {
         if (!financePartnerId) {
@@ -305,7 +379,7 @@ export async function executeAtomicCheckout(
         }
 
         const partnerType = (partnerData.type || partnerData.category || '').toUpperCase();
-        if (partnerType && !partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP')) {
+        if (partnerType && !partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP') && !partnerType.includes('TRA_GOP')) {
           throw new Error(`INVALID_FINANCE_PARTNER_TYPE: Đối tác "${partnerData.name}" không phải là công ty tài chính trả góp.`);
         }
       }
@@ -418,7 +492,7 @@ export async function executeAtomicCheckout(
       splitPayments: isMultiPayment ? payload.payments : undefined,
       installmentDownPayment: downPayment,
       installmentFinanceAmount: financeAmount,
-      installmentFinancePartnerId: payload.payment?.installmentFinancePartnerId || null,
+      installmentFinancePartnerId: payload.installmentFinancePartnerId || payload.payment?.installmentFinancePartnerId || null,
       idempotencyKey,
       creatorUid: authenticatedStaff?.uid || 'SYSTEM',
       creatorName: authenticatedStaff?.name || 'Thu Ngân',
@@ -446,7 +520,7 @@ export async function executeAtomicCheckout(
               fundId: p.fundId,
               fundName: fundInfo.data.name || 'Quỹ tiền',
               fundType: fundInfo.data.type || 'CASH',
-              date: new Date().toISOString().split('T')[0],
+              date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
               partnerName: invoiceRecord.customerName,
               partnerPhone: invoiceRecord.customerPhone,
               referenceCode: invoiceCode,
@@ -460,6 +534,12 @@ export async function executeAtomicCheckout(
             });
           }
         }
+      }
+
+      if (financePartnerRef && financeAmount > 0) {
+        transaction.update(financePartnerRef, {
+          outstandingDebt: FieldValue.increment(financeAmount)
+        });
       }
     } else if (paymentMethod === 'INSTALLMENT') {
       const targetFundId = isPureIntent ? payload.payment?.fundId : (payload.fundToUpdate?.id || payload.invoice?.paymentFundId);
@@ -478,7 +558,7 @@ export async function executeAtomicCheckout(
           fundId: targetFundId,
           fundName: fundInfo.data.name || 'Quỹ tiền',
           fundType: fundInfo.data.type || 'CASH',
-          date: new Date().toISOString().split('T')[0],
+          date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
           referenceCode: invoiceCode,
@@ -514,7 +594,7 @@ export async function executeAtomicCheckout(
           fundId: targetFundId,
           fundName: fundInfo.data.name || 'Quỹ tiền',
           fundType: fundInfo.data.type || 'CASH',
-          date: new Date().toISOString().split('T')[0],
+          date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
           referenceCode: invoiceCode,
@@ -544,13 +624,14 @@ export async function executeAtomicCheckout(
       }
     }
 
-    // 15. Commit Idempotency Record
+    // 15. Commit Idempotency Record (Includes Canonical Payload Hash)
     if (idempotencyKey) {
       const idemRef = db.collection('checkoutRequests').doc(idempotencyKey);
       transaction.set(idemRef, {
         id: idempotencyKey,
         status: 'COMPLETED',
         invoiceId,
+        payloadHash: currentPayloadHash,
         finalAmount,
         staffUid: authenticatedStaff?.uid || 'SYSTEM',
         createdAt: FieldValue.serverTimestamp()

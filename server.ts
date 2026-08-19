@@ -117,16 +117,31 @@ app.use('/api/users', createUsersRouter(adminDb));
 
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
 
-// Secure Server-side Telegram Bot Alert Endpoint (Protects bot token from client exposure)
-app.post('/api/telegram/send-alert', authenticateFirebase, async (req, res) => {
-  const { text, chatId } = req.body;
+// Vietnam Timezone (UTC+7) Date Helper
+export const getVietnamDateString = (d: Date = new Date()): string => {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(d);
+};
+
+// Secure Server-side Telegram Bot Alert Endpoint (Protected by Authentication & Role Authorization)
+app.post('/api/telegram/send-alert', authenticateFirebase, async (req: any, res) => {
+  // P1.3 Fix: Require ADMIN or MANAGER role to send outbound Telegram broadcast alerts
+  const userRole = req.user?.role || req.user?.roleLevel;
+  if (userRole !== 'ADMIN' && userRole !== 'MANAGER') {
+    return res.status(403).json({
+      success: false,
+      message: 'Chỉ Quản Lý (MANAGER) hoặc Quản Trị Viên (ADMIN) mới có quyền gửi thông báo Telegram.'
+    });
+  }
+
+  const { text } = req.body;
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const targetChatId = chatId || process.env.TELEGRAM_CHAT_ID;
+  // P1.3 Fix: Enforce server-side TELEGRAM_CHAT_ID to prevent client recipient hijacking
+  const targetChatId = process.env.TELEGRAM_CHAT_ID;
 
   if (!token || !targetChatId) {
     return res.status(400).json({
       success: false,
-      message: 'Telegram Bot Token or Chat ID is not configured on server.'
+      message: 'Telegram Bot Token hoặc Chat ID chưa được cấu hình trên máy chủ.'
     });
   }
 
@@ -306,12 +321,12 @@ app.post('/api/telegram/webhook', async (req, res) => {
   let pendingWarrantiesCount = 0;
 
   try {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getVietnamDateString();
 
     const invoicesSnap = await adminDb.collection('invoices').get();
     invoicesSnap.forEach(d => {
       const data = d.data();
-      const dateStr = data.createdAt ? (typeof data.createdAt.toDate === 'function' ? data.createdAt.toDate().toISOString().split('T')[0] : String(data.createdAt).split('T')[0]) : '';
+      const dateStr = data.createdAt ? (typeof data.createdAt.toDate === 'function' ? getVietnamDateString(data.createdAt.toDate()) : String(data.createdAt).split('T')[0]) : '';
       if (dateStr === todayStr && data.status !== 'cancelled') {
         todayRevenue += (data.finalAmount || data.totalAmount || 0);
         todayInvoicesCount++;

@@ -1061,9 +1061,11 @@ export async function processCheckoutTransaction(params: {
     payment: {
       method: params.invoice.paymentMethod?.includes('Trả góp') ? 'INSTALLMENT' : params.invoice.paymentMethod?.includes('QR') ? 'BANK' : params.invoice.paymentMethod?.includes('thẻ') ? 'CARD' : 'CASH',
       fundId: params.invoice.paymentFundId,
-      downPayment: params.invoice.downPayment || 0
+      downPayment: params.invoice.downPayment || 0,
+      installmentFinancePartnerId: params.financeCompanyPartner?.id
     },
     payments: params.payments || (params.invoice.splitPayments as any),
+    installmentFinancePartnerId: params.financeCompanyPartner?.id,
     notes: params.invoice.notes,
     invoice: cleanDataForFirestore(params.invoice),
     devicesToSell: params.devicesToSell,

@@ -140,7 +140,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'IN_STOCK_ONLY' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
 
-  // 1. Accurate Device to Branch Resolver
+  // 1. Accurate Device to Branch Resolver (No Guessing / No Silent Branch 0 Fallback)
   const getDeviceBranchInfo = (dev: DeviceItem): { id: string; name: string; shortName: string } => {
     // A. Match direct branchId
     if (dev.branchId) {
@@ -167,11 +167,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       if (b) return { id: b.id, name: b.name, shortName: b.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
       return { id: 'custom', name: dev.branch, shortName: dev.branch.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
     }
-    // D. Default to primary branch
-    const defaultBranch = branches[0];
-    return defaultBranch 
-      ? { id: defaultBranch.id, name: defaultBranch.name, shortName: defaultBranch.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() }
-      : { id: 'CN01', name: 'Chi Nhánh 1', shortName: 'CN1' };
+    // D. P1.4 Fix: DO NOT guess or silently assign to branches[0]
+    return { id: 'UNASSIGNED', name: 'Chưa Xác Định Chi Nhánh', shortName: 'Chưa Gán Kho' };
   };
 
   // Active warehouse options
@@ -182,7 +179,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Real Branch In-Stock Counts for Branch Bar
   const branchStockCounts = useMemo(() => {
-    const counts: Record<string, number> = { ALL: 0 };
+    const counts: Record<string, number> = { ALL: 0, UNASSIGNED: 0 };
     devices.forEach(d => {
       if (d.status === 'in_stock') {
         counts.ALL = (counts.ALL || 0) + 1;
@@ -214,22 +211,33 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     return new Set(inStockDevices.map(d => d.model)).size;
   }, [inStockDevices]);
 
-  // Accurate Financial Calculations
-  const totalStockCostValue = useMemo(() => {
-    return inStockDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+  // P1.5 Fix: Accurate Financial Calculations with Missing Cost Exclusion
+  const validCostDevices = useMemo(() => {
+    return inStockDevices.filter(d => (d.buyPrice || (d as any).costPrice || 0) > 0);
   }, [inStockDevices]);
+
+  const missingCostDevices = useMemo(() => {
+    return inStockDevices.filter(d => !(d.buyPrice || (d as any).costPrice) || (d.buyPrice || (d as any).costPrice || 0) <= 0);
+  }, [inStockDevices]);
+
+  const totalStockCostValue = useMemo(() => {
+    return validCostDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+  }, [validCostDevices]);
 
   const totalStockSellingValue = useMemo(() => {
     return inStockDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
   }, [inStockDevices]);
 
-  const potentialGrossProfit = Math.max(0, totalStockSellingValue - totalStockCostValue);
+  // Potential profit calculated ONLY over devices with authoritative cost to avoid artificial inflation
+  const potentialGrossProfit = useMemo(() => {
+    return validCostDevices.reduce((sum, d) => sum + Math.max(0, (d.sellPrice || 0) - (d.buyPrice || (d as any).costPrice || 0)), 0);
+  }, [validCostDevices]);
 
   // Aging Stock (> 30 days)
   const thirtyDaysAgoStr = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().split('T')[0];
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(d);
   }, []);
 
   const agingDevices = useMemo(() => {
@@ -543,28 +551,46 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
 
         {/* Card 2: Vốn Tồn Kho */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
-            <span className="truncate">Vốn Tồn Kho</span>
-            <button
-              onClick={() => setShowCostPrice(!showCostPrice)}
-              className="text-zinc-400 hover:text-zinc-700 p-0.5 rounded cursor-pointer shrink-0"
-              title={showCostPrice ? 'Ẩn giá vốn' : 'Hiện giá vốn'}
-            >
-              {showCostPrice ? <EyeOff className="w-3.5 h-3.5 text-zinc-600" /> : <Eye className="w-3.5 h-3.5 text-[#ff4b16]" />}
-            </button>
-          </div>
-          <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-zinc-950 truncate">
-            {showCostPrice ? (
-              formatCompactVND(totalStockCostValue)
-            ) : (
-              <span className="tracking-widest text-zinc-400 text-base sm:text-lg">•••••••• đ</span>
-            )}
-          </div>
-          <div className="text-[10px] sm:text-[11px] text-zinc-400 font-medium truncate pt-0.5 border-t border-zinc-100">
-            {showCostPrice ? `Vốn nhập: ${totalStockCostValue.toLocaleString('vi-VN')} đ` : 'Chạm 👁️ để mở khóa giá'}
-          </div>
-        </div>
+        {(() => {
+          const canViewCostPrice = !currentUser || currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER' || (currentUser as any).roleLevel === 'ADMIN' || (currentUser as any).roleLevel === 'MANAGER';
+          
+          return (
+            <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
+                <span className="truncate">Vốn Tồn Kho</span>
+                {canViewCostPrice ? (
+                  <button
+                    onClick={() => setShowCostPrice(!showCostPrice)}
+                    className="text-zinc-400 hover:text-zinc-700 p-0.5 rounded cursor-pointer shrink-0"
+                    title={showCostPrice ? 'Ẩn giá vốn' : 'Hiện giá vốn'}
+                  >
+                    {showCostPrice ? <EyeOff className="w-3.5 h-3.5 text-zinc-600" /> : <Eye className="w-3.5 h-3.5 text-[#ff4b16]" />}
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-zinc-400 font-normal flex items-center gap-0.5" title="Chỉ Quản Lý hoặc Admin mới có quyền xem giá vốn">
+                    🔒 Khóa
+                  </span>
+                )}
+              </div>
+              <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-zinc-950 truncate">
+                {canViewCostPrice && showCostPrice ? (
+                  formatCompactVND(totalStockCostValue)
+                ) : (
+                  <span className="tracking-widest text-zinc-400 text-base sm:text-lg">•••••••• đ</span>
+                )}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-zinc-400 font-medium truncate pt-0.5 border-t border-zinc-100">
+                {!canViewCostPrice ? (
+                  '🔒 Quyền xem giá vốn giới hạn'
+                ) : showCostPrice ? (
+                  `Vốn nhập: ${totalStockCostValue.toLocaleString('vi-VN')} đ`
+                ) : (
+                  'Chạm 👁️ để mở khóa giá'
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Card 3: Giá Trị Bán & Lợi Nhuận */}
         <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
@@ -577,8 +603,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-zinc-950 truncate">
             {formatCompactVND(totalStockSellingValue)}
           </div>
-          <div className="text-[10px] sm:text-[11px] text-emerald-600 font-bold truncate pt-0.5 border-t border-zinc-100">
-            Lợi nhuận dự kiến: +{potentialGrossProfit.toLocaleString('vi-VN')} đ
+          <div className="text-[10px] sm:text-[11px] text-emerald-600 font-bold truncate pt-0.5 border-t border-zinc-100 flex items-center justify-between">
+            <span>LN: +{potentialGrossProfit.toLocaleString('vi-VN')} đ</span>
+            {missingCostDevices.length > 0 && (
+              <span className="text-amber-600 font-normal text-[9px] truncate" title={`${missingCostDevices.length} máy chưa có giá vốn nhập kho, chưa được tính vào lợi nhuận`}>
+                (⚠️ {missingCostDevices.length} máy thiếu vốn)
+              </span>
+            )}
           </div>
         </div>
 
@@ -851,9 +882,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff4b16] bg-orange-50 px-2 py-0.5 rounded-md border border-orange-100 truncate">
-                          🏪 {branchInfo.shortName}
-                        </span>
+                        {branchInfo.id === 'UNASSIGNED' ? (
+                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-300 truncate flex items-center gap-1">
+                            <span>⚠️ {branchInfo.shortName}</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff4b16] bg-orange-50 px-2 py-0.5 rounded-md border border-orange-100 truncate">
+                            🏪 {branchInfo.shortName}
+                          </span>
+                        )}
                         {getStatusBadge(device.status)}
                       </div>
                       <h4 className="font-black text-zinc-950 text-xs sm:text-sm tracking-tight truncate group-hover:text-[#ff4b16] transition-colors mt-1">
@@ -1024,10 +1061,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                 {getStatusBadge(device.status)}
                                 
                                 {/* Branch Tag */}
-                                <span className="bg-white text-zinc-800 border border-zinc-200/80 text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center space-x-1">
-                                  <MapPin className="w-3 h-3 text-[#ff4b16]" />
-                                  <span>{branchInfo.shortName}</span>
-                                </span>
+                                {branchInfo.id === 'UNASSIGNED' ? (
+                                  <span className="bg-amber-50 text-amber-800 border border-amber-300 text-[10px] font-black px-1.5 py-0.5 rounded-md flex items-center space-x-1">
+                                    <span>⚠️ {branchInfo.shortName}</span>
+                                  </span>
+                                ) : (
+                                  <span className="bg-white text-zinc-800 border border-zinc-200/80 text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center space-x-1">
+                                    <MapPin className="w-3 h-3 text-[#ff4b16]" />
+                                    <span>{branchInfo.shortName}</span>
+                                  </span>
+                                )}
 
                                 <span className="text-xs font-mono font-bold text-zinc-900">
                                   IMEI: {device.imei}
