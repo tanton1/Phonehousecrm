@@ -234,11 +234,24 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           console.warn('[User API creation fallback]:', apiErr);
         }
 
-        // 2. Direct Firestore fallback
+        // 2. Direct Auth & Firestore fallback
         if (!userCreated) {
-          const newId = `USR-${Date.now().toString().slice(-6)}`;
+          let firebaseUid = `USR-${Date.now().toString().slice(-6)}`;
+          try {
+            const regUser = await registerWithEmail(
+              formData.email.trim().toLowerCase(),
+              formData.password || 'PhoneHouse@2026',
+              formData.displayName
+            );
+            if (regUser?.uid) {
+              firebaseUid = regUser.uid;
+            }
+          } catch (authRegErr: any) {
+            console.warn('[Firebase Auth Register fallback warning]:', authRegErr?.message);
+          }
+
           const newUser: UserAccount = {
-            id: newId,
+            id: firebaseUid,
             email: formData.email.trim().toLowerCase(),
             displayName: formData.displayName,
             phone: formData.phone,
@@ -246,14 +259,14 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             branchId: formData.assignedBranchIds[0] || formData.branchId,
             assignedBranchIds: formData.assignedBranchIds,
             workplaceAddresses: selectedAddresses,
-            active: formData.active,
+            active: true,
             createdAt: new Date().toISOString().split('T')[0],
             notes: formData.notes || ''
           };
           onAddUser(newUser);
         }
 
-        setSubmitMessage({ type: 'success', text: 'Đã tạo tài khoản và cấp phép đăng nhập thành công!' });
+        setSubmitMessage({ type: 'success', text: `Đã tạo tài khoản và cấp phép đăng nhập thành công cho ${formData.displayName}!` });
         setTimeout(() => setIsAddModalOpen(false), 800);
       }
     } catch (err: any) {

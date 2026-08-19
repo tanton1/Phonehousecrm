@@ -43,12 +43,17 @@ import { AppShell } from './app/AppShell';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { POSCockpitView } from './features/pos/components/POSCockpitView';
 import { LeadKanbanBoard } from './features/crm/components/LeadKanbanBoard';
+import { CreateLeadModal } from './features/crm/components/CreateLeadModal';
+import { Customer360Drawer } from './features/crm/components/Customer360Drawer';
+import { CRMLeadsView } from './components/CRMLeadsView';
 import { RepairKanbanBoard } from './features/warranty/components/RepairKanbanBoard';
 import { TradeInCockpitView } from './features/tradein/components/TradeInCockpitView';
 import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
+import { CashbookView } from './components/CashbookView';
 import { OmnichannelChatView } from './features/chat/components/OmnichannelChatView';
 import { MonthlyPayrollTable } from './features/payroll/components/MonthlyPayrollTable';
 import { ReportsPage } from './features/reports/ReportsPage';
+import { StaffHRView } from './components/StaffHRView';
 
 import { PurchaseOrdersView } from './components/PurchaseOrdersView';
 import { InventoryView } from './components/InventoryView';
@@ -343,6 +348,9 @@ export default function App() {
   const [posCustomerContext, setPosCustomerContext] = useState<{ name?: string; phone?: string } | null>(null);
   const [posTradeInContext, setPosTradeInContext] = useState<any | null>(null);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(true);
+  const [isCreateLeadModalOpen, setIsCreateLeadModalOpen] = useState(false);
+  const [selectedCustomer360Lead, setSelectedCustomer360Lead] = useState<Lead | null>(null);
+  const [crmViewMode, setCrmViewMode] = useState<'KANBAN' | 'TABLE'>('KANBAN');
 
   // Global Branch Selection for ADMIN
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
@@ -1628,44 +1636,114 @@ export default function App() {
         )}
 
         {activeTab === 'crm' && (
-          <LeadKanbanBoard
-            leads={filteredLeads}
-            onSelectLead={(lead) => {
-              setPosCustomerContext({ name: lead.name, phone: lead.phone });
-              if (lead.interestedModel) {
-                const found = devices.find(d => d.status === 'in_stock' && d.model.toLowerCase().includes(lead.interestedModel.toLowerCase()));
-                if (found) setPosPreSelectedDevice(found);
-              }
-              setActiveTab('pos');
-            }}
-            onUpdateLeadStatus={async (leadId, newStatus) => {
-              const lead = leads.find(l => l.id === leadId);
-              if (lead) {
-                await handleUpdateLead({ ...lead, status: newStatus });
-              }
-            }}
-            onOpenCreateModal={() => {
-              const name = window.prompt('Nhập tên khách hàng tiềm năng:');
-              if (!name) return;
-              const phone = window.prompt('Nhập số điện thoại khách:') || '';
-              const model = window.prompt('Dòng máy khách quan tâm (vd: iPhone 15 Pro Max):') || '';
-              const newLead: Lead = {
-                id: `LEAD-${Date.now()}`,
-                name,
-                phone,
-                interestedModel: model,
-                source: 'Facebook Ads',
-                status: 'new',
-                createdAt: new Date().toISOString(),
-                assignedStaff: currentUser?.displayName || 'Chuyên viên',
-                budget: 0,
-                tradeInRequirose: false,
-                followUpDate: new Date().toISOString().split('T')[0],
-                notes: 'Tạo từ Kanban CRM'
-              };
-              handleAddLead(newLead);
-            }}
-          />
+          <div className="space-y-3">
+            {/* View Mode Toggle Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 rounded-2xl border border-zinc-200/80 shadow-2xs">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setCrmViewMode('KANBAN')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    crmViewMode === 'KANBAN'
+                      ? 'bg-[#ff4b16] text-white shadow-xs'
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                  }`}
+                >
+                  📊 Kanban Pipeline
+                </button>
+                <button
+                  onClick={() => setCrmViewMode('TABLE')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    crmViewMode === 'TABLE'
+                      ? 'bg-[#ff4b16] text-white shadow-xs'
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                  }`}
+                >
+                  📋 Bảng Danh Sách & Chăm Sóc Lead
+                </button>
+              </div>
+
+              <button
+                onClick={() => setIsCreateLeadModalOpen(true)}
+                className="bg-[#ff4b16] hover:bg-[#e03e0e] text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm shadow-orange-500/20 cursor-pointer transition-all active:scale-95"
+              >
+                <span>+ Thêm Lead Mới (F4)</span>
+              </button>
+            </div>
+
+            {crmViewMode === 'KANBAN' ? (
+              <LeadKanbanBoard
+                leads={filteredLeads}
+                onSelectLead={(lead) => {
+                  setSelectedCustomer360Lead(lead);
+                }}
+                onUpdateLeadStatus={async (leadId, newStatus) => {
+                  const lead = leads.find(l => l.id === leadId);
+                  if (lead) {
+                    await handleUpdateLead({ ...lead, status: newStatus });
+                  }
+                }}
+                onOpenCreateModal={() => setIsCreateLeadModalOpen(true)}
+              />
+            ) : (
+              <CRMLeadsView
+                currentUser={currentUser}
+                branches={branches}
+                leads={filteredLeads}
+                devices={filteredDevices}
+                onAddLead={handleAddLead}
+                onUpdateLead={handleUpdateLead}
+                onConvertLeadToSale={(lead) => {
+                  setPosCustomerContext({ name: lead.name, phone: lead.phone });
+                  if (lead.interestedModel) {
+                    const found = devices.find(d => d.status === 'in_stock' && d.model.toLowerCase().includes(lead.interestedModel.toLowerCase()));
+                    if (found) setPosPreSelectedDevice(found);
+                  }
+                  setActiveTab('pos');
+                }}
+                onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
+              />
+            )}
+
+            {/* Create Lead Modal */}
+            <CreateLeadModal
+              isOpen={isCreateLeadModalOpen}
+              onClose={() => setIsCreateLeadModalOpen(false)}
+              branches={branches}
+              staffList={users as any}
+              currentBranch={branches.find(b => b.id === (selectedBranchId === 'ALL' ? branches[0]?.id : selectedBranchId)) || branches[0]}
+              currentUser={currentUser ? {
+                id: currentUser.id,
+                uid: currentUser.id,
+                name: currentUser.displayName,
+                email: currentUser.email,
+                role: currentUser.role,
+                branchId: currentUser.branchId || 'CN01',
+                assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
+                isActive: currentUser.active
+              } : null}
+              onSaveLead={async (newLead) => {
+                await handleAddLead(newLead);
+                setIsCreateLeadModalOpen(false);
+              }}
+            />
+
+            {/* Customer 360 Drawer */}
+            <Customer360Drawer
+              lead={selectedCustomer360Lead}
+              isOpen={!!selectedCustomer360Lead}
+              onClose={() => setSelectedCustomer360Lead(null)}
+              invoices={filteredInvoices}
+              warrantyTickets={filteredWarrantyTickets}
+              onAddTimelineNote={async (leadId, note) => {
+                const lead = leads.find(l => l.id === leadId);
+                if (lead) {
+                  const updatedNotes = lead.notes ? `${lead.notes}\n• [${new Date().toLocaleDateString('vi-VN')}]: ${note}` : note;
+                  await handleUpdateLead({ ...lead, notes: updatedNotes });
+                  setSelectedCustomer360Lead({ ...lead, notes: updatedNotes });
+                }
+              }}
+            />
+          </div>
         )}
 
         {(activeTab === 'omnichannel-chat' || activeTab === 'chat') && (
@@ -1814,36 +1892,36 @@ export default function App() {
         )}
 
         {(activeTab === 'funds' || activeTab === 'cashbook') && (
-          <CashLedgerTable
+          <CashbookView
+            currentUser={currentUser}
+            branches={branches}
             transactions={filteredCashTransactions}
             funds={funds}
-            branches={branches}
-            selectedBranchId={selectedBranchId}
-            onOpenCreateModal={(type) => {
-              const amountStr = window.prompt(`Nhập số tiền ${type === 'RECEIPT' ? 'THU' : 'CHI'} (VNĐ):`);
-              if (!amountStr) return;
-              const amount = parseInt(amountStr.replace(/\D/g, ''), 10) || 0;
-              const reason = window.prompt('Nhập lý do thu/chi:') || 'Giao dịch thu chi nội bộ';
-              const targetFund = funds[0];
-              const newTx: CashTransaction = {
-                id: `TX-${Date.now()}`,
-                code: `PTC-${Date.now().toString().slice(-4)}`,
-                branchId: branches[0]?.id || 'CN01',
-                type,
-                category: type === 'RECEIPT' ? 'SALES_REVENUE' : 'OTHER_EXPENSE',
-                categoryName: type === 'RECEIPT' ? 'Thu bán hàng POS' : 'Chi phí khác',
+            partners={partners}
+            onAddTransaction={handleAddCashTransaction}
+            onUpdateFunds={(updatedFunds) => {
+              setFunds(updatedFunds);
+              updatedFunds.forEach(f => updateFundInFirestore(f));
+            }}
+            onTransferFunds={async (fromId, toId, amount, notes, creator) => {
+              const fromFund = funds.find(f => f.id === fromId);
+              const toFund = funds.find(f => f.id === toId);
+              await transferFundsInFirestore({
+                fromFundId: fromId,
+                toFundId: toId,
+                fromFundName: fromFund?.name || 'Quỹ nguồn',
+                toFundName: toFund?.name || 'Quỹ đích',
                 amount,
-                fundType: 'CASH',
-                fundName: targetFund?.name || 'Quỹ Tiền Mặt Tại Két',
-                fundId: targetFund?.id || 'FUND-01',
-                date: new Date().toISOString(),
-                creator: currentUser?.displayName || 'Nhân viên',
-                notes: reason,
-                referenceCode: `PTC-${Date.now().toString().slice(-4)}`,
-                status: 'COMPLETED'
-              };
-              handleAddCashTransaction(newTx);
-              alert(`Đã lập thành công phiếu ${type === 'RECEIPT' ? 'THU' : 'CHI'} ${amount.toLocaleString('vi-VN')} đ!`);
+                note: notes,
+                transferredBy: creator || currentUser?.displayName || 'Thủ quỹ',
+                branchId: branches[0]?.id || 'CN01',
+                branchName: branches[0]?.name || 'PhoneHouse'
+              });
+              setFunds(prev => prev.map(f => {
+                if (f.id === fromId) return { ...f, currentBalance: (f.currentBalance || 0) - amount };
+                if (f.id === toId) return { ...f, currentBalance: (f.currentBalance || 0) + amount };
+                return f;
+              }));
             }}
           />
         )}
@@ -1936,10 +2014,23 @@ export default function App() {
 
         {(activeTab === 'hr-attendance' || activeTab === 'attendance') && (
           <HRHubView
-            currentUser={currentUser}
-            users={users}
-            branches={branches}
             attendanceRecords={attendanceRecords}
+            invoices={filteredInvoices}
+            warrantyTickets={filteredWarrantyTickets}
+            branches={branches}
+          />
+        )}
+
+        {activeTab === 'staff-hr' && (
+          <StaffHRView
+            currentUser={currentUser}
+            roleType={currentUser?.role === 'TECHNICIAN' || currentUser?.role === 'TECH' ? 'TECH' : 'SALES'}
+            branches={branches}
+            onCheckIn={handleCheckIn}
+            onCheckOut={handleCheckOut}
+            checkedInState={!!currentAttendance?.checkInTime}
+            initialCheckInTime={currentAttendance?.checkInTime || null}
+            onOpenCheckInModal={() => setActiveTab('checkin-portal')}
           />
         )}
 
