@@ -241,44 +241,28 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   return (
     <div className="fixed inset-0 z-[100] bg-gradient-to-br from-zinc-950 via-[#1a1714] to-zinc-950 backdrop-blur-md flex flex-col h-screen w-screen overflow-hidden select-none animate-in fade-in duration-200">
       
-      {/* 1. Full-Bleed Slim Header Bar with Gradient & Quick Confirm Button */}
+      {/* 1. Full-Bleed Slim Header Bar (Clean, no duplicate confirm button) */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0 shadow-sm relative overflow-hidden">
         <div className="absolute top-0 left-1/4 w-96 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
         
         <div className="flex items-center space-x-3 relative z-10">
-          <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-black shadow-md shadow-orange-500/30">
+          <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold shadow-md shadow-orange-500/30">
             <PackagePlus className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="text-sm font-black tracking-tight text-white uppercase">Phiếu Nhập Hàng Kho</span>
-              <span className="px-2 py-0.2 text-[10px] font-mono font-bold bg-[#ff4b16]/20 text-[#ff4b16] border border-[#ff4b16]/30 rounded-full">
+              <span className="text-sm font-bold tracking-tight text-white uppercase">Phiếu Nhập Hàng Kho</span>
+              <span className="px-2 py-0.2 text-[10px] font-mono font-semibold bg-[#ff4b16]/20 text-[#ff4b16] border border-[#ff4b16]/30 rounded-full">
                 Mã: PN-{Date.now().toString().slice(-6)}
               </span>
             </div>
-            <span className="text-[11px] text-zinc-400 font-medium hidden sm:inline-block">
+            <span className="text-[11px] text-zinc-400 font-normal hidden sm:inline-block">
               Nhập máy theo danh sách IMEI & cập nhật giá vốn tức thì
             </span>
           </div>
         </div>
 
         <div className="flex items-center space-x-2 relative z-10">
-          {/* Quick Header Submit Button */}
-          <button
-            type="button"
-            onClick={handleSubmit(onSubmit)}
-            disabled={totalQuantity === 0}
-            className={`px-3.5 py-1.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center space-x-1.5 transition-all shadow-md active:scale-95 cursor-pointer ${
-              totalQuantity > 0
-                ? 'bg-gradient-to-r from-orange-500 via-[#ff4b16] to-orange-600 text-white hover:brightness-110 shadow-orange-500/30'
-                : 'bg-zinc-800 text-zinc-500 cursor-not-allowed border border-zinc-700'
-            }`}
-            title="Xác nhận nhập kho toàn bộ sản phẩm (F9)"
-          >
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Xác Nhận Nhập Kho ({totalQuantity} máy)</span>
-          </button>
-
           <button
             type="button"
             onClick={onClose}
@@ -291,7 +275,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       </div>
 
       {/* Mobile Segmented Nav (<1024px) */}
-      <div className="lg:hidden flex items-center p-1 bg-gradient-to-r from-zinc-100 via-orange-50/30 to-zinc-100 border-b border-zinc-200 text-xs font-bold shrink-0">
+      <div className="lg:hidden flex items-center p-1 bg-gradient-to-r from-zinc-100 via-orange-50/30 to-zinc-100 border-b border-zinc-200 text-xs font-semibold shrink-0">
         <button
           type="button"
           onClick={() => setMobileTab('CATALOG')}
@@ -317,12 +301,12 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             mobileTab === 'PAYMENT' ? 'bg-zinc-900 text-white shadow-xs' : 'text-zinc-600'
           }`}
         >
-          💵 Nhà Cung Cấp
+          💵 Nhà Cung Cấp & Tiền
         </button>
       </div>
 
       {/* 2. Three-Column Full-Bleed Cockpit Grid Layout with Gradient Backgrounds */}
-      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.4fr_380px] divide-y lg:divide-y-0 lg:divide-x divide-zinc-200/80 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden bg-white w-full">
+      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.4fr_390px] divide-y lg:divide-y-0 lg:divide-x divide-zinc-200/80 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden bg-white w-full">
         
         {/* ========================================================================= */}
         {/* CỘT 1: CHỌN MÃ SKU / DANH MỤC SẢN PHẨM NHẬP KHO */}
@@ -331,11 +315,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
             <div className="flex items-center space-x-2">
               <Layers className="w-4 h-4 text-[#ff4b16]" />
-              <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-800">
                 Danh Mục SKU Master
               </h3>
             </div>
-            <span className="text-[10px] font-mono text-zinc-400">
+            <span className="text-[10px] font-mono text-zinc-500">
               {filteredCatalogItems.length} model
             </span>
           </div>
@@ -348,12 +332,12 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
               placeholder="Tìm Model, SKU, dung lượng..."
               value={catalogSearch}
               onChange={e => setCatalogSearch(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16]"
+              className="w-full h-10 pl-9 pr-3 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16]"
             />
           </div>
 
           {/* Category Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px] font-bold">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px] font-semibold">
             {['ALL', '16', '15', '14', '13', '12'].map(s => (
               <button
                 key={s}
@@ -383,7 +367,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 >
                   <div className="min-w-0 pr-2">
                     <div className="flex items-center space-x-1.5">
-                      <span className="text-xs font-black text-zinc-900 group-hover:text-[#ff4b16] transition-colors truncate">
+                      <span className="text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors truncate">
                         {item.name}
                       </span>
                     </div>
@@ -395,10 +379,10 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                   </div>
 
                   <div className="text-right shrink-0">
-                    <span className="text-xs font-bold font-mono text-zinc-900 block">
+                    <span className="text-xs font-semibold font-mono text-zinc-800 block">
                       {(item.defaultImportPrice || 0).toLocaleString('vi-VN')} đ
                     </span>
-                    <span className="text-[10px] font-bold text-[#ff4b16] opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[10px] font-semibold text-[#ff4b16] opacity-0 group-hover:opacity-100 transition-opacity">
                       + Thêm nhập ↵
                     </span>
                   </div>
@@ -414,31 +398,26 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3 bg-gradient-to-b from-white via-zinc-50/40 to-white ${mobileTab !== 'ITEMS' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
             <div className="flex items-center space-x-2">
-              <div className="w-6 h-6 rounded-lg bg-[#ff4b16] text-white flex items-center justify-center font-black text-xs shadow-sm shadow-orange-500/30">
+              <div className="w-6 h-6 rounded-lg bg-[#ff4b16] text-white flex items-center justify-center font-bold text-xs shadow-sm shadow-orange-500/30">
                 {fields.length}
               </div>
               <div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-800">
                   Danh Sách Máy & Dán IMEI Hàng Loạt
                 </h3>
-                <span className="text-[10px] text-zinc-400 font-medium">
+                <span className="text-[10px] text-zinc-500 font-normal">
                   Tổng {totalQuantity} cây máy chuẩn bị nhập kho
                 </span>
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => append({ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 })}
-              className="px-2.5 py-1 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#ff4b16] font-bold text-xs flex items-center space-x-1 transition-colors cursor-pointer border border-orange-200/60"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Thêm Dòng</span>
-            </button>
+            <span className="text-[10px] text-zinc-400 font-medium">
+              💡 Bấm sản phẩm ở Cột 1 để thêm máy
+            </span>
           </div>
 
           {/* Form Rows Container */}
-          <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+          <div className="flex-1 overflow-y-auto space-y-3 pr-1 pb-16 lg:pb-4">
             {fields.map((field, index) => {
               const currentImeis = watchItems[index]?.imeisInput || '';
               const parsedImeis = currentImeis.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
@@ -457,7 +436,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                         type="text"
                         {...register(`items.${index}.searchQuery` as const, { required: true })}
                         placeholder="Tên Model / Sản phẩm nhập (ví dụ: iPhone 15 Pro Max 256GB)..."
-                        className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-none focus:border-[#ff4b16]"
+                        className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
                       />
                     </div>
 
@@ -466,7 +445,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                         type="number"
                         {...register(`items.${index}.buyPrice` as const, { required: true })}
                         placeholder="Giá vốn (VNĐ)..."
-                        className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-mono font-bold text-[#ff4b16] focus:outline-none focus:border-[#ff4b16]"
+                        className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-[#ff4b16] focus:outline-none focus:border-[#ff4b16]"
                       />
                     </div>
 
@@ -488,11 +467,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                       {...register(`items.${index}.imeisInput` as const)}
                       rows={3}
                       placeholder="Dán danh sách mã IMEI vào đây (mỗi IMEI một dòng hoặc ngăn cách bằng dấu phẩy)..."
-                      className="w-full p-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-mono font-bold text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16] resize-none"
+                      className="w-full p-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-mono font-medium text-zinc-700 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16] resize-none"
                     />
-                    <div className="flex items-center justify-between text-[11px] text-zinc-500 font-medium px-1">
-                      <span>Đã nhận diện: <b className="text-zinc-900 font-mono font-bold">{itemCount} IMEI</b></span>
-                      <span>Thành tiền dòng: <b className="text-[#ff4b16] font-mono font-bold">{rowTotal.toLocaleString('vi-VN')} đ</b></span>
+                    <div className="flex items-center justify-between text-[11px] text-zinc-500 font-normal px-1">
+                      <span>Đã nhận diện: <b className="text-zinc-800 font-mono font-semibold">{itemCount} IMEI</b></span>
+                      <span>Thành tiền dòng: <b className="text-[#ff4b16] font-mono font-semibold">{rowTotal.toLocaleString('vi-VN')} đ</b></span>
                     </div>
                   </div>
                 </div>
@@ -502,35 +481,35 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         </div>
 
         {/* ========================================================================= */}
-        {/* CỘT 3: NHÀ CUNG CẤP & THANH TOÁN TIỀN HÀNG (Chuẩn PaymentPanel của POS) */}
+        {/* CỘT 3: NHÀ CUNG CẤP & THANH TOÁN TIỀN HÀNG (Hỗ trợ Đa Phương Thức) */}
         {/* ========================================================================= */}
-        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-y-auto space-y-3.5 bg-gradient-to-b from-orange-50/25 via-zinc-50/40 to-white ${mobileTab !== 'PAYMENT' ? 'hidden lg:flex' : 'flex'}`}>
+        <div className={`p-3 sm:p-4 flex flex-col h-full overflow-y-auto space-y-3 bg-gradient-to-b from-orange-50/25 via-zinc-50/40 to-white pb-28 lg:pb-6 ${mobileTab !== 'PAYMENT' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="flex items-center justify-between border-b border-zinc-100 pb-2 shrink-0">
             <div className="flex items-center space-x-2">
-              <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-black shadow-2xs">
+              <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-bold shadow-2xs">
                 <Store className="w-3.5 h-3.5" />
               </div>
-              <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-800">
                 Nhà Cung Cấp & Thanh Toán
               </h3>
             </div>
-            <span className="text-[10px] font-mono text-zinc-400">F9: Nhập kho</span>
+            <span className="text-[10px] font-mono text-zinc-500">Phiếu nhập kho</span>
           </div>
 
           {/* 1. Branch & Warehouse */}
           <div className="space-y-1 shrink-0">
-            <label className="block text-xs font-bold text-zinc-700">Chi Nhánh Nhập</label>
+            <label className="block text-xs font-semibold text-zinc-700">Chi Nhánh Nhập</label>
             {isAdmin ? (
               <select
                 {...register("branchId", { required: true })}
-                className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+                className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
               >
                 {branches.map(b => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
               </select>
             ) : (
-              <div className="px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800">
+              <div className="px-3 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800">
                 {branches.find(b => b.id === defaultBranchId)?.name || 'Showroom Chi Nhánh'}
               </div>
             )}
@@ -539,18 +518,18 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           {/* 2. Supplier Selection */}
           <div className="space-y-1 shrink-0">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-zinc-700">Nhà Cung Cấp</label>
+              <label className="block text-xs font-semibold text-zinc-700">Nhà Cung Cấp</label>
               <button
                 type="button"
                 onClick={() => setIsCreateSupplierModalOpen(true)}
-                className="text-[11px] font-bold text-[#ff4b16] hover:underline cursor-pointer"
+                className="text-[11px] font-semibold text-[#ff4b16] hover:underline cursor-pointer"
               >
                 + Thêm NCC
               </button>
             </div>
             <select
               {...register("supplierId", { required: "Vui lòng chọn nhà cung cấp" })}
-              className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+              className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
             >
               <option value="">-- Chọn Nhà Cung Cấp --</option>
               {suppliers.map(s => (
@@ -561,7 +540,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
           {/* 3. Payment Method Tabs */}
           <div className="space-y-1.5 shrink-0">
-            <label className="block text-xs font-bold text-zinc-700">Phương Thức Thanh Toán</label>
+            <label className="block text-xs font-semibold text-zinc-700">Hình Thức Thanh Toán</label>
             <div className="grid grid-cols-3 gap-1">
               {[
                 { id: 'BANK', label: 'Chuyển Khoản', icon: CreditCard },
@@ -578,7 +557,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                       setValue('paymentMethod', pm.id as any);
                       setIsCustomPaid(false);
                     }}
-                    className={`py-2 px-1 rounded-xl text-[11px] font-bold flex flex-col items-center justify-center transition-all cursor-pointer ${
+                    className={`py-2 px-1 rounded-xl text-[11px] font-semibold flex flex-col items-center justify-center transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-zinc-900 text-white shadow-xs'
                         : 'bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100'
@@ -592,70 +571,116 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             </div>
           </div>
 
-          {/* 4. Financial Summary Card with Gradient */}
-          <div className="p-3.5 bg-gradient-to-br from-orange-500/10 via-white to-orange-50/20 rounded-2xl border border-orange-200/80 space-y-2 mt-auto shrink-0 shadow-sm">
-            <div className="flex items-center justify-between text-xs text-zinc-600 font-medium">
-              <span>Tổng số lượng máy:</span>
-              <span className="font-mono font-bold text-zinc-900">{totalQuantity} cây máy</span>
+          {/* 4. Flexible Amount Paid Inputs & Shortcuts */}
+          <div className="space-y-2 shrink-0 p-3 bg-white/80 rounded-2xl border border-zinc-200/80">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-zinc-700">Số Tiền Trả Ngay (VNĐ):</span>
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue('amountPaid', totalAmount);
+                    setIsCustomPaid(false);
+                  }}
+                  className="px-2 py-0.5 text-[10px] font-semibold rounded-md bg-orange-50 text-[#ff4b16] border border-orange-200 hover:bg-orange-100 cursor-pointer"
+                >
+                  100%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue('amountPaid', Math.round(totalAmount / 2));
+                    setIsCustomPaid(true);
+                  }}
+                  className="px-2 py-0.5 text-[10px] font-semibold rounded-md bg-zinc-100 text-zinc-700 hover:bg-zinc-200 cursor-pointer"
+                >
+                  50%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue('amountPaid', 0);
+                    setValue('paymentMethod', 'DEBT');
+                    setIsCustomPaid(false);
+                  }}
+                  className="px-2 py-0.5 text-[10px] font-semibold rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer"
+                >
+                  Nợ 100%
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center justify-between text-xs text-zinc-600 font-medium">
+            <div className="relative">
+              <input
+                type="number"
+                {...register("amountPaid")}
+                disabled={watchPaymentMethod === 'DEBT'}
+                onChange={e => {
+                  setValue("amountPaid", Number(e.target.value) || 0);
+                  setIsCustomPaid(true);
+                }}
+                placeholder="Nhập số tiền trả..."
+                className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-emerald-700 focus:outline-none focus:border-[#ff4b16] focus:bg-white disabled:bg-zinc-100 disabled:text-zinc-400"
+              />
+            </div>
+          </div>
+
+          {/* 5. Financial Summary Card with Soft Brand Gradient */}
+          <div className="p-3.5 bg-gradient-to-br from-orange-500/10 via-white to-orange-50/20 rounded-2xl border border-orange-200/80 space-y-2 shrink-0 shadow-xs">
+            <div className="flex items-center justify-between text-xs text-zinc-600 font-normal">
+              <span>Tổng số lượng máy:</span>
+              <span className="font-mono font-semibold text-zinc-800">{totalQuantity} cây máy</span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-zinc-600 font-normal">
               <span>Tổng tiền hàng:</span>
-              <span className="font-mono font-black text-base text-[#ff4b16]">
+              <span className="font-mono font-bold text-sm text-[#ff4b16]">
                 {totalAmount.toLocaleString('vi-VN')} đ
               </span>
             </div>
 
-            {watchPaymentMethod !== 'DEBT' && (
-              <div className="flex items-center justify-between text-xs text-zinc-600 font-medium pt-1.5 border-t border-orange-200/40">
-                <span>Số tiền thanh toán:</span>
-                <input
-                  type="number"
-                  {...register("amountPaid")}
-                  onChange={e => {
-                    setValue("amountPaid", Number(e.target.value) || 0);
-                    setIsCustomPaid(true);
-                  }}
-                  className="w-28 h-7 text-right px-2 bg-white border border-orange-200 rounded-lg text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-[#ff4b16]"
-                />
-              </div>
-            )}
+            <div className="flex items-center justify-between text-xs text-zinc-600 font-normal pt-1.5 border-t border-orange-200/40">
+              <span>Thực trả NCC:</span>
+              <span className="font-mono font-semibold text-emerald-700">
+                {actualPaidAmount.toLocaleString('vi-VN')} đ
+              </span>
+            </div>
 
             {remainingDebtAmount > 0 && (
-              <div className="flex items-center justify-between text-[11px] text-rose-600 font-bold pt-1.5 border-t border-orange-200/40">
+              <div className="flex items-center justify-between text-[11px] text-rose-600 font-semibold pt-1 border-t border-orange-200/40">
                 <span>Công nợ ghi nhận:</span>
                 <span className="font-mono">{remainingDebtAmount.toLocaleString('vi-VN')} đ</span>
               </div>
             )}
           </div>
 
-          {/* 5. Complete Button (F9) - Prominent Column Button */}
+          {/* 6. Complete Button (Single Main Action, F9) */}
           <button
             type="submit"
             disabled={totalQuantity === 0}
-            className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all shadow-md active:scale-98 cursor-pointer shrink-0 ${
+            className={`w-full py-3.5 rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all shadow-md active:scale-98 cursor-pointer shrink-0 ${
               totalQuantity > 0
                 ? 'bg-gradient-to-r from-orange-500 via-[#ff4b16] to-[#e03e0e] text-white shadow-orange-500/30 hover:brightness-105'
                 : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
             }`}
           >
             <PackagePlus className="w-4 h-4" />
-            <span>Xác Nhận & Nhập Kho Ngay ({totalQuantity} máy)</span>
+            <span>Xác Nhận & Nhập Kho ({totalQuantity} máy)</span>
           </button>
         </div>
       </form>
 
-      {/* 3. Sticky Mobile Bottom Confirmation Bar (<1024px) */}
-      <div className="lg:hidden px-4 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black border-t border-zinc-800 flex items-center justify-between shrink-0 shadow-lg">
+      {/* 3. Safe Mobile Bottom Action Bar (Docked above bottom menu with bottom-16) */}
+      <div className="lg:hidden fixed bottom-16 left-0 right-0 z-40 px-4 py-2.5 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black border-t border-zinc-800 flex items-center justify-between shadow-2xl">
         <div>
-          <div className="text-[10px] text-zinc-400 font-medium">Tổng: <b className="text-white font-mono">{totalQuantity} máy</b></div>
-          <div className="text-xs font-black font-mono text-[#ff4b16]">{totalAmount.toLocaleString('vi-VN')} đ</div>
+          <div className="text-[10px] text-zinc-400 font-normal">Tổng: <b className="text-white font-mono">{totalQuantity} máy</b></div>
+          <div className="text-xs font-bold font-mono text-[#ff4b16]">{totalAmount.toLocaleString('vi-VN')} đ</div>
         </div>
         <button
           type="button"
           onClick={handleSubmit(onSubmit)}
           disabled={totalQuantity === 0}
-          className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider flex items-center space-x-1.5 transition-all shadow-md active:scale-95 cursor-pointer ${
+          className={`px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5 transition-all shadow-md active:scale-95 cursor-pointer ${
             totalQuantity > 0
               ? 'bg-gradient-to-r from-orange-500 via-[#ff4b16] to-[#e03e0e] text-white shadow-orange-500/30'
               : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'

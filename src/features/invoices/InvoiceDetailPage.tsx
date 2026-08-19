@@ -120,7 +120,7 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-1.5 text-zinc-800">
                 <User className="w-3.5 h-3.5 text-[#ff4b16]" />
-                <span className="font-black">{invoice.customerName}</span>
+                <span className="font-bold">{invoice.customerName}</span>
               </div>
               {invoice.customerPhone && (
                 <div className="flex items-center space-x-1.5 text-zinc-600 font-mono">
@@ -131,12 +131,12 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
             </div>
 
             <div className="text-zinc-600">
-              Thu ngân: <span className="font-bold text-zinc-900">{invoice.cashier || invoice.sellerName || 'Admin'}</span>
+              Thu ngân: <span className="font-semibold text-zinc-800">{invoice.cashier || invoice.sellerName || 'Admin'}</span>
             </div>
           </div>
 
           {/* 3. Navigation Tabs */}
-          <div className="flex items-center space-x-1 px-5 border-b border-zinc-100 text-xs font-bold bg-white">
+          <div className="flex items-center space-x-1 px-5 border-b border-zinc-100 text-xs font-semibold bg-white">
             <button
               onClick={() => setActiveTab('ITEMS')}
               className={`py-3 px-3 border-b-2 transition-all cursor-pointer ${
@@ -172,12 +172,12 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
           </div>
 
           {/* 4. Tab Content Area */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="flex-1 overflow-y-auto p-5 space-y-4 pb-20 sm:pb-6">
             {activeTab === 'ITEMS' && (
               <div className="space-y-3">
                 {/* Devices */}
                 <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Máy iPhone Bán Ra</h4>
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Máy iPhone Bán Ra</h4>
                   {invoice.devices && invoice.devices.length > 0 ? (
                     <div className="space-y-2">
                       {invoice.devices.map((dev, idx) => (
@@ -190,13 +190,13 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
                               <Smartphone className="w-4 h-4" />
                             </div>
                             <div>
-                              <h5 className="font-bold text-zinc-900">{dev.model}</h5>
+                              <h5 className="font-semibold text-zinc-800">{dev.model}</h5>
                               <p className="text-[11px] text-zinc-500 font-mono">
-                                IMEI: <span className="font-bold text-zinc-800">{dev.imei}</span> • {dev.color || 'Đen'} • {dev.storage || '128GB'}
+                                IMEI: <span className="font-semibold text-zinc-700">{dev.imei}</span> • {dev.color || 'Đen'} • {dev.storage || '128GB'}
                               </p>
                             </div>
                           </div>
-                          <span className="font-black font-mono text-zinc-900">
+                          <span className="font-semibold font-mono text-zinc-900">
                             {(dev.price || 0).toLocaleString('vi-VN')}đ
                           </span>
                         </div>

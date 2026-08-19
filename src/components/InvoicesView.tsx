@@ -849,8 +849,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </div>
         </div>
 
-        {/* 7. Sticky Bottom Action Bar */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 py-2.5 px-4 z-30 shadow-lg">
+        {/* 7. Sticky Bottom Action Bar (Docked above bottom menu on mobile) */}
+        <div className="fixed bottom-16 lg:bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 py-2.5 px-4 z-40 shadow-lg">
           <div className="max-w-2xl mx-auto grid grid-cols-2 gap-3">
             <button
               onClick={() => setIsPrintModalOpen(true)}

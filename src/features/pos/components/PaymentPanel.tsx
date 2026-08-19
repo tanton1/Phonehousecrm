@@ -49,6 +49,24 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   const [showQRModal, setShowQRModal] = useState(false);
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
 
+  // Multi-Payment / Split Tender State
+  const [isSplitMode, setIsSplitMode] = useState<boolean>(false);
+  const [splitCash, setSplitCash] = useState<number>(0);
+  const [splitBank, setSplitBank] = useState<number>(finalAmount);
+  const [splitCard, setSplitCard] = useState<number>(0);
+  const [splitDebt, setSplitDebt] = useState<number>(0);
+
+  // Auto sync when finalAmount changes
+  useEffect(() => {
+    setCashGiven(finalAmount);
+    if (!isSplitMode) {
+      setSplitBank(finalAmount);
+      setSplitCash(0);
+      setSplitCard(0);
+      setSplitDebt(0);
+    }
+  }, [finalAmount, isSplitMode]);
+
   // Search existing customers
   const matchingCustomers = useMemo(() => {
     const qPhone = customerPhone.trim().toLowerCase();
@@ -91,6 +109,10 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   const isInstallment = paymentMethod.includes('Trả góp');
   const expectedDisbursement = Math.max(0, finalAmount - downPaymentAmount);
 
+  // Split sum calculations
+  const totalSplit = splitCash + splitBank + splitCard + splitDebt;
+  const splitDiff = totalSplit - finalAmount;
+
   // Quick tender suggestions
   const tenderSuggestions = useMemo(() => {
     if (finalAmount <= 0) return [];
@@ -116,37 +138,37 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
   const changeDue = Math.max(0, (cashGiven || finalAmount) - finalAmount);
 
   // Dynamic VietQR Techcombank URL simulation
-  const vietQrUrl = `https://img.vietqr.io/image/970407-1903678999999-compact2.png?amount=${finalAmount}&addInfo=PhoneHouse%20POS%20${customerPhone || 'DonHang'}&accountName=PHONEHOUSE%20RETAIL`;
+  const vietQrUrl = `https://img.vietqr.io/image/970407-1903678999999-compact2.png?amount=${isSplitMode ? splitBank : finalAmount}&addInfo=PhoneHouse%20POS%20${customerPhone || 'DonHang'}&accountName=PHONEHOUSE%20RETAIL`;
 
   return (
-    <div className="bg-white p-3 sm:p-4 flex flex-col h-full space-y-3 overflow-hidden">
+    <div className="bg-white p-3 sm:p-4 flex flex-col h-full space-y-3 overflow-y-auto pb-28 lg:pb-4">
       {/* 1. Header */}
       <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
         <div className="flex items-center space-x-2">
-          <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-black">
+          <div className="w-7 h-7 rounded-xl bg-orange-50 text-[#ff4b16] flex items-center justify-center font-bold">
             <Coins className="w-3.5 h-3.5" />
           </div>
           <div>
-            <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900">Thu Tiền Khách Hàng</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-800">Thu Tiền Khách Hàng</h3>
           </div>
         </div>
         <span className="text-[10px] font-mono text-zinc-400">
-          Phím tắt: <kbd className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-bold border border-zinc-200">F9</kbd>
+          Phím tắt: <kbd className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700 font-semibold border border-zinc-200">F9</kbd>
         </span>
       </div>
 
       {/* 2. Customer Information with Instant Auto-Complete Search */}
       <div className="space-y-1.5 relative">
-        <div className="flex items-center justify-between text-xs font-bold text-zinc-700">
+        <div className="flex items-center justify-between text-xs font-semibold text-zinc-700">
           <div className="flex items-center space-x-1.5">
             <span>Khách Hàng</span>
             {matchedCustomer ? (
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-0.5">
+              <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-0.5">
                 <Star className="w-2.5 h-2.5 fill-emerald-500 text-emerald-500" />
                 <span>Khách Cũ ({(matchedCustomer as any).customerTier || (matchedCustomer as any).tier || 'Thành Viên'})</span>
               </span>
             ) : (customerPhone.trim() || customerName.trim()) ? (
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-orange-50 text-[#ff4b16] border border-orange-200">
+              <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-md bg-orange-50 text-[#ff4b16] border border-orange-200">
                 🆕 Khách Hàng Mới
               </span>
             ) : null}
@@ -157,7 +179,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
               <button
                 type="button"
                 onClick={onOpenCreateCustomerModal}
-                className="text-[11px] font-bold text-[#ff4b16] hover:underline flex items-center space-x-0.5 cursor-pointer"
+                className="text-[11px] font-semibold text-[#ff4b16] hover:underline flex items-center space-x-0.5 cursor-pointer"
                 title="Tạo hồ sơ khách hàng mới"
               >
                 <Plus className="w-3 h-3" />
@@ -181,7 +203,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
                 onChangeCustomerPhone(e.target.value);
                 setIsCustomerDropdownOpen(true);
               }}
-              className="w-full h-9 pl-8 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-bold focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
+              className="w-full h-9 pl-8 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-semibold focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
             />
           </div>
 
@@ -197,23 +219,23 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
                 onChangeCustomerName(e.target.value);
                 setIsCustomerDropdownOpen(true);
               }}
-              className="w-full h-9 pl-8 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
+              className="w-full h-9 pl-8 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
             />
           </div>
 
           {/* Autocomplete Dropdown */}
           {isCustomerDropdownOpen && (matchingCustomers.length > 0 || customerName.length >= 2 || customerPhone.length >= 2) && (
             <div className="absolute top-10 left-0 right-0 z-30 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-64 overflow-y-auto">
-              <div className="px-3 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
+              <div className="px-3 py-1 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
                 <span>
                   {matchingCustomers.length > 0 
-                    ? `Tìm thấy ${matchingCustomers.length} khách hàng trùng khớp:` 
+                    ? `Tìm thấy ${matchingCustomers.length} khách hàng:` 
                     : 'Không tìm thấy khách hàng cũ'}
                 </span>
                 <button
                   type="button"
                   onClick={() => setIsCustomerDropdownOpen(false)}
-                  className="text-zinc-400 hover:text-zinc-600 font-bold"
+                  className="text-zinc-400 hover:text-zinc-600 font-bold cursor-pointer"
                 >
                   ✕
                 </button>
@@ -227,31 +249,30 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
                 >
                   <div>
                     <div className="flex items-center space-x-1.5">
-                      <span className="text-xs font-bold text-zinc-900 group-hover:text-[#ff4b16] transition-colors">{cust.name}</span>
-                      <span className="text-[9px] font-bold font-mono px-1 rounded bg-zinc-100 text-zinc-600">{(cust as any).customerTier || (cust as any).tier || 'Thành Viên'}</span>
+                      <span className="text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors">{cust.name}</span>
+                      <span className="text-[9px] font-semibold font-mono px-1 rounded bg-zinc-100 text-zinc-600">{(cust as any).customerTier || (cust as any).tier || 'Thành Viên'}</span>
                     </div>
-                    <span className="text-[10px] font-mono font-bold text-zinc-600">SĐT: {cust.phone}</span>
+                    <span className="text-[10px] font-mono font-medium text-zinc-500">SĐT: {cust.phone}</span>
                   </div>
 
                   <div className="text-right">
-                    <span className="text-[10px] font-bold text-emerald-700 block">
+                    <span className="text-[10px] font-semibold text-emerald-700 block">
                       {(cust as any).loyaltyPoints || (cust as any).accumulatedPoints ? `${(cust as any).loyaltyPoints || (cust as any).accumulatedPoints} điểm` : 'Đã từng mua'}
                     </span>
-                    <span className="text-[9px] text-[#ff4b16] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[9px] text-[#ff4b16] font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
                       Chọn khách này ↵
                     </span>
                   </div>
                 </div>
               ))}
 
-              {/* Explicit option to create a completely new customer with current typed info */}
               <div 
                 onClick={() => setIsCustomerDropdownOpen(false)}
                 className="p-2.5 bg-orange-50/80 hover:bg-orange-100 border-t border-orange-200/80 cursor-pointer flex items-center justify-between transition-colors text-[#ff4b16]"
               >
                 <div className="flex items-center space-x-1.5">
                   <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span className="text-xs font-bold">
+                  <span className="text-xs font-semibold">
                     Tạo mới khách hàng "{customerName.trim() || 'Mới'}" với SĐT {customerPhone.trim() || 'này'}
                   </span>
                 </div>
@@ -264,48 +285,209 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
         </div>
       </div>
 
-      {/* 3. Payment Method Tabs */}
+      {/* 3. Payment Mode Toggle: Single vs Multi-Method (Split Payment) */}
       <div className="space-y-1.5">
-        <span className="text-xs font-bold text-zinc-700 block">Phương Thức Thanh Toán</span>
-        <div className="grid grid-cols-2 gap-1.5">
-          {paymentMethods.map(pm => {
-            const Icon = pm.icon;
-            const isSelected = paymentMethod === pm.id;
-
-            return (
-              <button
-                key={pm.id}
-                type="button"
-                onClick={() => onChangePaymentMethod(pm.id)}
-                className={`flex items-center space-x-2 p-2.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-gradient-to-r from-orange-50 to-amber-50/80 border-[#ff4b16] text-[#ff4b16] ring-1 ring-[#ff4b16] shadow-2xs'
-                    : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
-                }`}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{pm.label}</span>
-              </button>
-            );
-          })}
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-zinc-700">Hình Thức Thanh Toán</span>
+          <button
+            type="button"
+            onClick={() => setIsSplitMode(!isSplitMode)}
+            className={`text-[11px] font-semibold px-2 py-0.5 rounded-lg transition-all cursor-pointer flex items-center space-x-1 ${
+              isSplitMode
+                ? 'bg-[#ff4b16] text-white shadow-xs'
+                : 'bg-orange-50 text-[#ff4b16] border border-orange-200 hover:bg-orange-100'
+            }`}
+          >
+            <span>🔀 Kết hợp nhiều hình thức</span>
+          </button>
         </div>
+
+        {/* MULTI-PAYMENT / SPLIT TENDER VIEW */}
+        {isSplitMode ? (
+          <div className="p-3 bg-gradient-to-br from-orange-50/40 via-white to-orange-50/20 border border-orange-200/80 rounded-2xl space-y-2.5">
+            <div className="text-[11px] font-semibold text-zinc-600 flex items-center justify-between">
+              <span>Nhập số tiền từng hình thức:</span>
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const half = Math.round(finalAmount / 2);
+                    setSplitCash(half);
+                    setSplitBank(finalAmount - half);
+                    setSplitCard(0);
+                    setSplitDebt(0);
+                  }}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-semibold cursor-pointer"
+                >
+                  50/50 (Tiền + CK)
+                </button>
+              </div>
+            </div>
+
+            {/* Split Method 1: Cash */}
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
+                <Wallet className="w-3.5 h-3.5 text-orange-600" />
+                <span>Tiền mặt:</span>
+              </div>
+              <input
+                type="number"
+                value={splitCash || ''}
+                onChange={e => setSplitCash(Number(e.target.value) || 0)}
+                placeholder="0 đ"
+                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSplitCash(finalAmount);
+                  setSplitBank(0);
+                  setSplitCard(0);
+                  setSplitDebt(0);
+                }}
+                className="px-2 py-1 text-[10px] bg-zinc-100 hover:bg-zinc-200 rounded-lg text-zinc-600 font-semibold"
+              >
+                Hết
+              </button>
+            </div>
+
+            {/* Split Method 2: VietQR / Bank */}
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
+                <QrCode className="w-3.5 h-3.5 text-blue-600" />
+                <span>Chuyển khoản:</span>
+              </div>
+              <input
+                type="number"
+                value={splitBank || ''}
+                onChange={e => setSplitBank(Number(e.target.value) || 0)}
+                placeholder="0 đ"
+                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-blue-700 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSplitBank(Math.max(0, finalAmount - splitCash - splitCard - splitDebt));
+                }}
+                className="px-2 py-1 text-[10px] bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-600 font-semibold"
+              >
+                Bù
+              </button>
+            </div>
+
+            {/* Split Method 3: POS Card */}
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
+                <CreditCard className="w-3.5 h-3.5 text-purple-600" />
+                <span>Cà thẻ POS:</span>
+              </div>
+              <input
+                type="number"
+                value={splitCard || ''}
+                onChange={e => setSplitCard(Number(e.target.value) || 0)}
+                placeholder="0 đ"
+                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-purple-700 focus:outline-none focus:border-purple-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSplitCard(Math.max(0, finalAmount - splitCash - splitBank - splitDebt));
+                }}
+                className="px-2 py-1 text-[10px] bg-purple-50 hover:bg-purple-100 rounded-lg text-purple-600 font-semibold"
+              >
+                Bù
+              </button>
+            </div>
+
+            {/* Split Method 4: Debt / Installment */}
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center space-x-1.5 text-zinc-700 w-32 shrink-0">
+                <Receipt className="w-3.5 h-3.5 text-rose-600" />
+                <span>Ghi nợ / Trả góp:</span>
+              </div>
+              <input
+                type="number"
+                value={splitDebt || ''}
+                onChange={e => setSplitDebt(Number(e.target.value) || 0)}
+                placeholder="0 đ"
+                className="flex-1 h-8 px-2.5 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-rose-700 focus:outline-none focus:border-rose-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSplitDebt(Math.max(0, finalAmount - splitCash - splitBank - splitCard));
+                }}
+                className="px-2 py-1 text-[10px] bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-600 font-semibold"
+              >
+                Bù
+              </button>
+            </div>
+
+            {/* Multi-Payment Balance Feedback */}
+            <div className="pt-2 border-t border-orange-200/60 flex items-center justify-between text-xs">
+              <span className="text-zinc-600">Tổng đã phân bổ:</span>
+              <span className={`font-mono font-bold ${splitDiff === 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                {totalSplit.toLocaleString('vi-VN')} / {finalAmount.toLocaleString('vi-VN')} đ
+                {splitDiff !== 0 && (
+                  <span className="text-[10px] ml-1 font-normal">
+                    ({splitDiff > 0 ? `+${splitDiff.toLocaleString('vi-VN')}đ` : `${splitDiff.toLocaleString('vi-VN')}đ`})
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+        ) : (
+          /* SINGLE PAYMENT METHOD SELECTION */
+          <div className="grid grid-cols-2 gap-1.5">
+            {paymentMethods.map(pm => {
+              const Icon = pm.icon;
+              const isSelected = paymentMethod === pm.id;
+
+              return (
+                <button
+                  key={pm.id}
+                  type="button"
+                  onClick={() => onChangePaymentMethod(pm.id)}
+                  className={`flex items-center space-x-2 p-2.5 rounded-2xl border text-xs font-semibold transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-orange-50 to-amber-50/80 border-[#ff4b16] text-[#ff4b16] ring-1 ring-[#ff4b16] shadow-2xs'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{pm.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* 4. Cash Tender Fast Calculator (If Cash) */}
-      {isCash && (
+      {/* 4. Cash Tender Fast Calculator (If Cash Single) */}
+      {!isSplitMode && isCash && (
         <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-zinc-700">Phím Mệnh Giá Nhanh:</span>
+            <span className="font-semibold text-zinc-700">Khách Đưa Tiền Mặt:</span>
             <span className="text-[10px] text-zinc-400 font-mono">Tự tính tiền thối</span>
           </div>
 
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="relative">
+            <input
+              type="number"
+              value={cashGiven || ''}
+              onChange={e => setCashGiven(Number(e.target.value) || 0)}
+              placeholder="Nhập số tiền khách đưa..."
+              className="w-full h-9 px-3 text-right bg-white border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 pt-1">
             {tenderSuggestions.map((item, idx) => (
               <button
                 key={idx}
                 type="button"
                 onClick={() => setCashGiven(item.amount)}
-                className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer font-mono ${
+                className={`py-1.5 px-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer font-mono ${
                   cashGiven === item.amount
                     ? 'bg-[#ff4b16] text-white border-[#ff4b16] shadow-2xs'
                     : 'bg-white text-zinc-700 border-zinc-200 hover:border-orange-300'
@@ -318,8 +500,8 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
 
           {changeDue > 0 && (
             <div className="pt-2 border-t border-zinc-200 flex justify-between items-center text-xs">
-              <span className="font-bold text-emerald-700">Tiền thối lại khách:</span>
-              <span className="text-sm font-black font-mono text-emerald-700">
+              <span className="font-semibold text-emerald-700">Tiền thối lại khách:</span>
+              <span className="text-sm font-bold font-mono text-emerald-700">
                 {changeDue.toLocaleString('vi-VN')} đ
               </span>
             </div>
@@ -327,39 +509,41 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
         </div>
       )}
 
-      {/* VietQR Fast Preview Link (If VietQR) */}
-      {isVietQR && (
+      {/* VietQR Fast Preview Link (If VietQR Single or VietQR in split) */}
+      {((!isSplitMode && isVietQR) || (isSplitMode && splitBank > 0)) && (
         <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-50/70 to-indigo-50/50 border border-blue-200/80 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <QrCode className="w-7 h-7 text-blue-600" />
             <div>
-              <span className="text-xs font-black text-blue-900 block">Mã VietQR Động Techcombank</span>
-              <span className="text-[10px] text-blue-600 font-mono">Tự điền số tiền: {finalAmount.toLocaleString('vi-VN')}đ</span>
+              <span className="text-xs font-bold text-blue-900 block">Mã VietQR Động Techcombank</span>
+              <span className="text-[10px] text-blue-600 font-mono">
+                Số tiền: {(isSplitMode ? splitBank : finalAmount).toLocaleString('vi-VN')}đ
+              </span>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setShowQRModal(true)}
-            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer"
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-sm transition-all cursor-pointer"
           >
             Hiện QR
           </button>
         </div>
       )}
 
-      {/* 5. Installment Partner Details (If Installment) */}
-      {isInstallment && (
+      {/* 5. Installment Partner Details (If Installment Single) */}
+      {!isSplitMode && isInstallment && (
         <div className="p-3.5 bg-orange-50/70 border border-orange-200 rounded-2xl space-y-2.5 text-xs">
-          <span className="font-bold text-zinc-800 block">Công Ty Tài Chính Đối Tác:</span>
+          <span className="font-semibold text-zinc-800 block">Công Ty Tài Chính Đối Tác:</span>
           <div className="grid grid-cols-2 gap-1.5">
             {financeCompanies.map(fc => (
               <button
                 key={fc}
                 type="button"
                 onClick={() => setSelectedFinanceCompany(fc)}
-                className={`p-2 rounded-xl text-left border font-semibold text-[11px] transition-all cursor-pointer ${
+                className={`p-2 rounded-xl text-left border text-[11px] transition-all cursor-pointer ${
                   selectedFinanceCompany === fc
-                    ? 'bg-orange-500 text-white border-orange-500 shadow-2xs font-bold'
+                    ? 'bg-orange-500 text-white border-orange-500 shadow-2xs font-semibold'
                     : 'bg-white text-zinc-700 border-orange-200'
                 }`}
               >
@@ -369,7 +553,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           </div>
 
           <div className="pt-2 border-t border-orange-200/60 space-y-1.5">
-            <div className="flex justify-between items-center font-bold text-zinc-800">
+            <div className="flex justify-between items-center font-semibold text-zinc-800">
               <span>Khách trả trước:</span>
               <input
                 type="text"
@@ -379,13 +563,13 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
                   const val = parseInt(e.target.value.replace(/\D/g, ''), 10) || 0;
                   onChangeDownPayment(val);
                 }}
-                className="w-32 text-right font-mono font-black px-2.5 py-1 bg-white border border-orange-300 rounded-xl text-xs"
+                className="w-32 text-right font-mono font-semibold px-2.5 py-1 bg-white border border-orange-300 rounded-xl text-xs"
               />
             </div>
 
             <div className="flex justify-between text-zinc-600 text-[11px]">
               <span>Chờ {selectedFinanceCompany} giải ngân:</span>
-              <span className="font-mono font-bold text-zinc-900">{expectedDisbursement.toLocaleString('vi-VN')} đ</span>
+              <span className="font-mono font-semibold text-zinc-900">{expectedDisbursement.toLocaleString('vi-VN')} đ</span>
             </div>
           </div>
         </div>
@@ -393,11 +577,11 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
 
       {/* 6. Target Fund Account Picker */}
       <div className="space-y-1.5">
-        <span className="text-xs font-bold text-zinc-700 block">Két Tiền / Quỹ Thu Ngân Nhận Tiền</span>
+        <span className="text-xs font-semibold text-zinc-700 block">Két Tiền / Quỹ Thu Ngân Nhận Tiền</span>
         <select
           value={selectedFundId}
           onChange={e => onSelectFundId(e.target.value)}
-          className="w-full h-10 px-3 bg-zinc-50 border border-zinc-200 rounded-2xl text-xs font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16] focus:bg-white transition-all"
+          className="w-full h-10 px-3 bg-zinc-50 border border-zinc-200 rounded-2xl text-xs font-medium text-zinc-800 focus:outline-none focus:border-[#ff4b16] focus:bg-white transition-all"
         >
           {funds.map(f => {
             const balance = f.currentBalance ?? (f as any).balance ?? 0;
@@ -418,7 +602,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           isLoading={isProcessing}
           onClick={onExecuteCheckout}
           leftIcon={<Receipt className="w-5 h-5" />}
-          className="w-full font-black text-sm shadow-xl shadow-orange-500/25 h-12 rounded-2xl cursor-pointer"
+          className="w-full font-bold text-sm shadow-xl shadow-orange-500/25 h-12 rounded-2xl cursor-pointer"
         >
           {isProcessing ? 'Đang Xử Lý Xuất Đơn...' : 'XÁC NHẬN XUẤT ĐƠN (F9)'}
         </Button>
@@ -428,7 +612,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
       {showQRModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl p-5 max-w-sm w-full text-center space-y-3 shadow-2xl border border-zinc-200">
-            <h3 className="text-sm font-black text-zinc-900">Quét Mã VietQR Chuyển Khoản</h3>
+            <h3 className="text-sm font-bold text-zinc-900">Quét Mã VietQR Chuyển Khoản</h3>
             <p className="text-xs text-zinc-500 font-mono">
               Techcombank • 1903678999999 • PhoneHouse Retail
             </p>
@@ -439,19 +623,18 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
                 alt="VietQR Code"
                 className="w-56 h-56 object-contain rounded-xl"
                 onError={(e) => {
-                  // Fallback visual if offline
                   (e.target as HTMLElement).style.display = 'none';
                 }}
               />
             </div>
 
-            <div className="font-mono font-black text-base text-[#ff4b16]">
-              {finalAmount.toLocaleString('vi-VN')} đ
+            <div className="font-mono font-bold text-base text-[#ff4b16]">
+              {(isSplitMode ? splitBank : finalAmount).toLocaleString('vi-VN')} đ
             </div>
 
             <button
               onClick={() => setShowQRModal(false)}
-              className="w-full py-2.5 bg-zinc-900 text-white font-bold text-xs rounded-2xl hover:bg-black transition-colors cursor-pointer"
+              className="w-full py-2.5 bg-zinc-900 text-white font-semibold text-xs rounded-2xl hover:bg-black transition-colors cursor-pointer"
             >
               Đóng Mã QR
             </button>

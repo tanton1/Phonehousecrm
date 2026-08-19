@@ -13,32 +13,32 @@ export const InvoicePaymentTab: React.FC<InvoicePaymentTabProps> = ({ invoice, f
 
   return (
     <div className="space-y-4 text-xs">
-      {/* 1. Payment Summary Cards */}
+      {/* 1. Payment Summary Cards with Soft Gradient */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <div className="p-3 bg-zinc-50 border border-zinc-200/80 rounded-xl">
-          <span className="text-zinc-500 font-semibold block">Tổng tiền hàng</span>
-          <span className="text-sm font-black font-mono text-zinc-900 mt-1 block">
+          <span className="text-zinc-500 font-medium block">Tổng tiền hàng</span>
+          <span className="text-sm font-semibold font-mono text-zinc-800 mt-1 block">
             {(invoice.totalAmount || 0).toLocaleString('vi-VN')}đ
           </span>
         </div>
 
         <div className="p-3 bg-zinc-50 border border-zinc-200/80 rounded-xl">
-          <span className="text-zinc-500 font-semibold block">Giảm giá / Thu cũ</span>
-          <span className="text-sm font-black font-mono text-rose-600 mt-1 block">
+          <span className="text-zinc-500 font-medium block">Giảm giá / Thu cũ</span>
+          <span className="text-sm font-semibold font-mono text-rose-600 mt-1 block">
             -{((invoice.discountAmount || 0) + (invoice.tradeInDeduction || 0)).toLocaleString('vi-VN')}đ
           </span>
         </div>
 
         <div className="p-3 bg-orange-50/70 border border-orange-200/80 rounded-xl">
-          <span className="text-[#ff4b16] font-bold block">Khách đã trả</span>
-          <span className="text-sm font-black font-mono text-[#ff4b16] mt-1 block">
+          <span className="text-[#ff4b16] font-semibold block">Khách đã trả</span>
+          <span className="text-sm font-bold font-mono text-[#ff4b16] mt-1 block">
             {(invoice.paidAmount || invoice.finalAmount || 0).toLocaleString('vi-VN')}đ
           </span>
         </div>
 
         <div className="p-3 bg-zinc-50 border border-zinc-200/80 rounded-xl">
-          <span className="text-zinc-500 font-semibold block">Còn nợ / Chờ giải ngân</span>
-          <span className="text-sm font-black font-mono text-zinc-900 mt-1 block">
+          <span className="text-zinc-500 font-medium block">Còn nợ / Chờ giải ngân</span>
+          <span className="text-sm font-semibold font-mono text-zinc-800 mt-1 block">
             {(invoice.debtAmount || invoice.installmentExpectedAmount || 0).toLocaleString('vi-VN')}đ
           </span>
         </div>
