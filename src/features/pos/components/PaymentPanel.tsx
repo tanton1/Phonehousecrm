@@ -140,12 +140,16 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
         <div className="flex items-center justify-between text-xs font-bold text-zinc-700">
           <div className="flex items-center space-x-1.5">
             <span>Khách Hàng</span>
-            {matchedCustomer && (
+            {matchedCustomer ? (
               <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center space-x-0.5">
                 <Star className="w-2.5 h-2.5 fill-emerald-500 text-emerald-500" />
                 <span>Khách Cũ ({(matchedCustomer as any).customerTier || (matchedCustomer as any).tier || 'Thành Viên'})</span>
               </span>
-            )}
+            ) : (customerPhone.trim() || customerName.trim()) ? (
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-orange-50 text-[#ff4b16] border border-orange-200">
+                🆕 Khách Hàng Mới
+              </span>
+            ) : null}
           </div>
           <div className="flex items-center space-x-2">
             <span className="text-[10px] text-zinc-400 font-mono">F4: SĐT</span>
@@ -198,10 +202,14 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
           </div>
 
           {/* Autocomplete Dropdown */}
-          {isCustomerDropdownOpen && matchingCustomers.length > 0 && (
-            <div className="absolute top-10 left-0 right-0 z-30 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          {isCustomerDropdownOpen && (matchingCustomers.length > 0 || customerName.length >= 2 || customerPhone.length >= 2) && (
+            <div className="absolute top-10 left-0 right-0 z-30 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 overflow-hidden animate-in fade-in zoom-in-95 duration-150 max-h-64 overflow-y-auto">
               <div className="px-3 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
-                <span>Tìm thấy {matchingCustomers.length} khách hàng cũ:</span>
+                <span>
+                  {matchingCustomers.length > 0 
+                    ? `Tìm thấy ${matchingCustomers.length} khách hàng trùng khớp:` 
+                    : 'Không tìm thấy khách hàng cũ'}
+                </span>
                 <button
                   type="button"
                   onClick={() => setIsCustomerDropdownOpen(false)}
@@ -222,16 +230,35 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = ({
                       <span className="text-xs font-bold text-zinc-900 group-hover:text-[#ff4b16] transition-colors">{cust.name}</span>
                       <span className="text-[9px] font-bold font-mono px-1 rounded bg-zinc-100 text-zinc-600">{(cust as any).customerTier || (cust as any).tier || 'Thành Viên'}</span>
                     </div>
-                    <span className="text-[10px] font-mono text-zinc-500">{cust.phone}</span>
+                    <span className="text-[10px] font-mono font-bold text-zinc-600">SĐT: {cust.phone}</span>
                   </div>
 
                   <div className="text-right">
                     <span className="text-[10px] font-bold text-emerald-700 block">
                       {(cust as any).loyaltyPoints || (cust as any).accumulatedPoints ? `${(cust as any).loyaltyPoints || (cust as any).accumulatedPoints} điểm` : 'Đã từng mua'}
                     </span>
+                    <span className="text-[9px] text-[#ff4b16] font-bold opacity-0 group-hover:opacity-100 transition-opacity">
+                      Chọn khách này ↵
+                    </span>
                   </div>
                 </div>
               ))}
+
+              {/* Explicit option to create a completely new customer with current typed info */}
+              <div 
+                onClick={() => setIsCustomerDropdownOpen(false)}
+                className="p-2.5 bg-orange-50/80 hover:bg-orange-100 border-t border-orange-200/80 cursor-pointer flex items-center justify-between transition-colors text-[#ff4b16]"
+              >
+                <div className="flex items-center space-x-1.5">
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span className="text-xs font-bold">
+                    Tạo mới khách hàng "{customerName.trim() || 'Mới'}" với SĐT {customerPhone.trim() || 'này'}
+                  </span>
+                </div>
+                <span className="text-[9px] font-bold uppercase tracking-wider bg-[#ff4b16] text-white px-2 py-0.5 rounded-md">
+                  Tạo Mới
+                </span>
+              </div>
             </div>
           )}
         </div>
