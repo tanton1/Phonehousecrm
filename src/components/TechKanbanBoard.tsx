@@ -1,22 +1,31 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { WarrantyTicket } from '../types';
-import { KanbanSquare, Wrench, Package, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { KanbanSquare, Wrench, Package, ArrowRight, CheckCircle2, QrCode, AlertCircle } from 'lucide-react';
+import {
+  requestAcceptCustody,
+  requestStartTaskLine,
+  requestCompleteTaskLine
+} from '../services/technicalApiClient';
 
 interface TechKanbanBoardProps {
   tasks: WarrantyTicket[];
   onTaskClick: (task: WarrantyTicket) => void;
   onOpenAddTaskModal?: () => void;
+  onRefresh?: () => void;
 }
 
-export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskClick, onOpenAddTaskModal }) => {
+export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskClick, onOpenAddTaskModal, onRefresh }) => {
+  const [scanModalTaskId, setScanModalTaskId] = useState<string | null>(null);
+  const [scannedImei, setScannedImei] = useState('');
+  const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   // Columns Definition
   const COLUMNS = [
-    { id: 'TODO', title: 'Chờ Tiếp Nhận', statuses: ['received'] },
-    { id: 'IN_PROGRESS', title: 'Đang Xử Lý', statuses: ['inspecting', 'repairing'] },
-    { id: 'PENDING_PARTS', title: 'Chờ Linh Kiện', statuses: ['waiting_parts'] },
-    { id: 'DONE', title: 'Hoàn Thành (QC)', statuses: ['ready', 'delivered'] }
+    { id: 'TODO', title: 'Chờ Tiếp Nhận', statuses: ['received', 'ASSIGNED'] },
+    { id: 'IN_PROGRESS', title: 'Đang Xử Lý', statuses: ['inspecting', 'repairing', 'IN_PROGRESS', 'ACCEPTED'] },
+    { id: 'PENDING_PARTS', title: 'Chờ Linh Kiện', statuses: ['waiting_parts', 'WAITING_PARTS'] },
+    { id: 'DONE', title: 'Hoàn Thành (Chờ QC / Đã QC)', statuses: ['ready', 'delivered', 'TECH_COMPLETED', 'QC_PASSED', 'VERIFIED'] }
   ];
 
   const groupedTasks = useMemo(() => {
@@ -28,70 +37,122 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
     };
 
     tasks.forEach(task => {
-      if (COLUMNS[0].statuses.includes(task.status)) groups['TODO'].push(task);
-      else if (COLUMNS[1].statuses.includes(task.status)) groups['IN_PROGRESS'].push(task);
-      else if (COLUMNS[2].statuses.includes(task.status)) groups['PENDING_PARTS'].push(task);
-      else if (COLUMNS[3].statuses.includes(task.status)) groups['DONE'].push(task);
-      else groups['TODO'].push(task); // fallback
+      const status = task.status || 'received';
+      if (COLUMNS[0].statuses.includes(status)) groups['TODO'].push(task);
+      else if (COLUMNS[1].statuses.includes(status)) groups['IN_PROGRESS'].push(task);
+      else if (COLUMNS[2].statuses.includes(status)) groups['PENDING_PARTS'].push(task);
+      else if (COLUMNS[3].statuses.includes(status)) groups['DONE'].push(task);
+      else groups['TODO'].push(task);
     });
 
     return groups;
   }, [tasks]);
 
-  const handleStatusChange = async (taskId: string, newStatus: WarrantyTicket['status']) => {
+  const handleAcceptCustodySubmit = async (task: WarrantyTicket) => {
+    if (!scannedImei.trim()) {
+      setActionError('Vui lòng quét hoặc nhập số IMEI thực tế của máy để nhận bàn giao.');
+      return;
+    }
+
+    setLoadingTaskId(task.id);
+    setActionError(null);
     try {
-      const taskRef = doc(db, 'warrantyTickets', taskId);
-      await updateDoc(taskRef, { status: newStatus });
-    } catch (error) {
-      console.error("Error updating status:", error);
+      await requestAcceptCustody(task.id, scannedImei.trim());
+      setScanModalTaskId(null);
+      setScannedImei('');
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error('[Accept Custody Error]:', err);
+      setActionError(err?.message || 'Không thể nhận máy.');
+    } finally {
+      setLoadingTaskId(null);
+    }
+  };
+
+  const handleStartTask = async (task: WarrantyTicket) => {
+    setLoadingTaskId(task.id);
+    setActionError(null);
+    try {
+      await requestStartTaskLine(task.id, `WOL_${task.id}_1`);
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error('[Start Task Error]:', err);
+      setActionError(err?.message || 'Không thể bắt đầu công việc.');
+    } finally {
+      setLoadingTaskId(null);
+    }
+  };
+
+  const handleCompleteTask = async (task: WarrantyTicket) => {
+    setLoadingTaskId(task.id);
+    setActionError(null);
+    try {
+      await requestCompleteTaskLine(task.id, `WOL_${task.id}_1`, [], 'KTV báo hoàn thành xử lý.');
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error('[Complete Task Error]:', err);
+      setActionError(err?.message || 'Không thể báo hoàn thành.');
+    } finally {
+      setLoadingTaskId(null);
     }
   };
 
   const getStatusAction = (columnId: string, task: WarrantyTicket) => {
+    const isBusy = loadingTaskId === task.id;
+
     switch (columnId) {
       case 'TODO':
         return (
           <button 
-            onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'inspecting'); }}
-            className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
+            disabled={isBusy}
+            onClick={(e) => {
+              e.stopPropagation();
+              setScanModalTaskId(task.id);
+              setScannedImei(task.imei || '');
+              setActionError(null);
+            }}
+            className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors disabled:opacity-50"
           >
-            <Wrench className="w-3.5 h-3.5 mr-1" />
-            Nhận Xử Lý
+            <QrCode className="w-3.5 h-3.5 mr-1" />
+            {isBusy ? 'Đang nhận...' : 'Quét IMEI Nhận Máy'}
           </button>
         );
       case 'IN_PROGRESS':
         return (
           <div className="flex space-x-2 mt-3">
             <button 
-              onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'waiting_parts'); }}
-              className="flex-1 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
+              disabled={isBusy}
+              onClick={(e) => { e.stopPropagation(); onTaskClick(task); }}
+              className="flex-1 py-1.5 bg-zinc-100 text-zinc-700 text-xs font-semibold rounded hover:bg-zinc-200 flex items-center justify-center transition-colors"
             >
               <Package className="w-3.5 h-3.5 mr-1" />
-              Chờ LK
+              Linh Kiện
             </button>
             <button 
-              onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'ready'); }}
-              className="flex-1 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
+              disabled={isBusy}
+              onClick={(e) => { e.stopPropagation(); handleCompleteTask(task); }}
+              className="flex-1 py-1.5 bg-emerald-50 text-emerald-600 text-xs font-semibold rounded hover:bg-emerald-100 flex items-center justify-center transition-colors disabled:opacity-50"
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              Xong
+              {isBusy ? 'Đang gửi...' : 'Xong (Gửi QC)'}
             </button>
           </div>
         );
       case 'PENDING_PARTS':
         return (
           <button 
-            onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, 'repairing'); }}
-            className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors"
+            disabled={isBusy}
+            onClick={(e) => { e.stopPropagation(); handleStartTask(task); }}
+            className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors disabled:opacity-50"
           >
             <ArrowRight className="w-3.5 h-3.5 mr-1" />
-            Tiếp Tục
+            {isBusy ? 'Đang xử lý...' : 'Tiếp Tục Làm'}
           </button>
         );
       case 'DONE':
         return (
-          <div className="mt-3 text-center text-xs font-medium text-zinc-400">
-            {task.status === 'delivered' ? 'Đã giao khách' : 'Chờ giao khách'}
+          <div className="mt-3 text-center text-xs font-medium text-zinc-500 bg-zinc-50 py-1.5 rounded">
+            {String(task.status) === 'delivered' || String(task.status) === 'DELIVERED_TO_CUSTOMER' ? '✅ Đã giao khách' : '⏳ Chờ KCS / Nhập Kho'}
           </div>
         );
       default:
@@ -100,99 +161,132 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
   };
 
   return (
-    <div className="flex flex-col h-full w-full">
-      {onOpenAddTaskModal && (
-        <div className="px-4 pt-3 pb-1 flex justify-between items-center bg-white border-b border-zinc-200">
-          <div className="text-xs text-zinc-500 font-medium">
-            Bảng điều phối kỹ thuật viên & theo dõi tiến độ sửa chữa
-          </div>
-          <button
-            onClick={onOpenAddTaskModal}
-            className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer"
-          >
-            <span>+ Phân Công Task Hoa Hồng KTV</span>
-          </button>
+    <div className="space-y-4">
+      {actionError && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center text-xs text-red-700">
+          <AlertCircle className="w-4 h-4 mr-2 text-red-500 flex-shrink-0" />
+          <span>{actionError}</span>
         </div>
       )}
 
-      <div className="flex-1 flex w-full overflow-x-auto gap-4 p-4 min-h-[500px]">
-        {COLUMNS.map(col => (
-          <div key={col.id} className="flex-1 min-w-[280px] flex flex-col bg-zinc-100/50 rounded-xl border border-zinc-200">
-            {/* Column Header */}
-            <div className="p-3 border-b border-zinc-200 bg-white/50 flex items-center justify-between rounded-t-xl">
-              <h3 className="text-sm font-semibold text-zinc-700 flex items-center">
-                {col.id === 'TODO' && <KanbanSquare className="w-4 h-4 mr-2 text-zinc-500" />}
-                {col.id === 'IN_PROGRESS' && <Wrench className="w-4 h-4 mr-2 text-orange-500" />}
-                {col.id === 'PENDING_PARTS' && <Package className="w-4 h-4 mr-2 text-orange-500" />}
-                {col.id === 'DONE' && <CheckCircle2 className="w-4 h-4 mr-2 text-orange-500" />}
-                {col.title}
-              </h3>
-              <span className="bg-zinc-200 text-zinc-600 text-xs px-2 py-0.5 rounded-full font-medium">
-                {groupedTasks[col.id].length}
-              </span>
-            </div>
+      {/* Modal Quét IMEI nhận máy vật lý */}
+      {scanModalTaskId && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-zinc-200">
+            <h3 className="text-base font-bold text-zinc-900 mb-2 flex items-center">
+              <QrCode className="w-5 h-5 text-orange-500 mr-2" />
+              Xác Nhận Quét IMEI Nhận Bàn Giao Vật Lý
+            </h3>
+            <p className="text-xs text-zinc-500 mb-4">
+              Theo quy trình bảo mật PhoneHouse, KTV bắt buộc phải quét hoặc nhập chính xác mã IMEI vật lý của máy trước khi chịu trách nhiệm xử lý.
+            </p>
 
-            {/* Cards */}
-            <div className="flex-1 p-3 overflow-y-auto space-y-3">
-              {groupedTasks[col.id].map(task => (
-                <div 
-                  key={task.id} 
-                  onClick={() => onTaskClick(task)}
-                  className="bg-white p-3 rounded-lg border border-zinc-200 shadow-sm cursor-pointer hover:border-orange-300 hover:shadow-md transition-all group"
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-zinc-700 mb-1">Mã IMEI Quét Được:</label>
+                <input
+                  type="text"
+                  value={scannedImei}
+                  onChange={(e) => setScannedImei(e.target.value)}
+                  placeholder="Nhập hoặc quét mã IMEI 15 số..."
+                  className="w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => { setScanModalTaskId(null); setActionError(null); }}
+                  className="px-4 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-100 rounded-lg"
                 >
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-bold text-orange-600 bg-orange-50 px-2 py-0.5 rounded">
-                      {task.ticketNumber}
-                    </span>
-                    <span className="text-[10px] font-medium text-zinc-400">
-                      {task.receivedDate}
-                    </span>
-                  </div>
-                  
-                  <h4 className="text-sm font-bold text-zinc-800 mb-1 leading-tight">
-                    {task.model}
-                  </h4>
-                  
-                  <div className="text-xs text-zinc-500 mb-2 line-clamp-2">
-                    <span className="font-semibold text-zinc-600">Lỗi: </span> 
-                    {task.faultDescription}
-                  </div>
-
-                  {Boolean(task.commissionAmount) && (
-                    <div className="my-2 p-1.5 bg-orange-50 rounded-lg border border-orange-200/60 flex items-center justify-between text-[11px] font-bold text-orange-800">
-                      <span>💰 Hoa hồng KTV:</span>
-                      <span className="font-mono text-xs">{task.commissionAmount?.toLocaleString('vi-VN')} đ</span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-100">
-                    <div className="text-xs text-zinc-500">
-                      KTV: <span className="font-semibold text-zinc-700">{task.technician || 'Chưa nhận'}</span>
-                    </div>
-                    {task.taskType === 'INBOUND_QC' ? (
-                      <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
-                        QC Nhập
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-semibold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded">
-                        Sửa Chữa
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Status Action Buttons */}
-                  {getStatusAction(col.id, task)}
-                </div>
-              ))}
-              
-              {groupedTasks[col.id].length === 0 && (
-                <div className="h-full flex items-center justify-center text-xs text-zinc-400 italic py-8">
-                  Trống
-                </div>
-              )}
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="button"
+                  disabled={loadingTaskId === scanModalTaskId}
+                  onClick={() => {
+                    const task = tasks.find(t => t.id === scanModalTaskId);
+                    if (task) handleAcceptCustodySubmit(task);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-orange-600 hover:bg-orange-700 rounded-lg shadow-sm flex items-center disabled:opacity-50"
+                >
+                  <Wrench className="w-4 h-4 mr-1.5" />
+                  {loadingTaskId === scanModalTaskId ? 'Đang Xác Nhận...' : 'Xác Nhận Nhận Máy'}
+                </button>
+              </div>
             </div>
           </div>
-        ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {COLUMNS.map(col => {
+          const colTasks = groupedTasks[col.id] || [];
+          return (
+            <div key={col.id} className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 flex flex-col h-full min-h-[500px]">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-200 mb-3">
+                <div className="flex items-center space-x-2">
+                  <KanbanSquare className="w-4 h-4 text-zinc-400" />
+                  <span className="font-bold text-xs uppercase tracking-wider text-zinc-700">{col.title}</span>
+                </div>
+                <span className="bg-zinc-200 text-zinc-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                  {colTasks.length}
+                </span>
+              </div>
+
+              <div className="space-y-3 flex-1 overflow-y-auto">
+                {colTasks.map(task => (
+                  <div
+                    key={task.id}
+                    onClick={() => onTaskClick(task)}
+                    className="bg-white border border-zinc-200 hover:border-orange-500 rounded-lg p-3 shadow-sm hover:shadow transition-all cursor-pointer group"
+                  >
+                    <div className="flex justify-between items-start mb-1.5">
+                      <span className="text-xs font-mono font-bold text-zinc-500 group-hover:text-orange-600">
+                        {task.ticketCode || task.id}
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                        task.priority === 'URGENT' || task.priority === 'HIGH' ? 'bg-red-100 text-red-700' : 'bg-zinc-100 text-zinc-600'
+                      }`}>
+                        {task.priority || 'NORMAL'}
+                      </span>
+                    </div>
+
+                    <h4 className="text-sm font-bold text-zinc-900 leading-snug mb-1">
+                      {task.deviceModel || 'iPhone'}
+                    </h4>
+
+                    {task.imei && (
+                      <p className="text-[11px] font-mono text-zinc-500 mb-1.5">
+                        IMEI: {task.imei}
+                      </p>
+                    )}
+
+                    <p className="text-xs text-zinc-600 line-clamp-2 mb-2 bg-zinc-50 p-1.5 rounded border border-zinc-100">
+                      {task.issueDescription || task.faultDescription || 'Chưa ghi nhận lỗi chi tiết'}
+                    </p>
+
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-2 border-t border-zinc-100">
+                      <span>{task.technician || 'Chưa gán KTV'}</span>
+                      <span className="font-mono text-orange-600 font-bold">
+                        {(task.estimatedLaborCost || task.estimatedCost || 0).toLocaleString('vi-VN')} đ
+                      </span>
+                    </div>
+
+                    {getStatusAction(col.id, task)}
+                  </div>
+                ))}
+
+                {colTasks.length === 0 && (
+                  <div className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-zinc-200 rounded-lg text-zinc-400 text-xs">
+                    Trống
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

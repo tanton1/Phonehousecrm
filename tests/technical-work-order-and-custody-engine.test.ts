@@ -8,8 +8,14 @@ import {
   processReturnToStock,
   processIssueSparePart
 } from '../server/services/technicalService';
+import { REQUIRED_QC_CHECKLIST_STEPS } from '../server/services/technicalStateMachine';
 
 describe('Technical Work Order, Custody Movement & Independent QC Engine Suite', () => {
+
+  const fullPassingChecklist: Record<string, boolean> = {};
+  REQUIRED_QC_CHECKLIST_STEPS.forEach(step => {
+    fullPassingChecklist[step] = true;
+  });
 
   describe('1. Multi-Task per IMEI Work Order Creation', () => {
     it('creates work order and distinct task lines for different technicians', async () => {
@@ -56,7 +62,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
           { taskCode: 'LV', taskName: 'Lên vỏ Titan Tự Nhiên', assigneeUid: 'UID_KTV_NAM', assigneeName: 'KTV Nam', commissionAmount: 150000 },
           { taskCode: 'EK', taskName: 'Ép kính màn hình', assigneeUid: 'UID_KTV_TRONG', assigneeName: 'KTV Trọng', commissionAmount: 200000 }
         ]
-      }, { uid: 'UID_LEAD_TECH', name: 'Trưởng Kỹ Thuật' });
+      }, { uid: 'UID_LEAD_TECH', name: 'Trưởng Kỹ Thuật', branchId: 'CN01' });
 
       expect(result.workOrderId).toBeDefined();
       expect(result.lineIds.length).toBe(2);
@@ -85,11 +91,12 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
                     imei: '356789012345678',
                     deviceId: 'DEV-001',
                     status: 'ASSIGNED',
+                    branchId: 'CN01',
                     currentCustodianUid: 'UID_WAREHOUSE'
                   })
                 };
               }
-              return { empty: true, docs: [] };
+              return { docs: [{ ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'ASSIGNED' }) }] };
             },
             update: (ref: any, fields: any) => {
               if (ref.col === 'technicalWorkOrders') {
@@ -106,10 +113,11 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
         }
       };
 
-      const result = await processAcceptCustody(mockDb, 'WO_TEST_01', {
+      const result = await processAcceptCustody(mockDb, 'WO_TEST_01', '356789012345678', {
         uid: 'UID_KTV_NAM',
         name: 'KTV Nam',
-        role: 'TECHNICIAN'
+        role: 'TECHNICIAN',
+        branchId: 'CN01'
       });
 
       expect(result.success).toBe(true);
@@ -128,10 +136,24 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async () => ({
-              exists: true,
-              data: () => ({ id: 'PART-PIN-15P', name: 'Pin iPhone 15 Pro Dung Lượng Chuẩn', stockQuantity: 0 })
-            }),
+            get: async (ref: any) => {
+              if (ref.col === 'technicalWorkOrderLines') {
+                return {
+                  exists: true,
+                  data: () => ({
+                    id: 'WOL_01',
+                    workOrderId: 'WO_01',
+                    branchId: 'CN01',
+                    status: 'IN_PROGRESS',
+                    assigneeUid: 'UID_KTV_NAM'
+                  })
+                };
+              }
+              return {
+                exists: true,
+                data: () => ({ id: 'PART-PIN-15P', name: 'Pin iPhone 15 Pro Dung Lượng Chuẩn', stockQuantity: 0 })
+              };
+            },
             update: () => {},
             set: () => {}
           };
@@ -140,7 +162,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
       };
 
       await expect(
-        processIssueSparePart(mockDb, 'WO_01', 'WOL_01', 'PART-PIN-15P', 1, { uid: 'UID_KTV_NAM' })
+        processIssueSparePart(mockDb, 'WO_01', 'WOL_01', 'PART-PIN-15P', 1, { uid: 'UID_KTV_NAM', branchId: 'CN01' })
       ).rejects.toThrow('INSUFFICIENT_PARTS_STOCK');
     });
   });
@@ -153,7 +175,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
           where: () => ({
             get: async () => ({
               docs: [
-                { data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED' }) }
+                { data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED', taskName: 'Lên vỏ' }) }
               ]
             })
           })
@@ -164,10 +186,10 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
               if (refOrQuery.col === 'technicalWorkOrders') {
                 return {
                   exists: true,
-                  data: () => ({ id: 'WO_01', status: 'TECH_COMPLETED', imei: '356789012345678', reworkCount: 0 })
+                  data: () => ({ id: 'WO_01', status: 'TECH_COMPLETED', imei: '356789012345678', branchId: 'CN01', reworkCount: 0 })
                 };
               }
-              return { docs: [{ data: () => ({ assigneeUid: 'UID_KTV_NAM' }) }] };
+              return { docs: [{ data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED', taskName: 'Lên vỏ' }) }] };
             },
             set: () => {},
             update: () => {}
@@ -178,9 +200,9 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
 
       await expect(
         processQCInspection(mockDb, 'WO_01', {
-          checklistResults: { screen: true, battery: true },
+          checklistResults: fullPassingChecklist,
           overallResult: 'PASS'
-        }, { uid: 'UID_KTV_NAM', role: 'TECHNICIAN' })
+        }, { uid: 'UID_KTV_NAM', role: 'TECHNICIAN', branchId: 'CN01' })
       ).rejects.toThrow('QC_SELF_INSPECTION_FORBIDDEN');
     });
 
@@ -193,7 +215,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
           where: () => ({
             get: async () => ({
               docs: [
-                { id: 'WOL_01', ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED' }) }
+                { id: 'WOL_01', ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED', taskName: 'Lên vỏ' }) }
               ]
             })
           })
@@ -204,10 +226,10 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
               if (refOrQuery.col === 'technicalWorkOrders') {
                 return {
                   exists: true,
-                  data: () => ({ id: 'WO_01', status: 'TECH_COMPLETED', imei: '356789012345678', reworkCount: 0 })
+                  data: () => ({ id: 'WO_01', status: 'TECH_COMPLETED', imei: '356789012345678', branchId: 'CN01', reworkCount: 0 })
                 };
               }
-              return { docs: [{ id: 'WOL_01', ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM' }) }] };
+              return { docs: [{ id: 'WOL_01', ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED', taskName: 'Lên vỏ' }) }] };
             },
             set: () => {},
             update: (ref: any, fields: any) => {
@@ -221,9 +243,9 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
       };
 
       const result = await processQCInspection(mockDb, 'WO_01', {
-        checklistResults: { screen: true, battery: true },
+        checklistResults: fullPassingChecklist,
         overallResult: 'PASS'
-      }, { uid: 'UID_QC_INSPECTOR', role: 'TECH_LEAD', name: 'QC Lead' });
+      }, { uid: 'UID_QC_INSPECTOR', role: 'TECH_LEAD', name: 'QC Lead', branchId: 'CN01' });
 
       expect(result.success).toBe(true);
       expect(result.result).toBe('PASS');
@@ -243,7 +265,14 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
           const mockTransaction = {
             get: async () => ({
               exists: true,
-              data: () => ({ id: 'WO_01', status: 'QC_PASSED', deviceId: 'DEV-01', imei: '356789012345678' })
+              data: () => ({
+                id: 'WO_01',
+                workOrderType: 'INBOUND_PREP',
+                status: 'QC_PASSED',
+                deviceId: 'DEV-01',
+                imei: '356789012345678',
+                branchId: 'CN01'
+              })
             }),
             update: (ref: any, fields: any) => {
               if (ref.col === 'devices') {
@@ -256,7 +285,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
         }
       };
 
-      const result = await processReturnToStock(mockDb, 'WO_01', 'KHO_TONG', { uid: 'UID_WAREHOUSE_01', name: 'Thủ Kho' });
+      const result = await processReturnToStock(mockDb, 'WO_01', 'KHO_TONG', { uid: 'UID_WAREHOUSE_01', name: 'Thủ Kho', branchId: 'CN01' });
       expect(result.success).toBe(true);
       expect(updatedDeviceStatus).toBe('in_stock');
     });

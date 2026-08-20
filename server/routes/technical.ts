@@ -10,6 +10,7 @@ import {
   processCompleteTaskLine,
   processQCInspection,
   processReturnToStock,
+  processDeliverToCustomer,
   processIssueSparePart
 } from '../services/technicalService';
 
@@ -55,7 +56,8 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
-        const result = await processAcceptCustody(db, req.params.id, req.user!);
+        const { scannedImei } = req.body;
+        const result = await processAcceptCustody(db, req.params.id, scannedImei || '', req.user!);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Accept Custody Error]:', error);
@@ -81,7 +83,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         if (!lineId) {
           return res.status(400).json({ success: false, error: 'MISSING_LINE_ID' });
         }
-        const result = await processStartTaskLine(db, lineId, req.user!);
+        const result = await processStartTaskLine(db, req.params.id, lineId, req.user!);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Start Task Error]:', error);
@@ -107,7 +109,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         if (!lineId) {
           return res.status(400).json({ success: false, error: 'MISSING_LINE_ID' });
         }
-        const result = await processCompleteTaskLine(db, lineId, evidencePhotoUrls, notes, req.user!);
+        const result = await processCompleteTaskLine(db, req.params.id, lineId, evidencePhotoUrls, notes, req.user!);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Complete Task Error]:', error);
@@ -159,7 +161,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[QC Inspection Error]:', error);
-        const isForbidden = error?.message?.includes('QC_SELF_INSPECTION_FORBIDDEN');
+        const isForbidden = error?.message?.includes('QC_SELF_INSPECTION_FORBIDDEN') || error?.message?.includes('BRANCH_FORBIDDEN');
         return res.status(isForbidden ? 403 : 400).json({ success: false, error: error?.message || 'Lỗi nghiệm thu KCS.' });
       }
     }
@@ -167,7 +169,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
 
   /**
    * 7. POST /api/technical/work-orders/:id/return-to-stock
-   * Main Warehouse Reception after QC PASS
+   * Main Warehouse Reception after QC PASS (Internal Prep & Refurb Only)
    */
   router.post(
     '/work-orders/:id/return-to-stock',
@@ -189,7 +191,30 @@ export function createTechnicalRouter(db: Firestore | null): Router {
   );
 
   /**
-   * 8. GET /api/technical/my-work
+   * 8. POST /api/technical/work-orders/:id/deliver-customer
+   * Deliver Repaired/Warranted Device to Customer
+   */
+  router.post(
+    '/work-orders/:id/deliver-customer',
+    requireRole('ADMIN', 'MANAGER', 'SALES', 'SALE', 'TECH_LEAD'),
+    async (req: Request, res: Response) => {
+      if (!db) {
+        return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      }
+
+      try {
+        const { notes } = req.body;
+        const result = await processDeliverToCustomer(db, req.params.id, notes || '', req.user!);
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        console.error('[Deliver Customer Error]:', error);
+        return res.status(400).json({ success: false, error: error?.message || 'Lỗi bàn giao máy cho khách hàng.' });
+      }
+    }
+  );
+
+  /**
+   * 9. GET /api/technical/my-work
    * Get all task lines assigned to authenticated technician
    */
   router.get('/my-work', async (req: Request, res: Response) => {
