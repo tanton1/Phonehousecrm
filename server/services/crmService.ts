@@ -3,10 +3,10 @@ import {
   LeadStatus, 
   LeadCareActivity, 
   EvidenceVerificationStatus, 
-  CustomerActivity, 
   DeviceReservation,
   LeadQuote 
 } from '../../src/types';
+import { emitCrmEvent, normalizeCustomerId } from './crmEventService';
 
 export interface CareActivityReviewRequest {
   activityId: string;
@@ -109,6 +109,10 @@ export async function processCareActivityReview(
     note = ''
   } = payload;
 
+  if (!reviewerUid || !reviewerBranchId) {
+    throw new Error('MISSING_STAFF_IDENTITY: Thiếu mã nhân viên hoặc chi nhánh của người kiểm duyệt.');
+  }
+
   // 1. Role Verification: Admin or Manager required
   const isAuthorized = reviewerRole === 'ADMIN' || reviewerRole === 'MANAGER';
   if (!isAuthorized) {
@@ -208,7 +212,7 @@ export async function processCareActivityReview(
 }
 
 /**
- * Authoritative Device Reservation Engine (30-Minute Hold)
+ * Authoritative Device Reservation Engine (30-Minute Hold with Auto-Release)
  */
 export async function processDeviceReservation(
   db: Firestore | null,
@@ -224,9 +228,14 @@ export async function processDeviceReservation(
     reservationDurationMinutes = 30
   } = payload;
 
+  if (!deviceId || !leadId || !staffId || !branchId) {
+    throw new Error('MISSING_RESERVATION_PARAMS: Thiếu thông tin thiết bị, leadId, staffId hoặc branchId.');
+  }
+
   const now = new Date();
   const expiresAt = new Date(now.getTime() + reservationDurationMinutes * 60000).toISOString();
   const reservationId = `RES_${deviceId}_${Date.now()}`;
+  const validCustomerId = normalizeCustomerId(customerId);
 
   const reservationRecord: DeviceReservation = {
     id: reservationId,
@@ -235,7 +244,7 @@ export async function processDeviceReservation(
     model: '',
     leadId,
     quoteId,
-    customerId,
+    customerId: validCustomerId,
     staffId,
     branchId,
     reservedAt: now.toISOString(),
@@ -267,11 +276,13 @@ export async function processDeviceReservation(
       throw new Error(`DEVICE_ALREADY_SOLD: Thiết bị ${devData.model} (${devData.imei}) đã được bán.`);
     }
 
+    // Check if already reserved & still active
     if (devData.status === 'reserved' && devData.reservedUntil) {
       const isStillReserved = new Date(devData.reservedUntil).getTime() > Date.now();
       if (isStillReserved && devData.reservedForLeadId !== leadId) {
         throw new Error(`DEVICE_ALREADY_RESERVED: Thiết bị ${devData.model} (${devData.imei}) đang được nhân viên khác giữ cho khách hàng đến ${devData.reservedUntil}.`);
       }
+      // If reservation is expired, it will be overwritten and refreshed
     }
 
     // Atomically reserve device
@@ -293,25 +304,60 @@ export async function processDeviceReservation(
 }
 
 /**
- * Authoritative Quote to POS Conversion
+ * Authoritative Device Reservation Release
+ */
+export async function processReleaseDeviceReservation(
+  db: Firestore | null,
+  deviceId: string,
+  quoteId?: string
+): Promise<void> {
+  if (!db) return;
+
+  const deviceRef = db.collection('devices').doc(deviceId);
+  await db.runTransaction(async (transaction) => {
+    const devSnap = await transaction.get(deviceRef);
+    if (devSnap.exists) {
+      const devData = devSnap.data()!;
+      if (devData.status === 'reserved') {
+        transaction.update(deviceRef, {
+          status: 'in_stock',
+          reservedForLeadId: FieldValue.delete(),
+          reservedUntil: FieldValue.delete(),
+          reservedByStaffId: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
+    }
+  });
+}
+
+/**
+ * Authoritative Idempotent Quote to POS Conversion
  */
 export async function processConvertQuoteToPOS(
   db: Firestore | null,
   quoteId: string,
   invoiceId: string
-): Promise<void> {
-  if (!db) return;
+): Promise<{ alreadyConverted?: boolean; invoiceId: string }> {
+  if (!db) {
+    return { invoiceId };
+  }
 
   const quoteRef = db.collection('leadQuotes').doc(quoteId);
-  await db.runTransaction(async (transaction) => {
+  return await db.runTransaction(async (transaction) => {
     const qSnap = await transaction.get(quoteRef);
     if (!qSnap.exists) {
       throw new Error(`QUOTE_NOT_FOUND: Báo giá "${quoteId}" không tồn tại.`);
     }
 
     const qData = qSnap.data()! as LeadQuote;
+    
+    // Idempotency check
     if (qData.status === 'CONVERTED_POS') {
-      throw new Error(`QUOTE_ALREADY_CONVERTED: Báo giá "${quoteId}" đã được chuyển sang đơn hàng POS trước đó.`);
+      if (qData.convertedInvoiceId === invoiceId) {
+        return { alreadyConverted: true, invoiceId };
+      }
+      throw new Error(`QUOTE_ALREADY_CONVERTED: Báo giá "${quoteId}" đã được chuyển sang hóa đơn ${qData.convertedInvoiceId} trước đó.`);
     }
 
     transaction.update(quoteRef, {
@@ -329,5 +375,7 @@ export async function processConvertQuoteToPOS(
         updatedAt: FieldValue.serverTimestamp()
       });
     }
+
+    return { alreadyConverted: false, invoiceId };
   });
 }

@@ -6,6 +6,7 @@ import {
   processDeviceReservation, 
   processConvertQuoteToPOS 
 } from '../services/crmService';
+import { emitCrmEvent, normalizeCustomerId } from '../services/crmEventService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 
@@ -27,17 +28,24 @@ export function createCrmRouter(db: Firestore | null): Router {
         });
       }
 
-      const reviewerUid = req.user?.uid || 'QA_ADMIN';
-      const reviewerName = req.user?.name || req.user?.email || 'Quản Lý QA';
-      const reviewerRole = req.user?.role || 'MANAGER';
-      const reviewerBranchId = req.user?.branchId || 'CN01';
+      const reviewerUid = req.user?.uid;
+      const reviewerName = req.user?.name || req.user?.email;
+      const reviewerRole = req.user?.role;
+      const reviewerBranchId = req.user?.branchId;
       const reviewerAssignedBranches = req.user?.assignedBranchIds || [];
+
+      if (!reviewerUid || !reviewerRole || !reviewerBranchId) {
+        return res.status(401).json({
+          success: false,
+          error: 'UNAUTHENTICATED: Không xác thực được danh tính hoặc chi nhánh của người kiểm duyệt.'
+        });
+      }
 
       const result = await processCareActivityReview(db, {
         activityId,
         status,
         reviewerUid,
-        reviewerName,
+        reviewerName: reviewerName || reviewerUid,
         reviewerRole,
         reviewerBranchId,
         reviewerAssignedBranches,
@@ -60,7 +68,7 @@ export function createCrmRouter(db: Firestore | null): Router {
   });
 
   /**
-   * 2. Authoritative Lead State Machine Transition
+   * 2. Authoritative Lead State Machine Transition with Ownership & Branch Guard
    * POST /api/crm/leads/transition
    */
   router.post('/leads/transition', authenticateFirebase, async (req: Request, res: Response) => {
@@ -71,6 +79,19 @@ export function createCrmRouter(db: Firestore | null): Router {
         return res.status(400).json({
           success: false,
           error: 'Thiếu thông tin leadId, fromStatus hoặc toStatus.'
+        });
+      }
+
+      const userUid = req.user?.uid;
+      const userRole = req.user?.role || 'STAFF';
+      const userBranchId = req.user?.branchId;
+      const userAssignedBranches = req.user?.assignedBranchIds || [];
+      const userName = req.user?.name || req.user?.email || userUid;
+
+      if (!userUid || !userBranchId) {
+        return res.status(401).json({
+          success: false,
+          error: 'UNAUTHENTICATED: Không xác thực được danh tính hoặc chi nhánh nhân viên.'
         });
       }
 
@@ -93,7 +114,22 @@ export function createCrmRouter(db: Firestore | null): Router {
           const lData = lSnap.data()!;
           const currentStatus = lData.status;
 
-          // Re-validate against authoritative DB state
+          // 2A. Branch Isolation Guard
+          if (userRole !== 'ADMIN') {
+            const allowedBranches = [userBranchId, ...userAssignedBranches];
+            if (lData.branchId && !allowedBranches.includes(lData.branchId)) {
+              throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên Lead thuộc chi nhánh "${lData.branchId}".`);
+            }
+          }
+
+          // 2B. Ownership Guard: Regular Sales Staff can only transition assigned leads
+          if (userRole === 'STAFF') {
+            if (lData.assignedStaffId && lData.assignedStaffId !== userUid) {
+              throw new Error(`LEAD_OWNERSHIP_FORBIDDEN: Lead này đang do nhân viên khác (${lData.assignedStaff || lData.assignedStaffId}) phụ trách.`);
+            }
+          }
+
+          // 2C. Authoritative DB State Validation
           const dbTransitionCheck = canTransitionLeadState(currentStatus, toStatus, context);
           if (!dbTransitionCheck.allowed) {
             throw new Error(dbTransitionCheck.reason || 'Trạng thái hiện tại trên máy chủ không cho phép chuyển đổi này.');
@@ -115,22 +151,23 @@ export function createCrmRouter(db: Firestore | null): Router {
           }
 
           transaction.update(leadRef, updatePayload);
+        });
 
-          // Append to customer activity ledger
-          const actId = `CUST_ACT_${Date.now()}`;
-          const custActRef = db.collection('customerActivities').doc(actId);
-          transaction.set(custActRef, {
-            id: actId,
-            customerId: lData.customerId || lData.phone || leadId,
-            leadId,
-            type: toStatus === 'won' ? 'INVOICE' : toStatus === 'lost' ? 'NOTE' : 'CARE',
-            entityId: context?.invoiceId || context?.quoteId || leadId,
-            staffId: req.user?.uid || 'STAFF',
-            staffName: req.user?.name || req.user?.email || 'Chuyên viên',
-            branchId: lData.branchId || req.user?.branchId || 'CN01',
-            summary: `Chuyển trạng thái Lead từ "${fromStatus}" sang "${toStatus}"${context?.notes ? `: ${context.notes}` : ''}`,
-            createdAt: new Date().toISOString()
-          });
+        // 2D. Record to Customer Activity Ledger via CRM Event Bus
+        await emitCrmEvent(db, {
+          type: toStatus === 'won' ? 'INVOICE_COMPLETED' : toStatus === 'lost' ? 'LEAD_LOST' : 'LEAD_STAGE_CHANGED',
+          customerId: normalizeCustomerId(context?.customerId || leadId, context?.customerPhone),
+          leadId,
+          entityId: context?.invoiceId || context?.quoteId || leadId,
+          staffId: userUid,
+          staffName: userName,
+          branchId: userBranchId,
+          summary: `Chuyển trạng thái Lead từ "${fromStatus}" sang "${toStatus}"${context?.notes ? `: ${context.notes}` : ''}`,
+          details: {
+            fromStatus,
+            toStatus,
+            context
+          }
         });
       }
 
@@ -141,7 +178,8 @@ export function createCrmRouter(db: Firestore | null): Router {
       });
     } catch (err: any) {
       console.error('[CRM Lead Transition Error]:', err);
-      return res.status(400).json({
+      const isForbidden = err.message?.includes('FORBIDDEN') || err.message?.includes('PERMISSION');
+      return res.status(isForbidden ? 403 : 400).json({
         success: false,
         error: err.message || 'Lỗi cập nhật trạng thái Lead.'
       });
@@ -163,8 +201,15 @@ export function createCrmRouter(db: Firestore | null): Router {
         });
       }
 
-      const staffId = req.user?.uid || 'STAFF';
-      const branchId = req.user?.branchId || 'CN01';
+      const staffId = req.user?.uid;
+      const branchId = req.user?.branchId;
+
+      if (!staffId || !branchId) {
+        return res.status(401).json({
+          success: false,
+          error: 'UNAUTHENTICATED: Không xác thực được nhân viên hoặc chi nhánh yêu cầu giữ máy.'
+        });
+      }
 
       const result = await processDeviceReservation(db, {
         deviceId,
@@ -175,6 +220,24 @@ export function createCrmRouter(db: Firestore | null): Router {
         branchId,
         reservationDurationMinutes: 30
       });
+
+      // Emit CRM Event
+      if (db) {
+        await emitCrmEvent(db, {
+          type: 'DEVICE_RESERVED',
+          customerId: normalizeCustomerId(customerId, undefined),
+          leadId,
+          entityId: deviceId,
+          staffId,
+          staffName: req.user?.name || req.user?.email || staffId,
+          branchId,
+          summary: `Giữ máy tồn kho ${result.model} (${result.imei}) cho Lead trong 30 phút.`,
+          details: {
+            deviceId,
+            expiresAt: result.expiresAt
+          }
+        });
+      }
 
       return res.json({
         success: true,
@@ -192,7 +255,7 @@ export function createCrmRouter(db: Firestore | null): Router {
   });
 
   /**
-   * 4. Convert Quote to POS Order
+   * 4. Convert Quote to POS Order (Idempotent)
    * POST /api/crm/quotes/convert-pos
    */
   router.post('/quotes/convert-pos', authenticateFirebase, async (req: Request, res: Response) => {
@@ -206,15 +269,19 @@ export function createCrmRouter(db: Firestore | null): Router {
         });
       }
 
-      await processConvertQuoteToPOS(db, quoteId, invoiceId);
+      const convertResult = await processConvertQuoteToPOS(db, quoteId, invoiceId);
 
       return res.json({
         success: true,
-        message: `Đã chuyển đổi báo giá ${quoteId} sang đơn hàng POS (${invoiceId}).`
+        alreadyConverted: convertResult.alreadyConverted || false,
+        message: convertResult.alreadyConverted
+          ? `Báo giá ${quoteId} đã được liên kết với hóa đơn ${invoiceId} trước đó.`
+          : `Đã chuyển đổi báo giá ${quoteId} sang đơn hàng POS (${invoiceId}).`
       });
     } catch (err: any) {
       console.error('[CRM Quote to POS Error]:', err);
-      return res.status(400).json({
+      const isConflict = err.message?.includes('ALREADY_CONVERTED');
+      return res.status(isConflict ? 409 : 400).json({
         success: false,
         error: err.message || 'Lỗi chuyển đổi báo giá sang POS.'
       });

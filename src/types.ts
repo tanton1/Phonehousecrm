@@ -642,6 +642,7 @@ export interface LeadQuote {
   warrantyPackage?: string;
   validUntil: string;
   status: 'DRAFT' | 'SENT' | 'VIEWED' | 'ACCEPTED' | 'EXPIRED' | 'REJECTED' | 'CONVERTED_POS';
+  convertedInvoiceId?: string;
   reservedDeviceId?: string;
   reservedUntil?: string;
   notes?: string;

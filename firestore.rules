@@ -333,15 +333,15 @@ service cloud.firestore {
     }
 
     match /customerActivities/{activityId} {
-      allow read: if isAuthenticated() && isActiveUser();
-      allow create: if isAuthenticated() && isActiveUser();
-      allow update, delete: if isAdmin();
+      allow read: if isAdmin() || (
+        isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid)
+      );
+      allow write: if false; // Strict Single Writer Principle: Only Server CRM Event Service (/api/crm/...) via Admin SDK
     }
 
     match /deviceReservations/{reservationId} {
-      allow read: if isAuthenticated() && isActiveUser();
-      allow create, update: if isAuthenticated() && isActiveUser();
-      allow delete: if isAdmin() || isManager();
+      allow read: if isAdmin() || (isActiveUser() && canAccessBranch(resource.data.branchId));
+      allow write: if false; // Strict Single Writer Principle: Only Server Reservation API (/api/crm/quotes/reserve) via Admin SDK
     }
 
     // Default Fallback: Only Active Admin
