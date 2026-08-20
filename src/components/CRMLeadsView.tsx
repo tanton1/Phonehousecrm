@@ -8,16 +8,18 @@ import {
   LeadAppointment,
   LeadQuote,
   SalesInvoice,
-  WarrantyTicket
+  WarrantyTicket,
+  EvidenceVerificationStatus
 } from '../types';
 import { normalizePhoneNumber, formatPhoneDisplay } from '../utils/phoneUtils';
-import { getVietnamDateString, getVietnamTimeString } from '../utils/dateTimeUtils';
+import { getVietnamDateString, getVietnamTimeString, getVietnamDateTimeString } from '../utils/dateTimeUtils';
 import { 
   subscribeToLeadCareActivities,
   addLeadCareActivityToFirestore,
   updateLeadCareActivityInFirestore,
   subscribeToLeadAppointments,
   addLeadAppointmentToFirestore,
+  updateLeadAppointmentInFirestore,
   subscribeToLeadQuotes,
   addLeadQuoteToFirestore
 } from '../services/firestoreService';
@@ -253,19 +255,59 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     onConvertLeadToSale(lead);
   };
 
-  const handleUpdateActivityVerification = async (activityId: string, status: 'VERIFIED' | 'FLAGGED', note?: string) => {
+  const handleUpdateAppointmentStatus = async (appointmentId: string, newStatus: LeadAppointment['status']) => {
+    const appt = appointments.find(a => a.id === appointmentId);
+    if (appt) {
+      const updated: LeadAppointment = {
+        ...appt,
+        status: newStatus,
+        arrivedAt: newStatus === 'ARRIVED' ? getVietnamDateTimeString() : appt.arrivedAt
+      };
+      await updateLeadAppointmentInFirestore(updated);
+      setAppointments(prev => prev.map(a => a.id === appointmentId ? updated : a));
+    }
+  };
+
+  const handleUpdateActivityVerification = async (
+    activityId: string, 
+    status: EvidenceVerificationStatus, 
+    note?: string,
+    reviewer?: { id: string; name: string }
+  ) => {
     const act = activities.find(a => a.id === activityId);
     if (act) {
+      const nowStr = getVietnamDateTimeString();
+      const reviewerId = reviewer?.id || currentUser?.id || 'QA_MGR';
+      const reviewerName = reviewer?.name || currentUser?.displayName || 'Quản Lý QA';
+      
+      const newAuditItem = {
+        previousStatus: act.verificationStatus,
+        newStatus: status,
+        changedBy: reviewerId,
+        changedByName: reviewerName,
+        changedAt: nowStr,
+        note: note || ''
+      };
+
       const updated: LeadCareActivity = {
         ...act,
         verificationStatus: status,
+        qaReview: {
+          status,
+          reviewedBy: reviewerId,
+          reviewedByName: reviewerName,
+          reviewedAt: nowStr,
+          note
+        },
+        auditHistory: [...(act.auditHistory || []), newAuditItem],
         evidenceData: {
           ...act.evidenceData,
           managerNote: note,
-          managerReviewedBy: currentUser?.displayName || 'Quản lý',
-          managerReviewedAt: getVietnamDateString()
+          managerReviewedBy: reviewerName,
+          managerReviewedAt: nowStr
         }
       };
+
       await updateLeadCareActivityInFirestore(updated);
       setActivities(prev => prev.map(a => a.id === activityId ? updated : a));
     }
@@ -277,13 +319,13 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-zinc-200/80 shadow-2xs">
         <div>
           <div className="flex items-center space-x-2">
-            <h2 className="text-xl font-black text-zinc-900">Quản Trị Chăm Sóc Khách Hàng (CRM 3.0)</h2>
+            <h2 className="text-xl font-black text-zinc-900">Quản Trị Chăm Sóc Khách Hàng (CRM 3.1)</h2>
             <span className="bg-orange-50 text-[#FF4B16] border border-orange-200 text-xs px-2.5 py-0.5 rounded-full font-black">
               {leads.length} Leads
             </span>
           </div>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Hệ thống quản lý quy trình chăm sóc 3 lần chuẩn hóa có bằng chứng & kiểm định chất lượng (QA)
+            Quy trình chăm sóc có kiểm chứng: Đàm thoại ý nghĩa (Meaningful Care) • Bằng chứng xác thực • QA Audit
           </p>
         </div>
 
@@ -312,11 +354,11 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       {/* 2. Sub-Navigation View Mode Switcher */}
       <div className="flex items-center space-x-1 bg-zinc-100 p-1.5 rounded-2xl overflow-x-auto text-xs">
         {[
-          { id: 'MY_WORK', label: '📋 Việc Của Tôi Hôm Nay', desc: 'Bảng theo dõi cá nhân' },
-          { id: 'PIPELINE', label: '📊 Pipeline Kanban', desc: 'Quy trình chuyển đổi' },
-          { id: 'LIST', label: '📝 Danh Sách Chi Tiết', desc: 'Bộ lọc nâng cao' },
-          { id: 'CARE_QA', label: '🔍 Kiểm Duyệt QA Chăm Sóc', desc: 'Đánh giá bằng chứng' },
-          { id: 'ANALYTICS', label: '📈 Phân Tích & Lost Reasons', desc: 'Phễu & Chênh lệch giá' }
+          { id: 'MY_WORK', label: '📋 Hôm Nay (My Work)', desc: 'Bảng theo dõi cá nhân Sale' },
+          { id: 'PIPELINE', label: '📊 Pipeline (Phễu Bán Hàng)', desc: 'Kanban tiến trình chuyển đổi' },
+          { id: 'LIST', label: '📝 Danh Sách Lead', desc: 'Tra cứu & Lọc chi tiết' },
+          { id: 'CARE_QA', label: '🔍 QA Chăm Sóc (Manager)', desc: 'Thẩm định bằng chứng & KPI' },
+          { id: 'ANALYTICS', label: '📈 Báo Cáo & Funnel', desc: 'Phễu chuyển đổi & Lý do mất lead' }
         ].map((mode) => {
           const isSelected = viewMode === mode.id;
           return (
@@ -456,6 +498,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
           leads={leads}
           activities={activities}
           branches={branches}
+          currentUser={currentUser}
           onUpdateActivityVerification={handleUpdateActivityVerification}
         />
       )}
@@ -496,6 +539,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
           onClose={() => setActiveDrawerLead(null)}
           onOpenCareModal={(l) => setActiveCareModalLead(l)}
           onSaveAppointment={handleSaveAppointment}
+          onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
           onSaveQuote={handleSaveQuote}
           onConvertQuoteToPOS={handleConvertQuoteToPOS}
         />

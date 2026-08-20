@@ -262,10 +262,22 @@ service cloud.firestore {
       allow write: if isAdmin() || isManager();
     }
 
-    // 8. Verifiable CRM 3.0 Collections (Lead Care Activities, Appointments, Quotes)
+    // 8. Verifiable CRM 3.1 Collections (Lead Care Activities, Appointments, Quotes)
     match /leadCareActivities/{activityId} {
       allow read: if isAuthenticated() && isActiveUser();
-      allow create, update: if isAuthenticated() && isActiveUser();
+      // Sale can create activity as SELF_REPORTED or PENDING_EVIDENCE, but cannot self-escalate to MANAGER_VERIFIED
+      allow create: if isAuthenticated() && isActiveUser() && (
+        isManager() || (request.resource.data.verificationStatus != 'MANAGER_VERIFIED')
+      );
+      // Only Manager/Admin can approve to MANAGER_VERIFIED or update reviewed activity.
+      // Sales cannot edit activity once MANAGER_VERIFIED.
+      allow update: if isAuthenticated() && isActiveUser() && (
+        isManager() || (
+          resource.data.verificationStatus != 'MANAGER_VERIFIED' &&
+          request.resource.data.verificationStatus != 'MANAGER_VERIFIED' &&
+          (!('qaReview' in request.resource.data) || request.resource.data.qaReview == resource.data.qaReview)
+        )
+      );
       allow delete: if isAdmin() || isManager();
     }
 

@@ -42,11 +42,11 @@ describe('CRM 3.0: Verifiable Care Process, Evidence Verification & QA Suite', (
     expect(careStatus).toBe('LONG_TERM_NURTURE');
   });
 
-  it('Case 3: Xác thực Bằng chứng chăm sóc (VERIFIED vs SELF_REPORTED)', () => {
+  it('Case 3: Xác thực Bằng chứng chăm sóc (MANAGER_VERIFIED vs SELF_REPORTED)', () => {
     const activityWithCallLog: Partial<LeadCareActivity> = {
       id: 'ACT-VERIFIED',
       evidenceType: 'CALL_LOG',
-      verificationStatus: 'VERIFIED',
+      verificationStatus: 'MANAGER_VERIFIED',
       evidenceData: {
         callDurationSeconds: 68,
         callStartedAt: '2026-08-20 10:15:00'
@@ -59,7 +59,7 @@ describe('CRM 3.0: Verifiable Care Process, Evidence Verification & QA Suite', (
       verificationStatus: 'SELF_REPORTED'
     };
 
-    expect(activityWithCallLog.verificationStatus).toBe('VERIFIED');
+    expect(activityWithCallLog.verificationStatus).toBe('MANAGER_VERIFIED');
     expect(activityWithCallLog.evidenceData?.callDurationSeconds).toBeGreaterThan(0);
 
     expect(activitySelfReported.verificationStatus).toBe('SELF_REPORTED');
@@ -93,13 +93,13 @@ describe('CRM 3.0: Verifiable Care Process, Evidence Verification & QA Suite', (
     ) => {
       let score = 30; // base score
       if (isMeaningful) score += 25;
-      if (verificationStatus === 'VERIFIED') score += 20;
+      if (verificationStatus === 'MANAGER_VERIFIED' || verificationStatus === 'SYSTEM_CAPTURED') score += 20;
       if (feedbackLength > 10) score += 15;
       if (hasNextAction) score += 10;
       return Math.min(100, score);
     };
 
-    const highQualityLeadScore = computeQualityScore(true, 'VERIFIED', 45, true);
+    const highQualityLeadScore = computeQualityScore(true, 'MANAGER_VERIFIED', 45, true);
     const lowQualityLeadScore = computeQualityScore(false, 'SELF_REPORTED', 0, false);
 
     expect(highQualityLeadScore).toBe(100);

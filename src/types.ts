@@ -478,9 +478,30 @@ export type CustomerResponseCode =
   | 'BOUGHT_OTHER_STORE'
   | 'NO_RESPONSE';
 
+export type ObjectionCategory = 
+  | 'PRICE' 
+  | 'PRODUCT' 
+  | 'FINANCE' 
+  | 'DECISION_MAKER' 
+  | 'TIMING' 
+  | 'COMPETITOR' 
+  | 'WARRANTY' 
+  | 'OTHER';
+
 export type ObjectionCode = 
   | 'PRICE_GAP'
+  | 'PRICE_TOO_HIGH'
+  | 'COMPETITOR_CHEAPER'
   | 'NO_STOCK_COLOR'
+  | 'NO_STORAGE'
+  | 'WANT_DIFFERENT_MODEL'
+  | 'NOT_ENOUGH_CASH'
+  | 'INSTALLMENT_REJECTED'
+  | 'WAITING_PAYDAY'
+  | 'NEED_ASK_SPOUSE'
+  | 'NEED_PARENT_APPROVAL'
+  | 'NOT_URGENT'
+  | 'WAITING_FOR_PROMO'
   | 'WARRANTY_TERMS'
   | 'INSTALLMENT_FEES'
   | 'TRADE_IN_VALUATION'
@@ -496,13 +517,21 @@ export type EvidenceType =
   | 'STORE_VISIT_IN_PERSON'
   | 'SELF_REPORTED';
 
-export type EvidenceVerificationStatus = 'VERIFIED' | 'SELF_REPORTED' | 'FLAGGED';
+export type EvidenceVerificationStatus = 
+  | 'PENDING_EVIDENCE'
+  | 'SELF_REPORTED'
+  | 'SYSTEM_CAPTURED'
+  | 'MANAGER_VERIFIED'
+  | 'NEEDS_EVIDENCE'
+  | 'FLAGGED';
 
 export interface LeadCareActivity {
   id: string;
   leadId: string;
   customerId?: string;
-  sequence: number; // 1, 2, 3, 4...
+  sequence: number; // Legacy sequence counter
+  attemptNo: number; // 1, 2, 3, 4, 5... (Every touch attempt)
+  meaningfulCareNo?: number; // 1 (L1), 2 (L2), 3 (L3) - Only for successful connections
   isMeaningfulContact: boolean;
   staffId: string;
   staffName: string;
@@ -512,6 +541,7 @@ export interface LeadCareActivity {
   outcome: CareOutcome;
   customerResponseCode?: CustomerResponseCode;
   customerResponseText?: string;
+  objectionCategory?: ObjectionCategory;
   objectionCode?: ObjectionCode;
   priceDetails?: {
     storePrice?: number;
@@ -519,6 +549,11 @@ export interface LeadCareActivity {
     customerExpectedPrice?: number;
     priceGap?: number;
     competitorName?: string;
+  };
+  opportunityContext?: {
+    productInterestSnapshot: string;
+    budgetSnapshot: number;
+    leadStageSnapshot: LeadStatus;
   };
   evidenceType: EvidenceType;
   verificationStatus: EvidenceVerificationStatus;
@@ -537,6 +572,27 @@ export interface LeadCareActivity {
     managerReviewedBy?: string;
     managerReviewedAt?: string;
   };
+  qualityScoreBreakdown?: {
+    processScore: number;   // Max 40
+    evidenceScore: number;  // Max 30
+    outcomeScore: number;   // Max 30
+    totalScore: number;     // 0 - 100
+  };
+  qaReview?: {
+    status: EvidenceVerificationStatus;
+    reviewedBy: string;
+    reviewedByName: string;
+    reviewedAt: string;
+    note?: string;
+  };
+  auditHistory?: Array<{
+    previousStatus: string;
+    newStatus: string;
+    changedBy: string;
+    changedByName: string;
+    changedAt: string;
+    note?: string;
+  }>;
   nextActionType?: 'CALL' | 'ZALO' | 'SEND_QUOTE' | 'APPOINTMENT' | 'LONG_TERM_NURTURE' | 'CLOSE_DEAL';
   nextActionAt?: string;
   nextActionNotes?: string;
@@ -558,7 +614,9 @@ export interface LeadAppointment {
   interestedModel: string;
   reservationDeviceId?: string;
   notes?: string;
-  status: 'SCHEDULED' | 'ARRIVED' | 'NO_SHOW' | 'CANCELLED' | 'COMPLETED';
+  status: 'SCHEDULED' | 'CONFIRMED' | 'ARRIVED' | 'NO_SHOW' | 'CANCELLED' | 'COMPLETED';
+  arrivedAt?: string;
+  noShowFollowUpTaskCreated?: boolean;
   createdAt: string;
 }
 
@@ -580,7 +638,9 @@ export interface LeadQuote {
   finalPrice: number;
   warrantyPackage?: string;
   validUntil: string;
-  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'EXPIRED' | 'CONVERTED_POS';
+  status: 'DRAFT' | 'SENT' | 'VIEWED' | 'ACCEPTED' | 'EXPIRED' | 'REJECTED' | 'CONVERTED_POS';
+  reservedDeviceId?: string;
+  reservedUntil?: string;
   notes?: string;
   createdAt: string;
 }
@@ -610,6 +670,10 @@ export interface Lead {
   careAttempts?: number;
   meaningfulCareCount?: number;
   careQualityScore?: number; // 0 - 100
+  leadTemperature?: 'HOT' | 'WARM' | 'COLD';
+  temperatureScore?: number; // 0 - 100
+  priorityRank?: 'P0' | 'P1' | 'P2' | 'P3';
+  priorityScore?: number; // 0 - 100
   lastCustomerResponse?: string;
   lastCustomerResponseCode?: CustomerResponseCode;
   lastEvidenceType?: EvidenceType;

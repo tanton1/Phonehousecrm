@@ -36,6 +36,7 @@ export interface NextBestActionRecommendation {
 export interface Customer360DrawerProps {
   lead?: Lead | null;
   customer?: Customer | null;
+  leads?: Lead[];
   isOpen: boolean;
   onClose: () => void;
   invoices: SalesInvoice[];
@@ -43,20 +44,23 @@ export interface Customer360DrawerProps {
   customerTiers?: CustomerTierConfig[];
   onAddTimelineNote?: (targetId: string, note: string) => Promise<void> | void;
   onTriggerNextBestAction?: (action: NextBestActionRecommendation, target: { name: string; phone: string; customerId?: string }) => void;
+  onSelectLead?: (lead: Lead) => void;
 }
 
 export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
   lead,
   customer,
+  leads = [],
   isOpen,
   onClose,
   invoices,
   warrantyTickets,
   customerTiers,
   onAddTimelineNote,
-  onTriggerNextBestAction
+  onTriggerNextBestAction,
+  onSelectLead
 }) => {
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'DEVICES' | 'ORDERS' | 'WARRANTY' | 'TIMELINE'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'OPPORTUNITIES' | 'DEVICES' | 'ORDERS' | 'WARRANTY' | 'TIMELINE'>('OVERVIEW');
   const [noteInput, setNoteInput] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
   const [actionSuccessNotice, setActionSuccessNotice] = useState<string | null>(null);
@@ -71,6 +75,18 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
   const normalizedPhone = useMemo(() => {
     return normalizeVietnamPhone(rawPhone);
   }, [rawPhone]);
+
+  // Filter all opportunity leads for this customer (without merging them)
+  const customerLeads = useMemo(() => {
+    return leads.filter(l => {
+      if (customerId && l.customerId === customerId) return true;
+      if (normalizedPhone) {
+        const lPhone = normalizeVietnamPhone(l.phoneNormalized || l.phone);
+        return lPhone === normalizedPhone;
+      }
+      return false;
+    });
+  }, [leads, customerId, normalizedPhone]);
 
   // Filter invoices for this customer by customerId or normalized phone
   const customerInvoices = useMemo(() => {
@@ -386,6 +402,17 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveTab('OPPORTUNITIES')}
+            className={`py-2.5 px-3 border-b-2 transition-all shrink-0 cursor-pointer ${
+              activeTab === 'OPPORTUNITIES'
+                ? 'border-[#ff4b16] text-[#ff4b16]'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800'
+            }`}
+          >
+            Cơ Hội / Lead ({customerLeads.length})
+          </button>
+
+          <button
             onClick={() => setActiveTab('DEVICES')}
             className={`py-2.5 px-3 border-b-2 transition-all shrink-0 cursor-pointer ${
               activeTab === 'DEVICES'
@@ -432,6 +459,70 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
 
         {/* 5. Tab Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
+          
+          {/* TAB: OPPORTUNITIES (Multi-lead 360 view) */}
+          {activeTab === 'OPPORTUNITIES' && (
+            <div className="space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between font-bold text-zinc-900">
+                <span>Tất cả cơ hội mua hàng của khách ({customerLeads.length})</span>
+              </div>
+              {customerLeads.length === 0 ? (
+                <div className="py-8 text-center text-zinc-400 font-medium">
+                  Chưa có cơ hội/lead nào được liên kết với khách hàng này.
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {customerLeads.map(cl => (
+                    <div 
+                      key={cl.id} 
+                      className="bg-zinc-50 rounded-2xl p-3.5 border border-zinc-200 hover:border-zinc-300 transition-colors space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-zinc-900 text-sm">{cl.interestedModel}</span>
+                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                          cl.status === 'won' ? 'bg-emerald-100 text-emerald-800' :
+                          cl.status === 'lost' ? 'bg-rose-100 text-rose-800' :
+                          cl.status === 'appointment_scheduled' ? 'bg-purple-100 text-purple-800' :
+                          'bg-orange-100 text-[#FF4B16]'
+                        }`}>
+                          {cl.status === 'won' ? '✓ Đã Mua (Won)' :
+                           cl.status === 'lost' ? '❌ Thất Bại (Lost)' :
+                           cl.status === 'appointment_scheduled' ? 'Lịch Hẹn' :
+                           cl.status === 'deposit' ? 'Đã Cọc' :
+                           'Đang Tư Vấn'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-zinc-500 text-[11px]">
+                        <span>Ngân sách: <strong>{cl.budget ? `${(cl.budget / 1000000).toFixed(1)}Tr` : 'Linh hoạt'}</strong></span>
+                        <span>Phụ trách: <strong>{cl.assignedStaff}</strong></span>
+                      </div>
+
+                      {cl.lastCustomerResponse && (
+                        <div className="text-[11px] text-zinc-600 italic bg-white p-2 rounded-xl border border-zinc-100">
+                          "{cl.lastCustomerResponse}"
+                        </div>
+                      )}
+
+                      {onSelectLead && (
+                        <div className="pt-1 text-right">
+                          <button
+                            onClick={() => {
+                              onSelectLead(cl);
+                              onClose();
+                            }}
+                            className="text-[#FF4B16] font-bold text-[11px] hover:underline"
+                          >
+                            Mở chi tiết Lead →
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'OVERVIEW' && (
             <div className="space-y-3">

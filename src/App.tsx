@@ -1922,6 +1922,7 @@ export default function App() {
             {/* Customer 360 Drawer */}
             <Customer360Drawer
               lead={selectedCustomer360Lead}
+              leads={leads}
               isOpen={!!selectedCustomer360Lead}
               onClose={() => setSelectedCustomer360Lead(null)}
               invoices={filteredInvoices}
