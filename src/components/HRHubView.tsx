@@ -31,10 +31,11 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
-import { LeaveRequest, SalesInvoice, WarrantyTicket, StoreBranch, SalaryPolicy } from '../types';
+import { LeaveRequest, SalesInvoice, WarrantyTicket, StoreBranch, SalaryPolicy, StaffMember } from '../types';
 
 export interface HRHubViewProps {
   currentUser?: any;
+  staffList?: StaffMember[];
   attendanceRecords?: import('../types').AttendanceRecord[];
   invoices?: SalesInvoice[];
   warrantyTickets?: WarrantyTicket[];
@@ -57,6 +58,8 @@ export type HRSubModule =
   | 'POLICIES';          // Cấu Hình Chính Sách Lương
 
 export const HRHubView: React.FC<HRHubViewProps> = ({ 
+  currentUser,
+  staffList: initialStaffList = [],
   attendanceRecords = [], 
   invoices = [], 
   warrantyTickets = [],
@@ -70,9 +73,21 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('2026-08');
 
-  // Core Mock State
-  const [staffList, setStaffList] = useState(INITIAL_STAFF_MEMBERS);
-  const [currentStaffId] = useState<string>('STAFF_001');
+  // Filter valid real staff members
+  const validStaffList = React.useMemo(() => {
+    return (initialStaffList || []).filter(s => Boolean(s && s.id && (s.displayName || s.name)));
+  }, [initialStaffList]);
+
+  // Core State
+  const [staffList, setStaffList] = useState<StaffMember[]>(validStaffList);
+  
+  React.useEffect(() => {
+    if (validStaffList.length > 0) {
+      setStaffList(validStaffList);
+    }
+  }, [validStaffList]);
+
+  const [currentStaffId] = useState<string>(currentUser?.id || validStaffList[0]?.id || '');
   const [todayAttendance, setTodayAttendance] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
   const currentAttendanceList = attendanceRecords.length > 0 ? attendanceRecords : todayAttendance;
   const [weeklySchedules, setWeeklySchedules] = useState(INITIAL_WEEKLY_SCHEDULES);
@@ -82,7 +97,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   const [policies, setPolicies] = useState(INITIAL_POLICIES);
 
   // Active current staff member object
-  const currentStaff = staffList.find(s => s.id === currentStaffId) || staffList[0] || INITIAL_STAFF_MEMBERS[0];
+  const currentStaff = staffList.find(s => s && s.id === currentStaffId) || staffList[0];
 
   // Live Summary Metrics for Badges
   const activeCount = currentAttendanceList.filter(a => a.status === 'IN_PROGRESS' || a.status === 'COMPLETED').length;

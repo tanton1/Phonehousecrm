@@ -15,18 +15,25 @@ import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
  */
 export function findStaffByIdentifier(
   identifier: string | undefined,
-  staffList: StaffMember[]
+  staffList: StaffMember[] = []
 ): StaffMember | undefined {
   if (!identifier) return undefined;
   const cleanId = identifier.trim().toLowerCase();
 
-  return staffList.find(s => {
-    if (s.id.toLowerCase() === cleanId) return true;
-    if (s.code && s.code.toLowerCase() === cleanId) return true;
-    if (s.email && s.email.toLowerCase() === cleanId) return true;
-    if (s.name.toLowerCase() === cleanId) return true;
-    if (s.name.toLowerCase().includes(cleanId) || cleanId.includes(s.name.toLowerCase())) return true;
-    return false;
+  return (staffList || []).find(s => {
+    if (!s?.id || !s?.name) return false;
+    const id = s.id.toLowerCase();
+    const code = (s.code || '').toLowerCase();
+    const email = (s.email || '').toLowerCase();
+    const name = s.name.toLowerCase();
+    return (
+      id === cleanId ||
+      code === cleanId ||
+      email === cleanId ||
+      name === cleanId ||
+      name.includes(cleanId) ||
+      cleanId.includes(name)
+    );
   });
 }
 
@@ -35,23 +42,26 @@ export function findStaffByIdentifier(
  */
 export function calculateWarrantyTicketCommissions(
   ticket: WarrantyTicket,
-  staffList: StaffMember[],
+  staffList: StaffMember[] = [],
   policies: SalaryPolicy[] = []
 ): CommissionTransaction[] {
   const transactions: CommissionTransaction[] = [];
+  if (!ticket) return transactions;
   
   // Tìm KTV phụ trách
   const staff = findStaffByIdentifier(ticket.assigneeId || ticket.technician, staffList) 
-    || staffList.find(s => s.role === 'TECHNICIAN') 
-    || staffList[0]
-    || INITIAL_STAFF_MEMBERS[0];
+    || (staffList || []).find(s => s && (s.role === 'TECHNICIAN' || (s.role as string) === 'TECH'));
+
+  if (!staff?.id || !staff?.name) {
+    return transactions;
+  }
 
   const nowStr = ticket.completedDate || ticket.deliveredDate || ticket.receivedDate || new Date().toISOString().replace('T', ' ').slice(0, 19);
   const isCompleted = ticket.status === 'ready' || ticket.status === 'delivered';
   const txStatus: CommissionTransaction['status'] = isCompleted ? 'CONFIRMED' : 'PENDING';
 
   // 1. Kiểm định KCS nhập kho (INBOUND_QC)
-  if (ticket.taskType === 'INBOUND_QC' || ticket.ticketNumber?.startsWith('KCS') || ticket.issueType === 'Khác' && ticket.faultDescription?.includes('KCS')) {
+  if (ticket.taskType === 'INBOUND_QC' || ticket.ticketNumber?.startsWith('KCS') || (ticket.issueType === 'Khác' && ticket.faultDescription?.includes('KCS'))) {
     const kcsCommission = ticket.commissionAmount || 35000;
     transactions.push({
       id: `COMM-QC-${ticket.id}`,
@@ -206,17 +216,20 @@ export function calculateWarrantyTicketCommissions(
  */
 export function calculateInvoiceCommissions(
   invoice: SalesInvoice,
-  staffList: StaffMember[],
+  staffList: StaffMember[] = [],
   policies: SalaryPolicy[] = []
 ): CommissionTransaction[] {
   const transactions: CommissionTransaction[] = [];
+  if (!invoice) return transactions;
   
   // Tìm nhân viên bán hàng / chốt đơn
   const sellerIdentifier = invoice.sellerName || invoice.salesStaff || invoice.cashier || invoice.creatorName;
   const staff = findStaffByIdentifier(sellerIdentifier, staffList) 
-    || staffList.find(s => s.role === 'SALES') 
-    || staffList[0]
-    || INITIAL_STAFF_MEMBERS[0];
+    || (staffList || []).find(s => s && s.role === 'SALES');
+
+  if (!staff?.id || !staff?.name) {
+    return transactions;
+  }
 
   const nowStr = invoice.createdAt || invoice.createdDate || new Date().toISOString().replace('T', ' ').slice(0, 19);
   const isCancelled = invoice.status === 'cancelled';
@@ -332,38 +345,45 @@ export function calculateInvoiceCommissions(
  * ĐỒNG BỘ TOÀN DIỆN TẤT CẢ GIAO DỊCH HOA HỒNG TỪ CÁC HÓA ĐƠN & PHIẾU BẢO HÀNH
  */
 export function syncCommissionsFromAllSources(
-  invoices: SalesInvoice[],
-  warrantyTickets: WarrantyTicket[],
-  staffList: StaffMember[],
+  invoices: SalesInvoice[] = [],
+  warrantyTickets: WarrantyTicket[] = [],
+  staffList: StaffMember[] = [],
   policies: SalaryPolicy[] = [],
   existingCommissions: CommissionTransaction[] = []
 ): CommissionTransaction[] {
+  const validStaff = (staffList || []).filter(s => s && s.id && s.name);
+  if (validStaff.length === 0) {
+    return existingCommissions || [];
+  }
+
   const commissionMap = new Map<string, CommissionTransaction>();
 
   // 1. Giữ lại các giao dịch thủ công hoặc tồn tại trước
-  existingCommissions.forEach(comm => {
-    commissionMap.set(comm.id, comm);
+  (existingCommissions || []).filter(Boolean).forEach(comm => {
+    if (comm && comm.id) {
+      commissionMap.set(comm.id, comm);
+    }
   });
 
   // 2. Quét toàn bộ hóa đơn bán hàng
-  invoices.forEach(inv => {
-    const invComms = calculateInvoiceCommissions(inv, staffList, policies);
+  (invoices || []).filter(Boolean).forEach(inv => {
+    const invComms = calculateInvoiceCommissions(inv, validStaff, policies);
     invComms.forEach(c => {
-      commissionMap.set(c.id, c);
+      if (c && c.id) commissionMap.set(c.id, c);
     });
   });
 
   // 3. Quét toàn bộ phiếu sửa chữa & KCS
-  warrantyTickets.forEach(t => {
-    const ticketComms = calculateWarrantyTicketCommissions(t, staffList, policies);
+  (warrantyTickets || []).filter(Boolean).forEach(t => {
+    const ticketComms = calculateWarrantyTicketCommissions(t, validStaff, policies);
     ticketComms.forEach(c => {
-      commissionMap.set(c.id, c);
+      if (c && c.id) commissionMap.set(c.id, c);
     });
   });
 
   // Trả về mảng sắp xếp theo thời gian mới nhất
   return Array.from(commissionMap.values()).sort((a, b) => {
-    return new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime();
+    return new Date(b.occurredAt || 0).getTime() - new Date(a.occurredAt || 0).getTime();
   });
 }
 
@@ -375,9 +395,9 @@ export function calculateStaffDualWallet(
   allCommissions: CommissionTransaction[] = [],
   staffList: StaffMember[] = []
 ): StaffDualWalletSummary {
-  const staff = staffList.find(s => s.id === staffId) || staffList[0];
-  const effectiveStaffId = staff?.id || staffId || 'STAFF_001';
-  const effectiveStaffName = staff?.name || 'Chuyên viên';
+  const staff = (staffList || []).find(s => s && s.id === staffId);
+  const effectiveStaffId = staff?.id || staffId || '';
+  const effectiveStaffName = (staff as any)?.displayName || staff?.name || 'Chuyên viên';
   const staffNameLower = effectiveStaffName.toLowerCase();
 
   // Lọc các giao dịch thuộc về nhân sự này
@@ -385,7 +405,7 @@ export function calculateStaffDualWallet(
     if (!c) return false;
     if (c.employeeId === effectiveStaffId) return true;
     const empLower = (c.employeeName || '').toLowerCase();
-    return empLower && staffNameLower && (empLower.includes(staffNameLower) || staffNameLower.includes(empLower));
+    return Boolean(empLower && staffNameLower && (empLower.includes(staffNameLower) || staffNameLower.includes(empLower)));
   });
 
   // 1. Phân tách Giao dịch Ví Kỹ Thuật (Tech Wallet)
@@ -464,9 +484,9 @@ export function calculateStaffDualWallet(
   const totalSalesCommission = deviceCommission + accessoryCommission + carePackageCommission + onlineSplitCommission;
 
   return {
-    staffId: staff.id,
-    staffName: staff.name,
-    role: staff.role,
+    staffId: effectiveStaffId,
+    staffName: effectiveStaffName,
+    role: (staff?.role || 'SALES') as any,
     techWallet: {
       totalCommission: totalTechCommission,
       kcsCount,

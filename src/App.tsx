@@ -37,7 +37,9 @@ import {
   WarehouseInfo,
   StoreSettings,
   SparePart,
-  PurchaseOrder
+  PurchaseOrder,
+  StaffMember,
+  AttendanceRecord
 } from './types';
 import { AppShell } from './app/AppShell';
 import { DashboardPage } from './features/dashboard/DashboardPage';
@@ -359,47 +361,79 @@ export default function App() {
   
     const [attendanceRecords, setAttendanceRecords] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
 
-  // Time-tracking functions
-  const handleCheckIn = (time: string) => {
+  // Time-tracking functions with full verification record persistence
+  const handleCheckIn = async (recordOrTime: string | any) => {
     if (!currentUser) return;
+    const today = new Date().toISOString().split('T')[0];
+    
+    let newRecord: AttendanceRecord;
+    if (typeof recordOrTime === 'object' && recordOrTime !== null) {
+      newRecord = {
+        ...recordOrTime,
+        id: recordOrTime.id || `ATT_${Date.now()}_${currentUser.id}`,
+        staffId: currentUser.id,
+        staffName: currentUser.displayName,
+        role: currentUser.role,
+        branchId: recordOrTime.branchId || currentUser.branchId || branches[0]?.id || '',
+        branchName: recordOrTime.branchName || branches.find(b => b.id === currentUser.branchId)?.name || 'Chi Nhánh Showroom',
+        date: today
+      };
+    } else {
+      const time = recordOrTime || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      newRecord = {
+        id: `ATT_${Date.now()}_${currentUser.id}`,
+        staffId: currentUser.id,
+        staffName: currentUser.displayName,
+        role: currentUser.role,
+        branchId: currentUser.branchId || branches[0]?.id || '',
+        branchName: branches.find(b => b.id === currentUser.branchId)?.name || 'Chi Nhánh Showroom',
+        date: today,
+        shiftName: 'Ca làm việc',
+        scheduledStart: '08:00',
+        scheduledEnd: '17:30',
+        checkInTime: time,
+        status: 'ON_TIME',
+        workDurationMinutes: 0,
+        breakDurationMinutes: 0,
+        netWorkMinutes: 0,
+        lateMinutes: 0,
+        earlyMinutes: 0,
+        otMinutes: 0,
+        kpiProgress: 100,
+        activityHistory: [],
+        verification: { method: 'WIFI_IP', verified: true } as any
+      } as unknown as AttendanceRecord;
+    }
+
     setAttendanceRecords(prev => {
-      const today = new Date().toISOString().split('T')[0];
       const existing = prev.find(a => a.staffId === currentUser.id && a.date === today);
       if (existing && existing.checkInTime) {
         alert(`Bạn đã chấm công vào ca hôm nay lúc ${existing.checkInTime}. Không thể chấm công lại.`);
         return prev;
       }
-        return [...prev, {
-          id: `ATT_${Date.now()}`,
-          staffId: currentUser.id,
-          staffName: currentUser.displayName,
-          role: currentUser.role,
-          branchId: currentUser.branchId || 'CN01',
-          branchName: 'Chi nhánh hiện tại',
-          date: today,
-          shiftName: 'Ca làm việc',
-          scheduledStart: '08:00',
-          scheduledEnd: '17:30',
-          checkInTime: time,
-          status: 'ON_TIME',
-          workDurationMinutes: 0,
-          breakDurationMinutes: 0,
-          netWorkMinutes: 0,
-          verification: { method: 'WIFI_IP', verified: true }
-        }];
+      return [...prev, newRecord];
     });
+
+    try {
+      await addAttendanceRecordToFirestore(newRecord);
+    } catch (e) {
+      console.warn('[Attendance Firestore write]', e);
+    }
   };
 
-  const handleCheckOut = (time: string) => {
+  const handleCheckOut = async (time: string) => {
     if (!currentUser) return;
-    setAttendanceRecords(prev => {
-      const today = new Date().toISOString().split('T')[0];
-      return prev.map(a => 
-        (a.staffId === currentUser.id && a.date === today) 
-          ? { ...a, checkOutTime: time } 
-          : a
-      );
-    });
+    const today = new Date().toISOString().split('T')[0];
+    const existing = attendanceRecords.find(a => a.staffId === currentUser.id && a.date === today);
+    if (existing) {
+      const updated = { ...existing, checkOutTime: time, status: 'COMPLETED' as const };
+      setAttendanceRecords(prev => prev.map(a => (a.staffId === currentUser.id && a.date === today) ? updated : a));
+      try {
+        await updateAttendanceRecordInFirestore(updated);
+      } catch (e) {
+        console.warn('[Attendance checkout update]', e);
+      }
+    }
   };
 
   const currentAttendance = attendanceRecords.find(a => a.staffId === currentUser?.id && a.date === new Date().toISOString().split('T')[0]);
@@ -506,6 +540,37 @@ export default function App() {
         const currentWarehouseId = branches.find(b => b.id === activeBranchId)?.warehouseId;
         return t.fromWarehouse === currentWarehouseId || t.toWarehouse === currentWarehouseId;
       });
+
+  // Adapter mapping UserAccount to StaffMember Single Source of Truth
+  const staffMembers = useMemo<StaffMember[]>(() => {
+    return (users || [])
+      .map(user => {
+        if (!user || !user.id || !user.displayName) return null;
+        const branch = branches.find(b => b && b.id === user.branchId);
+        return {
+          id: user.id,
+          code: (user as any).employeeCode || (user as any).code || user.id,
+          name: user.displayName,
+          displayName: user.displayName,
+          email: user.email,
+          role: user.role,
+          roleTitle:
+            user.role === 'ADMIN'
+              ? 'Quản trị viên'
+              : user.role === 'MANAGER'
+                ? 'Quản lý cửa hàng'
+                : user.role === 'TECHNICIAN' || user.role === 'TECH'
+                  ? 'Kỹ thuật viên'
+                  : user.role === 'SALES'
+                    ? 'Nhân viên bán hàng'
+                    : 'Nhân viên',
+          branchId: user.branchId || '',
+          branchName: branch?.name || 'Chi Nhánh Showroom',
+          avatar: user.avatarUrl
+        } as unknown as StaffMember;
+      })
+      .filter((s): s is StaffMember => Boolean(s && s.id && s.name));
+  }, [users, branches]);
 
   // Initialize Firebase and subscribe to real-time collections
   useEffect(() => {
@@ -630,11 +695,17 @@ export default function App() {
       }
     });
 
-    unsubAttendance = subscribeToAttendance((remoteAttendance) => {
-      if (remoteAttendance && remoteAttendance.length > 0) {
-        setAttendanceRecords(remoteAttendance);
+    unsubAttendance = subscribeToAttendance(
+      (remoteAttendance) => {
+        if (remoteAttendance && remoteAttendance.length > 0) {
+          setAttendanceRecords(remoteAttendance);
+        }
+      },
+      currentUser ? { uid: currentUser.id, role: currentUser.role, branchId: currentUser.branchId } : null,
+      (err) => {
+        console.warn('[Attendance subscription notice]', err?.error || err);
       }
-    });
+    );
 
     const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
       if (fbUser) {
@@ -2105,10 +2176,11 @@ export default function App() {
         {activeTab === 'checkin-portal' && (
           <StandaloneCheckInView
             currentUser={currentUser}
+            staffList={staffMembers}
             branches={branches}
             attendanceRecords={attendanceRecords}
             onCheckInSuccess={(record) => {
-              handleCheckIn(record.checkInTime);
+              handleCheckIn(record);
             }}
             onClose={() => setActiveTab('dashboard')}
             onNavigateToHR={() => setActiveTab('hr-attendance')}
@@ -2118,6 +2190,7 @@ export default function App() {
         {(activeTab === 'hr-attendance' || activeTab === 'attendance' || activeTab === 'attendance-log' || activeTab === 'attendance-management') && (
           <HRHubView
             currentUser={currentUser}
+            staffList={staffMembers}
             attendanceRecords={attendanceRecords}
             invoices={filteredInvoices}
             warrantyTickets={filteredWarrantyTickets}

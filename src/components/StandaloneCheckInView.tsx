@@ -126,7 +126,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   const [currentWifiSSID, setCurrentWifiSSID] = useState<string>(targetWifiSSID);
 
   // STEP 4: Face ID State
-  const [faceStatus, setFaceStatus] = useState<'PENDING' | 'SCANNING' | 'SUCCESS' | 'ERROR'>('PENDING');
+  const [faceStatus, setFaceStatus] = useState<'PENDING' | 'SCANNING' | 'SUCCESS' | 'ERROR' | 'FAILED'>('PENDING');
   const [faceConfidence, setFaceConfidence] = useState<number>(0);
   const [faceFeedbackMsg, setFaceFeedbackMsg] = useState<string | null>(null);
   const [capturedSnapshotUrl, setCapturedSnapshotUrl] = useState<string | null>(null);

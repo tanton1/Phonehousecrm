@@ -9,7 +9,9 @@ import {
   getDocs,
   writeBatch,
   increment,
-  arrayUnion
+  arrayUnion,
+  query,
+  where
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
@@ -1436,16 +1438,35 @@ export async function deleteCatalogItemFromFirestore(id: string) {
 }
 
 // ----------------- ATTENDANCE (CHẤM CÔNG 4 YẾU TỐ) -----------------
-export function subscribeToAttendance(onData: (records: AttendanceRecord[]) => void) {
+export function subscribeToAttendance(
+  onData: (records: AttendanceRecord[]) => void,
+  userScope?: { uid?: string; role?: string; branchId?: string } | null,
+  onError?: (error: any) => void
+) {
   const colRef = collection(db, ATTENDANCE_COL);
-  return onSnapshot(colRef, (snapshot) => {
-    const data = snapshot.docs.map(doc => doc.data() as AttendanceRecord);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_TODAY_ATTENDANCE_LIST);
+  let attendanceQuery: any = colRef;
+
+  // Role-based query scoping to comply with Firestore Security Rules
+  if (userScope && userScope.role && userScope.role !== 'ADMIN' && userScope.role !== 'MANAGER') {
+    if (userScope.uid) {
+      attendanceQuery = query(colRef, where('staffId', '==', userScope.uid));
     }
-  }, (error) => handleFirestoreError(error, OperationType.LIST, ATTENDANCE_COL));
+  }
+
+  return onSnapshot(
+    attendanceQuery,
+    (snapshot: any) => {
+      const data = snapshot.docs.map((doc: any) => ({
+        ...doc.data(),
+        id: doc.id
+      })) as AttendanceRecord[];
+      onData(data);
+    },
+    (error) => {
+      const errInfo = handleFirestoreError(error, OperationType.LIST, ATTENDANCE_COL);
+      onError?.(errInfo);
+    }
+  );
 }
 
 export async function addAttendanceRecordToFirestore(record: AttendanceRecord) {

@@ -87,27 +87,8 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
         }, 400);
       }
     } catch (err: any) {
-      // If Firebase Auth fails, check if this employee exists in Firestore authorized users list
-      const matchedFirestoreUser = users.find(
-        u => u.email.toLowerCase() === email.toLowerCase().trim()
-      );
-
-      if (matchedFirestoreUser) {
-        if (!matchedFirestoreUser.active) {
-          setErrorMessage('Tài khoản này đã bị tạm khóa. Vui lòng liên hệ Quản trị viên.');
-          return;
-        }
-
-        setSuccessMessage(`Đăng nhập thành công! Chào mừng ${matchedFirestoreUser.displayName}.`);
-        setTimeout(() => {
-          onLoginSuccess(matchedFirestoreUser);
-          if (onClose) onClose();
-        }, 300);
-        return;
-      }
-
       if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setErrorMessage('Mật khẩu không chính xác hoặc tài khoản không tồn tại.');
+        setErrorMessage('Mật khẩu không chính xác hoặc tài khoản không tồn tại trên hệ thống xác thực.');
       } else if (err.code === 'auth/user-not-found') {
         setErrorMessage('Không tìm thấy tài khoản với địa chỉ Email này.');
       } else if (err.code === 'auth/too-many-requests') {
