@@ -109,9 +109,9 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
             </button>
           )}
 
-          <div className="hidden sm:flex items-center space-x-1.5 text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg font-semibold">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Online</span>
+          <div className="hidden sm:flex items-center space-x-1.5 text-xs text-zinc-700 bg-zinc-100 px-2.5 py-1 rounded-lg font-semibold">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#ff4b16]" />
+            <span>{conversation.channel}</span>
           </div>
         </div>
       </div>

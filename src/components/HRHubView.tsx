@@ -34,6 +34,7 @@ import {
 import { LeaveRequest, SalesInvoice, WarrantyTicket, StoreBranch, SalaryPolicy } from '../types';
 
 export interface HRHubViewProps {
+  currentUser?: any;
   attendanceRecords?: import('../types').AttendanceRecord[];
   invoices?: SalesInvoice[];
   warrantyTickets?: WarrantyTicket[];

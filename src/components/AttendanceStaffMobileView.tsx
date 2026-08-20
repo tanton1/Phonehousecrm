@@ -571,13 +571,13 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   const [shiftStatusOverride, setShiftStatusOverride] = useState<'AUTO' | 'NOT_CHECKED_IN' | 'CHECKED_IN'>('AUTO');
   
   // Real Attendance status calculation
-  const isActuallyCheckedIn = attendanceRecord && attendanceRecord.checkInTime && !attendanceRecord.checkOutTime;
+  const isActuallyCheckedIn = Boolean(attendanceRecord && attendanceRecord.checkInTime && !attendanceRecord.checkOutTime);
   const isShiftCheckedIn = shiftStatusOverride === 'CHECKED_IN' ? true : (shiftStatusOverride === 'NOT_CHECKED_IN' ? false : isActuallyCheckedIn);
 
   // Live timer for in-shift
   const [secondsInShift, setSecondsInShift] = useState<number>(0);
   useEffect(() => {
-    if (attendanceRecord.status === 'IN_PROGRESS' || shiftStatusOverride === 'IN_PROGRESS') {
+    if (attendanceRecord?.status === 'IN_PROGRESS' || shiftStatusOverride === 'IN_PROGRESS') {
       const baseTime = checkInStartTimestamp || (Date.now() - 3 * 3600 * 1000 - 15 * 60 * 1000); // default ~03h 15m if demo
       const updateSeconds = () => {
         const elapsed = Math.max(0, Math.floor((Date.now() - baseTime) / 1000));
@@ -587,7 +587,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       const interval = setInterval(updateSeconds, 1000);
       return () => clearInterval(interval);
     }
-  }, [attendanceRecord.status, shiftStatusOverride, checkInStartTimestamp]);
+  }, [attendanceRecord?.status, shiftStatusOverride, checkInStartTimestamp]);
 
   const formatTimer = (totalSeconds: number) => {
     const hours = Math.floor(totalSeconds / 3600);
@@ -610,7 +610,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   };
 
   const isCheckedIn = shiftStatusOverride === 'AUTO'
-    ? (attendanceRecord.status === 'IN_PROGRESS' || attendanceRecord.status === 'COMPLETED')
+    ? (attendanceRecord?.status === 'IN_PROGRESS' || attendanceRecord?.status === 'COMPLETED')
     : (shiftStatusOverride === 'IN_PROGRESS');
 
   // Handle perform Check-in flow: Reset steps, navigate to Screen 02 & start active scan

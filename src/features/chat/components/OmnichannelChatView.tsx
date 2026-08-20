@@ -117,7 +117,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         price: device.sellPrice || 0,
         color: device.color,
         storage: device.storage,
-        imei: device.imei
+        batteryHealth: device.batteryHealth || 100
       }
     };
 

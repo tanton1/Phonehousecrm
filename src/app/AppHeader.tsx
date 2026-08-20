@@ -37,15 +37,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
 
   const userName = currentUser?.name || currentUser?.displayName || 'Nhân viên';
-  const isMultiBranchUser = !currentUser || currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER' || (currentUser.assignedBranchIds && currentUser.assignedBranchIds.length > 1);
+  const canViewAllBranches = !currentUser || currentUser.role === 'ADMIN' || (currentUser as any)?.permissions?.includes('VIEW_ALL_BRANCHES');
 
   const availableBranches = branches.filter(b => {
-    if (!currentUser || currentUser.role === 'ADMIN') return true;
-    if (currentUser.assignedBranchIds && currentUser.assignedBranchIds.length > 0) {
+    if (canViewAllBranches) return true;
+    if (currentUser?.assignedBranchIds && currentUser.assignedBranchIds.length > 0) {
       return currentUser.assignedBranchIds.includes(b.id);
     }
-    return !currentUser.branchId || currentUser.branchId === b.id;
+    return !currentUser?.branchId || currentUser.branchId === b.id;
   });
+
+  const hasMultipleBranches = canViewAllBranches || availableBranches.length > 1;
 
   const selectedBranchObj = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
   const displayBranchName = selectedBranchId === 'ALL'
@@ -58,22 +60,22 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <div className="relative">
         <button
           onClick={() => {
-            if (availableBranches.length > 1 || isMultiBranchUser) {
+            if (hasMultipleBranches) {
               setIsBranchMenuOpen(prev => !prev);
             }
           }}
           className={`flex items-center space-x-1.5 sm:space-x-2 px-2.5 py-1.5 rounded-xl border border-zinc-200/80 hover:bg-zinc-50 hover:border-zinc-300 transition-all text-xs font-semibold text-zinc-800 shadow-2xs active:scale-95 ${
-            availableBranches.length > 1 || isMultiBranchUser ? 'cursor-pointer' : 'cursor-default'
+            hasMultipleBranches ? 'cursor-pointer' : 'cursor-default'
           }`}
         >
           <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#ff4b16] shrink-0" />
           <span className="truncate max-w-[110px] xs:max-w-[140px] sm:max-w-[220px]">{displayBranchName}</span>
-          {(availableBranches.length > 1 || isMultiBranchUser) && (
+          {hasMultipleBranches && (
             <ChevronDown className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-zinc-400 shrink-0 transition-transform ${isBranchMenuOpen ? 'rotate-180' : ''}`} />
           )}
         </button>
 
-        {isBranchMenuOpen && (availableBranches.length > 1 || isMultiBranchUser) && (
+        {isBranchMenuOpen && hasMultipleBranches && (
           <div className="absolute left-0 top-full mt-1.5 w-64 bg-white border border-zinc-200 rounded-2xl shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
             <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-100 flex items-center justify-between">
               <span>Chọn Chi Nhánh Hoạt Động</span>
@@ -82,7 +84,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               )}
             </div>
 
-            {isMultiBranchUser && (
+            {canViewAllBranches && (
               <button
                 type="button"
                 onClick={() => {

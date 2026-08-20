@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Lead, SalesInvoice, WarrantyTicket } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
+import { normalizeVietnamPhone, formatDisplayPhone } from '../../../utils/phoneUtils';
 import { 
   User, 
   Phone, 
@@ -12,7 +13,13 @@ import {
   MessageSquare, 
   X, 
   Plus, 
-  CheckCircle2 
+  CheckCircle2,
+  Smartphone,
+  Sparkles,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  Calendar
 } from 'lucide-react';
 
 export interface Customer360DrawerProps {
@@ -32,26 +39,86 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
   warrantyTickets,
   onAddTimelineNote
 }) => {
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ORDERS' | 'WARRANTY' | 'TIMELINE'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'DEVICES' | 'ORDERS' | 'WARRANTY' | 'TIMELINE'>('OVERVIEW');
   const [noteInput, setNoteInput] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
 
-  if (!isOpen || !lead) return null;
+  // Normalized phone
+  const normalizedPhone = useMemo(() => {
+    return normalizeVietnamPhone(lead?.phone || lead?.phoneNormalized);
+  }, [lead]);
 
-  // Filter invoices for this customer by phone
-  const customerInvoices = invoices.filter(
-    inv => inv.customerPhone === lead.phone || (inv.phone && inv.phone === lead.phone)
-  );
+  // Filter invoices for this customer by normalized phone
+  const customerInvoices = useMemo(() => {
+    if (!normalizedPhone) return [];
+    return invoices.filter(inv => {
+      const invPhone = normalizeVietnamPhone(inv.customerPhone || (inv as any).phone);
+      return invPhone === normalizedPhone;
+    });
+  }, [invoices, normalizedPhone]);
 
-  // Filter warranty tickets
-  const customerWarranties = warrantyTickets.filter(
-    w => w.phone === lead.phone
-  );
+  // Filter warranty tickets by normalized phone
+  const customerWarranties = useMemo(() => {
+    if (!normalizedPhone) return [];
+    return warrantyTickets.filter(w => {
+      const wPhone = normalizeVietnamPhone(w.phone);
+      return wPhone === normalizedPhone;
+    });
+  }, [warrantyTickets, normalizedPhone]);
+
+  // Extract owned devices from paid/completed invoices
+  const ownedDevices = useMemo(() => {
+    const list: Array<{
+      id: string;
+      model: string;
+      imeiMasked: string;
+      color?: string;
+      storage?: string;
+      batteryHealth?: number;
+      purchaseDate: string;
+      warrantyExpiry: string;
+      invoiceCode: string;
+      price: number;
+    }> = [];
+
+    customerInvoices.forEach(inv => {
+      if (inv.status === 'cancelled') return;
+      if (inv.items && inv.items.length > 0) {
+        inv.items.forEach((item, idx) => {
+          const imei = item.imei || '';
+          const imeiMasked = imei.length >= 4 ? `••••••••${imei.slice(-4)}` : 'Chưa kích hoạt IMEI';
+          const pDate = inv.createdAt || inv.createdDate || '2025-01-01';
+          
+          // Calculate warranty end (12 months from purchase)
+          const pDateObj = new Date(pDate);
+          pDateObj.setFullYear(pDateObj.getFullYear() + 1);
+          const warrantyExpiry = pDateObj.toISOString().split('T')[0];
+
+          list.push({
+            id: `${inv.id}-${idx}`,
+            model: item.productName || item.model || 'iPhone',
+            imeiMasked,
+            color: (item as any).color,
+            storage: (item as any).storage,
+            batteryHealth: (item as any).batteryHealth || 100,
+            purchaseDate: pDate.slice(0, 10),
+            warrantyExpiry,
+            invoiceCode: inv.invoiceCode || inv.id,
+            price: item.price || 0
+          });
+        });
+      }
+    });
+
+    return list;
+  }, [customerInvoices]);
 
   // Calculate LTV
-  const totalLtv = customerInvoices
-    .filter(inv => inv.status !== 'cancelled')
-    .reduce((sum, inv) => sum + (inv.finalAmount || 0), 0);
+  const totalLtv = useMemo(() => {
+    return customerInvoices
+      .filter(inv => inv.status !== 'cancelled')
+      .reduce((sum, inv) => sum + (inv.finalAmount || 0), 0);
+  }, [customerInvoices]);
 
   // VIP Tier calculation based on LTV
   const getVipTier = (ltv: number) => {
@@ -62,6 +129,49 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
   };
 
   const vipInfo = getVipTier(totalLtv);
+
+  // Next Best Action Engine
+  const nextBestAction = useMemo(() => {
+    if (ownedDevices.length > 0) {
+      const primaryDevice = ownedDevices[0];
+      const purchaseTime = new Date(primaryDevice.purchaseDate).getTime();
+      const monthsUsed = Math.floor((Date.now() - purchaseTime) / (1000 * 60 * 60 * 24 * 30));
+
+      if (monthsUsed >= 12) {
+        return {
+          title: `Gợi ý lên đời dòng mới (Đã dùng ${primaryDevice.model} ~${monthsUsed} tháng)`,
+          desc: `Khách đã sử dụng thiết bị được hơn 1 năm. Gợi ý chương trình Thu Cũ Đổi Mới trợ giá đến 2.000.000đ khi lên đời iPhone thế hệ mới nhất.`,
+          actionType: 'TRADE_IN',
+          actionText: 'Gửi Báo Giá Thu Cũ'
+        };
+      }
+
+      return {
+        title: `Chăm sóc sau bán & Bảo hành VIP`,
+        desc: `Thiết bị ${primaryDevice.model} còn hạn bảo hành đến ${primaryDevice.warrantyExpiry}. Gợi ý kiểm tra pin định kỳ & vệ sinh máy miễn phí.`,
+        actionType: 'WARRANTY_CARE',
+        actionText: 'Gửi Lời Nhắc Chăm Sóc'
+      };
+    }
+
+    if (lead?.budget && lead.budget > 25_000_000) {
+      return {
+        title: `Tư vấn chốt suất giữ máy Pro Max`,
+        desc: `Khách hàng có ngân sách lớn (${(lead.budget / 1_000_000).toFixed(1)}tr) quan tâm ${lead.interestedModel}. Gửi báo giá kèm voucher phụ kiện 500k.`,
+        actionType: 'HOT_DEAL',
+        actionText: 'Tạo Báo Giá Ưu Đãi'
+      };
+    }
+
+    return {
+      title: `Gửi thông tin chương trình trả góp 0%`,
+      desc: `Tư vấn gói duyệt hồ sơ trả góp online duyệt nhanh qua CCCD không cần trả trước.`,
+      actionType: 'INSTALLMENT',
+      actionText: 'Gửi Bảng Tính Trả Góp'
+    };
+  }, [ownedDevices, lead]);
+
+  if (!isOpen || !lead) return null;
 
   const handleSaveNote = async () => {
     if (!noteInput.trim() || !onAddTimelineNote) return;
@@ -92,7 +202,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
               </div>
               <p className="text-xs text-zinc-500 font-mono flex items-center space-x-1 mt-0.5">
                 <Phone className="w-3 h-3 text-zinc-400" />
-                <span>{lead.phone}</span>
+                <span>{formatDisplayPhone(lead.phone)}</span>
               </p>
             </div>
           </div>
@@ -106,45 +216,95 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
         </div>
 
         {/* 2. KPI Metrics Bar */}
-        <div className="p-4 bg-zinc-50/80 border-b border-zinc-100 grid grid-cols-3 gap-2 text-xs">
-          <div className="p-2.5 bg-white border border-zinc-200/80 rounded-xl">
-            <span className="text-[10px] text-zinc-400 block font-semibold">Tổng Chi Tiêu (LTV)</span>
-            <span className="font-bold font-mono text-[#ff4b16] text-sm mt-0.5 block">
+        <div className="p-3.5 bg-zinc-50/80 border-b border-zinc-100 grid grid-cols-4 gap-2 text-xs">
+          <div className="p-2 bg-white border border-zinc-200/80 rounded-xl">
+            <span className="text-[10px] text-zinc-400 block font-semibold">LTV Chi Tiêu</span>
+            <span className="font-bold font-mono text-[#ff4b16] text-xs mt-0.5 block truncate">
               {(totalLtv / 1_000_000).toFixed(1)}tr
             </span>
           </div>
 
-          <div className="p-2.5 bg-white border border-zinc-200/80 rounded-xl">
-            <span className="text-[10px] text-zinc-400 block font-semibold">Số Đơn Mua</span>
-            <span className="font-bold font-mono text-zinc-800 text-sm mt-0.5 block">
+          <div className="p-2 bg-white border border-zinc-200/80 rounded-xl">
+            <span className="text-[10px] text-zinc-400 block font-semibold">Đơn Mua</span>
+            <span className="font-bold font-mono text-zinc-800 text-xs mt-0.5 block">
               {customerInvoices.length} đơn
             </span>
           </div>
 
-          <div className="p-2.5 bg-white border border-zinc-200/80 rounded-xl">
-            <span className="text-[10px] text-zinc-400 block font-semibold">Lần Bảo Hành</span>
-            <span className="font-bold font-mono text-zinc-800 text-sm mt-0.5 block">
+          <div className="p-2 bg-white border border-zinc-200/80 rounded-xl">
+            <span className="text-[10px] text-zinc-400 block font-semibold">Máy Sở Hữu</span>
+            <span className="font-bold font-mono text-zinc-800 text-xs mt-0.5 block">
+              {ownedDevices.length} máy
+            </span>
+          </div>
+
+          <div className="p-2 bg-white border border-zinc-200/80 rounded-xl">
+            <span className="text-[10px] text-zinc-400 block font-semibold">Bảo Hành</span>
+            <span className="font-bold font-mono text-zinc-800 text-xs mt-0.5 block">
               {customerWarranties.length} lần
             </span>
           </div>
         </div>
 
-        {/* 3. Navigation Tabs */}
-        <div className="flex items-center space-x-1 px-4 border-b border-zinc-100 text-xs font-bold bg-white">
+        {/* 3. Next Best Action Recommendation Card */}
+        <div className="p-3.5 mx-4 mt-3 bg-linear-to-r from-orange-50 to-amber-50 border border-orange-200/90 rounded-2xl space-y-2 text-xs">
+          <div className="flex items-center space-x-1.5 font-bold text-[#ff4b16]">
+            <Sparkles className="w-4 h-4" />
+            <span>⚡ GỢI Ý HÀNH ĐỘNG HÔM NAY (NEXT BEST ACTION)</span>
+          </div>
+          <div>
+            <p className="font-bold text-zinc-900">{nextBestAction.title}</p>
+            <p className="text-[11px] text-zinc-600 mt-0.5 leading-relaxed">{nextBestAction.desc}</p>
+          </div>
+          <div className="pt-1 flex items-center space-x-2">
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={<Send className="w-3 h-3" />}
+              className="text-[11px] h-7"
+              onClick={() => alert(`Đã kích hoạt gợi ý: ${nextBestAction.actionText}`)}
+            >
+              {nextBestAction.actionText}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              leftIcon={<Phone className="w-3 h-3" />}
+              className="text-[11px] h-7 bg-white"
+              onClick={() => window.open(`tel:${lead.phone}`)}
+            >
+              Gọi Khách
+            </Button>
+          </div>
+        </div>
+
+        {/* 4. Navigation Tabs */}
+        <div className="flex items-center space-x-1 px-4 border-b border-zinc-100 text-xs font-bold bg-white mt-2">
           <button
             onClick={() => setActiveTab('OVERVIEW')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer ${
+            className={`py-2.5 px-2.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'OVERVIEW'
                 ? 'border-[#ff4b16] text-[#ff4b16]'
                 : 'border-transparent text-zinc-500 hover:text-zinc-800'
             }`}
           >
-            Nhu Cầu & Lead
+            Nhu Cầu
+          </button>
+
+          <button
+            onClick={() => setActiveTab('DEVICES')}
+            className={`py-2.5 px-2.5 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'DEVICES'
+                ? 'border-[#ff4b16] text-[#ff4b16]'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800'
+            }`}
+          >
+            Thiết Bị ({ownedDevices.length})
           </button>
 
           <button
             onClick={() => setActiveTab('ORDERS')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer ${
+            className={`py-2.5 px-2.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'ORDERS'
                 ? 'border-[#ff4b16] text-[#ff4b16]'
                 : 'border-transparent text-zinc-500 hover:text-zinc-800'
@@ -155,28 +315,28 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
 
           <button
             onClick={() => setActiveTab('WARRANTY')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer ${
+            className={`py-2.5 px-2.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'WARRANTY'
                 ? 'border-[#ff4b16] text-[#ff4b16]'
                 : 'border-transparent text-zinc-500 hover:text-zinc-800'
             }`}
           >
-            Sửa Chữa ({customerWarranties.length})
+            Bảo Hành ({customerWarranties.length})
           </button>
 
           <button
             onClick={() => setActiveTab('TIMELINE')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer ${
+            className={`py-2.5 px-2.5 border-b-2 transition-all cursor-pointer ${
               activeTab === 'TIMELINE'
                 ? 'border-[#ff4b16] text-[#ff4b16]'
                 : 'border-transparent text-zinc-500 hover:text-zinc-800'
             }`}
           >
-            Nhật Ký Chăm Sóc
+            Nhật Ký
           </button>
         </div>
 
-        {/* 4. Tab Content */}
+        {/* 5. Tab Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'OVERVIEW' && (
@@ -204,6 +364,16 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
                   </div>
                 </div>
 
+                {lead.nextAction && (
+                  <div className="p-2.5 bg-orange-50/70 border border-orange-200 rounded-xl space-y-1">
+                    <span className="text-[10px] font-bold text-[#ff4b16] uppercase block">Kế Hoạch Tiếp Theo:</span>
+                    <div className="flex justify-between items-center text-zinc-800 font-semibold">
+                      <span>Loại: {lead.nextAction.type}</span>
+                      <span className="font-mono text-zinc-600">{lead.nextAction.dueAt}</span>
+                    </div>
+                  </div>
+                )}
+
                 {lead.notes && (
                   <div className="pt-2 border-t border-zinc-200/60">
                     <span className="text-[10px] text-zinc-400 block">Ghi chú tư vấn:</span>
@@ -214,11 +384,60 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
             </div>
           )}
 
-          {/* TAB 2: ORDERS */}
+          {/* TAB 2: OWNED DEVICES */}
+          {activeTab === 'DEVICES' && (
+            <div className="space-y-3">
+              {ownedDevices.length === 0 ? (
+                <div className="p-8 text-center text-zinc-400 bg-zinc-50 border border-dashed border-zinc-200 rounded-2xl">
+                  <Smartphone className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                  <p className="font-semibold text-zinc-600">Chưa có thiết bị nào</p>
+                  <p className="text-[11px] text-zinc-400 mt-1">Dữ liệu thiết bị sẽ tự động ghi nhận khi khách hoàn tất đơn hàng POS.</p>
+                </div>
+              ) : (
+                ownedDevices.map(dev => (
+                  <div
+                    key={dev.id}
+                    className="p-3.5 bg-zinc-50 border border-zinc-200/80 rounded-2xl space-y-2"
+                  >
+                    <div className="flex items-center justify-between font-bold">
+                      <div className="flex items-center space-x-2">
+                        <Smartphone className="w-4 h-4 text-[#ff4b16]" />
+                        <span className="text-zinc-900">{dev.model}</span>
+                      </div>
+                      <span className="font-mono text-[#ff4b16]">
+                        {(dev.price).toLocaleString('vi-VN')}đ
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-600 bg-white p-2.5 rounded-xl border border-zinc-200/60">
+                      <div>
+                        <span className="text-[10px] text-zinc-400 block">IMEI:</span>
+                        <span className="font-mono font-bold text-zinc-800">{dev.imeiMasked}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-zinc-400 block">Pin lúc bán:</span>
+                        <span className="font-mono font-bold text-emerald-600">{dev.batteryHealth}%</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-zinc-400 block">Ngày mua:</span>
+                        <span className="font-mono">{dev.purchaseDate}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-zinc-400 block">Hạn bảo hành:</span>
+                        <span className="font-mono font-bold text-[#ff4b16]">{dev.warrantyExpiry}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: ORDERS */}
           {activeTab === 'ORDERS' && (
             <div className="space-y-2.5">
               {customerInvoices.length === 0 ? (
-                <div className="p-8 text-center text-zinc-400">
+                <div className="p-8 text-center text-zinc-400 bg-zinc-50 border border-dashed border-zinc-200 rounded-2xl">
                   Khách hàng chưa phát sinh hóa đơn mua hàng.
                 </div>
               ) : (
@@ -243,11 +462,11 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
             </div>
           )}
 
-          {/* TAB 3: WARRANTY */}
+          {/* TAB 4: WARRANTY */}
           {activeTab === 'WARRANTY' && (
             <div className="space-y-2.5">
               {customerWarranties.length === 0 ? (
-                <div className="p-8 text-center text-zinc-400">
+                <div className="p-8 text-center text-zinc-400 bg-zinc-50 border border-dashed border-zinc-200 rounded-2xl">
                   Không có phiếu bảo hành hoặc sửa chữa nào.
                 </div>
               ) : (
@@ -270,7 +489,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
             </div>
           )}
 
-          {/* TAB 4: TIMELINE */}
+          {/* TAB 5: TIMELINE */}
           {activeTab === 'TIMELINE' && (
             <div className="space-y-3">
               {/* Add Note Input */}

@@ -62,9 +62,9 @@ export const ChatCustomerSidebar: React.FC<ChatCustomerSidebarProps> = ({
           className="w-full h-9 px-2.5 bg-zinc-50 border border-zinc-200 rounded-xl font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
         >
           <option value="">-- Chọn máy sẵn hàng ({inStockDevices.length}) --</option>
-          {inStockDevices.slice(0, 20).map(dev => (
+          {inStockDevices.slice(0, 25).map(dev => (
             <option key={dev.id} value={dev.id}>
-              {dev.model} ({dev.storage} - {dev.color}) - {(dev.sellPrice || 0).toLocaleString('vi-VN')}đ
+              {dev.model} ({dev.storage} - {dev.color}) - {(dev.sellPrice || 0).toLocaleString('vi-VN')}đ{dev.branchId ? ` • [${dev.branchId}]` : ''}
             </option>
           ))}
         </select>

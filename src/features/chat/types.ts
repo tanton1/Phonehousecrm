@@ -12,6 +12,7 @@ export interface ChatMessage {
     price: number;
     color?: string;
     storage?: string;
+    batteryHealth?: number;
     imei?: string;
   };
 }

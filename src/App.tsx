@@ -2106,8 +2106,9 @@ export default function App() {
           />
         )}
 
-        {(activeTab === 'hr-attendance' || activeTab === 'attendance') && (
+        {(activeTab === 'hr-attendance' || activeTab === 'attendance' || activeTab === 'attendance-log' || activeTab === 'attendance-management') && (
           <HRHubView
+            currentUser={currentUser}
             attendanceRecords={attendanceRecords}
             invoices={filteredInvoices}
             warrantyTickets={filteredWarrantyTickets}

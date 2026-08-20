@@ -43,16 +43,12 @@ class SecurityRulesValidator {
   }
 
   isAdmin(auth: SimulatedAuth | null): boolean {
-    return this.isAuthenticated(auth) && this.isActiveUser(auth) && (
-      auth?.token?.role === 'ADMIN' || this.getUserRole(auth) === 'ADMIN'
-    );
+    return this.isAuthenticated(auth) && this.isActiveUser(auth) && this.getUserRole(auth) === 'ADMIN';
   }
 
   isManager(auth: SimulatedAuth | null): boolean {
     return this.isAdmin(auth) || (
-      this.isAuthenticated(auth) && this.isActiveUser(auth) && (
-        auth?.token?.role === 'MANAGER' || this.getUserRole(auth) === 'MANAGER'
-      )
+      this.isAuthenticated(auth) && this.isActiveUser(auth) && this.getUserRole(auth) === 'MANAGER'
     );
   }
 

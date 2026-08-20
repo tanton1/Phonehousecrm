@@ -42,20 +42,14 @@ service cloud.firestore {
       return userExists() && getUserData().role == role;
     }
 
-    // 4. Role Hierarchy Check (Guarded strictly by isActiveUser)
+    // 4. Role Hierarchy Check (Guarded strictly by isActiveUser & Single Source of Truth from Firestore)
     function isAdmin() {
-      return isAuthenticated() && isActiveUser() && (
-        request.auth.token.role == 'ADMIN' || 
-        getUserRole() == 'ADMIN'
-      );
+      return isActiveUser() && getUserRole() == 'ADMIN';
     }
 
     function isManager() {
       return isAdmin() || (
-        isAuthenticated() && isActiveUser() && (
-          request.auth.token.role == 'MANAGER' || 
-          getUserRole() == 'MANAGER'
-        )
+        isActiveUser() && getUserRole() == 'MANAGER'
       );
     }
 

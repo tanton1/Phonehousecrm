@@ -60,7 +60,7 @@ export async function getStaffAuthority(uid: string, emailFallback?: string): Pr
       role: (uData.role || '').toUpperCase(),
       branchId: uData.branchId || (uData.assignedBranchIds && uData.assignedBranchIds[0]) || '',
       assignedBranchIds: uData.assignedBranchIds || [],
-      active: uData.active !== false,
+      active: uData.active === true,
       name: uData.displayName || uData.name
     };
   } catch (err) {

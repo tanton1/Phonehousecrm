@@ -1,34 +1,34 @@
 /**
- * Chuẩn hóa số điện thoại về định dạng chuẩn Việt Nam (09xxxxxxxx)
- * Loại bỏ khoảng trắng, dấu chấm, dấu gạch ngang, tiền tố quốc tế +84 hoặc 84
+ * Utility helper to normalize Vietnamese phone numbers consistently across PhoneHouse CRM & ERP
+ * 
+ * Rules:
+ * - Strips all non-digit characters (spaces, dashes, dots, parentheses, +)
+ * - Converts +84 / 84 prefix to standard domestic 0 prefix
+ * - Standardizes to 10-digit format (e.g. 0905123456)
  */
-export function normalizePhoneNumber(phone: string): string {
+export function normalizeVietnamPhone(phone: string | null | undefined): string {
   if (!phone) return '';
-  // Loại bỏ toàn bộ ký tự không phải số
-  let clean = phone.replace(/[^0-9]/g, '');
   
-  // Nếu bắt đầu bằng 84 và có độ dài >= 11 số (ví dụ: 84935672467 -> 0935672467)
-  if (clean.startsWith('84') && clean.length >= 11) {
-    clean = '0' + clean.slice(2);
+  let cleaned = phone.replace(/\D/g, '');
+  
+  if (cleaned.startsWith('84') && cleaned.length >= 11) {
+    cleaned = '0' + cleaned.slice(2);
+  } else if (!cleaned.startsWith('0') && cleaned.length === 9) {
+    cleaned = '0' + cleaned;
   }
   
-  // Nếu chưa có số 0 ở đầu (ví dụ: 935672467 -> 0935672467)
-  if (!clean.startsWith('0') && clean.length === 9) {
-    clean = '0' + clean;
-  }
-  
-  return clean;
+  return cleaned;
 }
 
 /**
- * Định dạng số điện thoại hiển thị đẹp mắt (0935 672 467 hoặc 090 988 9603)
+ * Format a normalized 10-digit phone number into readable display format (e.g. 0905 123 456)
  */
-export function formatPhoneDisplay(phone: string): string {
-  const clean = normalizePhoneNumber(phone);
-  if (!clean || clean.length < 10) return phone;
-  
-  if (clean.length === 10) {
-    return `${clean.slice(0, 4)} ${clean.slice(4, 7)} ${clean.slice(7)}`;
-  }
-  return clean;
+export function formatDisplayPhone(phone: string | null | undefined): string {
+  const norm = normalizeVietnamPhone(phone);
+  if (!norm || norm.length < 10) return phone || '';
+  return `${norm.slice(0, 4)} ${norm.slice(4, 7)} ${norm.slice(7)}`;
 }
+
+// Aliases for backward compatibility
+export const normalizePhoneNumber = normalizeVietnamPhone;
+export const formatPhoneDisplay = formatDisplayPhone;

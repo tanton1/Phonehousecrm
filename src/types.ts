@@ -387,8 +387,16 @@ export interface DeviceItem {
 
 export type LeadStatus = 'new' | 'contacted' | 'negotiating' | 'appointment_scheduled' | 'deposit_paid' | 'deposit' | 'won' | 'lost';
 
+export interface LeadNextAction {
+  type: 'CALL' | 'MESSAGE' | 'APPOINTMENT' | 'SEND_QUOTE' | 'CHECK_STOCK';
+  dueAt?: string;
+  notes?: string;
+  assignedTo?: string;
+}
+
 export interface Lead {
   id: string;
+  customerId?: string;
   branchId?: string;
   name: string;
   phone: string;
@@ -400,9 +408,14 @@ export interface Lead {
   tradeInRequirose: boolean;
   tradeInModel?: string;
   status: LeadStatus;
+  lostReason?: string;
+  lostReasonDetails?: string;
   assignedStaff: string;
+  assignedStaffId?: string;
   followUpDate: string;
+  nextAction?: LeadNextAction;
   createdAt: string;
+  lastContactedAt?: string;
   notes: string;
   lastMessageSnippet?: string;
 }
