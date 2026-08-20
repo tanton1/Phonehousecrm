@@ -55,16 +55,28 @@ export async function apiJson<T>(
     }
 
     if (!response.ok) {
-      const errMsg = parsed?.error || parsed?.message || `HTTP ${response.status}: Yêu cầu thất bại.`;
+      let errMsg = '';
+      if (typeof parsed?.error === 'string') {
+        errMsg = parsed.error;
+      } else if (typeof parsed?.message === 'string') {
+        errMsg = parsed.message;
+      } else if (typeof parsed?.error?.message === 'string') {
+        errMsg = parsed.error.message;
+      } else if (parsed) {
+        errMsg = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
+      } else {
+        errMsg = `HTTP ${response.status}: Yêu cầu thất bại.`;
+      }
       throw new Error(errMsg);
     }
 
     return parsed as T;
   } catch (err: any) {
-    if (err.name === 'AbortError') {
+    if (err?.name === 'AbortError') {
       throw new Error(`Yêu cầu tới "${cleanPath}" đã quá thời gian chờ (15s). Vui lòng thử lại.`);
     }
-    throw err;
+    const finalMsg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err) || 'Lỗi kết nối không xác định.');
+    throw new Error(finalMsg);
   } finally {
     window.clearTimeout(timeoutId);
   }

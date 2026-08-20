@@ -141,35 +141,73 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     notes: ''
   });
 
-  // GPS & IP Auto-detection helper
   const [isGettingIp, setIsGettingIp] = useState(false);
 
   const handleGetDeviceIP = async () => {
     setIsGettingIp(true);
+    let detectedIp = '';
+    let detectionSource = '';
+
+    // 1. First attempt: Internal Server API
     try {
       const data = await apiJson<{ success: boolean; ip: string }>('/api/client-ip');
-      if (data.success && data.ip) {
-        setBranchForm(prev => {
-          const currentIps = Array.isArray(prev.allowedPublicIps) ? [...prev.allowedPublicIps] : [];
-          if (!currentIps.includes(data.ip)) {
-            currentIps.push(data.ip);
-          }
-          return {
-            ...prev,
-            storePublicIp: data.ip,
-            allowedPublicIps: currentIps
-          };
-        });
-        showToast(`Đã lấy IP Router Wi-Fi: ${data.ip}`, 'success');
-        alert(`Đã tự động lấy IP Router Wi-Fi cửa hàng thành công:\n\n📍 Địa chỉ IP: ${data.ip}\n(${data.ip.includes(':') ? 'Định dạng IPv6' : 'Định dạng IPv4'})\n\nBấm "Lưu" để cập nhật địa chỉ IP này cho chi nhánh.`);
-      } else {
-        alert('Không thể xác định địa chỉ IP tự động. Vui lòng kiểm tra lại kết nối mạng.');
+      if (data && data.success && data.ip && data.ip !== '127.0.0.1' && data.ip !== '::1') {
+        detectedIp = data.ip.trim();
+        detectionSource = 'Máy chủ PhoneHouse ERP';
       }
-    } catch (err: any) {
-      alert('Lỗi kết nối khi lấy IP: ' + (err?.message || err));
-    } finally {
-      setIsGettingIp(false);
+    } catch (apiErr) {
+      console.warn('[IP Detection] Internal server API unavailable, trying public IP resolver...', apiErr);
     }
+
+    // 2. Second attempt: Resilient Public IP Resolvers (IPv4/IPv6)
+    if (!detectedIp) {
+      const publicEndpoints = [
+        'https://api64.ipify.org?format=json',
+        'https://api.ipify.org?format=json',
+        'https://ipapi.co/json/'
+      ];
+
+      for (const endpoint of publicEndpoints) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 4000);
+          const res = await fetch(endpoint, {
+            headers: { Accept: 'application/json' },
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            const json = await res.json();
+            if (json && typeof json.ip === 'string' && json.ip.trim()) {
+              detectedIp = json.ip.trim();
+              detectionSource = endpoint.includes('ipify') ? 'ipify.org' : 'ipapi.co';
+              break;
+            }
+          }
+        } catch (fetchErr) {
+          console.warn(`[IP Detection] Endpoint ${endpoint} failed:`, fetchErr);
+        }
+      }
+    }
+
+    if (detectedIp) {
+      setBranchForm(prev => {
+        const currentIps = Array.isArray(prev.allowedPublicIps) ? [...prev.allowedPublicIps] : [];
+        if (!currentIps.includes(detectedIp)) {
+          currentIps.push(detectedIp);
+        }
+        return {
+          ...prev,
+          storePublicIp: detectedIp,
+          allowedPublicIps: currentIps
+        };
+      });
+      showToast(`Đã lấy IP Router: ${detectedIp}`, 'success');
+      alert(`Đã tự động lấy IP Router Wi-Fi cửa hàng thành công (qua ${detectionSource}):\n\n📍 Địa chỉ IP: ${detectedIp}\n(${detectedIp.includes(':') ? 'Định dạng IPv6' : 'Định dạng IPv4'})\n\nBấm "Lưu" để cập nhật địa chỉ IP này cho chi nhánh.`);
+    } else {
+      alert('Không thể xác định địa chỉ IP công khai của mạng hiện tại. Vui lòng kiểm tra kết nối Internet hoặc nhập địa chỉ IP Router thủ công.');
+    }
+    setIsGettingIp(false);
   };
 
   const handleGetDeviceGPS = () => {
@@ -657,8 +695,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       </div>
                       <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-orange-200/60">
                         <span className="text-zinc-700 font-medium">📶 IP Router Cửa Hàng:</span>
-                        <span className="font-mono font-bold bg-white text-orange-900 px-2 py-0.5 rounded-md border border-orange-200 truncate max-w-[220px]" title={branch.storePublicIp || '113.161.45.88'}>
-                          {branch.storePublicIp || '113.161.45.88'}
+                        <span className="font-mono font-bold bg-white text-orange-900 px-2 py-0.5 rounded-md border border-orange-200 truncate max-w-[220px]" title={Array.isArray(branch.allowedPublicIps) && branch.allowedPublicIps.length > 0 ? branch.allowedPublicIps.join(', ') : (branch.storePublicIp || 'Chưa cấu hình')}>
+                          {Array.isArray(branch.allowedPublicIps) && branch.allowedPublicIps.length > 0 ? branch.allowedPublicIps.join(', ') : (branch.storePublicIp || 'Chưa cấu hình')}
                         </span>
                       </div>
                     </div>
