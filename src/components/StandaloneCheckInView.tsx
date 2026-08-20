@@ -67,14 +67,21 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   // Available staff and branches
   const availableStaff = INITIAL_STAFF_MEMBERS;
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
-    if (currentUser?.id && availableStaff.some(s => s.id === currentUser.id)) {
+    if (currentUser?.id && availableStaff.some(s => s?.id === currentUser.id)) {
       return currentUser.id;
     }
     return availableStaff[0]?.id || 'STAFF_001';
   });
 
   const selectedStaff = useMemo(() => {
-    return availableStaff.find(s => s.id === selectedStaffId) || availableStaff[0];
+    return availableStaff.find(s => s?.id === selectedStaffId) || availableStaff[0] || {
+      id: 'STAFF_001',
+      name: 'Nhân Viên Showroom',
+      code: 'NV01',
+      role: 'SALES',
+      branchId: 'CN01',
+      branchName: 'Chi Nhánh Showroom'
+    };
   }, [availableStaff, selectedStaffId]);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
@@ -82,7 +89,21 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   });
 
   const targetBranch = useMemo(() => {
-    return branches.find(b => b.id === selectedBranchId || b.name === selectedStaff?.branchName) || branches[0];
+    return (branches || []).find(b => b?.id === selectedBranchId || b?.name === selectedStaff?.branchName) || branches[0] || {
+      id: 'BRANCH_001',
+      code: 'CN01',
+      name: 'Chi Nhánh Showroom',
+      address: 'Hà Nội',
+      phone: '1900 xxxx',
+      email: 'contact@phonehouse.vn',
+      manager: 'Quản lý',
+      openingHours: '08:00 - 22:00',
+      warehouseId: 'KHO_01',
+      systemType: 'PHONEHOUSE',
+      isActive: true,
+      isHeadquarter: false,
+      notes: ''
+    };
   }, [branches, selectedBranchId, selectedStaff]);
 
   // Live Digital Clock
@@ -131,31 +152,33 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     faceFeatureVector?: number[];
     faceEnrollmentDate?: string;
   }>(() => {
+    const sId = selectedStaff?.id || 'STAFF_001';
     try {
-      const saved = localStorage.getItem(`phonehouse_face_profile_${selectedStaff.id}`);
+      const saved = localStorage.getItem(`phonehouse_face_profile_${sId}`);
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return {
-      facePhotoUrl: selectedStaff.facePhotoUrl || selectedStaff.avatar,
-      faceFeatureVector: selectedStaff.faceFeatureVector,
-      faceEnrollmentDate: selectedStaff.faceEnrollmentDate || '2025-01-10'
+      facePhotoUrl: selectedStaff?.facePhotoUrl || selectedStaff?.avatar,
+      faceFeatureVector: selectedStaff?.faceFeatureVector,
+      faceEnrollmentDate: selectedStaff?.faceEnrollmentDate || '2025-01-10'
     };
   });
 
   useEffect(() => {
+    const sId = selectedStaff?.id || 'STAFF_001';
     try {
-      const saved = localStorage.getItem(`phonehouse_face_profile_${selectedStaff.id}`);
+      const saved = localStorage.getItem(`phonehouse_face_profile_${sId}`);
       if (saved) {
         setStaffFaceProfile(JSON.parse(saved));
       } else {
         setStaffFaceProfile({
-          facePhotoUrl: selectedStaff.facePhotoUrl || selectedStaff.avatar,
-          faceFeatureVector: selectedStaff.faceFeatureVector,
-          faceEnrollmentDate: selectedStaff.faceEnrollmentDate || '2025-01-10'
+          facePhotoUrl: selectedStaff?.facePhotoUrl || selectedStaff?.avatar,
+          faceFeatureVector: selectedStaff?.faceFeatureVector,
+          faceEnrollmentDate: selectedStaff?.faceEnrollmentDate || '2025-01-10'
         });
       }
     } catch (e) {}
-  }, [selectedStaff.id]);
+  }, [selectedStaff?.id]);
 
   // Camera Management
   const stopCamera = () => {

@@ -224,8 +224,8 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
                 className="bg-transparent font-bold text-zinc-900 focus:outline-none cursor-pointer pr-1"
               >
                 <option value="ALL">Tất cả chi nhánh</option>
-                {branches.map(br => (
-                  <option key={br.id} value={br.id}>{br.name}</option>
+                {(branches || []).filter(Boolean).map(br => (
+                  <option key={br?.id || br?.code || Math.random()} value={br?.id || ''}>{br?.name || 'Chi nhánh'}</option>
                 ))}
               </select>
             </div>

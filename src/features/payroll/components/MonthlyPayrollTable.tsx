@@ -37,24 +37,24 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
 
   // Compute payroll records from staff data
   const payrollRecords: PayrollRecord[] = useMemo(() => {
-    return staffList.map(staff => {
-      const baseSalary = staff.baseSalary || 7_000_000;
+    return (staffList || []).filter(Boolean).map(staff => {
+      const baseSalary = staff?.baseSalary || 7_000_000;
       const workDays = 26; // Chuẩn 26 ngày công
       const standardWorkDays = 26;
-      const posCommission = (staff.salesCommission || 0) + (staff.kpiSalesBonus || 0) || (staff.role === 'SALE' ? 3_500_000 : 500_000);
-      const techCommission = staff.role === 'TECH' || staff.role === 'TECH_LEAD' ? 4_200_000 : 0;
+      const posCommission = (staff?.salesCommission || 0) + (staff?.kpiSalesBonus || 0) || (staff?.role === 'SALE' ? 3_500_000 : 500_000);
+      const techCommission = staff?.role === 'TECH' || staff?.role === 'TECH_LEAD' ? 4_200_000 : 0;
       const allowances = 1_000_000; // Ăn trưa + gửi xe + điện thoại
       const advances = 0; // Tạm ứng
 
       const proratedBase = Math.round((baseSalary / standardWorkDays) * workDays);
       const netSalary = proratedBase + posCommission + techCommission + allowances - advances;
 
-      const branchObj = branches.find(b => b.id === staff.branchId);
+      const branchObj = (branches || []).find(b => b?.id === staff?.branchId);
 
       return {
-        staffId: staff.id,
-        staffName: staff.displayName || staff.name || 'Nhân viên',
-        role: staff.role,
+        staffId: staff?.id || 'STAFF_001',
+        staffName: staff?.displayName || staff?.name || 'Nhân viên',
+        role: staff?.role || 'STAFF',
         branchName: branchObj?.name || 'Toàn hệ thống',
         baseSalary,
         workDays,
@@ -72,7 +72,7 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
   const filteredRecords = useMemo(() => {
     return payrollRecords.filter(r => {
       if (selectedBranchId === 'ALL') return true;
-      const staffObj = staffList.find(s => s.id === r.staffId);
+      const staffObj = (staffList || []).find(s => s?.id === r.staffId);
       return staffObj?.branchId === selectedBranchId;
     });
   }, [payrollRecords, selectedBranchId, staffList]);
@@ -140,8 +140,8 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
             className="h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 focus:outline-none focus:border-[#ff4b16]"
           >
             <option value="ALL">Tất Cả Chi Nhánh</option>
-            {branches.map(b => (
-              <option key={b.id} value={b.id}>{b.name}</option>
+            {(branches || []).filter(Boolean).map(b => (
+              <option key={b?.id || b?.code || Math.random()} value={b?.id || ''}>{b?.name || 'Chi nhánh'}</option>
             ))}
           </select>
         </div>

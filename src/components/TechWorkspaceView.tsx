@@ -41,16 +41,17 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
 
   // Active tech staff identification
   const currentStaffId = currentUser?.id || 'STAFF_004';
-  const staffMember = INITIAL_STAFF_MEMBERS.find(s => s.id === currentStaffId || s.name === currentUser?.displayName) 
-    || INITIAL_STAFF_MEMBERS.find(s => s.role === 'TECHNICIAN') 
-    || INITIAL_STAFF_MEMBERS[0];
+  const staffMember = (INITIAL_STAFF_MEMBERS || []).find(s => s?.id === currentStaffId || s?.name === currentUser?.displayName) 
+    || (INITIAL_STAFF_MEMBERS || []).find(s => s?.role === 'TECHNICIAN') 
+    || INITIAL_STAFF_MEMBERS[0]
+    || { id: 'STAFF_004', name: 'Kỹ Thuật Viên', role: 'TECHNICIAN', branchId: 'CN01' };
 
   // Automated Tech Wallet Calculation using Phase 3 Engine
   const dualWallet = useMemo(() => {
     // Generate real-time commissions from tickets if not provided or empty
-    const directTicketCommissions = tasks.flatMap(t => calculateWarrantyTicketCommissions(t, INITIAL_STAFF_MEMBERS));
-    const mergedCommissions = commissions.length > 0 ? commissions : directTicketCommissions;
-    return calculateStaffDualWallet(staffMember.id, mergedCommissions, INITIAL_STAFF_MEMBERS);
+    const directTicketCommissions = (tasks || []).flatMap(t => calculateWarrantyTicketCommissions(t, INITIAL_STAFF_MEMBERS));
+    const mergedCommissions = commissions && commissions.length > 0 ? commissions : directTicketCommissions;
+    return calculateStaffDualWallet(staffMember?.id || 'STAFF_004', mergedCommissions, INITIAL_STAFF_MEMBERS);
   }, [staffMember, commissions, tasks]);
 
   const techWallet = dualWallet.techWallet;

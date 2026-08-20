@@ -102,40 +102,47 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   
   // Real-time synced commissions across all tickets and invoices
   const allSyncedCommissions = useMemo(() => {
-    return syncCommissionsFromAllSources(invoices, warrantyTickets, staffList, policies, commissions);
+    return syncCommissionsFromAllSources(invoices || [], warrantyTickets || [], staffList || [], policies || [], commissions || []);
   }, [invoices, warrantyTickets, staffList, policies, commissions]);
 
   // Compute dual wallet for all staff members
   const staffDualWalletsMap = useMemo(() => {
     const map = new Map<string, StaffDualWalletSummary>();
-    staffList.forEach(staff => {
-      map.set(staff.id, calculateStaffDualWallet(staff.id, allSyncedCommissions, staffList));
+    (staffList || []).filter(Boolean).forEach(staff => {
+      if (staff && staff.id) {
+        map.set(staff.id, calculateStaffDualWallet(staff.id, allSyncedCommissions, staffList || []));
+      }
     });
     return map;
   }, [staffList, allSyncedCommissions]);
 
   // Initial Calculated Slips populated with dual wallet figures
   const [calculatedSlips, setCalculatedSlips] = useState<MonthlyPayrollSlip[]>(() => {
-    return staffList.map(staff => {
-      const dual = calculateStaffDualWallet(staff.id, allSyncedCommissions, staffList);
-      const policy = policies.find(p => p.role === staff.role) || policies[0];
+    return (staffList || []).filter(Boolean).map(staff => {
+      const sId = staff?.id || 'STAFF_001';
+      const dual = calculateStaffDualWallet(sId, allSyncedCommissions, staffList || []);
+      const policy = (policies || []).find(p => p && p.role === staff?.role) || policies?.[0] || {
+        baseSalary: 5000000,
+        lunchAllowance: 500000,
+        phoneAllowance: 200000
+      };
       const baseSalary = policy?.baseSalary || 5000000;
       const allowance = (policy?.lunchAllowance || 500000) + (policy?.phoneAllowance || 200000);
       const deductions = 0;
-      const totalCommission = dual.totalGrossCommission;
-      const kpiBonus = dual.salesWallet.totalRevenue >= 100000000 ? 2000000 : 0;
+      const totalCommission = dual?.totalGrossCommission || 0;
+      const kpiBonus = (dual?.salesWallet?.totalRevenue || 0) >= 100000000 ? 2000000 : 0;
 
       return {
-        id: `SLIP-2026-08-${staff.id}`,
-        employeeId: staff.id,
-        employeeName: staff.name,
-        employeeCode: staff.code || '',
+        id: `SLIP-2026-08-${sId}`,
+        employeeId: sId,
+        employeeName: staff?.name || 'Nhân viên',
+        employeeCode: staff?.code || '',
         periodMonth: '08/2026',
         month: '08/2026',
-        role: staff.role,
-        roleTitle: staff.roleTitle || (staff.role === 'ADMIN' ? 'Chủ Cửa Hàng' : staff.role === 'MANAGER' ? 'Quản Lý' : staff.role === 'SALES' ? 'Nhân Viên Bán Hàng' : 'Kỹ Thuật Viên'),
-        branchId: staff.branchId || 'CN01',
-        branchName: staff.branchName || 'PhoneHouse Cầu Giấy',
+        role: staff?.role || 'STAFF',
+        roleTitle: staff?.roleTitle || (staff?.role === 'ADMIN' ? 'Chủ Cửa Hàng' : staff?.role === 'MANAGER' ? 'Quản Lý' : staff?.role === 'SALES' ? 'Nhân Viên Bán Hàng' : 'Kỹ Thuật Viên'),
+        branchId: staff?.branchId || 'CN01',
+        branchName: staff?.branchName || 'PhoneHouse Cầu Giấy',
         standardWorkDays: 26,
         actualWorkDays: 26,
         baseSalary: baseSalary,
@@ -146,7 +153,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
         ],
         kpiBonus: kpiBonus,
         totalCommission: totalCommission,
-        commissions: dual.techWallet.transactions.concat(dual.salesWallet.transactions),
+        commissions: (dual?.techWallet?.transactions || []).concat(dual?.salesWallet?.transactions || []),
         overtimePay: 0,
         totalDeductions: deductions,
         deductions: [],
@@ -169,26 +176,31 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   const handleCalculatePayroll = () => {
     setIsCalculating(true);
     setTimeout(() => {
-      const newSlips = staffList.map(staff => {
-        const dual = staffDualWalletsMap.get(staff.id) || calculateStaffDualWallet(staff.id, allSyncedCommissions, staffList);
-        const policy = policies.find(p => p.role === staff.role) || policies[0];
+      const newSlips = (staffList || []).filter(Boolean).map(staff => {
+        const sId = staff?.id || 'STAFF_001';
+        const dual = staffDualWalletsMap.get(sId) || calculateStaffDualWallet(sId, allSyncedCommissions, staffList || []);
+        const policy = (policies || []).find(p => p && p.role === staff?.role) || policies?.[0] || {
+          baseSalary: 5000000,
+          lunchAllowance: 500000,
+          phoneAllowance: 200000
+        };
         const baseSalary = policy?.baseSalary || 5000000;
         const allowance = (policy?.lunchAllowance || 500000) + (policy?.phoneAllowance || 200000);
         const deductions = 0; // Khấu trừ đi trễ (nếu có)
-        const totalCommission = dual.totalGrossCommission;
-        const kpiBonus = dual.salesWallet.totalRevenue >= 100000000 ? 2000000 : 0;
+        const totalCommission = dual?.totalGrossCommission || 0;
+        const kpiBonus = (dual?.salesWallet?.totalRevenue || 0) >= 100000000 ? 2000000 : 0;
         
         return {
-          id: `SLIP-${Date.now()}-${staff.id}`,
-          employeeId: staff.id,
-          employeeName: staff.name,
-          employeeCode: staff.code || '',
+          id: `SLIP-${Date.now()}-${sId}`,
+          employeeId: sId,
+          employeeName: staff?.name || 'Nhân viên',
+          employeeCode: staff?.code || '',
           periodMonth: '08/2026',
           month: '08/2026',
-          role: staff.role,
-          roleTitle: staff.roleTitle || (staff.role === 'ADMIN' ? 'Chủ Cửa Hàng' : staff.role === 'MANAGER' ? 'Quản Lý' : staff.role === 'SALES' ? 'Nhân Viên Bán Hàng' : 'Kỹ Thuật Viên'),
-          branchId: staff.branchId || 'CN01',
-          branchName: staff.branchName || 'PhoneHouse Cầu Giấy',
+          role: staff?.role || 'STAFF',
+          roleTitle: staff?.roleTitle || (staff?.role === 'ADMIN' ? 'Chủ Cửa Hàng' : staff?.role === 'MANAGER' ? 'Quản Lý' : staff?.role === 'SALES' ? 'Nhân Viên Bán Hàng' : 'Kỹ Thuật Viên'),
+          branchId: staff?.branchId || 'CN01',
+          branchName: staff?.branchName || 'PhoneHouse Cầu Giấy',
           standardWorkDays: 26,
           actualWorkDays: 26,
           baseSalary: baseSalary,
@@ -199,7 +211,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
           ],
           kpiBonus: kpiBonus,
           totalCommission: totalCommission,
-          commissions: dual.techWallet.transactions.concat(dual.salesWallet.transactions),
+          commissions: (dual?.techWallet?.transactions || []).concat(dual?.salesWallet?.transactions || []),
           overtimePay: 0,
           totalDeductions: deductions,
           deductions: [],
@@ -282,8 +294,8 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800"
               >
                 <option value="ALL">Tất cả chi nhánh</option>
-                {branches.map(br => (
-                  <option key={br.id} value={br.id}>{br.name}</option>
+                {(branches || []).filter(Boolean).map(br => (
+                  <option key={br?.id || br?.code || Math.random()} value={br?.id || ''}>{br?.name || 'Chi nhánh'}</option>
                 ))}
               </select>
 
@@ -683,16 +695,16 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
         <div className="space-y-4">
           {/* SUMMARY CARDS DYNAMICALLY COMPUTED */}
           {(() => {
-            const totalBase = calculatedSlips.reduce((sum, s) => sum + s.baseSalary, 0);
-            const totalTechComm = staffList.reduce((sum, s) => {
-              const w = staffDualWalletsMap.get(s.id);
-              return sum + (w?.techWallet.totalCommission || 0);
+            const totalBase = calculatedSlips.reduce((sum, s) => sum + (s?.baseSalary || 0), 0);
+            const totalTechComm = (staffList || []).filter(Boolean).reduce((sum, s) => {
+              const w = s?.id ? staffDualWalletsMap.get(s.id) : null;
+              return sum + (w?.techWallet?.totalCommission || 0);
             }, 0);
-            const totalSalesComm = staffList.reduce((sum, s) => {
-              const w = staffDualWalletsMap.get(s.id);
-              return sum + (w?.salesWallet.totalCommission || 0);
+            const totalSalesComm = (staffList || []).filter(Boolean).reduce((sum, s) => {
+              const w = s?.id ? staffDualWalletsMap.get(s.id) : null;
+              return sum + (w?.salesWallet?.totalCommission || 0);
             }, 0);
-            const totalNet = calculatedSlips.reduce((sum, s) => sum + s.netPay, 0);
+            const totalNet = calculatedSlips.reduce((sum, s) => sum + (s?.netPay || 0), 0);
 
             return (
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
