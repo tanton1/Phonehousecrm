@@ -344,6 +344,13 @@ service cloud.firestore {
       allow write: if false; // Strict Single Writer Principle: Only Server Reservation API (/api/crm/quotes/reserve) via Admin SDK
     }
 
+    match /crmTasks/{taskId} {
+      allow read: if isAdmin() || (
+        isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.assignedStaffId == request.auth.uid)
+      );
+      allow write: if false; // Strict Single Writer Principle: Only Server Event Service via Admin SDK
+    }
+
     // Default Fallback: Only Active Admin
     match /{document=**} {
       allow read, write: if isAdmin();

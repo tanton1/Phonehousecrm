@@ -23,7 +23,12 @@ import {
   subscribeToLeadQuotes,
   addLeadQuoteToFirestore
 } from '../services/firestoreService';
-import { requestServerCareReview } from '../services/crmApiClient';
+import { 
+  requestServerCareReview, 
+  requestLeadStateTransition, 
+  requestDeviceReservation, 
+  requestConvertQuoteToPOS 
+} from '../services/crmApiClient';
 
 import { LeadKanbanBoard } from '../features/crm/components/LeadKanbanBoard';
 import { CompleteCareActivityModal } from '../features/crm/components/CompleteCareActivityModal';
@@ -105,24 +110,26 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
 
   // Subscribe to real-time collections
   useEffect(() => {
+    const filter = currentUser?.branchId ? { branchId: currentUser.branchId } : undefined;
+
     const unsubActivities = subscribeToLeadCareActivities((remoteActs) => {
       if (remoteActs) setActivities(remoteActs);
-    });
+    }, filter);
 
     const unsubAppts = subscribeToLeadAppointments((remoteAppts) => {
       if (remoteAppts) setAppointments(remoteAppts);
-    });
+    }, filter);
 
     const unsubQuotes = subscribeToLeadQuotes((remoteQuotes) => {
       if (remoteQuotes) setQuotes(remoteQuotes);
-    });
+    }, filter);
 
     return () => {
       unsubActivities();
       unsubAppts();
       unsubQuotes();
     };
-  }, []);
+  }, [currentUser?.branchId]);
 
   // New Lead Form State
   const [formData, setFormData] = useState<Partial<Lead>>({
@@ -248,8 +255,28 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
   };
 
   const handleSaveQuote = async (quote: LeadQuote) => {
-    await addLeadQuoteToFirestore(quote);
-    setQuotes(prev => [quote, ...prev]);
+    // If quote specifies an inventory device to hold, call Server Reservation API
+    if (quote.reservedDeviceId) {
+      try {
+        await requestDeviceReservation(
+          quote.reservedDeviceId,
+          quote.leadId,
+          quote.id,
+          quote.customerId
+        );
+      } catch (err: any) {
+        console.error('[CRM Device Reservation Error]:', err);
+        alert(`Không thể giữ máy tồn kho: ${err?.message || 'Thiết bị đang bận hoặc thuộc chi nhánh khác.'}`);
+        return;
+      }
+    }
+
+    try {
+      await addLeadQuoteToFirestore(quote);
+      setQuotes(prev => [quote, ...prev]);
+    } catch (err: any) {
+      alert(`Lỗi lưu báo giá: ${err?.message || 'Không thể ghi nhận báo giá.'}`);
+    }
   };
 
   const handleConvertQuoteToPOS = (quote: LeadQuote, lead: Lead) => {
@@ -264,60 +291,27 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
         status: newStatus,
         arrivedAt: newStatus === 'ARRIVED' ? getVietnamDateTimeString() : appt.arrivedAt
       };
-      await updateLeadAppointmentInFirestore(updated);
-      setAppointments(prev => prev.map(a => a.id === appointmentId ? updated : a));
+      try {
+        await updateLeadAppointmentInFirestore(updated);
+        setAppointments(prev => prev.map(a => a.id === appointmentId ? updated : a));
+      } catch (err: any) {
+        alert(`Lỗi cập nhật lịch hẹn: ${err?.message || 'Thao tác bị từ chối.'}`);
+      }
     }
   };
 
   const handleUpdateActivityVerification = async (
     activityId: string, 
     status: EvidenceVerificationStatus, 
-    note?: string,
-    reviewer?: { id: string; name: string }
+    note?: string
   ) => {
     try {
-      // 1. Authoritative Backend QA Audit Request
+      // Authoritative Backend QA Audit Request (Strict Fail-Closed)
       const serverUpdated = await requestServerCareReview(activityId, status, note);
       setActivities(prev => prev.map(a => a.id === activityId ? serverUpdated : a));
-    } catch (err) {
-      console.warn('[CRM QA Server Audit Error, applying optimistic local fallback]:', err);
-      const act = activities.find(a => a.id === activityId);
-      if (act) {
-        const nowStr = getVietnamDateTimeString();
-        const reviewerId = reviewer?.id || currentUser?.id || 'QA_MGR';
-        const reviewerName = reviewer?.name || currentUser?.displayName || 'Quản Lý QA';
-        
-        const newAuditItem = {
-          previousStatus: act.verificationStatus,
-          newStatus: status,
-          changedBy: reviewerId,
-          changedByName: reviewerName,
-          changedAt: nowStr,
-          note: note || ''
-        };
-
-        const updated: LeadCareActivity = {
-          ...act,
-          verificationStatus: status,
-          qaReview: {
-            status,
-            reviewedBy: reviewerId,
-            reviewedByName: reviewerName,
-            reviewedAt: nowStr,
-            note
-          },
-          auditHistory: [...(act.auditHistory || []), newAuditItem],
-          evidenceData: {
-            ...act.evidenceData,
-            managerNote: note,
-            managerReviewedBy: reviewerName,
-            managerReviewedAt: nowStr
-          }
-        };
-
-        await updateLeadCareActivityInFirestore(updated);
-        setActivities(prev => prev.map(a => a.id === activityId ? updated : a));
-      }
+    } catch (err: any) {
+      console.error('[CRM QA Server Audit Error]:', err);
+      alert(`Lỗi kiểm duyệt QA từ máy chủ: ${err?.message || 'Không thể thực hiện kiểm duyệt.'}`);
     }
   };
 
@@ -402,10 +396,15 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
           leads={leads}
           activities={activities}
           onSelectLead={(lead) => setActiveDrawerLead(lead)}
-          onUpdateLeadStatus={(leadId, newStatus, lostReason) => {
+          onUpdateLeadStatus={async (leadId, newStatus, lostReason) => {
             const lead = leads.find(l => l.id === leadId);
             if (lead) {
-              onUpdateLead({ ...lead, status: newStatus, lostReason: lostReason || lead.lostReason });
+              try {
+                await requestLeadStateTransition(leadId, lead.status, newStatus, { lostReason });
+                onUpdateLead({ ...lead, status: newStatus, lostReason: lostReason || lead.lostReason });
+              } catch (err: any) {
+                alert(`Lỗi chuyển đổi trạng thái Lead: ${err?.message || 'Không thể chuyển đổi trạng thái.'}`);
+              }
             }
           }}
           onOpenCreateModal={() => setIsAddLeadModalOpen(true)}

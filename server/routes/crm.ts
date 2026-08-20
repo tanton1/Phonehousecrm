@@ -19,12 +19,28 @@ export function createCrmRouter(db: Firestore | null): Router {
    */
   router.post('/care/review', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return res.status(503).json({
+          success: false,
+          error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu máy chủ chưa sẵn sàng.'
+        });
+      }
+
       const { activityId, status, note } = req.body;
 
       if (!activityId || !status) {
         return res.status(400).json({
           success: false,
           error: 'Thiếu thông tin activityId hoặc status kiểm duyệt.'
+        });
+      }
+
+      // Strict runtime validation for QA statuses
+      const allowedQAStatuses = ['MANAGER_VERIFIED', 'NEEDS_EVIDENCE', 'FLAGGED'];
+      if (!allowedQAStatuses.includes(status)) {
+        return res.status(400).json({
+          success: false,
+          error: `INVALID_QA_STATUS: Trạng thái QA không hợp lệ (${status}). Chỉ chấp nhận: ${allowedQAStatuses.join(', ')}.`
         });
       }
 
@@ -73,6 +89,13 @@ export function createCrmRouter(db: Firestore | null): Router {
    */
   router.post('/leads/transition', authenticateFirebase, async (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return res.status(503).json({
+          success: false,
+          error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu máy chủ chưa sẵn sàng.'
+        });
+      }
+
       const { leadId, fromStatus, toStatus, context } = req.body;
 
       if (!leadId || !fromStatus || !toStatus) {
@@ -83,15 +106,15 @@ export function createCrmRouter(db: Firestore | null): Router {
       }
 
       const userUid = req.user?.uid;
-      const userRole = req.user?.role || 'STAFF';
+      const userRole = req.user?.role;
       const userBranchId = req.user?.branchId;
       const userAssignedBranches = req.user?.assignedBranchIds || [];
       const userName = req.user?.name || req.user?.email || userUid;
 
-      if (!userUid || !userBranchId) {
+      if (!userUid || !userRole || !userBranchId) {
         return res.status(401).json({
           success: false,
-          error: 'UNAUTHENTICATED: Không xác thực được danh tính hoặc chi nhánh nhân viên.'
+          error: 'UNAUTHENTICATED: Không xác thực được danh tính, vai trò hoặc chi nhánh nhân viên.'
         });
       }
 
@@ -103,73 +126,83 @@ export function createCrmRouter(db: Firestore | null): Router {
         });
       }
 
-      if (db) {
-        const leadRef = db.collection('leads').doc(leadId);
-        await db.runTransaction(async (transaction) => {
-          const lSnap = await transaction.get(leadRef);
-          if (!lSnap.exists) {
-            throw new Error(`LEAD_NOT_FOUND: Không tìm thấy Lead ID "${leadId}".`);
+      const leadRef = db.collection('leads').doc(leadId);
+      let authCustomerId = '';
+
+      await db.runTransaction(async (transaction) => {
+        const lSnap = await transaction.get(leadRef);
+        if (!lSnap.exists) {
+          throw new Error(`LEAD_NOT_FOUND: Không tìm thấy Lead ID "${leadId}".`);
+        }
+
+        const lData = lSnap.data()!;
+        const currentStatus = lData.status;
+
+        if (!lData.branchId) {
+          throw new Error('LEAD_BRANCH_MISSING: Dữ liệu Lead trên hệ thống thiếu thông tin chi nhánh.');
+        }
+
+        // 2A. Branch Isolation Guard
+        if (userRole !== 'ADMIN') {
+          const allowedBranches = [userBranchId, ...userAssignedBranches];
+          if (!allowedBranches.includes(lData.branchId)) {
+            throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên Lead thuộc chi nhánh "${lData.branchId}".`);
           }
+        }
 
-          const lData = lSnap.data()!;
-          const currentStatus = lData.status;
-
-          // 2A. Branch Isolation Guard
-          if (userRole !== 'ADMIN') {
-            const allowedBranches = [userBranchId, ...userAssignedBranches];
-            if (lData.branchId && !allowedBranches.includes(lData.branchId)) {
-              throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên Lead thuộc chi nhánh "${lData.branchId}".`);
-            }
+        // 2B. Ownership & Role Guard: Only SALES can transition their own leads; ADMIN/MANAGER can transition any lead in their branch
+        const canManageAllLeads = userRole === 'ADMIN' || userRole === 'MANAGER';
+        if (!canManageAllLeads) {
+          if (userRole !== 'SALES') {
+            throw new Error(`PERMISSION_DENIED: Vai trò "${userRole}" không có quyền quản trị phễu bán hàng (Chỉ dành cho SALES hoặc Quản lý).`);
           }
-
-          // 2B. Ownership Guard: Regular Sales Staff can only transition assigned leads
-          if (userRole === 'STAFF') {
-            if (lData.assignedStaffId && lData.assignedStaffId !== userUid) {
-              throw new Error(`LEAD_OWNERSHIP_FORBIDDEN: Lead này đang do nhân viên khác (${lData.assignedStaff || lData.assignedStaffId}) phụ trách.`);
-            }
+          if (!lData.assignedStaffId || lData.assignedStaffId !== userUid) {
+            throw new Error(`LEAD_OWNERSHIP_FORBIDDEN: Lead này do ${lData.assignedStaff || lData.assignedStaffId || 'nhân viên khác'} phụ trách.`);
           }
+        }
 
-          // 2C. Authoritative DB State Validation
-          const dbTransitionCheck = canTransitionLeadState(currentStatus, toStatus, context);
-          if (!dbTransitionCheck.allowed) {
-            throw new Error(dbTransitionCheck.reason || 'Trạng thái hiện tại trên máy chủ không cho phép chuyển đổi này.');
-          }
+        // 2C. Authoritative DB State Validation
+        const dbTransitionCheck = canTransitionLeadState(currentStatus, toStatus, context);
+        if (!dbTransitionCheck.allowed) {
+          throw new Error(dbTransitionCheck.reason || 'Trạng thái hiện tại trên máy chủ không cho phép chuyển đổi này.');
+        }
 
-          const updatePayload: Record<string, any> = {
-            status: toStatus,
-            updatedAt: FieldValue.serverTimestamp()
-          };
+        authCustomerId = lData.customerId || normalizeCustomerId(undefined, lData.phone);
 
-          if (toStatus === 'won' && context?.invoiceId) {
-            updatePayload.wonInvoiceId = context.invoiceId;
-            updatePayload.wonAt = new Date().toISOString();
-          }
+        const updatePayload: Record<string, any> = {
+          status: toStatus,
+          updatedAt: FieldValue.serverTimestamp()
+        };
 
-          if (toStatus === 'lost' && context?.lostReason) {
-            updatePayload.lostReason = context.lostReason;
-            updatePayload.lostAt = new Date().toISOString();
-          }
+        if (toStatus === 'won' && context?.invoiceId) {
+          updatePayload.wonInvoiceId = context.invoiceId;
+          updatePayload.wonAt = new Date().toISOString();
+        }
 
-          transaction.update(leadRef, updatePayload);
-        });
+        if (toStatus === 'lost' && context?.lostReason) {
+          updatePayload.lostReason = context.lostReason;
+          updatePayload.lostAt = new Date().toISOString();
+        }
 
-        // 2D. Record to Customer Activity Ledger via CRM Event Bus
-        await emitCrmEvent(db, {
-          type: toStatus === 'won' ? 'INVOICE_COMPLETED' : toStatus === 'lost' ? 'LEAD_LOST' : 'LEAD_STAGE_CHANGED',
-          customerId: normalizeCustomerId(context?.customerId || leadId, context?.customerPhone),
-          leadId,
-          entityId: context?.invoiceId || context?.quoteId || leadId,
-          staffId: userUid,
-          staffName: userName,
-          branchId: userBranchId,
-          summary: `Chuyển trạng thái Lead từ "${fromStatus}" sang "${toStatus}"${context?.notes ? `: ${context.notes}` : ''}`,
-          details: {
-            fromStatus,
-            toStatus,
-            context
-          }
-        });
-      }
+        transaction.update(leadRef, updatePayload);
+      });
+
+      // 2D. Record to Customer Activity Ledger via CRM Event Bus
+      await emitCrmEvent(db, {
+        type: toStatus === 'won' ? 'INVOICE_COMPLETED' : toStatus === 'lost' ? 'LEAD_LOST' : 'LEAD_STAGE_CHANGED',
+        customerId: authCustomerId,
+        leadId,
+        entityId: context?.invoiceId || context?.quoteId || leadId,
+        staffId: userUid,
+        staffName: userName,
+        branchId: userBranchId,
+        summary: `Chuyển trạng thái Lead từ "${fromStatus}" sang "${toStatus}"${context?.notes ? `: ${context.notes}` : ''}`,
+        details: {
+          fromStatus,
+          toStatus,
+          context
+        }
+      });
 
       return res.json({
         success: true,
@@ -192,6 +225,13 @@ export function createCrmRouter(db: Firestore | null): Router {
    */
   router.post('/quotes/reserve', authenticateFirebase, async (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return res.status(503).json({
+          success: false,
+          error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu máy chủ chưa sẵn sàng.'
+        });
+      }
+
       const { deviceId, leadId, quoteId, customerId } = req.body;
 
       if (!deviceId || !leadId) {
@@ -203,6 +243,7 @@ export function createCrmRouter(db: Firestore | null): Router {
 
       const staffId = req.user?.uid;
       const branchId = req.user?.branchId;
+      const userAssignedBranches = req.user?.assignedBranchIds || [];
 
       if (!staffId || !branchId) {
         return res.status(401).json({
@@ -222,22 +263,20 @@ export function createCrmRouter(db: Firestore | null): Router {
       });
 
       // Emit CRM Event
-      if (db) {
-        await emitCrmEvent(db, {
-          type: 'DEVICE_RESERVED',
-          customerId: normalizeCustomerId(customerId, undefined),
-          leadId,
-          entityId: deviceId,
-          staffId,
-          staffName: req.user?.name || req.user?.email || staffId,
-          branchId,
-          summary: `Giữ máy tồn kho ${result.model} (${result.imei}) cho Lead trong 30 phút.`,
-          details: {
-            deviceId,
-            expiresAt: result.expiresAt
-          }
-        });
-      }
+      await emitCrmEvent(db, {
+        type: 'DEVICE_RESERVED',
+        customerId: normalizeCustomerId(customerId, undefined),
+        leadId,
+        entityId: deviceId,
+        staffId,
+        staffName: req.user?.name || req.user?.email || staffId,
+        branchId,
+        summary: `Giữ máy tồn kho ${result.model} (${result.imei}) cho Lead trong 30 phút.`,
+        details: {
+          deviceId,
+          expiresAt: result.expiresAt
+        }
+      });
 
       return res.json({
         success: true,
@@ -247,7 +286,9 @@ export function createCrmRouter(db: Firestore | null): Router {
     } catch (err: any) {
       console.error('[CRM Device Reservation Error]:', err);
       const isConflict = err.message?.includes('ALREADY_RESERVED') || err.message?.includes('ALREADY_SOLD');
-      return res.status(isConflict ? 409 : 400).json({
+      const isForbidden = err.message?.includes('FORBIDDEN');
+      const statusCode = isForbidden ? 403 : (isConflict ? 409 : 400);
+      return res.status(statusCode).json({
         success: false,
         error: err.message || 'Lỗi đặt giữ máy tồn kho.'
       });
@@ -255,11 +296,18 @@ export function createCrmRouter(db: Firestore | null): Router {
   });
 
   /**
-   * 4. Convert Quote to POS Order (Idempotent)
+   * 4. Convert Quote to POS Order (Idempotent with Invoice Verification)
    * POST /api/crm/quotes/convert-pos
    */
   router.post('/quotes/convert-pos', authenticateFirebase, async (req: Request, res: Response) => {
     try {
+      if (!db) {
+        return res.status(503).json({
+          success: false,
+          error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu máy chủ chưa sẵn sàng.'
+        });
+      }
+
       const { quoteId, invoiceId } = req.body;
 
       if (!quoteId || !invoiceId) {
@@ -281,7 +329,9 @@ export function createCrmRouter(db: Firestore | null): Router {
     } catch (err: any) {
       console.error('[CRM Quote to POS Error]:', err);
       const isConflict = err.message?.includes('ALREADY_CONVERTED');
-      return res.status(isConflict ? 409 : 400).json({
+      const isNotFound = err.message?.includes('NOT_FOUND');
+      const statusCode = isConflict ? 409 : (isNotFound ? 404 : 400);
+      return res.status(statusCode).json({
         success: false,
         error: err.message || 'Lỗi chuyển đổi báo giá sang POS.'
       });

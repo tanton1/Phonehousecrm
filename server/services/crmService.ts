@@ -271,6 +271,11 @@ export async function processDeviceReservation(
     reservationRecord.imei = devData.imei || deviceId;
     reservationRecord.model = devData.model || 'Điện thoại';
 
+    // Check device branch isolation
+    if (devData.branchId && devData.branchId !== branchId) {
+      throw new Error(`DEVICE_BRANCH_FORBIDDEN: Thiết bị ${devData.model} (${devData.imei}) thuộc chi nhánh "${devData.branchId}", không thể giữ cho Lead ở chi nhánh "${branchId}".`);
+    }
+
     // Check if device is available
     if (devData.status === 'sold') {
       throw new Error(`DEVICE_ALREADY_SOLD: Thiết bị ${devData.model} (${devData.imei}) đã được bán.`);
@@ -344,6 +349,8 @@ export async function processConvertQuoteToPOS(
   }
 
   const quoteRef = db.collection('leadQuotes').doc(quoteId);
+  const invRef = db.collection('invoices').doc(invoiceId);
+
   return await db.runTransaction(async (transaction) => {
     const qSnap = await transaction.get(quoteRef);
     if (!qSnap.exists) {
@@ -358,6 +365,12 @@ export async function processConvertQuoteToPOS(
         return { alreadyConverted: true, invoiceId };
       }
       throw new Error(`QUOTE_ALREADY_CONVERTED: Báo giá "${quoteId}" đã được chuyển sang hóa đơn ${qData.convertedInvoiceId} trước đó.`);
+    }
+
+    // Verify invoice exists
+    const invSnap = await transaction.get(invRef);
+    if (!invSnap.exists) {
+      throw new Error(`INVOICE_NOT_FOUND: Không tìm thấy hóa đơn POS "${invoiceId}". Vui lòng tạo đơn thanh toán trước.`);
     }
 
     transaction.update(quoteRef, {

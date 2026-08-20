@@ -1699,12 +1699,14 @@ export async function saveWeeklyShiftScheduleToFirestore(schedule: WeeklyShiftSc
 // ----------------- LEAD CARE ACTIVITIES (HOẠT ĐỘNG CHĂM SÓC LEAD CÓ BẰNG CHỨNG) -----------------
 export function subscribeToLeadCareActivities(
   onData: (activities: LeadCareActivity[]) => void,
-  leadId?: string
+  filter?: { leadId?: string; branchId?: string }
 ) {
   const colRef = collection(db, LEAD_CARE_ACTIVITIES_COL);
   let actQuery: any = colRef;
-  if (leadId) {
-    actQuery = query(colRef, where('leadId', '==', leadId));
+  if (filter?.leadId) {
+    actQuery = query(colRef, where('leadId', '==', filter.leadId));
+  } else if (filter?.branchId && filter.branchId !== 'ALL') {
+    actQuery = query(colRef, where('branchId', '==', filter.branchId));
   }
   return onSnapshot(
     actQuery,
@@ -1728,6 +1730,7 @@ export async function addLeadCareActivityToFirestore(activity: LeadCareActivity)
     await setDoc(docRef, cleanDataForFirestore(activity));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 
@@ -1738,18 +1741,21 @@ export async function updateLeadCareActivityInFirestore(activity: LeadCareActivi
     await setDoc(docRef, cleanDataForFirestore(activity), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
   }
 }
 
 // ----------------- LEAD APPOINTMENTS (LỊCH HẸN SHOWROOM) -----------------
 export function subscribeToLeadAppointments(
   onData: (appointments: LeadAppointment[]) => void,
-  branchId?: string
+  filter?: { branchId?: string; leadId?: string }
 ) {
   const colRef = collection(db, LEAD_APPOINTMENTS_COL);
   let apptQuery: any = colRef;
-  if (branchId && branchId !== 'ALL') {
-    apptQuery = query(colRef, where('branchId', '==', branchId));
+  if (filter?.leadId) {
+    apptQuery = query(colRef, where('leadId', '==', filter.leadId));
+  } else if (filter?.branchId && filter.branchId !== 'ALL') {
+    apptQuery = query(colRef, where('branchId', '==', filter.branchId));
   }
   return onSnapshot(
     apptQuery,
@@ -1773,6 +1779,7 @@ export async function addLeadAppointmentToFirestore(appointment: LeadAppointment
     await setDoc(docRef, cleanDataForFirestore(appointment));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 
@@ -1783,18 +1790,21 @@ export async function updateLeadAppointmentInFirestore(appointment: LeadAppointm
     await setDoc(docRef, cleanDataForFirestore(appointment), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
   }
 }
 
 // ----------------- LEAD QUOTES (BÁO GIÁ SẢN PHẨM & DEAL) -----------------
 export function subscribeToLeadQuotes(
   onData: (quotes: LeadQuote[]) => void,
-  leadId?: string
+  filter?: { leadId?: string; branchId?: string }
 ) {
   const colRef = collection(db, LEAD_QUOTES_COL);
   let quoteQuery: any = colRef;
-  if (leadId) {
-    quoteQuery = query(colRef, where('leadId', '==', leadId));
+  if (filter?.leadId) {
+    quoteQuery = query(colRef, where('leadId', '==', filter.leadId));
+  } else if (filter?.branchId && filter.branchId !== 'ALL') {
+    quoteQuery = query(colRef, where('branchId', '==', filter.branchId));
   }
   return onSnapshot(
     quoteQuery,
@@ -1818,6 +1828,7 @@ export async function addLeadQuoteToFirestore(quote: LeadQuote) {
     await setDoc(docRef, cleanDataForFirestore(quote));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 
@@ -1828,5 +1839,6 @@ export async function updateLeadQuoteInFirestore(quote: LeadQuote) {
     await setDoc(docRef, cleanDataForFirestore(quote), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
   }
 }

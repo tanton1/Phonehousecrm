@@ -61,7 +61,8 @@ function safeParseJson<T = any>(text: string, fallback: T): T {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    version: '2.6.0-enterprise',
+    service: 'phonehouse-crm-api',
+    version: '4.0',
     appName: 'PhoneHouse CRM & ERP',
     timestamp: new Date().toISOString()
   });
