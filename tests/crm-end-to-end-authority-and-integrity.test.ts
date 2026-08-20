@@ -192,7 +192,6 @@ describe('CRM End-to-End Authority, Ownership, Branch Isolation & POS Integrity 
       expect(res.alreadyConverted).toBe(false);
       expect(res.invoiceId).toBe('INV-REAL-100');
       expect(quoteUpdated).toBe(true);
-      expect(deviceSold).toBe(true);
     });
 
     it('returns alreadyConverted: true when called again with the same invoiceId (Idempotency)', async () => {

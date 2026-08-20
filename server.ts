@@ -8,7 +8,7 @@ import { adminDb } from './server/firebaseAdmin';
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
 // Enable trusted proxy for accurate client IP detection behind Vercel/reverse proxies
 app.set('trust proxy', 1);
@@ -57,7 +57,7 @@ function safeParseJson<T = any>(text: string, fallback: T): T {
   }
 }
 
-// 1. Health check endpoint
+// 1. Health check endpoint (Liveness)
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -66,6 +66,36 @@ app.get('/api/health', (req, res) => {
     appName: 'PhoneHouse CRM & ERP',
     timestamp: new Date().toISOString()
   });
+});
+
+// 1B. Readiness check endpoint (Verifies Database Connectivity)
+app.get('/api/ready', async (req, res) => {
+  if (!adminDb) {
+    return res.status(503).json({
+      status: 'unavailable',
+      service: 'phonehouse-crm-api',
+      database: 'disconnected',
+      error: 'Firestore Admin SDK is not initialized.'
+    });
+  }
+
+  try {
+    // Ping Firestore
+    await adminDb.collection('settings').limit(1).get();
+    return res.json({
+      status: 'ready',
+      service: 'phonehouse-crm-api',
+      database: 'connected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (dbErr: any) {
+    return res.status(503).json({
+      status: 'unavailable',
+      service: 'phonehouse-crm-api',
+      database: 'error',
+      error: dbErr?.message || 'Failed to communicate with Firestore.'
+    });
+  }
 });
 
 // Client Public IP Detection Endpoint for Store Wi-Fi Verification
@@ -94,7 +124,7 @@ app.get('/api/database/info', (req, res) => {
     collections: ['devices', 'leads', 'tradeIns', 'warrantyTickets', 'invoices', 'settings'],
     realtimeSync: true,
     authProvider: 'Google Identity / Firebase Auth',
-    connected: true
+    connected: Boolean(adminDb)
   });
 });
 
@@ -186,8 +216,8 @@ app.post('/api/telegram/send-alert', authenticateFirebase, async (req: any, res)
 // EXECUTIVE AI VOICE COPILOT & TELEGRAM BOT INGESTION (IDEA 1)
 // ============================================================================
 
-// Web Executive Assistant API (For testing & Web Dashboard integration)
-app.post('/api/ai/executive-assistant', async (req, res) => {
+// Web Executive Assistant API (Requires Authentication & Role Check)
+app.post('/api/ai/executive-assistant', authenticateFirebase, async (req: any, res) => {
   const { query = '', voiceBase64, context = {} } = req.body;
   const ai = getAI();
 
@@ -412,9 +442,9 @@ app.post('/api/telegram/webhook', async (req, res) => {
 app.get('/api/pancake/webhook', (req, res) => {
   const secret = req.query['secret'] || req.query['hub.verify_token'];
   const challenge = req.query['challenge'] || req.query['hub.challenge'];
-  const configuredSecret = process.env.PANCAKE_WEBHOOK_SECRET || 'phonehouse_pancake_secret_2026';
+  const configuredSecret = process.env.PANCAKE_WEBHOOK_SECRET;
 
-  if (secret === configuredSecret) {
+  if (configuredSecret && secret === configuredSecret) {
     console.log('✅ Pancake Webhook Challenge verified successfully.');
     return res.status(200).send(challenge ? String(challenge) : 'OK');
   } else {
@@ -430,12 +460,12 @@ app.post('/api/pancake/webhook', async (req, res) => {
     req.headers['x-webhook-secret'] || 
     req.query['secret'];
   
-  const configuredSecret = process.env.PANCAKE_WEBHOOK_SECRET || 'phonehouse_pancake_secret_2026';
+  const configuredSecret = process.env.PANCAKE_WEBHOOK_SECRET;
 
-  // Validate security secret
-  if (providedSecret && providedSecret !== configuredSecret) {
-    console.warn('🚨 Unauthorized Pancake Webhook Call: Secret mismatch');
-    return res.status(401).json({ success: false, error: 'Unauthorized: Secret key invalid' });
+  // Strict Secret Validation (Fail-Closed)
+  if (!configuredSecret || !providedSecret || providedSecret !== configuredSecret) {
+    console.warn('🚨 Unauthorized Pancake Webhook Call: Secret mismatch or missing');
+    return res.status(401).json({ success: false, error: 'Unauthorized: Secret key invalid or missing' });
   }
 
   const payload = req.body || {};

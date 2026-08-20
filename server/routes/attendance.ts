@@ -74,14 +74,20 @@ export function createAttendanceRouter(db: Firestore | null): Router {
   router.post('/check-in', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
       const ip = getClientIp(req);
-      const bodyWithAuth = {
-        ...req.body,
-        staffId: req.user?.uid || req.body.staffId,
-        staffUid: req.user?.uid,
-        branchId: req.body.branchId || req.user?.branchId,
+      const sanitizedPayload = {
+        staffId: req.user!.uid,
+        staffName: req.user?.name || req.user?.email || 'Nhân viên',
+        role: req.user?.role || 'STAFF',
+        branchId: req.body.branchId || req.user?.branchId || 'CN01',
+        branchName: req.body.branchName,
+        userCoords: req.body.userCoords,
+        faceCaptureBase64: req.body.faceCaptureBase64,
+        faceEmbedding: req.body.faceEmbedding,
+        faceSessionId: req.body.faceSessionId,
+        qrScanned: Boolean(req.body.qrScanned),
         clientIp: ip
       };
-      const result = await processServerCheckIn(db, bodyWithAuth);
+      const result = await processServerCheckIn(db, sanitizedPayload);
       return res.json({ success: true, data: result });
     } catch (error: any) {
       console.error('[Attendance CheckIn Error]:', error);

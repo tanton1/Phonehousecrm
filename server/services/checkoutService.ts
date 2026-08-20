@@ -1,6 +1,5 @@
 import { Firestore, FieldValue, DocumentReference } from 'firebase-admin/firestore';
 import crypto from 'crypto';
-import { PureIntentCheckoutPayload } from '../validation/checkoutSchema';
 
 export interface CheckoutResult {
   success: boolean;
@@ -110,7 +109,7 @@ export async function executeAtomicCheckout(
       fundMap.set(fId, { ref: fRef, data: fData });
     }
 
-    // P0.2 Fix: Strict Runtime Verification of ALLOWED_FUND_TYPES_BY_METHOD for each payment line
+    // Strict Runtime Verification of ALLOWED_FUND_TYPES_BY_METHOD for each payment line
     if (isMultiPayment) {
       for (const p of payload.payments) {
         if (p.fundId && p.amount > 0) {
@@ -140,13 +139,14 @@ export async function executeAtomicCheckout(
       }
     }
 
-    // 3. Fetch & Validate Devices (Authoritative Status & Pricing from DB)
+    // 3. Fetch & Validate Devices (Authoritative Status & Pricing from DB, with Lead Reservation support)
     const deviceIds: string[] = isPureIntent
       ? payload.deviceIds
       : (payload.devicesToSell?.map((d: any) => d.id) || []);
 
     const loadedDevices: any[] = [];
     let authoritativeDeviceSubtotal = 0;
+    const checkoutLeadId = payload.leadId || payload.invoice?.leadId;
 
     for (const devId of deviceIds) {
       if (!devId) continue;
@@ -157,8 +157,13 @@ export async function executeAtomicCheckout(
       }
       const devData = devSnap.data()!;
 
-      // Concurrency checks
-      if (devData.status !== 'in_stock') {
+      // Concurrency & Reservation checks
+      const isReservedForThisLead = devData.status === 'reserved' &&
+        checkoutLeadId &&
+        devData.reservedForLeadId === checkoutLeadId &&
+        (!devData.reservedUntil || new Date(devData.reservedUntil).getTime() > Date.now());
+
+      if (devData.status !== 'in_stock' && !isReservedForThisLead) {
         throw new Error(`DEVICE_ALREADY_SOLD: Thiết bị ${devData.model} (IMEI: ${devData.imei || devId}) đang ở trạng thái "${devData.status}", không thể bán.`);
       }
 
@@ -168,10 +173,10 @@ export async function executeAtomicCheckout(
 
       const price = typeof devData.sellPrice === 'number' ? devData.sellPrice : 0;
       authoritativeDeviceSubtotal += price;
-      loadedDevices.push({ id: devId, ref: devRef, data: devData, authoritativePrice: price });
+      loadedDevices.push({ id: devId, ref: devRef, data: devData, authoritativePrice: price, wasReserved: isReservedForThisLead });
     }
 
-    // 4. Fetch & Validate Accessories (Authoritative Multi-Branch Stock & Pricing from DB)
+    // 4. Fetch & Validate Accessories (Authoritative Multi-Branch Stock & Pricing from DB - Fail Closed if not initialized)
     const accessoryLines: any[] = isPureIntent
       ? (payload.accessoryLines || [])
       : (payload.accessoriesToSell || []);
@@ -197,14 +202,12 @@ export async function executeAtomicCheckout(
       const balanceRef: DocumentReference = db.collection('inventoryBalances').doc(balanceId);
       const balanceSnap = await transaction.get(balanceRef);
 
-      let availableStock = typeof prodData.stockQuantity === 'number' ? prodData.stockQuantity : 0;
-      let hasSpecificBalance = false;
-
-      if (balanceSnap.exists) {
-        const balData = balanceSnap.data()!;
-        availableStock = typeof balData.available === 'number' ? balData.available : balData.onHand || 0;
-        hasSpecificBalance = true;
+      if (!balanceSnap.exists) {
+        throw new Error(`BRANCH_STOCK_NOT_INITIALIZED: Phụ kiện "${prodData.name}" chưa được khởi tạo tồn kho tại chi nhánh "${branchId}".`);
       }
+
+      const balData = balanceSnap.data()!;
+      const availableStock = typeof balData.available === 'number' ? balData.available : (balData.onHand || 0);
 
       if (availableStock < quantity) {
         throw new Error(`INSUFFICIENT_STOCK: Phụ kiện "${prodData.name}" tại chi nhánh ${branchId} chỉ còn ${availableStock} cái (yêu cầu ${quantity}).`);
@@ -216,7 +219,6 @@ export async function executeAtomicCheckout(
         id: prodId,
         ref: prodRef,
         balanceRef,
-        hasSpecificBalance,
         data: prodData,
         quantity,
         authoritativePrice: price
@@ -299,7 +301,6 @@ export async function executeAtomicCheckout(
         throw new Error(`TRADE_IN_NOT_APPROVED: Phiếu thẩm định thu cũ "${payload.tradeInAppraisalId}" chưa được phê duyệt.`);
       }
 
-      // Mandatory Final Approved Price Check (Strict Production Invariant)
       const approvedPrice = appData.approvedPrice ?? appData.finalApprovedPrice;
       if (typeof approvedPrice !== 'number') {
         throw new Error(`TRADE_IN_FINAL_PRICE_REQUIRED: Phiếu thu cũ "${payload.tradeInAppraisalId}" chưa có giá thu mua được quản lý phê duyệt.`);
@@ -310,11 +311,11 @@ export async function executeAtomicCheckout(
 
     const finalAmount = Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction);
 
-    // 7. Validate Payment Sum, Installment Partner & Multi-Debt Invariants
+    // 7. Settlement Model: Fix Installment Debt Double-Counting
     let downPayment = 0;
     let financeAmount = 0;
     let financePartnerRef: DocumentReference | null = null;
-    let debtAmount = 0;
+    let customerDebtAmount = 0;
 
     if (isMultiPayment) {
       const totalPaymentsSum = payload.payments.reduce((s: number, p: any) => s + (p.amount || 0), 0);
@@ -322,11 +323,11 @@ export async function executeAtomicCheckout(
         throw new Error(`PAYMENT_AMOUNT_MISMATCH: Tổng các khoản thanh toán (${totalPaymentsSum.toLocaleString('vi-VN')} đ) không khớp với giá trị đơn hàng (${finalAmount.toLocaleString('vi-VN')} đ).`);
       }
 
-      // P1.1 Fix: Calculate debtAmount via filter().reduce() over all DEBT & INSTALLMENT lines
-      const debtLines = payload.payments.filter((p: any) => p.method === 'DEBT' || p.method === 'INSTALLMENT');
-      debtAmount = debtLines.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
+      // Customer only owes genuine customer DEBT, NOT installment financed by bank
+      const debtLines = payload.payments.filter((p: any) => p.method === 'DEBT');
+      customerDebtAmount = debtLines.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
 
-      // P1.1 Fix: Strict Verification for Multi-Payment Installment Line
+      // Verify Installment Line
       const installmentLine = payload.payments.find((p: any) => p.method === 'INSTALLMENT');
       if (installmentLine && installmentLine.amount > 0) {
         financeAmount = installmentLine.amount;
@@ -361,7 +362,8 @@ export async function executeAtomicCheckout(
       }
 
       financeAmount = Math.max(0, finalAmount - downPayment);
-      debtAmount = financeAmount;
+      customerDebtAmount = 0; // Customer does not directly owe PhoneHouse for bank installment!
+
       const financePartnerId = payload.installmentFinancePartnerId || payload.payment?.installmentFinancePartnerId || payload.financeCompanyPartner?.id;
 
       if (financeAmount > 0) {
@@ -383,6 +385,8 @@ export async function executeAtomicCheckout(
           throw new Error(`INVALID_FINANCE_PARTNER_TYPE: Đối tác "${partnerData.name}" không phải là công ty tài chính trả góp.`);
         }
       }
+    } else if (paymentMethod === 'DEBT') {
+      customerDebtAmount = finalAmount;
     }
 
     // Secure Non-Colliding ID Generation
@@ -390,14 +394,17 @@ export async function executeAtomicCheckout(
     const invoiceId = payload.invoice?.id || newInvRef.id;
     const invoiceCode = payload.invoice?.invoiceCode || `HD-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
-    // 8. Mark Devices as Sold
+    // 8. Single Writer: Mark Devices as Sold in POS Transaction
     for (const dev of loadedDevices) {
       transaction.update(dev.ref, {
         status: 'sold',
         soldDate: FieldValue.serverTimestamp(),
         soldInvoiceId: invoiceId,
         customerName: payload.customerName || payload.invoice?.customerName || null,
-        customerPhone: payload.customerPhone || payload.invoice?.customerPhone || null
+        customerPhone: payload.customerPhone || payload.invoice?.customerPhone || null,
+        reservedForLeadId: FieldValue.delete(),
+        reservedUntil: FieldValue.delete(),
+        reservedByStaffId: FieldValue.delete()
       });
     }
 
@@ -407,25 +414,11 @@ export async function executeAtomicCheckout(
         stockQuantity: FieldValue.increment(-acc.quantity)
       });
 
-      if (acc.hasSpecificBalance) {
-        transaction.update(acc.balanceRef, {
-          onHand: FieldValue.increment(-acc.quantity),
-          available: FieldValue.increment(-acc.quantity),
-          updatedAt: FieldValue.serverTimestamp()
-        });
-      } else {
-        transaction.set(acc.balanceRef, {
-          id: acc.balanceRef.id,
-          branchId,
-          warehouseId,
-          productId: acc.id,
-          productName: acc.data.name,
-          onHand: Math.max(0, (acc.data.stockQuantity || 0) - acc.quantity),
-          available: Math.max(0, (acc.data.stockQuantity || 0) - acc.quantity),
-          reserved: 0,
-          updatedAt: FieldValue.serverTimestamp()
-        });
-      }
+      transaction.update(acc.balanceRef, {
+        onHand: FieldValue.increment(-acc.quantity),
+        available: FieldValue.increment(-acc.quantity),
+        updatedAt: FieldValue.serverTimestamp()
+      });
     }
 
     // 10. Lock Trade-in Appraisal as CONSUMED
@@ -450,6 +443,8 @@ export async function executeAtomicCheckout(
       id: invoiceId,
       invoiceCode,
       branchId,
+      leadId: checkoutLeadId || null,
+      quoteId: payload.quoteId || null,
       customerName: payload.customerName || payload.invoice?.customerName || 'Khách vãng lai',
       customerPhone: payload.customerPhone || payload.invoice?.customerPhone || '',
       devices: loadedDevices.map(d => ({
@@ -486,8 +481,9 @@ export async function executeAtomicCheckout(
       discountAmount: authoritativeDiscount,
       tradeInDeduction: authoritativeTradeInDeduction,
       finalAmount,
-      paidAmount: finalAmount - debtAmount,
-      debtAmount,
+      paidAmount: finalAmount - customerDebtAmount - financeAmount,
+      debtAmount: customerDebtAmount,
+      financeAmount,
       paymentMethod,
       splitPayments: isMultiPayment ? payload.payments : undefined,
       installmentDownPayment: downPayment,
@@ -502,10 +498,10 @@ export async function executeAtomicCheckout(
 
     transaction.set(invRef, invoiceRecord);
 
-    // 13. Atomic Ledger & Fund Allocations (Supports Multiple Funds Simultaneously)
+    // 13. Standardized Cash Transactions (Full Branch, InvoiceId & Creator Linkage)
     if (isMultiPayment) {
       for (const p of payload.payments) {
-        if (p.amount > 0 && p.fundId) {
+        if (p.amount > 0 && p.fundId && p.method !== 'DEBT' && p.method !== 'INSTALLMENT') {
           const fundInfo = fundMap.get(p.fundId);
           if (fundInfo) {
             const txId = `TX-${crypto.randomUUID().slice(0, 8)}`;
@@ -520,12 +516,20 @@ export async function executeAtomicCheckout(
               fundId: p.fundId,
               fundName: fundInfo.data.name || 'Quỹ tiền',
               fundType: fundInfo.data.type || 'CASH',
+              branchId,
+              invoiceId,
+              sourceType: 'POS_INVOICE',
+              sourceId: invoiceId,
+              creatorUid: authenticatedStaff?.uid || 'SYSTEM',
+              creatorName: authenticatedStaff?.name || 'Thu Ngân',
+              creator: authenticatedStaff?.name || 'Thu Ngân',
+              idempotencyKey: `${idempotencyKey}_${txId}`,
               date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
               partnerName: invoiceRecord.customerName,
               partnerPhone: invoiceRecord.customerPhone,
               referenceCode: invoiceCode,
               status: 'COMPLETED',
-              creator: authenticatedStaff?.name || 'Thu Ngân'
+              createdAt: FieldValue.serverTimestamp()
             });
 
             transaction.update(fundInfo.ref, {
@@ -558,12 +562,20 @@ export async function executeAtomicCheckout(
           fundId: targetFundId,
           fundName: fundInfo.data.name || 'Quỹ tiền',
           fundType: fundInfo.data.type || 'CASH',
+          branchId,
+          invoiceId,
+          sourceType: 'POS_INVOICE',
+          sourceId: invoiceId,
+          creatorUid: authenticatedStaff?.uid || 'SYSTEM',
+          creatorName: authenticatedStaff?.name || 'Thu Ngân',
+          creator: authenticatedStaff?.name || 'Thu Ngân',
+          idempotencyKey: `${idempotencyKey}_${txId}`,
           date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
           referenceCode: invoiceCode,
           status: 'COMPLETED',
-          creator: authenticatedStaff?.name || 'Thu Ngân'
+          createdAt: FieldValue.serverTimestamp()
         });
 
         transaction.update(fundInfo.ref, {
@@ -577,7 +589,7 @@ export async function executeAtomicCheckout(
           outstandingDebt: FieldValue.increment(financeAmount)
         });
       }
-    } else {
+    } else if (paymentMethod !== 'DEBT') {
       const targetFundId = isPureIntent ? payload.payment?.fundId : (payload.fundToUpdate?.id || payload.invoice?.paymentFundId);
       const fundInfo = targetFundId ? fundMap.get(targetFundId) : null;
 
@@ -594,12 +606,20 @@ export async function executeAtomicCheckout(
           fundId: targetFundId,
           fundName: fundInfo.data.name || 'Quỹ tiền',
           fundType: fundInfo.data.type || 'CASH',
+          branchId,
+          invoiceId,
+          sourceType: 'POS_INVOICE',
+          sourceId: invoiceId,
+          creatorUid: authenticatedStaff?.uid || 'SYSTEM',
+          creatorName: authenticatedStaff?.name || 'Thu Ngân',
+          creator: authenticatedStaff?.name || 'Thu Ngân',
+          idempotencyKey: `${idempotencyKey}_${txId}`,
           date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
           partnerName: invoiceRecord.customerName,
           partnerPhone: invoiceRecord.customerPhone,
           referenceCode: invoiceCode,
           status: 'COMPLETED',
-          creator: authenticatedStaff?.name || 'Thu Ngân'
+          createdAt: FieldValue.serverTimestamp()
         });
 
         transaction.update(fundInfo.ref, {
@@ -609,7 +629,7 @@ export async function executeAtomicCheckout(
       }
     }
 
-    // 14. Customer CRM Lifetime Value (LTV) Update
+    // 14. Customer CRM Lifetime Value (LTV) Update (Increments ONLY customer debt)
     const customerId = payload.customerId || payload.customerPartner?.id;
     if (customerId) {
       const custRef = db.collection('partners').doc(customerId);
@@ -617,14 +637,28 @@ export async function executeAtomicCheckout(
       if (custSnap.exists) {
         transaction.update(custRef, {
           totalSpent: FieldValue.increment(finalAmount),
-          outstandingDebt: FieldValue.increment(debtAmount),
+          outstandingDebt: FieldValue.increment(customerDebtAmount),
           lastInvoiceId: invoiceId,
           lastPurchaseDate: FieldValue.serverTimestamp()
         });
       }
     }
 
-    // 15. Commit Idempotency Record (Includes Canonical Payload Hash)
+    // 15. If LeadId attached, update Lead status to WON
+    if (checkoutLeadId) {
+      const leadRef = db.collection('leads').doc(checkoutLeadId);
+      const leadSnap = await transaction.get(leadRef);
+      if (leadSnap.exists) {
+        transaction.update(leadRef, {
+          status: 'won',
+          wonInvoiceId: invoiceId,
+          wonAt: new Date().toISOString(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
+    }
+
+    // 16. Commit Idempotency Record (Includes Canonical Payload Hash)
     if (idempotencyKey) {
       const idemRef = db.collection('checkoutRequests').doc(idempotencyKey);
       transaction.set(idemRef, {
@@ -638,7 +672,7 @@ export async function executeAtomicCheckout(
       });
     }
 
-    // 16. Write Audit Trail Event
+    // 17. Write Audit Trail Event
     const auditId = `AUDIT-${crypto.randomUUID().slice(0, 8)}`;
     const auditRef = db.collection('auditEvents').doc(auditId);
     transaction.set(auditRef, {
@@ -653,7 +687,8 @@ export async function executeAtomicCheckout(
         discount: authoritativeDiscount,
         tradeIn: authoritativeTradeInDeduction,
         finalAmount,
-        paymentMethod
+        paymentMethod,
+        branchId
       },
       timestamp: FieldValue.serverTimestamp()
     });
@@ -670,4 +705,3 @@ export async function executeAtomicCheckout(
     };
   });
 }
-

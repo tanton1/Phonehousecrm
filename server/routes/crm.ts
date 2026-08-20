@@ -174,9 +174,29 @@ export function createCrmRouter(db: Firestore | null): Router {
           updatedAt: FieldValue.serverTimestamp()
         };
 
-        if (toStatus === 'won' && context?.invoiceId) {
+        if (toStatus === 'won') {
+          if (!context?.invoiceId) {
+            throw new Error('INVOICE_REQUIRED: Chuyển sang WON yêu cầu phải có mã hóa đơn POS hợp lệ.');
+          }
+          const invRef = db.collection('invoices').doc(context.invoiceId);
+          const invSnap = await transaction.get(invRef);
+          if (!invSnap.exists) {
+            throw new Error(`INVOICE_NOT_FOUND: Không tìm thấy hóa đơn POS "${context.invoiceId}" trên hệ thống.`);
+          }
+          const invData = invSnap.data()!;
+          if (invData.status !== 'completed') {
+            throw new Error(`INVOICE_NOT_COMPLETED: Hóa đơn "${context.invoiceId}" đang ở trạng thái "${invData.status}", chưa hoàn tất thanh toán.`);
+          }
+          if (invData.branchId && invData.branchId !== lData.branchId) {
+            throw new Error(`INVOICE_BRANCH_MISMATCH: Hóa đơn thuộc chi nhánh "${invData.branchId}", không khớp chi nhánh của Lead "${lData.branchId}".`);
+          }
+
           updatePayload.wonInvoiceId = context.invoiceId;
           updatePayload.wonAt = new Date().toISOString();
+          transaction.update(invRef, {
+            leadId,
+            updatedAt: FieldValue.serverTimestamp()
+          });
         }
 
         if (toStatus === 'lost' && context?.lostReason) {

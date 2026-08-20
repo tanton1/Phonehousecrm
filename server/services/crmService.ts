@@ -367,10 +367,14 @@ export async function processConvertQuoteToPOS(
       throw new Error(`QUOTE_ALREADY_CONVERTED: Báo giá "${quoteId}" đã được chuyển sang hóa đơn ${qData.convertedInvoiceId} trước đó.`);
     }
 
-    // Verify invoice exists
+    // Verify invoice exists & is completed
     const invSnap = await transaction.get(invRef);
     if (!invSnap.exists) {
       throw new Error(`INVOICE_NOT_FOUND: Không tìm thấy hóa đơn POS "${invoiceId}". Vui lòng tạo đơn thanh toán trước.`);
+    }
+    const invData = invSnap.data()!;
+    if (invData.status !== 'completed') {
+      throw new Error(`INVOICE_NOT_COMPLETED: Hóa đơn "${invoiceId}" chưa hoàn tất thanh toán.`);
     }
 
     transaction.update(quoteRef, {
@@ -378,16 +382,6 @@ export async function processConvertQuoteToPOS(
       convertedInvoiceId: invoiceId,
       updatedAt: FieldValue.serverTimestamp()
     });
-
-    // If a reserved device was attached, update device status to sold
-    if (qData.reservedDeviceId) {
-      const devRef = db.collection('devices').doc(qData.reservedDeviceId);
-      transaction.update(devRef, {
-        status: 'sold',
-        soldDate: new Date().toISOString(),
-        updatedAt: FieldValue.serverTimestamp()
-      });
-    }
 
     return { alreadyConverted: false, invoiceId };
   });
