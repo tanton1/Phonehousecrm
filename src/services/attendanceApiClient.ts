@@ -31,23 +31,22 @@ async function sendAttendanceApiRequest<T>(
 ): Promise<T> {
   const firebaseUser = auth.currentUser;
   
-  if (!firebaseUser && process.env.NODE_ENV === 'production') {
+  if (!firebaseUser) {
     throw new Error('UNAUTHENTICATED: Bạn chưa đăng nhập hoặc phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
   }
 
-  let headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-
-  if (firebaseUser) {
-    try {
-      const token = await firebaseUser.getIdToken(false);
-      headers['Authorization'] = `Bearer ${token}`;
-    } catch (tokenErr) {
-      console.warn('[Attendance API] Failed to retrieve Firebase ID token:', tokenErr);
-      throw new Error('INVALID_AUTH_TOKEN: Không thể xác thực phiên làm việc. Vui lòng đăng nhập lại.');
-    }
+  let token: string;
+  try {
+    token = await firebaseUser.getIdToken(false);
+  } catch (tokenErr) {
+    console.warn('[Attendance API] Failed to retrieve Firebase ID token:', tokenErr);
+    throw new Error('INVALID_AUTH_TOKEN: Không thể xác thực phiên làm việc. Vui lòng đăng nhập lại.');
   }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
 
   const response = await fetch(`/api/attendance/${endpoint}`, {
     method: 'POST',

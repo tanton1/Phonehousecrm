@@ -242,7 +242,22 @@ service cloud.firestore {
 
     match /weeklyShiftSchedules/{scheduleId} {
       allow read: if isAuthenticated() && (isAdmin() || canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid);
-      allow write: if isAdmin() || isManager();
+      allow create: if isAdmin() || (
+        isManager() &&
+        canAccessBranch(request.resource.data.branchId)
+      );
+      allow update: if isAdmin() || (
+        isManager() &&
+        canAccessBranch(resource.data.branchId) &&
+        canAccessBranch(request.resource.data.branchId) &&
+        request.resource.data.staffId == resource.data.staffId &&
+        request.resource.data.branchId == resource.data.branchId &&
+        request.resource.data.weekStart == resource.data.weekStart
+      );
+      allow delete: if isAdmin() || (
+        isManager() &&
+        canAccessBranch(resource.data.branchId)
+      );
     }
 
     match /sopTemplates/{templateId} {

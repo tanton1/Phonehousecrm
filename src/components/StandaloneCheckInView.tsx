@@ -316,12 +316,8 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
         setWifiStatus('ERROR');
       }
     } catch (err) {
-      console.warn('[Network Check error, fallback to SSID signature]:', err);
-      if (currentWifiSSID === targetWifiSSID) {
-        setWifiStatus('SUCCESS');
-      } else {
-        setWifiStatus('ERROR');
-      }
+      console.warn('[Network Check error]:', err);
+      setWifiStatus('ERROR');
     }
   };
 

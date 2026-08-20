@@ -1159,9 +1159,12 @@ export interface AttendanceRecord {
   branchId: string;
   branchName: string;
   date: string; // YYYY-MM-DD
+  shiftId?: string;
   shiftName: string;
   scheduledStart: string;
   scheduledEnd: string;
+  scheduledBreakMinutes?: number;
+  graceMinutes?: number;
   
   // Realtime Timestamps
   checkInTime?: string; // HH:mm:ss
@@ -1182,7 +1185,10 @@ export interface AttendanceRecord {
   };
 
   // Status & Current Live Activity
-  status: 'ON_TIME' | 'LATE' | 'EARLY_LEAVE' | 'ABSENT' | 'IN_PROGRESS' | 'COMPLETED';
+  status: 'ON_TIME' | 'LATE' | 'EARLY_LEAVE' | 'ABSENT' | 'IN_PROGRESS' | 'COMPLETED' | 'PENDING_VERIFICATION';
+  attendanceStatus?: 'CHECKED_IN' | 'COMPLETED' | 'ABSENT' | 'ON_LEAVE';
+  punctualityStatus?: 'ON_TIME' | 'LATE' | 'EARLY';
+  verificationStatus?: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED';
   currentActivity?: 'WORKING' | 'BREAK' | 'OUTSIDE' | 'DELIVERY' | 'SUPPORT_TECH';
   lateMinutes: number;
   earlyMinutes: number;
