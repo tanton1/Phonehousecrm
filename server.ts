@@ -158,6 +158,12 @@ app.use('/api/finance', createFinanceRouter(adminDb));
 import { createCrmRouter } from './server/routes/crm';
 app.use('/api/crm', createCrmRouter(adminDb));
 
+// -------------------------------------------------------------
+// 6. TECHNICAL WORK ORDERS, CUSTODY & QC ROUTER
+// -------------------------------------------------------------
+import { createTechnicalRouter } from './server/routes/technical';
+app.use('/api/technical', createTechnicalRouter(adminDb));
+
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
 
 // Vietnam Timezone (UTC+7) Date Helper

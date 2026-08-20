@@ -370,6 +370,37 @@ service cloud.firestore {
       allow write: if false; // Strict Single Writer Principle: Only Server Event Service via Admin SDK
     }
 
+    // 9. Technical & Work Order Collections (Server-Authoritative Only via /api/technical/...)
+    match /technicalWorkOrders/{woId} {
+      allow read: if isAdmin() || (isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.currentCustodianUid == request.auth.uid));
+      allow write: if false; // Strict Single Writer: Only Server Technical API (/api/technical/...)
+    }
+
+    match /technicalWorkOrderLines/{lineId} {
+      allow read: if isAdmin() || (isActiveUser() && (resource.data.assigneeUid == request.auth.uid || isManager()));
+      allow write: if false; // Strict Single Writer: Only Server Technical API
+    }
+
+    match /inventoryMovements/{movId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow write: if false; // Immutable Audit Ledger: Only Server Admin SDK
+    }
+
+    match /qcInspections/{qcId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow write: if false; // Strict Single Writer: Only Server Technical QC API
+    }
+
+    match /commissionLedger/{commId} {
+      allow read: if isAdmin() || isManager() || (isAuthenticated() && resource.data.staffUid == request.auth.uid);
+      allow write: if false; // Strict Single Writer: Only Server Commission Engine
+    }
+
+    match /technicalPartReservations/{resId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow write: if false; // Strict Single Writer: Only Server Parts Issue API
+    }
+
     // Default Fallback: Only Active Admin
     match /{document=**} {
       allow read, write: if isAdmin();
