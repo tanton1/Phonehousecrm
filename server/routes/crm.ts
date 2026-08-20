@@ -191,6 +191,17 @@ export function createCrmRouter(db: Firestore | null): Router {
             throw new Error(`INVOICE_BRANCH_MISMATCH: Hóa đơn thuộc chi nhánh "${invData.branchId}", không khớp chi nhánh của Lead "${lData.branchId}".`);
           }
 
+          // Verify Customer / Phone Match to prevent attributing unrelated sales
+          const leadPhoneClean = (lData.phone || '').replace(/[^0-9]/g, '');
+          const invPhoneClean = (invData.customerPhone || '').replace(/[^0-9]/g, '');
+          const isCustomerMatched = (lData.customerId && invData.customerId && lData.customerId === invData.customerId) ||
+            (leadPhoneClean && invPhoneClean && (leadPhoneClean === invPhoneClean || leadPhoneClean.slice(-9) === invPhoneClean.slice(-9))) ||
+            (invData.leadId === leadId);
+
+          if (!isCustomerMatched) {
+            throw new Error(`INVOICE_CUSTOMER_MISMATCH: Hóa đơn "${context.invoiceId}" thuộc khách hàng khác (${invData.customerName || invData.customerPhone || 'Không xác định'}), không khớp thông tin của Lead này.`);
+          }
+
           updatePayload.wonInvoiceId = context.invoiceId;
           updatePayload.wonAt = new Date().toISOString();
           transaction.update(invRef, {

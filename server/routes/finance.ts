@@ -50,7 +50,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
         category,
         categoryName,
         notes,
-        isPLAccounted = true
+        isPLAccounted = true,
+        idempotencyKey = req.headers['x-idempotency-key'] as string
       } = req.body;
 
       const numAmount = Number(amount);
@@ -65,6 +66,16 @@ export function createFinanceRouter(db: Firestore | null): Router {
       let resultingTx: any = null;
 
       await db.runTransaction(async (transaction) => {
+        // Idempotency Check
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          const idemSnap = await transaction.get(idemRef);
+          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
+            resultingTx = idemSnap.data()?.transaction;
+            return;
+          }
+        }
+
         const fundRef = db.collection('funds').doc(fundId);
         const fundDoc = await transaction.get(fundRef);
 
@@ -119,6 +130,18 @@ export function createFinanceRouter(db: Firestore | null): Router {
           ...resultingTx,
           createdAt: FieldValue.serverTimestamp()
         });
+
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          transaction.set(idemRef, {
+            id: idempotencyKey,
+            status: 'COMPLETED',
+            type: 'RECEIPT',
+            transaction: resultingTx,
+            creatorUid: req.user?.uid,
+            createdAt: FieldValue.serverTimestamp()
+          });
+        }
       });
 
       return res.json({
@@ -153,7 +176,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
         category,
         categoryName,
         notes,
-        isPLAccounted = true
+        isPLAccounted = true,
+        idempotencyKey = req.headers['x-idempotency-key'] as string
       } = req.body;
 
       const numAmount = Number(amount);
@@ -168,6 +192,16 @@ export function createFinanceRouter(db: Firestore | null): Router {
       let resultingTx: any = null;
 
       await db.runTransaction(async (transaction) => {
+        // Idempotency Check
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          const idemSnap = await transaction.get(idemRef);
+          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
+            resultingTx = idemSnap.data()?.transaction;
+            return;
+          }
+        }
+
         const fundRef = db.collection('funds').doc(fundId);
         const fundDoc = await transaction.get(fundRef);
 
@@ -228,6 +262,18 @@ export function createFinanceRouter(db: Firestore | null): Router {
           ...resultingTx,
           createdAt: FieldValue.serverTimestamp()
         });
+
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          transaction.set(idemRef, {
+            id: idempotencyKey,
+            status: 'COMPLETED',
+            type: 'PAYMENT',
+            transaction: resultingTx,
+            creatorUid: req.user?.uid,
+            createdAt: FieldValue.serverTimestamp()
+          });
+        }
       });
 
       return res.json({
@@ -253,7 +299,13 @@ export function createFinanceRouter(db: Firestore | null): Router {
     }
 
     try {
-      const { fromFundId, toFundId, amount, notes } = req.body;
+      const {
+        fromFundId,
+        toFundId,
+        amount,
+        notes,
+        idempotencyKey = req.headers['x-idempotency-key'] as string
+      } = req.body;
       const numAmount = Number(amount);
 
       if (!fromFundId || !toFundId || fromFundId === toFundId || isNaN(numAmount) || numAmount <= 0) {
@@ -270,6 +322,18 @@ export function createFinanceRouter(db: Firestore | null): Router {
       let txIn: any = null;
 
       await db.runTransaction(async (transaction) => {
+        // Idempotency Check
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          const idemSnap = await transaction.get(idemRef);
+          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
+            const data = idemSnap.data();
+            txOut = data?.txOut;
+            txIn = data?.txIn;
+            return;
+          }
+        }
+
         const fromRef = db.collection('funds').doc(fromFundId);
         const toRef = db.collection('funds').doc(toFundId);
 
@@ -364,6 +428,19 @@ export function createFinanceRouter(db: Firestore | null): Router {
           ...txIn,
           createdAt: FieldValue.serverTimestamp()
         });
+
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          transaction.set(idemRef, {
+            id: idempotencyKey,
+            status: 'COMPLETED',
+            type: 'TRANSFER',
+            txOut,
+            txIn,
+            creatorUid: req.user?.uid,
+            createdAt: FieldValue.serverTimestamp()
+          });
+        }
       });
 
       return res.json({
@@ -390,7 +467,12 @@ export function createFinanceRouter(db: Firestore | null): Router {
     }
 
     try {
-      const { fundId, actualBalance, notes } = req.body;
+      const {
+        fundId,
+        actualBalance,
+        notes,
+        idempotencyKey = req.headers['x-idempotency-key'] as string
+      } = req.body;
       const numActual = Number(actualBalance);
 
       if (!fundId || isNaN(numActual) || numActual < 0) {
@@ -401,6 +483,16 @@ export function createFinanceRouter(db: Firestore | null): Router {
       let adjustmentTx: any = null;
 
       await db.runTransaction(async (transaction) => {
+        // Idempotency Check
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          const idemSnap = await transaction.get(idemRef);
+          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
+            adjustmentTx = idemSnap.data()?.adjustmentTx;
+            return;
+          }
+        }
+
         const fundRef = db.collection('funds').doc(fundId);
         const fundDoc = await transaction.get(fundRef);
 
@@ -452,6 +544,18 @@ export function createFinanceRouter(db: Firestore | null): Router {
 
           transaction.set(db.collection('cashTransactions').doc(txId), {
             ...adjustmentTx,
+            createdAt: FieldValue.serverTimestamp()
+          });
+        }
+
+        if (idempotencyKey) {
+          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+          transaction.set(idemRef, {
+            id: idempotencyKey,
+            status: 'COMPLETED',
+            type: 'RECONCILE',
+            adjustmentTx,
+            creatorUid: req.user?.uid,
             createdAt: FieldValue.serverTimestamp()
           });
         }

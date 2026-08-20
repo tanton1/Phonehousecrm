@@ -216,8 +216,9 @@ app.post('/api/telegram/send-alert', authenticateFirebase, async (req: any, res)
 // EXECUTIVE AI VOICE COPILOT & TELEGRAM BOT INGESTION (IDEA 1)
 // ============================================================================
 
-// Web Executive Assistant API (Requires Authentication & Role Check)
-app.post('/api/ai/executive-assistant', authenticateFirebase, async (req: any, res) => {
+// Web Executive Assistant API (Requires Authentication & Manager/Admin Role Check)
+import { requireRole } from './server/middleware/requireRole';
+app.post('/api/ai/executive-assistant', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req: any, res) => {
   const { query = '', voiceBase64, context = {} } = req.body;
   const ai = getAI();
 

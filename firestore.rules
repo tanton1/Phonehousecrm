@@ -74,7 +74,7 @@ service cloud.firestore {
     }
 
     // ============================================================
-    // COLLECTION-SPECIFIC SECURITY RULES (V4.0 AUTHORITATIVE ENTERPRISE)
+    // COLLECTION-SPECIFIC SECURITY RULES (V4.1 ENTERPRISE SERVER AUTHORITY)
     // ============================================================
 
     // 1. Users Management (Role escalation protection & strictly immutable privilege fields)
@@ -108,14 +108,20 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // 3. Operational Collections (Scoped strictly by branchId with AND on updates)
+    // 3. Operational Collections - Strict Server Authority Protection
+    // DEVICES: Sensitive state machine (status, sellPrice, branchId, soldInvoiceId, reservedUntil) is Server Authoritative Only!
     match /devices/{deviceId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
-      allow update: if isAuthenticated() && 
+      allow create: if isAuthenticated() && canManageInventory() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && canManageInventory() &&
         canAccessBranch(resource.data.branchId) && 
-        canAccessBranch(request.resource.data.branchId);
-      allow delete: if isAdmin() || isManager();
+        canAccessBranch(request.resource.data.branchId) &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.sellPrice == resource.data.sellPrice &&
+        request.resource.data.branchId == resource.data.branchId &&
+        (!('soldInvoiceId' in request.resource.data) || request.resource.data.soldInvoiceId == resource.data.soldInvoiceId) &&
+        (!('reservedUntil' in request.resource.data) || request.resource.data.reservedUntil == resource.data.reservedUntil);
+      allow delete: if isAdmin();
     }
 
     // INVOICES: Strict Single Writer Principle (Only Server Atomic Transaction via Admin SDK)
@@ -124,13 +130,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // LEADS: Status transition, assignment & WON linkage are Server Authoritative Only via /api/crm/leads/transition
     match /leads/{leadId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId) &&
+        request.resource.data.status == 'new';
       allow update: if isAuthenticated() && 
         canAccessBranch(resource.data.branchId) && 
-        canAccessBranch(request.resource.data.branchId);
-      allow delete: if isAdmin() || isManager();
+        canAccessBranch(request.resource.data.branchId) &&
+        request.resource.data.status == resource.data.status && // Status transitions must go through Server API
+        (!('wonInvoiceId' in request.resource.data) || request.resource.data.wonInvoiceId == resource.data.wonInvoiceId) &&
+        (!('assignedStaffId' in request.resource.data) || isManager() || request.resource.data.assignedStaffId == resource.data.assignedStaffId);
+      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
     }
 
     match /tradeIns/{tradeInId} {
@@ -138,8 +149,14 @@ service cloud.firestore {
       allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
       allow update: if isAuthenticated() && 
         canAccessBranch(resource.data.branchId) && 
-        canAccessBranch(request.resource.data.branchId);
+        canAccessBranch(request.resource.data.branchId) &&
+        (!('approvedPrice' in request.resource.data) || isManager() || request.resource.data.approvedPrice == resource.data.approvedPrice);
       allow delete: if isAdmin() || isManager();
+    }
+
+    match /tradeInAppraisals/{appraisalId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow write: if false; // Strict Single Writer: Only Server POS & Appraisal Engine
     }
 
     match /warrantyTickets/{ticketId} {
@@ -160,7 +177,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 4. Inventory, Warehouse Transfers & Purchasing (Multi-branch Isolated)
+    // 4. Inventory, Warehouse Transfers & Stock Balances (Server Authoritative Writes)
+    match /inventoryBalances/{balanceId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow write: if false; // Strict Single Writer: Only Server POS Checkout / Inventory Transfer via Admin SDK
+    }
+
     match /transfers/{transferId} {
       allow read: if isAuthenticated() && (
         isAdmin() || 
@@ -282,12 +304,9 @@ service cloud.firestore {
       allow read: if isAdmin() || (
         isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid)
       );
-      // Sale can create activity as SELF_REPORTED or PENDING_EVIDENCE within their branch, cannot self-escalate to MANAGER_VERIFIED
       allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId) && (
         isManager() || (request.resource.data.verificationStatus != 'MANAGER_VERIFIED')
       );
-      // Only Manager/Admin can approve to MANAGER_VERIFIED.
-      // Sales cannot edit activity once MANAGER_VERIFIED.
       allow update: if isAuthenticated() && isActiveUser() && (
         (isManager() && canAccessBranch(resource.data.branchId)) || (
           canAccessBranch(resource.data.branchId) &&

@@ -32,14 +32,15 @@ declare global {
  * Authoritative Staff Authority Retrieval:
  * Reads directly from Firestore users/{uid} as the Single Source of Truth.
  */
-export async function getStaffAuthority(uid: string, emailFallback?: string): Promise<StaffAuthority | null> {
-  if (!adminDb) return null;
+export async function getStaffAuthority(uid: string, emailFallback?: string, dbInstance: any = adminDb): Promise<StaffAuthority | null> {
+  const db = dbInstance || adminDb;
+  if (!db) return null;
 
   try {
-    let userSnap = await adminDb.collection('users').doc(uid).get();
+    let userSnap = await db.collection('users').doc(uid).get();
 
     if (!userSnap.exists && emailFallback) {
-      const emailQuery = await adminDb
+      const emailQuery = await db
         .collection('users')
         .where('email', '==', emailFallback.toLowerCase())
         .limit(1)
@@ -120,28 +121,31 @@ export async function authenticateFirebase(
     // 2. Resolve Role & Branch from Authoritative Firestore User Document (Single Source of Truth)
     let staff = await getStaffAuthority(decoded.uid, decoded.email);
 
-    // If not in DB yet (e.g. initial admin bootstrap), fallback to claims
+    // Fail-Closed: User must have an authoritative provisioned profile in Firestore
     if (!staff) {
-      const claimRole = (decoded.role as string) || (decoded['custom:role'] as string);
-      const claimBranchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || '';
-      if (claimRole) {
-        staff = {
-          uid: decoded.uid,
-          email: decoded.email,
-          role: claimRole.toUpperCase(),
-          branchId: claimBranchId,
-          assignedBranchIds: [claimBranchId].filter(Boolean),
-          active: true,
-          name: decoded.name || decoded.email
-        };
+      // In non-production only, allow bootstrap admin claim
+      if (process.env.NODE_ENV !== 'production') {
+        const claimRole = (decoded.role as string) || (decoded['custom:role'] as string);
+        const claimBranchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || 'CN01';
+        if (claimRole === 'ADMIN') {
+          staff = {
+            uid: decoded.uid,
+            email: decoded.email,
+            role: 'ADMIN',
+            branchId: claimBranchId,
+            assignedBranchIds: [claimBranchId].filter(Boolean),
+            active: true,
+            name: decoded.name || decoded.email
+          };
+        }
       }
     }
 
     if (!staff) {
       return res.status(403).json({
         success: false,
-        error: 'USER_NOT_FOUND',
-        message: 'Tài khoản nhân viên chưa được khởi tạo trong hệ thống.'
+        error: 'USER_NOT_PROVISIONED',
+        message: 'Tài khoản nhân viên chưa được cấu hình hồ sơ và phân quyền trên hệ thống.'
       });
     }
 

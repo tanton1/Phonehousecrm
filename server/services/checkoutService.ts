@@ -394,7 +394,7 @@ export async function executeAtomicCheckout(
     const invoiceId = payload.invoice?.id || newInvRef.id;
     const invoiceCode = payload.invoice?.invoiceCode || `HD-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
-    // 8. Single Writer: Mark Devices as Sold in POS Transaction
+    // 8. Single Writer: Mark Devices as Sold in POS Transaction & Release/Consume Reservations
     for (const dev of loadedDevices) {
       transaction.update(dev.ref, {
         status: 'sold',
@@ -406,6 +406,20 @@ export async function executeAtomicCheckout(
         reservedUntil: FieldValue.delete(),
         reservedByStaffId: FieldValue.delete()
       });
+
+      if (dev.wasReserved && checkoutLeadId) {
+        const resId = `RES_${dev.id}_${checkoutLeadId}`;
+        const resRef = db.collection('deviceReservations').doc(resId);
+        transaction.set(resRef, {
+          id: resId,
+          deviceId: dev.id,
+          leadId: checkoutLeadId,
+          status: 'CONSUMED',
+          consumedInvoiceId: invoiceId,
+          consumedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
     }
 
     // 9. Deduct Accessory Stock (Global & Branch specific)
