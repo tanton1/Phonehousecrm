@@ -116,53 +116,53 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
     return map;
   }, [staffList, allSyncedCommissions]);
 
-  // Initial Calculated Slips populated with dual wallet figures
+  // Initial Calculated Slips populated with dual wallet figures (Data Integrity Hardened)
   const [calculatedSlips, setCalculatedSlips] = useState<MonthlyPayrollSlip[]>(() => {
-    return (staffList || []).filter(Boolean).map(staff => {
-      const sId = staff?.id || 'STAFF_001';
-      const dual = calculateStaffDualWallet(sId, allSyncedCommissions, staffList || []);
-      const policy = (policies || []).find(p => p && p.role === staff?.role) || policies?.[0] || {
-        baseSalary: 5000000,
-        lunchAllowance: 500000,
-        phoneAllowance: 200000
-      };
-      const baseSalary = policy?.baseSalary || 5000000;
-      const allowance = (policy?.lunchAllowance || 500000) + (policy?.phoneAllowance || 200000);
-      const deductions = 0;
-      const totalCommission = dual?.totalGrossCommission || 0;
-      const kpiBonus = (dual?.salesWallet?.totalRevenue || 0) >= 100000000 ? 2000000 : 0;
+    return (staffList || [])
+      .filter((staff): staff is StaffMember => Boolean(staff && staff.id))
+      .map(staff => {
+        const dual = calculateStaffDualWallet(staff.id, allSyncedCommissions, staffList || []);
+        const policy = (policies || []).find(p => p && p.role === staff.role);
+        
+        // Fail-safe calculation: never inject fake 5M policy when unconfigured
+        const baseSalary = policy?.baseSalary ?? staff.baseSalary ?? 0;
+        const allowance = (policy?.lunchAllowance || 0) + (policy?.phoneAllowance || 0);
+        const deductions = 0;
+        const totalCommission = dual?.totalGrossCommission || 0;
+        const kpiBonus = (dual?.salesWallet?.totalRevenue || 0) >= 100000000 ? 2000000 : 0;
+        const branchObj = (branches || []).find(b => b && b.id === staff.branchId);
 
-      return {
-        id: `SLIP-2026-08-${sId}`,
-        employeeId: sId,
-        employeeName: staff?.name || 'Nhân viên',
-        employeeCode: staff?.code || '',
-        periodMonth: '08/2026',
-        month: '08/2026',
-        role: staff?.role || 'STAFF',
-        roleTitle: staff?.roleTitle || (staff?.role === 'ADMIN' ? 'Chủ Cửa Hàng' : staff?.role === 'MANAGER' ? 'Quản Lý' : staff?.role === 'SALES' ? 'Nhân Viên Bán Hàng' : 'Kỹ Thuật Viên'),
-        branchId: staff?.branchId || 'CN01',
-        branchName: staff?.branchName || 'PhoneHouse Cầu Giấy',
-        standardWorkDays: 26,
-        actualWorkDays: 26,
-        baseSalary: baseSalary,
-        totalAllowance: allowance,
-        allowances: [
-          { name: 'Phụ cấp ăn trưa', amount: policy?.lunchAllowance || 500000 },
-          { name: 'Phụ cấp điện thoại & xăng xe', amount: policy?.phoneAllowance || 200000 }
-        ],
-        kpiBonus: kpiBonus,
-        totalCommission: totalCommission,
-        commissions: (dual?.techWallet?.transactions || []).concat(dual?.salesWallet?.transactions || []),
-        overtimePay: 0,
-        totalDeductions: deductions,
-        deductions: [],
-        netPay: baseSalary + allowance + totalCommission + kpiBonus - deductions,
-        status: 'DRAFT',
-        approvalStep: 1,
-        approvalSteps: []
-      } as unknown as MonthlyPayrollSlip;
-    });
+        return {
+          id: `SLIP-2026-08-${staff.id}`,
+          employeeId: staff.id,
+          employeeName: staff.displayName || staff.name || 'Nhân viên',
+          employeeCode: staff.code || '',
+          periodMonth: '08/2026',
+          month: '08/2026',
+          role: staff.role,
+          roleTitle: staff.roleTitle || staff.role,
+          branchId: staff.branchId || '',
+          branchName: branchObj?.name || staff.branchName || 'Chưa phân chi nhánh',
+          standardWorkDays: 26,
+          actualWorkDays: 26,
+          baseSalary: baseSalary,
+          totalAllowance: allowance,
+          allowances: policy ? [
+            { name: 'Phụ cấp ăn trưa', amount: policy.lunchAllowance || 0 },
+            { name: 'Phụ cấp điện thoại & xăng xe', amount: policy.phoneAllowance || 0 }
+          ] : [],
+          kpiBonus: kpiBonus,
+          totalCommission: totalCommission,
+          commissions: (dual?.techWallet?.transactions || []).concat(dual?.salesWallet?.transactions || []),
+          overtimePay: 0,
+          totalDeductions: deductions,
+          deductions: [],
+          netPay: baseSalary + allowance + totalCommission + kpiBonus - deductions,
+          status: policy ? 'DRAFT' : 'REJECTED',
+          approvalStep: 1,
+          approvalSteps: []
+        } as unknown as MonthlyPayrollSlip;
+      });
   });
 
   const [isCalculating, setIsCalculating] = useState(false);
@@ -176,51 +176,49 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   const handleCalculatePayroll = () => {
     setIsCalculating(true);
     setTimeout(() => {
-      const newSlips = (staffList || []).filter(Boolean).map(staff => {
-        const sId = staff?.id || 'STAFF_001';
-        const dual = staffDualWalletsMap.get(sId) || calculateStaffDualWallet(sId, allSyncedCommissions, staffList || []);
-        const policy = (policies || []).find(p => p && p.role === staff?.role) || policies?.[0] || {
-          baseSalary: 5000000,
-          lunchAllowance: 500000,
-          phoneAllowance: 200000
-        };
-        const baseSalary = policy?.baseSalary || 5000000;
-        const allowance = (policy?.lunchAllowance || 500000) + (policy?.phoneAllowance || 200000);
-        const deductions = 0; // Khấu trừ đi trễ (nếu có)
-        const totalCommission = dual?.totalGrossCommission || 0;
-        const kpiBonus = (dual?.salesWallet?.totalRevenue || 0) >= 100000000 ? 2000000 : 0;
-        
-        return {
-          id: `SLIP-${Date.now()}-${sId}`,
-          employeeId: sId,
-          employeeName: staff?.name || 'Nhân viên',
-          employeeCode: staff?.code || '',
-          periodMonth: '08/2026',
-          month: '08/2026',
-          role: staff?.role || 'STAFF',
-          roleTitle: staff?.roleTitle || (staff?.role === 'ADMIN' ? 'Chủ Cửa Hàng' : staff?.role === 'MANAGER' ? 'Quản Lý' : staff?.role === 'SALES' ? 'Nhân Viên Bán Hàng' : 'Kỹ Thuật Viên'),
-          branchId: staff?.branchId || 'CN01',
-          branchName: staff?.branchName || 'PhoneHouse Cầu Giấy',
-          standardWorkDays: 26,
-          actualWorkDays: 26,
-          baseSalary: baseSalary,
-          totalAllowance: allowance,
-          allowances: [
-            { name: 'Phụ cấp ăn trưa', amount: policy?.lunchAllowance || 500000 },
-            { name: 'Phụ cấp điện thoại & xăng xe', amount: policy?.phoneAllowance || 200000 }
-          ],
-          kpiBonus: kpiBonus,
-          totalCommission: totalCommission,
-          commissions: (dual?.techWallet?.transactions || []).concat(dual?.salesWallet?.transactions || []),
-          overtimePay: 0,
-          totalDeductions: deductions,
-          deductions: [],
-          netPay: baseSalary + allowance + totalCommission + kpiBonus - deductions,
-          status: 'DRAFT',
-          approvalStep: 1,
-          approvalSteps: []
-        } as unknown as MonthlyPayrollSlip;
-      });
+      const newSlips = (staffList || [])
+        .filter((staff): staff is StaffMember => Boolean(staff && staff.id))
+        .map(staff => {
+          const dual = staffDualWalletsMap.get(staff.id) || calculateStaffDualWallet(staff.id, allSyncedCommissions, staffList || []);
+          const policy = (policies || []).find(p => p && p.role === staff.role);
+          const baseSalary = policy?.baseSalary ?? staff.baseSalary ?? 0;
+          const allowance = (policy?.lunchAllowance || 0) + (policy?.phoneAllowance || 0);
+          const deductions = 0; // Khấu trừ đi trễ (nếu có)
+          const totalCommission = dual?.totalGrossCommission || 0;
+          const kpiBonus = (dual?.salesWallet?.totalRevenue || 0) >= 100000000 ? 2000000 : 0;
+          const branchObj = (branches || []).find(b => b && b.id === staff.branchId);
+          
+          return {
+            id: `SLIP-${Date.now()}-${staff.id}`,
+            employeeId: staff.id,
+            employeeName: staff.displayName || staff.name || 'Nhân viên',
+            employeeCode: staff.code || '',
+            periodMonth: '08/2026',
+            month: '08/2026',
+            role: staff.role,
+            roleTitle: staff.roleTitle || staff.role,
+            branchId: staff.branchId || '',
+            branchName: branchObj?.name || staff.branchName || 'Chưa phân chi nhánh',
+            standardWorkDays: 26,
+            actualWorkDays: 26,
+            baseSalary: baseSalary,
+            totalAllowance: allowance,
+            allowances: policy ? [
+              { name: 'Phụ cấp ăn trưa', amount: policy.lunchAllowance || 0 },
+              { name: 'Phụ cấp điện thoại & xăng xe', amount: policy.phoneAllowance || 0 }
+            ] : [],
+            kpiBonus: kpiBonus,
+            totalCommission: totalCommission,
+            commissions: (dual?.techWallet?.transactions || []).concat(dual?.salesWallet?.transactions || []),
+            overtimePay: 0,
+            totalDeductions: deductions,
+            deductions: [],
+            netPay: baseSalary + allowance + totalCommission + kpiBonus - deductions,
+            status: policy ? 'DRAFT' : 'REJECTED',
+            approvalStep: 1,
+            approvalSteps: []
+          } as unknown as MonthlyPayrollSlip;
+        });
       setCalculatedSlips(newSlips);
       setIsCalculating(false);
     }, 800);

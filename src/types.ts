@@ -385,6 +385,49 @@ export interface DeviceItem {
   history?: DeviceHistoryLog[]; // Danh sách sự kiện lịch sử (Timeline)
 }
 
+export type CustomerVIPTier = 'REGULAR' | 'SILVER' | 'GOLD' | 'DIAMOND';
+
+export interface CustomerTierConfig {
+  tier: CustomerVIPTier;
+  name: string;
+  minSpend: number;
+  discountPercent: number;
+  perks: string[];
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  primaryPhone: string;
+  phoneNormalized: string;
+  email?: string;
+  address?: string;
+  ownerStaffId?: string;
+  branchIds: string[];
+  tags: string[];
+  vipTier: CustomerVIPTier;
+  lifetimeValue: number;
+  totalOrders: number;
+  firstPurchaseAt?: string;
+  lastPurchaseAt?: string;
+  lastInteractionAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FaceEnrollmentRecord {
+  id: string;
+  staffId: string;
+  facePhotoUrl: string;
+  faceFeatureVector?: number[];
+  faceEnrollmentDate: string;
+  enrolledBy?: string;
+  status: 'ACTIVE' | 'PENDING_APPROVAL' | 'REVOKED';
+  deviceId?: string;
+  version?: number;
+}
+
 export type LeadStatus = 'new' | 'contacted' | 'negotiating' | 'appointment_scheduled' | 'deposit_paid' | 'deposit' | 'won' | 'lost';
 
 export interface LeadNextAction {
@@ -498,6 +541,7 @@ export interface TechChecklistStep {
 
 export interface WarrantyTicket {
   id: string;
+  customerId?: string;
   branchId?: string;
   ticketNumber: string;
   taskType?: 'INBOUND_QC' | 'WARRANTY' | 'RETAIL_REPAIR'; // Phân loại Phiếu
@@ -548,10 +592,14 @@ export interface SalesInvoiceItem {
   type?: 'phone' | 'device' | 'accessory' | 'service' | 'tradein' | 'repair';
   color?: string;
   storage?: string;
+  batteryHealth?: number;
+  warrantyMonths?: number;
+  warrantyExpiryDate?: string;
 }
 
 export interface SalesInvoice {
   id: string;
+  customerId?: string;
   invoiceCode?: string;
   customerName: string;
   customerPhone?: string;
@@ -610,7 +658,6 @@ export interface SalesInvoice {
   createdAt?: string;
   createdDate?: string;
   notes?: string;
-  customerId?: string;
   installmentDisbursementStatus?: 'PENDING' | 'DISBURSED';
   installmentExpectedAmount?: number;
   installmentContractCode?: string;

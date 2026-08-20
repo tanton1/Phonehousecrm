@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-// Simulation of Firestore Security Rules logic for v4.0 (Authoritative Single Writer & Active User Invariant)
+// Simulation of Firestore Security Rules logic for v4.2 (Authoritative Single Writer & Active User Invariant)
 interface SimulatedAuth {
   uid: string;
   token?: { role?: string };
@@ -31,7 +31,8 @@ class SecurityRulesValidator {
 
   isActiveUser(auth: SimulatedAuth | null): boolean {
     const doc = this.getUserDoc(auth);
-    return doc !== undefined && doc.active !== false;
+    // Strict Active Invariant: active MUST be strictly true (not undefined, not false)
+    return doc !== undefined && doc.active === true;
   }
 
   getUserRole(auth: SimulatedAuth | null): string {
@@ -77,19 +78,19 @@ class SecurityRulesValidator {
 
   // Rules for Invoices write: Strict Single Writer Principle
   canWriteInvoices(auth: SimulatedAuth | null): boolean {
-    // In v4.0: allow write: if false; (Only Server Atomic Transaction executeAtomicCheckout via Admin SDK)
+    // In v4.0+: allow write: if false; (Only Server Atomic Transaction executeAtomicCheckout via Admin SDK)
     return false;
   }
 
   // Rules for Cash Transactions write: Strict Single Writer Principle
   canWriteCashTransactions(auth: SimulatedAuth | null): boolean {
-    // In v4.0: allow write: if false; (Only Server Finance API /api/finance/... via Admin SDK)
+    // In v4.0+: allow write: if false; (Only Server Finance API /api/finance/... via Admin SDK)
     return false;
   }
 
   // Rules for Funds write: Strict Single Writer Principle
   canWriteFunds(auth: SimulatedAuth | null): boolean {
-    // In v4.0: allow write: if false; (Only Server Admin SDK)
+    // In v4.0+: allow write: if false; (Only Server Admin SDK)
     return false;
   }
 
@@ -105,12 +106,31 @@ class SecurityRulesValidator {
 
   // Rules for Users collection creation
   canCreateUser(auth: SimulatedAuth | null): boolean {
-    // In v4.0: allow create: if false;
     return false;
+  }
+
+  // Rules for Chat Conversations read
+  canReadConversation(auth: SimulatedAuth | null, conv: { branchId?: string; assignedStaffId?: string; participants?: string[] }): boolean {
+    if (this.isAdmin(auth)) return true;
+    if (!this.isAuthenticated(auth) || !auth || !this.isActiveUser(auth)) return false;
+
+    if (conv.assignedStaffId && conv.assignedStaffId === auth.uid) return true;
+    if (conv.participants && conv.participants.includes(auth.uid)) return true;
+    if (conv.branchId && this.canAccessBranch(auth, conv.branchId)) return true;
+
+    return false;
+  }
+
+  // Rules for Stock Transfers read
+  canReadStockTransfer(auth: SimulatedAuth | null, transfer: { sourceBranchId: string; destinationBranchId: string }): boolean {
+    if (this.isAdmin(auth)) return true;
+    if (!this.isAuthenticated(auth) || !auth || !this.isActiveUser(auth)) return false;
+
+    return this.canAccessBranch(auth, transfer.sourceBranchId) || this.canAccessBranch(auth, transfer.destinationBranchId);
   }
 }
 
-describe('Sprint 4: Firestore Rules v4.0 Security & Single Writer Test Suite', () => {
+describe('Firestore Security Rules v4.2 & Authority Invariant Test Suite', () => {
   const validator = new SecurityRulesValidator();
 
   beforeEach(() => {
@@ -121,6 +141,7 @@ describe('Sprint 4: Firestore Rules v4.0 Security & Single Writer Test Suite', (
     validator.users.set('TECH-UID', { role: 'TECH', branchId: 'CN01', active: true });
     validator.users.set('INV-MGR-UID', { role: 'INVENTORY_MANAGER', branchId: 'CN01', active: true });
     validator.users.set('INACTIVE-STAFF', { role: 'SALES', branchId: 'CN01', active: false });
+    validator.users.set('LEGACY-STAFF-NO-ACTIVE-FIELD', { role: 'SALES', branchId: 'CN01' }); // active is undefined
   });
 
   it('Case 1: Khóa hoàn toàn quyền Client ghi trực tiếp vào /invoices (Single Writer)', () => {
@@ -136,12 +157,18 @@ describe('Sprint 4: Firestore Rules v4.0 Security & Single Writer Test Suite', (
     expect(validator.canWriteFunds({ uid: 'ADMIN-UID' })).toBe(false);
   });
 
-  it('Case 3: Active User Invariant - Tài khoản bị vô hiệu hóa (active=false) bị từ chối mọi quyền', () => {
+  it('Case 3: Active User Invariant - Tài khoản active=false hoặc thiếu field active bị từ chối mọi quyền', () => {
     const inactiveUser = { uid: 'INACTIVE-STAFF' };
+    const legacyUser = { uid: 'LEGACY-STAFF-NO-ACTIVE-FIELD' };
+
     expect(validator.isActiveUser(inactiveUser)).toBe(false);
     expect(validator.canAccessBranch(inactiveUser, 'CN01')).toBe(false);
     expect(validator.canWriteProducts(inactiveUser)).toBe(false);
     expect(validator.canWriteSpareParts(inactiveUser)).toBe(false);
+
+    expect(validator.isActiveUser(legacyUser)).toBe(false);
+    expect(validator.canAccessBranch(legacyUser, 'CN01')).toBe(false);
+    expect(validator.canWriteProducts(legacyUser)).toBe(false);
   });
 
   it('Case 4: Phân quyền Quản lý kho (canManageInventory)', () => {
@@ -171,5 +198,29 @@ describe('Sprint 4: Firestore Rules v4.0 Security & Single Writer Test Suite', (
 
     expect(validator.canAccessBranch(admin, 'CN01')).toBe(true);
     expect(validator.canAccessBranch(admin, 'CN02')).toBe(true);
+  });
+
+  it('Case 7: Phân quyền hội thoại Chat (Chat Conversation Scoping)', () => {
+    const saleCN01 = { uid: 'SALES-CN01' };
+    const saleCN02 = { uid: 'SALES-CN02' };
+
+    const convCN01 = { branchId: 'CN01', assignedStaffId: 'SALES-CN01' };
+    const convCN02 = { branchId: 'CN02', assignedStaffId: 'SALES-CN02' };
+
+    expect(validator.canReadConversation(saleCN01, convCN01)).toBe(true);
+    expect(validator.canReadConversation(saleCN01, convCN02)).toBe(false);
+    expect(validator.canReadConversation(saleCN02, convCN02)).toBe(true);
+    expect(validator.canReadConversation(saleCN02, convCN01)).toBe(false);
+  });
+
+  it('Case 8: Phân quyền Chuyển kho nội bộ (Transfers Scope - Source or Destination Branch)', () => {
+    const saleCN01 = { uid: 'SALES-CN01' };
+    const saleCN02 = { uid: 'SALES-CN02' };
+    const transfer1to2 = { sourceBranchId: 'CN01', destinationBranchId: 'CN02' };
+    const transfer3to4 = { sourceBranchId: 'CN03', destinationBranchId: 'CN04' };
+
+    expect(validator.canReadStockTransfer(saleCN01, transfer1to2)).toBe(true);
+    expect(validator.canReadStockTransfer(saleCN02, transfer1to2)).toBe(true);
+    expect(validator.canReadStockTransfer(saleCN01, transfer3to4)).toBe(false);
   });
 });

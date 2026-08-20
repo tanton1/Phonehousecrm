@@ -1833,6 +1833,15 @@ export default function App() {
                   setSelectedCustomer360Lead({ ...lead, notes: updatedNotes });
                 }
               }}
+              onTriggerNextBestAction={(action) => {
+                if (action.actionType === 'TRADE_IN') {
+                  setSelectedCustomer360Lead(null);
+                  setActiveTab('pos');
+                } else if (action.actionType === 'WARRANTY_CARE') {
+                  setSelectedCustomer360Lead(null);
+                  setActiveTab('warranty');
+                }
+              }}
             />
           </div>
         )}

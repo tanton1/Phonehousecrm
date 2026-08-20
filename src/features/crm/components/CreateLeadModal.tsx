@@ -1,57 +1,58 @@
 import React, { useState, useMemo } from 'react';
-import { Lead, StoreBranch, StaffMember, LeadNextAction } from '../../../types';
+import { Lead, StoreBranch, UserAccount, StaffMember, LeadNextAction } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
-import { normalizeVietnamPhone, formatDisplayPhone } from '../../../utils/phoneUtils';
-import { Users, Plus, Phone, User, MessageSquare, Smartphone, Tag, X, AlertTriangle, Calendar, CheckCircle } from 'lucide-react';
+import { normalizeVietnamPhone, isValidVietnamPhone, formatDisplayPhone } from '../../../utils/phoneUtils';
+import { Users, X, Sparkles, AlertCircle, AlertTriangle, Phone, Calendar, Clock, DollarSign, UserCheck, User, Smartphone, Plus } from 'lucide-react';
 
-export interface CreateLeadModalProps {
+interface CreateLeadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  branches: StoreBranch[];
-  staffList: StaffMember[];
-  currentBranch: StoreBranch;
-  currentUser?: StaffMember | null;
-  existingLeads?: Lead[];
   onSaveLead: (lead: Lead) => Promise<void> | void;
+  branches: StoreBranch[];
+  existingLeads?: Lead[];
+  currentUser?: UserAccount | null;
+  staffList?: (StaffMember | UserAccount)[];
 }
 
 export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   isOpen,
   onClose,
+  onSaveLead,
   branches,
-  staffList,
-  currentBranch,
-  currentUser,
   existingLeads = [],
-  onSaveLead
+  currentUser,
+  staffList = []
 }) => {
+  const currentBranch = branches[0] || { id: 'CN-01', name: 'PhoneHouse Showroom' };
+
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [zalo, setZalo] = useState('');
-  const [source, setSource] = useState<'Facebook Ads' | 'TikTok' | 'Zalo OA' | 'Khách Vãng Lai' | 'Khách Quen Giới Thiệu'>('Facebook Ads');
-  const [demandModel, setDemandModel] = useState('iPhone 15 Pro Max');
-  const [budget, setBudget] = useState(25000000);
-  const [selectedStaffId, setSelectedStaffId] = useState<string>(currentUser?.uid || currentUser?.id || staffList[0]?.id || staffList[0]?.uid || '');
-  const [nextActionType, setNextActionType] = useState<LeadNextAction['type']>('CALL');
-  const [nextActionDate, setNextActionDate] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
-  });
+  const [source, setSource] = useState<Lead['source']>('Facebook Ads');
+  const [demandModel, setDemandModel] = useState('');
+  const [budget, setBudget] = useState<number>(15000000);
   const [notes, setNotes] = useState('');
+  const [selectedStaffId, setSelectedStaffId] = useState<string>(currentUser?.id || '');
+  const [nextActionType, setNextActionType] = useState<LeadNextAction['type']>('CALL');
+  const [nextActionDate, setNextActionDate] = useState<string>(
+    new Date(Date.now() + 2 * 3600 * 1000).toISOString().slice(0, 16)
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Real-time Duplicate Phone Detection
+  // Real-time duplicate phone checking with normalized phone
   const duplicateLead = useMemo(() => {
-    const norm = normalizeVietnamPhone(phone);
-    if (!norm || norm.length < 9) return null;
-    return existingLeads.find(l => normalizeVietnamPhone(l.phone) === norm || l.phoneNormalized === norm);
+    if (!phone || phone.trim().length < 6) return null;
+    const currentNorm = normalizeVietnamPhone(phone);
+    return existingLeads.find(l => {
+      const existingNorm = normalizeVietnamPhone(l.phone || l.phoneNormalized);
+      return existingNorm === currentNorm;
+    });
   }, [phone, existingLeads]);
 
   if (!isOpen) return null;
 
-  const assignedStaffObj = staffList.find(s => s.id === selectedStaffId || s.uid === selectedStaffId);
-  const assignedStaffName = assignedStaffObj?.name || assignedStaffObj?.displayName || currentUser?.displayName || 'Nhân viên tư vấn';
+  const assignedStaffObj = staffList.find(s => s.id === selectedStaffId || (s as any).uid === selectedStaffId);
+  const assignedStaffName = assignedStaffObj?.name || (assignedStaffObj as any)?.displayName || currentUser?.displayName || 'Nhân viên tư vấn';
 
   const handleApplyDuplicate = () => {
     if (duplicateLead) {
@@ -62,8 +63,13 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   };
 
   const handleSave = async () => {
-    if (!name.trim() || !phone.trim()) {
-      alert('Vui lòng nhập tên và số điện thoại khách hàng.');
+    if (!name.trim()) {
+      alert('Vui lòng nhập tên khách hàng.');
+      return;
+    }
+
+    if (!isValidVietnamPhone(phone)) {
+      alert('Số điện thoại không hợp lệ. Vui lòng nhập đúng 10 số di động Việt Nam (đầu số 03x, 05x, 07x, 08x, 09x).');
       return;
     }
 

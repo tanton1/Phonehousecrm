@@ -46,6 +46,7 @@ import {
 
 interface StandaloneCheckInViewProps {
   currentUser?: UserAccount | StaffMember | null;
+  staffList?: StaffMember[];
   branches?: StoreBranch[];
   attendanceRecords?: AttendanceRecord[];
   onCheckInSuccess?: (record: any) => void;
@@ -55,6 +56,7 @@ interface StandaloneCheckInViewProps {
 
 export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   currentUser,
+  staffList = [],
   branches = [],
   attendanceRecords = [],
   onCheckInSuccess,
@@ -64,46 +66,39 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   // Step Wizard: 1: CHỌN NHÂN VIÊN & CA | 2: GPS ĐỊNH VỊ | 3: WI-FI CỬA HÀNG | 4: FACE ID SINH TRẮC HỌC | 5: HOÀN TẤT
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
-  // Available staff and branches
-  const availableStaff = INITIAL_STAFF_MEMBERS;
+  // Available staff loaded from props or active database
+  const availableStaff = useMemo(() => {
+    if (staffList && staffList.length > 0) return staffList;
+    if (currentUser) {
+      return [{
+        id: currentUser.id,
+        name: currentUser.displayName || (currentUser as any).name || 'Nhân Viên',
+        code: (currentUser as any).code || 'NV01',
+        role: currentUser.role as any || 'SALES',
+        branchId: (currentUser as any).branchId || (branches[0]?.id ?? ''),
+        branchName: (currentUser as any).branchName || (branches[0]?.name ?? '')
+      } as StaffMember];
+    }
+    return INITIAL_STAFF_MEMBERS;
+  }, [staffList, currentUser, branches]);
+
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
-    if (currentUser?.id && availableStaff.some(s => s?.id === currentUser.id)) {
+    if (currentUser?.id) {
       return currentUser.id;
     }
-    return availableStaff[0]?.id || 'STAFF_001';
+    return availableStaff[0]?.id || '';
   });
 
   const selectedStaff = useMemo(() => {
-    return availableStaff.find(s => s?.id === selectedStaffId) || availableStaff[0] || {
-      id: 'STAFF_001',
-      name: 'Nhân Viên Showroom',
-      code: 'NV01',
-      role: 'SALES',
-      branchId: 'CN01',
-      branchName: 'Chi Nhánh Showroom'
-    };
+    return availableStaff.find(s => s && s.id === selectedStaffId) || availableStaff[0];
   }, [availableStaff, selectedStaffId]);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
-    return selectedStaff?.branchId || branches[0]?.id || 'BRANCH_001';
+    return selectedStaff?.branchId || branches[0]?.id || '';
   });
 
   const targetBranch = useMemo(() => {
-    return (branches || []).find(b => b?.id === selectedBranchId || b?.name === selectedStaff?.branchName) || branches[0] || {
-      id: 'BRANCH_001',
-      code: 'CN01',
-      name: 'Chi Nhánh Showroom',
-      address: 'Hà Nội',
-      phone: '1900 xxxx',
-      email: 'contact@phonehouse.vn',
-      manager: 'Quản lý',
-      openingHours: '08:00 - 22:00',
-      warehouseId: 'KHO_01',
-      systemType: 'PHONEHOUSE',
-      isActive: true,
-      isHeadquarter: false,
-      notes: ''
-    };
+    return (branches || []).find(b => b && (b.id === selectedBranchId || b.name === selectedStaff?.branchName)) || branches[0];
   }, [branches, selectedBranchId, selectedStaff]);
 
   // Live Digital Clock
