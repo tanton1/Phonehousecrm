@@ -23,12 +23,24 @@ export interface AttendanceRecordResult {
   id: string;
   staffId: string;
   staffName: string;
+  role?: string;
   branchId: string;
+  branchName?: string;
   date: string;
   checkInTime: string;
   checkOutTime?: string;
-  status: 'ON_TIME' | 'LATE' | 'PENDING_VERIFICATION' | 'REJECTED';
+  status: 'ON_TIME' | 'LATE' | 'PENDING_VERIFICATION' | 'REJECTED' | 'COMPLETED';
+  shiftId?: string;
+  shiftName?: string;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  graceMinutes?: number;
+  lateMinutes?: number;
+  earlyMinutes?: number;
+  otMinutes?: number;
   workDurationMinutes: number;
+  breakDurationMinutes?: number;
+  netWorkMinutes?: number;
   verification: {
     gpsVerified: boolean;
     distanceMeters: number;
@@ -37,6 +49,12 @@ export interface AttendanceRecordResult {
     qrScanned: boolean;
     serverTimeIso: string;
   };
+}
+
+function parseTimeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':').map(Number);
+  return (parts[0] || 0) * 60 + (parts[1] || 0);
 }
 
 export async function processServerCheckIn(
@@ -74,6 +92,7 @@ export async function processServerCheckIn(
     // In memory / mock test mode
     authoritativeStoreCoords = { latitude: 16.0678, longitude: 108.2208 };
     isFaceVerified = Boolean(faceCaptureBase64 && faceCaptureBase64.startsWith('VALID_CAPTURE_'));
+    isNetworkAllowed = true;
   } else {
     // 1A. Geofence & Network Authority
     const branchDoc = await db.collection('branches').doc(branchId).get();
@@ -105,9 +124,7 @@ export async function processServerCheckIn(
         const sData = staffDoc.data()!;
         const registeredProfile = sData.registeredFaceProfile || sData.faceDescriptorHash;
 
-        // Verify that staff has registered profile AND live evidence matches
         if (registeredProfile && faceCaptureBase64) {
-          // Verify biometric data hash/signature
           const isMatch = faceCaptureBase64.length > 200 && !faceCaptureBase64.includes('FAKE');
           isFaceVerified = isMatch;
         } else if (registeredProfile && faceSessionId) {
@@ -140,17 +157,53 @@ export async function processServerCheckIn(
   });
   const serverTimeIso = now.toISOString();
 
-  // 4. Determine Attendance Status Authoritatively with Strict Network & Face Policy
+  // 4. Shift Assignment Matching Engine: Query shift from weeklyShiftSchedules
+  let shiftId = 'SHIFT_MORNING';
+  let shiftName = 'Ca sáng';
+  let scheduledStart = '08:00';
+  let scheduledEnd = '17:00';
+  const graceMinutes = 5; // 5 phút linh hoạt
+
+  if (db) {
+    try {
+      const schedQuery = await db.collection('weeklyShiftSchedules')
+        .where('staffId', '==', staffId)
+        .limit(5)
+        .get();
+
+      if (!schedQuery.empty) {
+        for (const doc of schedQuery.docs) {
+          const schedData = doc.data();
+          if (schedData.days && schedData.days[dateStr]) {
+            const dayShift = schedData.days[dateStr];
+            if (dayShift.shiftName && dayShift.shiftName !== 'Nghỉ') {
+              shiftId = dayShift.shiftId || shiftId;
+              shiftName = dayShift.shiftName;
+              scheduledStart = dayShift.startTime || scheduledStart;
+              scheduledEnd = dayShift.endTime || scheduledEnd;
+              break;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[Shift Matching Error]:', err);
+    }
+  }
+
+  // 5. Calculate Late Minutes based on Scheduled Shift Start + Tolerance Grace
+  const shiftStartMinutes = parseTimeToMinutes(scheduledStart);
+  const checkInMinutes = parseTimeToMinutes(timeStr);
+  const lateMinutes = Math.max(0, checkInMinutes - (shiftStartMinutes + graceMinutes));
+
   let status: 'ON_TIME' | 'LATE' | 'PENDING_VERIFICATION' = 'ON_TIME';
 
-  // Invariant: Both Face and Network must pass for automatic ON_TIME/LATE approval
   if (!isFaceVerified || !isNetworkAllowed) {
-    status = 'PENDING_VERIFICATION'; // Flagged for Manager Manual Audit
+    status = 'PENDING_VERIFICATION';
+  } else if (lateMinutes > 0) {
+    status = 'LATE';
   } else {
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    if (hours > 8 || (hours === 8 && minutes > 30)) {
-      status = 'LATE';
-    }
+    status = 'ON_TIME';
   }
 
   const recordId = `ATT_${staffId}_${dateStr.replace(/-/g, '')}`;
@@ -158,11 +211,23 @@ export async function processServerCheckIn(
     id: recordId,
     staffId,
     staffName,
+    role,
     branchId,
+    branchName,
     date: dateStr,
     checkInTime: timeStr,
     status,
+    shiftId,
+    shiftName,
+    scheduledStart,
+    scheduledEnd,
+    graceMinutes,
+    lateMinutes,
     workDurationMinutes: 0,
+    breakDurationMinutes: 0,
+    netWorkMinutes: 0,
+    earlyMinutes: 0,
+    otMinutes: 0,
     verification: {
       gpsVerified: true,
       distanceMeters: geoCheck.distanceMeters,
@@ -173,7 +238,7 @@ export async function processServerCheckIn(
     }
   };
 
-  // 5. Persistence with Duplicate Locking
+  // 6. Persistence with Duplicate Locking
   if (db) {
     const attRef = db.collection('attendance').doc(recordId);
     await db.runTransaction(async (transaction) => {
@@ -186,8 +251,6 @@ export async function processServerCheckIn(
       }
       transaction.set(attRef, {
         ...newRecord,
-        role,
-        branchName,
         createdAt: FieldValue.serverTimestamp()
       });
     });
@@ -199,7 +262,7 @@ export async function processServerCheckIn(
 export async function processServerCheckOut(
   db: Firestore | null,
   payload: CheckOutRequest
-): Promise<{ success: boolean; checkOutTime: string; workDurationMinutes: number }> {
+): Promise<AttendanceRecordResult> {
   const { staffId } = payload;
   const now = new Date();
   const dateStr = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
@@ -211,38 +274,75 @@ export async function processServerCheckOut(
   });
 
   const recordId = `ATT_${staffId}_${dateStr.replace(/-/g, '')}`;
-  let workDurationMinutes = 480; // default 8 hours
+  let completedRecord: AttendanceRecordResult;
 
-  if (db) {
-    const attRef = db.collection('attendance').doc(recordId);
-    await db.runTransaction(async (transaction) => {
-      const snap = await transaction.get(attRef);
-      if (!snap.exists) {
-        throw new Error('NOT_CHECKED_IN: Không tìm thấy lượt điểm danh vào ca của ngày hôm nay.');
+  if (!db) {
+    // In-memory test mode
+    completedRecord = {
+      id: recordId,
+      staffId,
+      staffName: 'Nhân viên',
+      branchId: payload.branchId || 'CN01',
+      date: dateStr,
+      checkInTime: '08:00:00',
+      checkOutTime: timeStr,
+      status: 'COMPLETED',
+      workDurationMinutes: 523,
+      netWorkMinutes: 523,
+      earlyMinutes: 0,
+      otMinutes: 0,
+      verification: {
+        gpsVerified: true,
+        distanceMeters: 10,
+        faceVerified: true,
+        networkVerified: true,
+        qrScanned: false,
+        serverTimeIso: now.toISOString()
       }
-      const data = snap.data()!;
-      if (data.checkOutTime) {
-        throw new Error(`ALREADY_CHECKED_OUT: Bạn đã kết thúc ca làm việc lúc ${data.checkOutTime}.`);
-      }
-
-      if (data.checkInTime) {
-        const [inH, inM] = data.checkInTime.split(':').map(Number);
-        const [outH, outM] = timeStr.split(':').map(Number);
-        workDurationMinutes = Math.max(0, (outH * 60 + outM) - (inH * 60 + inM));
-      }
-
-      // Authoritative Firestore write for Check-out
-      transaction.update(attRef, {
-        checkOutTime: timeStr,
-        workDurationMinutes,
-        updatedAt: FieldValue.serverTimestamp()
-      });
-    });
+    };
+    return completedRecord;
   }
 
-  return {
-    success: true,
-    checkOutTime: timeStr,
-    workDurationMinutes
-  };
+  const attRef = db.collection('attendance').doc(recordId);
+  completedRecord = await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(attRef);
+    if (!snap.exists) {
+      throw new Error('NOT_CHECKED_IN: Không tìm thấy lượt điểm danh vào ca của ngày hôm nay.');
+    }
+    const data = snap.data()!;
+    if (data.checkOutTime) {
+      throw new Error(`ALREADY_CHECKED_OUT: Bạn đã kết thúc ca làm việc lúc ${data.checkOutTime}.`);
+    }
+
+    const inMinutes = parseTimeToMinutes(data.checkInTime || '08:00:00');
+    const outMinutes = parseTimeToMinutes(timeStr);
+    const workDurationMinutes = Math.max(0, outMinutes - inMinutes);
+
+    const scheduledEnd = data.scheduledEnd || '17:00';
+    const shiftEndMinutes = parseTimeToMinutes(scheduledEnd);
+    const earlyMinutes = Math.max(0, shiftEndMinutes - outMinutes);
+    const otMinutes = Math.max(0, outMinutes - shiftEndMinutes);
+    const breakDurationMinutes = data.breakDurationMinutes || 0;
+    const netWorkMinutes = Math.max(0, workDurationMinutes - breakDurationMinutes);
+
+    const updateFields = {
+      checkOutTime: timeStr,
+      status: 'COMPLETED',
+      workDurationMinutes,
+      netWorkMinutes,
+      earlyMinutes,
+      otMinutes,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    transaction.update(attRef, updateFields);
+
+    return {
+      ...data,
+      id: recordId,
+      ...updateFields
+    } as unknown as AttendanceRecordResult;
+  });
+
+  return completedRecord;
 }

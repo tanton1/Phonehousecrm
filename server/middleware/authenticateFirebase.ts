@@ -46,6 +46,17 @@ export async function getStaffAuthority(uid: string, emailFallback?: string): Pr
         .get();
       if (!emailQuery.empty) {
         userSnap = emailQuery.docs[0];
+        // Auto-migrate / link legacy profile doc to authoritative users/{uid}
+        try {
+          await adminDb.collection('users').doc(uid).set({
+            ...userSnap.data(),
+            id: uid,
+            authUid: uid,
+            legacyDocId: userSnap.id
+          }, { merge: true });
+        } catch (migErr) {
+          console.warn('[User Profile Migration Warn]:', migErr);
+        }
       }
     }
 
@@ -55,7 +66,7 @@ export async function getStaffAuthority(uid: string, emailFallback?: string): Pr
 
     const uData = userSnap.data()!;
     return {
-      uid: userSnap.id,
+      uid: uid, // Always preserve authoritative Firebase token UID
       email: uData.email || emailFallback,
       role: (uData.role || '').toUpperCase(),
       branchId: uData.branchId || (uData.assignedBranchIds && uData.assignedBranchIds[0]) || '',

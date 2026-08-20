@@ -15,6 +15,7 @@ import {
   extractFaceFeatureVectorFromCanvas, 
   detectFacePresenceInCanvas 
 } from '../utils/faceMatchingEngine';
+import { requestNetworkCheck } from '../services/attendanceApiClient';
 import {
   Clock,
   MapPin,
@@ -51,7 +52,7 @@ interface StandaloneCheckInViewProps {
   staffList?: StaffMember[];
   branches?: StoreBranch[];
   attendanceRecords?: AttendanceRecord[];
-  onCheckInSuccess?: (record: any) => void;
+  onCheckInSuccess?: (record: any) => Promise<any> | void;
   onNavigateToHR?: () => void;
   onClose?: () => void;
 }
@@ -304,16 +305,24 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     }
   };
 
-  // Run Wi-Fi Check
-  const runWifiCheck = () => {
+  // Run Network & Internet Check (Using Authoritative Public IP verification)
+  const runWifiCheck = async () => {
     setWifiStatus('SCANNING');
-    setTimeout(() => {
+    try {
+      const netCheck = await requestNetworkCheck(targetBranch.id);
+      if (netCheck.isAllowed) {
+        setWifiStatus('SUCCESS');
+      } else {
+        setWifiStatus('ERROR');
+      }
+    } catch (err) {
+      console.warn('[Network Check error, fallback to SSID signature]:', err);
       if (currentWifiSSID === targetWifiSSID) {
         setWifiStatus('SUCCESS');
       } else {
         setWifiStatus('ERROR');
       }
-    }, 600);
+    }
   };
 
   // Run Face ID Check (Server Gemini Vision + Client Biometric Correlation)
@@ -428,43 +437,62 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     }
   };
 
-  // Final Success record
+  // Final Success record & Submitting state
   const [completedRecord, setCompletedRecord] = useState<any>(null);
+  const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false);
+  const [submitErrorMsg, setSubmitErrorMsg] = useState<string | null>(null);
 
-  const handleFinishCheckIn = () => {
-    const today = getVietnamDateString();
-    const timeStr = getVietnamTimeString();
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
-    const effectiveStaffId = auth.currentUser?.uid || selectedStaff.id;
+  const handleFinishCheckIn = async () => {
+    setIsSubmittingCheckIn(true);
+    setSubmitErrorMsg(null);
 
-    const newRecord = {
-      id: `ATT_${effectiveStaffId}_${today.replace(/-/g, '')}`,
-      staffId: effectiveStaffId,
-      staffName: selectedStaff.name,
-      role: selectedStaff.role,
-      branchId: targetBranch.id,
-      branchName: targetBranch.name,
-      date: today,
-      checkInTime: timeStr,
-      checkInDate: dateStr,
-      status: 'IN_PROGRESS',
-      verification: {
-        gpsVerified: gpsStatus === 'SUCCESS',
-        wifiVerified: wifiStatus === 'SUCCESS',
-        faceVerified: faceStatus === 'SUCCESS',
-        distanceMeters: gpsDistance,
-        wifiSSID: currentWifiSSID,
-        faceConfidence: faceConfidence,
-        snapshotUrl: capturedSnapshotUrl
+    try {
+      const today = getVietnamDateString();
+      const timeStr = getVietnamTimeString();
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+      const effectiveStaffId = auth.currentUser?.uid || selectedStaff.id;
+
+      const newRecord = {
+        id: `ATT_${effectiveStaffId}_${today.replace(/-/g, '')}`,
+        staffId: effectiveStaffId,
+        staffName: selectedStaff.name,
+        role: selectedStaff.role,
+        branchId: targetBranch.id,
+        branchName: targetBranch.name,
+        date: today,
+        checkInTime: timeStr,
+        checkInDate: dateStr,
+        status: 'IN_PROGRESS',
+        verification: {
+          gpsVerified: gpsStatus === 'SUCCESS',
+          userCoords: userCoords ? {
+            latitude: userCoords.lat,
+            longitude: userCoords.lng
+          } : undefined,
+          wifiVerified: wifiStatus === 'SUCCESS',
+          faceVerified: faceStatus === 'SUCCESS',
+          distanceMeters: gpsDistance,
+          wifiSSID: currentWifiSSID,
+          faceConfidence: faceConfidence,
+          snapshotUrl: capturedSnapshotUrl
+        }
+      };
+
+      if (onCheckInSuccess) {
+        const persistedRecord = await onCheckInSuccess(newRecord);
+        setCompletedRecord(persistedRecord || newRecord);
+      } else {
+        setCompletedRecord(newRecord);
       }
-    };
 
-    setCompletedRecord(newRecord);
-    if (onCheckInSuccess) {
-      onCheckInSuccess(newRecord);
+      setCurrentStep(5);
+    } catch (err: any) {
+      console.error('[FinishCheckIn Error]:', err);
+      setSubmitErrorMsg(err?.message || 'Điểm danh thất bại. Vui lòng kiểm tra lại GPS và phiên đăng nhập.');
+    } finally {
+      setIsSubmittingCheckIn(false);
     }
-    setCurrentStep(5);
   };
 
   const stepsList = [
@@ -976,22 +1004,40 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               </div>
             )}
 
+            {/* Submission Error Alert */}
+            {submitErrorMsg && (
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 text-xs font-bold flex items-center space-x-2 animate-shake">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{submitErrorMsg}</span>
+              </div>
+            )}
+
             <div className="pt-2 flex items-center justify-between">
               <button
+                disabled={isSubmittingCheckIn}
                 onClick={() => setCurrentStep(3)}
-                className="px-4 py-2.5 rounded-xl border border-zinc-200 text-zinc-600 hover:text-zinc-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl border border-zinc-200 text-zinc-600 hover:text-zinc-900 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>Quay lại</span>
               </button>
 
               <button
-                disabled={faceStatus !== 'SUCCESS'}
+                disabled={faceStatus !== 'SUCCESS' || isSubmittingCheckIn}
                 onClick={handleFinishCheckIn}
-                className="bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-600/25 cursor-pointer active:scale-95"
+                className="bg-[#FF4B16] hover:bg-[#E94312] disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-600/25 cursor-pointer active:scale-95"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Xác Nhận & Hoàn Tất Điểm Danh</span>
+                {isSubmittingCheckIn ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Đang ghi nhận điểm danh...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Xác Nhận & Hoàn Tất Điểm Danh</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

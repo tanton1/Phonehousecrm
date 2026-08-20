@@ -234,9 +234,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 7. Attendance & Human Resources (Server Authority writes; employees read own records)
+    // 7. Attendance & Human Resources (Strict Server Authority writes; employees read own records)
     match /attendance/{attId} {
       allow read: if isAdmin() || isManager() || (isAuthenticated() && isActiveUser() && resource.data.staffId == request.auth.uid);
+      allow write: if false; // Strict Single Writer Principle: Only Server Attendance API (/api/attendance/...) via Admin SDK
+    }
+
+    match /weeklyShiftSchedules/{scheduleId} {
+      allow read: if isAuthenticated() && (isAdmin() || canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid);
       allow write: if isAdmin() || isManager();
     }
 
@@ -255,6 +260,25 @@ service cloud.firestore {
     match /catalogItems/{itemId} {
       allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin() || isManager();
+    }
+
+    // 8. Verifiable CRM 3.0 Collections (Lead Care Activities, Appointments, Quotes)
+    match /leadCareActivities/{activityId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow create, update: if isAuthenticated() && isActiveUser();
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /leadAppointments/{apptId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow create, update: if isAuthenticated() && isActiveUser();
+      allow delete: if isAdmin() || isManager();
+    }
+
+    match /leadQuotes/{quoteId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow create, update: if isAuthenticated() && isActiveUser();
+      allow delete: if isAdmin() || isManager();
     }
 
     // Default Fallback: Only Active Admin

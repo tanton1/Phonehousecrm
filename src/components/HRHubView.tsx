@@ -127,12 +127,10 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   // Subscribe to real-time weekly shift schedules
   React.useEffect(() => {
     const unsub = subscribeToWeeklyShiftSchedules((remoteSchedules) => {
-      if (remoteSchedules && remoteSchedules.length > 0) {
-        setWeeklySchedules(remoteSchedules);
-      }
-    }, selectedBranchId);
+      setWeeklySchedules(remoteSchedules || []);
+    }, selectedBranchId, currentWeek.weekStart);
     return () => unsub();
-  }, [selectedBranchId]);
+  }, [selectedBranchId, currentWeek.weekStart]);
 
   const [leaveRequests, setLeaveRequests] = useState(INITIAL_LEAVE_REQUESTS);
   const [commissions] = useState(INITIAL_COMMISSIONS);
@@ -162,7 +160,15 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
     }));
   };
 
+  const SHIFT_MAP: Record<string, { id: string; startTime: string | null; endTime: string | null; status: 'SCHEDULED' | 'OFF' }> = {
+    'Ca sáng': { id: 'SHIFT_MORNING', startTime: '08:00', endTime: '17:00', status: 'SCHEDULED' },
+    'Ca chiều': { id: 'SHIFT_AFTERNOON', startTime: '14:00', endTime: '21:00', status: 'SCHEDULED' },
+    'Ca tối': { id: 'SHIFT_EVENING', startTime: '17:00', endTime: '22:00', status: 'SCHEDULED' },
+    'Nghỉ': { id: 'OFF', startTime: null, endTime: null, status: 'OFF' }
+  };
+
   const handleUpdateShift = async (staffId: string, dateKey: string, shiftName: string) => {
+    const shiftConfig = SHIFT_MAP[shiftName] || { id: 'OFF', startTime: null, endTime: null, status: 'OFF' };
     let updatedSched: WeeklyShiftSchedule | null = null;
     const newSchedules = weeklySchedules.map(sch => {
       if (sch.staffId === staffId) {
@@ -171,11 +177,11 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
           days: {
             ...sch.days,
             [dateKey]: {
-              shiftId: `SHIFT_${shiftName}`,
+              shiftId: shiftConfig.id,
               shiftName,
-              startTime: shiftName === 'Ca sáng' ? '08:00' : shiftName === 'Ca chiều' ? '14:00' : '17:00',
-              endTime: shiftName === 'Ca sáng' ? '17:00' : shiftName === 'Ca chiều' ? '21:00' : '22:00',
-              status: shiftName === 'Nghỉ' ? 'OFF' : 'SCHEDULED'
+              startTime: shiftConfig.startTime as any,
+              endTime: shiftConfig.endTime as any,
+              status: shiftConfig.status
             }
           },
           updatedAt: new Date().toISOString(),

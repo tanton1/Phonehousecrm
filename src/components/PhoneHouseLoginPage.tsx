@@ -12,7 +12,8 @@ import {
   EyeOff,
   Building2
 } from 'lucide-react';
-import { loginWithEmail, signInWithGoogle } from '../lib/firebase';
+import { loginWithEmail, signInWithGoogle, auth } from '../lib/firebase';
+import { signOut } from 'firebase/auth';
 
 interface PhoneHouseLoginPageProps {
   users: UserAccount[];
@@ -62,6 +63,7 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
       if (matchedUser) {
         if (!matchedUser.active) {
           setErrorMessage('Tài khoản này đã bị tạm khóa. Vui lòng liên hệ Quản trị viên.');
+          await signOut(auth);
           return;
         }
         setSuccessMessage(`Đăng nhập thành công! Chào mừng ${matchedUser.displayName}.`);
@@ -70,21 +72,9 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
           if (onClose) onClose();
         }, 400);
       } else {
-        // Fallback user account profile for newly authenticated user
-        const newAccount: UserAccount = {
-          id: firebaseUser?.uid || `USR-${Date.now()}`,
-          email: email.trim(),
-          displayName: firebaseUser?.displayName || email.split('@')[0],
-          role: 'SALES', // Default role is sales
-          active: true,
-          createdAt: new Date().toISOString().split('T')[0],
-          notes: 'Tài khoản nhân viên'
-        };
-        setSuccessMessage(`Đăng nhập thành công!`);
-        setTimeout(() => {
-          onLoginSuccess(newAccount);
-          if (onClose) onClose();
-        }, 400);
+        setErrorMessage('Tài khoản đã xác thực với Firebase nhưng chưa được cấp hồ sơ nhân viên trong hệ thống PhoneHouse.');
+        await signOut(auth);
+        return;
       }
     } catch (err: any) {
       if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
@@ -107,21 +97,23 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
     try {
       const googleUser = await signInWithGoogle();
       if (googleUser && googleUser.email) {
-        const matched = users.find(u => u.email.toLowerCase() === googleUser.email?.toLowerCase());
-        const userToSet: UserAccount = matched || {
-          id: googleUser.uid,
-          email: googleUser.email,
-          displayName: googleUser.displayName || googleUser.email.split('@')[0],
-          role: 'SALES',
-          avatarUrl: googleUser.photoURL || undefined,
-          active: true,
-          createdAt: new Date().toISOString().split('T')[0]
-        };
-        setSuccessMessage(`Đăng nhập Google thành công!`);
-        setTimeout(() => {
-          onLoginSuccess(userToSet);
-          if (onClose) onClose();
-        }, 400);
+        const matched = users.find(u => u.email.toLowerCase() === googleUser.email?.toLowerCase() || u.id === googleUser.uid);
+        if (matched) {
+          if (!matched.active) {
+            setErrorMessage('Tài khoản này đã bị tạm khóa. Vui lòng liên hệ Quản trị viên.');
+            await signOut(auth);
+            return;
+          }
+          setSuccessMessage(`Đăng nhập Google thành công!`);
+          setTimeout(() => {
+            onLoginSuccess(matched);
+            if (onClose) onClose();
+          }, 400);
+        } else {
+          setErrorMessage('Tài khoản Google này chưa được cấp hồ sơ nhân viên trong hệ thống PhoneHouse.');
+          await signOut(auth);
+          return;
+        }
       }
     } catch (err: any) {
       console.error('Google sign-in error:', err);

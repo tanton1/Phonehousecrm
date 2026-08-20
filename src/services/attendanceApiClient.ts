@@ -30,6 +30,11 @@ async function sendAttendanceApiRequest<T>(
   payload: Record<string, any> = {}
 ): Promise<T> {
   const firebaseUser = auth.currentUser;
+  
+  if (!firebaseUser && process.env.NODE_ENV === 'production') {
+    throw new Error('UNAUTHENTICATED: Bạn chưa đăng nhập hoặc phiên làm việc đã hết hạn. Vui lòng đăng nhập lại.');
+  }
+
   let headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
@@ -40,6 +45,7 @@ async function sendAttendanceApiRequest<T>(
       headers['Authorization'] = `Bearer ${token}`;
     } catch (tokenErr) {
       console.warn('[Attendance API] Failed to retrieve Firebase ID token:', tokenErr);
+      throw new Error('INVALID_AUTH_TOKEN: Không thể xác thực phiên làm việc. Vui lòng đăng nhập lại.');
     }
   }
 
@@ -70,10 +76,10 @@ export async function requestServerCheckIn(evidence: CheckInEvidencePayload): Pr
 }
 
 /**
- * Authoritative Server Check-out
+ * Authoritative Server Check-out returning the completed Attendance Record
  */
-export async function requestServerCheckOut(branchId: string): Promise<{ success: boolean; checkOutTime: string; workDurationMinutes: number }> {
-  return sendAttendanceApiRequest<{ success: boolean; checkOutTime: string; workDurationMinutes: number }>('check-out', { branchId });
+export async function requestServerCheckOut(branchId: string): Promise<AttendanceRecord> {
+  return sendAttendanceApiRequest<AttendanceRecord>('check-out', { branchId });
 }
 
 /**

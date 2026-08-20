@@ -80,7 +80,7 @@ import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModa
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
 import { testFirestoreConnection, auth } from './lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
   seedInitialDataIfEmpty,
   subscribeToDevices,
@@ -312,7 +312,7 @@ export default function App() {
     localStorage.setItem('phonehouse_store_settings', JSON.stringify(storeSettings));
   }, [storeSettings]);
 
-  // Current Logged-in User Account (Default to Admin nhattank16.1@gmail.com)
+  // Current Logged-in User Account
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     const saved = localStorage.getItem('phonehouse_active_user');
     if (saved) {
@@ -322,9 +322,11 @@ export default function App() {
         console.error('Failed to parse saved user:', e);
       }
     }
-    // Default to Primary Admin Nhật Tân
-    return INITIAL_USERS.find(u => u.email === 'nhattank16.1@gmail.com') || INITIAL_USERS[0];
+    return null;
   });
+
+  const [authReady, setAuthReady] = useState(false);
+  const [firebaseUid, setFirebaseUid] = useState<string | null>(() => auth.currentUser?.uid || null);
 
   // Modals & Triggers
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
@@ -359,134 +361,92 @@ export default function App() {
   // Global Branch Selection for ADMIN
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   
-  // Calculate the currently active branch to filter by (ADMIN can select, others use their assigned branch)
-  
-    const [attendanceRecords, setAttendanceRecords] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
+  // Realtime Attendance State
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
 
   // Time-tracking functions with Authoritative Server Integration & Vietnam Timezone
-  const handleCheckIn = async (recordOrTime: string | any) => {
-    if (!currentUser) return;
+  const handleCheckIn = async (recordOrDraft: string | any): Promise<AttendanceRecord> => {
+    if (!currentUser) {
+      throw new Error('UNAUTHENTICATED: Bạn chưa đăng nhập vào hệ thống.');
+    }
     const authUid = auth.currentUser?.uid || currentUser.id;
     const today = getVietnamDateString();
     
     // Check if already checked in locally before network request
     const existing = attendanceRecords.find(a => a.staffId === authUid && a.date === today);
     if (existing && existing.checkInTime) {
-      alert(`Bạn đã chấm công vào ca hôm nay lúc ${existing.checkInTime}. Không thể chấm công lại.`);
-      return;
+      const msg = `Bạn đã chấm công vào ca hôm nay lúc ${existing.checkInTime}. Không thể chấm công lại.`;
+      alert(msg);
+      throw new Error(`ALREADY_CHECKED_IN: ${msg}`);
+    }
+
+    let evidencePayload: any;
+    if (typeof recordOrDraft === 'object' && recordOrDraft !== null) {
+      evidencePayload = {
+        branchId: recordOrDraft.branchId || currentUser.branchId || branches[0]?.id || 'CN01',
+        branchName: recordOrDraft.branchName || branches.find(b => b.id === (recordOrDraft.branchId || currentUser.branchId))?.name,
+        staffName: currentUser.displayName,
+        role: currentUser.role,
+        userCoords: recordOrDraft.verification?.userCoords,
+        faceCaptureBase64: recordOrDraft.verification?.snapshotUrl,
+        qrScanned: recordOrDraft.verification?.qrScanned
+      };
+    } else {
+      evidencePayload = {
+        branchId: currentUser.branchId || branches[0]?.id || 'CN01',
+        branchName: branches.find(b => b.id === currentUser.branchId)?.name,
+        staffName: currentUser.displayName,
+        role: currentUser.role
+      };
     }
 
     try {
-      let serverRecord: AttendanceRecord;
-      if (typeof recordOrTime === 'object' && recordOrTime !== null) {
-        // Attempt authoritative backend check-in
-        try {
-          serverRecord = await requestServerCheckIn({
-            branchId: recordOrTime.branchId || currentUser.branchId || branches[0]?.id || 'CN01',
-            branchName: recordOrTime.branchName || branches.find(b => b.id === currentUser.branchId)?.name,
-            staffName: currentUser.displayName,
-            role: currentUser.role,
-            userCoords: recordOrTime.verification?.userCoords,
-            faceCaptureBase64: recordOrTime.verification?.snapshotUrl
-          });
-        } catch (apiErr: any) {
-          if (apiErr.message?.includes('ALREADY_CHECKED_IN')) {
-            alert(apiErr.message);
-            return;
-          }
-          console.warn('[Attendance Backend API unavailable, writing to Firestore]:', apiErr);
-          const time = getVietnamTimeString();
-          const docId = `ATT_${authUid}_${today.replace(/-/g, '')}`;
-          serverRecord = {
-            ...recordOrTime,
-            id: docId,
-            staffId: authUid,
-            staffName: currentUser.displayName,
-            role: currentUser.role,
-            branchId: recordOrTime.branchId || currentUser.branchId || branches[0]?.id || 'CN01',
-            branchName: recordOrTime.branchName || branches.find(b => b.id === currentUser.branchId)?.name || 'Chi Nhánh Showroom',
-            date: today,
-            checkInTime: recordOrTime.checkInTime || time
-          } as unknown as AttendanceRecord;
-          await addAttendanceRecordToFirestore(serverRecord);
-        }
-      } else {
-        const time = recordOrTime || getVietnamTimeString();
-        const docId = `ATT_${authUid}_${today.replace(/-/g, '')}`;
-        serverRecord = {
-          id: docId,
-          staffId: authUid,
-          staffName: currentUser.displayName,
-          role: currentUser.role,
-          branchId: currentUser.branchId || branches[0]?.id || 'CN01',
-          branchName: branches.find(b => b.id === currentUser.branchId)?.name || 'Chi Nhánh Showroom',
-          date: today,
-          shiftName: 'Ca làm việc',
-          scheduledStart: '08:00',
-          scheduledEnd: '17:30',
-          checkInTime: time,
-          status: 'ON_TIME',
-          workDurationMinutes: 0,
-          breakDurationMinutes: 0,
-          netWorkMinutes: 0,
-          lateMinutes: 0,
-          earlyMinutes: 0,
-          otMinutes: 0,
-          kpiProgress: 100,
-          activityHistory: [],
-          verification: { method: 'WIFI_IP', verified: true } as any
-        } as unknown as AttendanceRecord;
+      const serverRecord = await requestServerCheckIn(evidencePayload);
 
-        try {
-          await requestServerCheckIn({
-            branchId: currentUser.branchId || branches[0]?.id || 'CN01',
-            branchName: branches.find(b => b.id === currentUser.branchId)?.name,
-            staffName: currentUser.displayName,
-            role: currentUser.role
-          });
-        } catch (apiErr: any) {
-          if (apiErr.message?.includes('ALREADY_CHECKED_IN')) {
-            alert(apiErr.message);
-            return;
-          }
-          await addAttendanceRecordToFirestore(serverRecord);
-        }
-      }
-
-      // Only update local state once persistence is confirmed
+      // Only update local state once backend persistence is confirmed
       setAttendanceRecords(prev => {
         const exists = prev.some(a => a.id === serverRecord.id || (a.staffId === authUid && a.date === today));
-        return exists ? prev.map(a => (a.staffId === authUid && a.date === today ? serverRecord : a)) : [...prev, serverRecord];
+        return exists ? prev.map(a => (a.staffId === authUid && a.date === today ? serverRecord : a)) : [serverRecord, ...prev];
       });
+
+      return serverRecord;
     } catch (err: any) {
-      console.error('[Attendance CheckIn Error]:', err);
-      alert(`Điểm danh chưa thành công: ${err.message || 'Lỗi kết nối máy chủ'}`);
+      console.error('[Attendance CheckIn Server Authority Error]:', err);
+      const errMsg = err?.message || 'Lỗi xử lý điểm danh từ máy chủ.';
+      alert(`Điểm danh chưa thành công: ${errMsg}`);
+      throw err;
     }
   };
 
-  const handleCheckOut = async (time?: string) => {
+  const handleCheckOut = async () => {
     if (!currentUser) return;
     const authUid = auth.currentUser?.uid || currentUser.id;
     const today = getVietnamDateString();
-    const effectiveTime = time || getVietnamTimeString();
 
     try {
-      try {
-        await requestServerCheckOut(currentUser.branchId || branches[0]?.id || 'CN01');
-      } catch (apiErr: any) {
-        console.warn('[Attendance Backend CheckOut unavailable, updating Firestore]:', apiErr);
-      }
-
-      const existing = attendanceRecords.find(a => a.staffId === authUid && a.date === today);
-      if (existing) {
-        const updated = { ...existing, checkOutTime: effectiveTime, status: 'COMPLETED' as const };
-        await updateAttendanceRecordInFirestore(updated);
-        setAttendanceRecords(prev => prev.map(a => (a.staffId === authUid && a.date === today) ? updated : a));
-      }
+      const completedRecord = await requestServerCheckOut(currentUser.branchId || branches[0]?.id || 'CN01');
+      
+      // Update state directly with the authoritative completed record from backend (retaining calculated workDurationMinutes)
+      setAttendanceRecords(prev => prev.map(a => 
+        (a.id === completedRecord.id || (a.staffId === authUid && a.date === today)) 
+          ? completedRecord 
+          : a
+      ));
     } catch (err: any) {
       console.error('[Attendance CheckOut Error]:', err);
-      alert(`Kết thúc ca chưa thành công: ${err.message || 'Lỗi cập nhật'}`);
+      alert(`Kết thúc ca chưa thành công: ${err.message || 'Lỗi cập nhật từ máy chủ'}`);
     }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.warn('[Firebase SignOut Error]:', e);
+    }
+    setCurrentUser(null);
+    localStorage.removeItem('phonehouse_active_user');
+    setIsLoginModalOpen(true);
   };
 
   const currentAttendance = attendanceRecords.find(a => a.staffId === (auth.currentUser?.uid || currentUser?.id) && a.date === getVietnamDateString());
@@ -748,19 +708,9 @@ export default function App() {
       }
     });
 
-    unsubAttendance = subscribeToAttendance(
-      (remoteAttendance) => {
-        if (remoteAttendance && remoteAttendance.length > 0) {
-          setAttendanceRecords(remoteAttendance);
-        }
-      },
-      currentUser ? { uid: auth.currentUser?.uid || currentUser.id, role: currentUser.role, branchId: currentUser.branchId } : null,
-      (err) => {
-        console.warn('[Attendance subscription notice]', err?.error || err);
-      }
-    );
-
     const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
+      setFirebaseUid(fbUser?.uid || null);
+      setAuthReady(true);
       if (fbUser) {
         setUsers(currentUsers => {
           const matched = currentUsers.find(u => u.email?.toLowerCase() === fbUser.email?.toLowerCase() || u.id === fbUser.uid);
@@ -773,6 +723,8 @@ export default function App() {
           }
           return currentUsers;
         });
+      } else {
+        setCurrentUser(null);
       }
     });
 
@@ -794,9 +746,32 @@ export default function App() {
       unsubStoreSettings();
       unsubPurchaseOrders();
       unsubCatalog();
-      unsubAttendance();
     };
   }, []);
+
+  // Dedicated Authoritative Attendance Realtime Subscription (Scoped dynamically to current authenticated user & role)
+  useEffect(() => {
+    if (!authReady || !firebaseUid || !currentUser) {
+      setAttendanceRecords([]);
+      return;
+    }
+
+    const unsubAttendance = subscribeToAttendance(
+      (remoteAttendance) => {
+        setAttendanceRecords(remoteAttendance || []);
+      },
+      {
+        uid: firebaseUid,
+        role: currentUser.role,
+        branchId: currentUser.branchId
+      },
+      (err) => {
+        console.warn('[Attendance subscription notice]', err?.error || err);
+      }
+    );
+
+    return () => unsubAttendance();
+  }, [authReady, firebaseUid, currentUser?.role, currentUser?.branchId]);
 
   // Safe set localStorage helper to catch QuotaExceededError safely
   const safeSetLocalStorage = useCallback((key: string, data: any) => {
@@ -1692,11 +1667,7 @@ export default function App() {
         selectedBranchId={selectedBranchId}
         onSelectBranchId={(id) => setSelectedBranchId(id)}
         onSelectBranch={(b) => setSelectedBranchId(b.id)}
-        onLogout={() => {
-          setCurrentUser(null);
-          localStorage.removeItem('phonehouse_active_user');
-          setIsLoginModalOpen(true);
-        }}
+        onLogout={handleLogout}
         onOpenQuickSearch={() => setIsQuickSearchOpen(true)}
       >
         {activeTab === 'login' && (
@@ -2203,11 +2174,7 @@ export default function App() {
             onOpenNewDeviceModal={() => setActiveTab('inventory')}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
             onOpenLoginModal={() => setIsLoginModalOpen(true)}
-            onLogout={() => {
-              setCurrentUser(null);
-              localStorage.removeItem('phonehouse_active_user');
-              setActiveTab('login');
-            }}
+            onLogout={handleLogout}
             partners={partners}
             invoices={filteredInvoices}
             devices={filteredDevices}
@@ -2403,8 +2370,8 @@ export default function App() {
               currentUser={currentUser}
             branches={branches}
             attendanceRecords={attendanceRecords}
-              onCheckInSuccess={(record) => {
-                handleCheckIn(record.checkInTime);
+              onCheckInSuccess={async (record) => {
+                return await handleCheckIn(record);
               }}
               onClose={() => setIsCheckInModalOpen(false)}
               onNavigateToHR={() => {

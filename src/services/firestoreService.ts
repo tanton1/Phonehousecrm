@@ -1474,6 +1474,7 @@ export async function addAttendanceRecordToFirestore(record: AttendanceRecord) {
     await setDoc(docRef, cleanDataForFirestore(record));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 
@@ -1484,6 +1485,7 @@ export async function updateAttendanceRecordInFirestore(record: AttendanceRecord
     await setDoc(docRef, cleanDataForFirestore(record), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
   }
 }
 
@@ -1494,6 +1496,7 @@ export async function deleteAttendanceRecordFromFirestore(id: string) {
     await deleteDoc(docRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+    throw error;
   }
 }
 
@@ -1530,7 +1533,7 @@ export async function updateShiftHandoverInFirestore(report: ShiftHandoverReport
   }
 }
 
-// ----------------- SOP TEMPLATES -----------------
+// ----------------- SOP TEMPLATES (QUY TRÌNH CHUẨN SOP) -----------------
 export function subscribeToSOPTemplates(onData: (templates: SOPTemplateItem[]) => void) {
   const colRef = collection(db, SOP_TEMPLATES_COL);
   return onSnapshot(colRef, (snapshot) => {
@@ -1652,12 +1655,20 @@ export async function updateLeaveRequestInFirestore(request: LeaveRequest) {
 // ----------------- WEEKLY SHIFT SCHEDULES (LỊCH & XẾP CA TUẦN) -----------------
 export function subscribeToWeeklyShiftSchedules(
   onData: (schedules: WeeklyShiftSchedule[]) => void,
-  branchId?: string
+  branchId?: string,
+  weekStart?: string
 ) {
   const colRef = collection(db, WEEKLY_SCHEDULES_COL);
   let schedQuery: any = colRef;
+  const conditions: any[] = [];
   if (branchId && branchId !== 'ALL') {
-    schedQuery = query(colRef, where('branchId', '==', branchId));
+    conditions.push(where('branchId', '==', branchId));
+  }
+  if (weekStart) {
+    conditions.push(where('weekStart', '==', weekStart));
+  }
+  if (conditions.length > 0) {
+    schedQuery = query(colRef, ...conditions);
   }
   return onSnapshot(
     schedQuery,
@@ -1681,6 +1692,7 @@ export async function saveWeeklyShiftScheduleToFirestore(schedule: WeeklyShiftSc
     await setDoc(docRef, cleanDataForFirestore(schedule), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 
