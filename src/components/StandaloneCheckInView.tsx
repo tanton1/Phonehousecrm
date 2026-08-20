@@ -5,6 +5,8 @@ import {
   StoreBranch, 
   UserAccount 
 } from '../types';
+import { getVietnamDateString, getVietnamTimeString } from '../utils/dateTimeUtils';
+import { auth } from '../lib/firebase';
 import { INITIAL_BRANCHES } from '../data/initialData';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
@@ -430,18 +432,20 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   const [completedRecord, setCompletedRecord] = useState<any>(null);
 
   const handleFinishCheckIn = () => {
+    const today = getVietnamDateString();
+    const timeStr = getVietnamTimeString();
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const dateStr = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit' });
+    const dateStr = now.toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+    const effectiveStaffId = auth.currentUser?.uid || selectedStaff.id;
 
     const newRecord = {
-      id: `ATT_${Date.now()}`,
-      staffId: selectedStaff.id,
+      id: `ATT_${effectiveStaffId}_${today.replace(/-/g, '')}`,
+      staffId: effectiveStaffId,
       staffName: selectedStaff.name,
       role: selectedStaff.role,
       branchId: targetBranch.id,
       branchName: targetBranch.name,
-      date: now.toISOString().split('T')[0],
+      date: today,
       checkInTime: timeStr,
       checkInDate: dateStr,
       status: 'IN_PROGRESS',

@@ -31,7 +31,17 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
-import { LeaveRequest, SalesInvoice, WarrantyTicket, StoreBranch, SalaryPolicy, StaffMember } from '../types';
+import { 
+  LeaveRequest, 
+  SalesInvoice, 
+  WarrantyTicket, 
+  StoreBranch, 
+  SalaryPolicy, 
+  StaffMember,
+  WeeklyShiftSchedule 
+} from '../types';
+import { getVietnamWeekRange, getVietnamDateString } from '../utils/dateTimeUtils';
+import { subscribeToWeeklyShiftSchedules, saveWeeklyShiftScheduleToFirestore } from '../services/firestoreService';
 
 export interface HRHubViewProps {
   currentUser?: any;
@@ -73,31 +83,61 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('2026-08');
 
-  // Filter valid real staff members
-  const validStaffList = React.useMemo(() => {
+  // Single Source of Truth for Staff Members
+  const staffList = React.useMemo(() => {
     return (initialStaffList || []).filter(s => Boolean(s && s.id && (s.displayName || s.name)));
   }, [initialStaffList]);
 
-  // Core State
-  const [staffList, setStaffList] = useState<StaffMember[]>(validStaffList);
-  
-  React.useEffect(() => {
-    if (validStaffList.length > 0) {
-      setStaffList(validStaffList);
-    }
-  }, [validStaffList]);
+  // Synchronous current staff authority
+  const currentStaffId = currentUser?.id || staffList[0]?.id || '';
+  const currentStaff = staffList.find(s => s && s.id === currentStaffId) || staffList[0];
 
-  const [currentStaffId] = useState<string>(currentUser?.id || validStaffList[0]?.id || '');
+  // Dynamic Current Week Range in Vietnam Timezone
+  const currentWeek = React.useMemo(() => getVietnamWeekRange(), []);
+
   const [todayAttendance, setTodayAttendance] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
   const currentAttendanceList = attendanceRecords.length > 0 ? attendanceRecords : todayAttendance;
-  const [weeklySchedules, setWeeklySchedules] = useState(INITIAL_WEEKLY_SCHEDULES);
+  
+  // Weekly Schedules state initialized with active staff and dynamic current week
+  const [weeklySchedules, setWeeklySchedules] = useState<WeeklyShiftSchedule[]>(() => {
+    return staffList.map(st => {
+      const daysObj: Record<string, any> = {};
+      currentWeek.days.forEach(d => {
+        daysObj[d.dateStr] = {
+          shiftId: 'SHIFT_MORNING',
+          shiftName: 'Ca sáng',
+          startTime: '08:00',
+          endTime: '17:00',
+          status: 'SCHEDULED'
+        };
+      });
+      return {
+        id: `SCHED_${st.branchId || 'CN01'}_${currentWeek.weekStart}_${st.id}`,
+        branchId: st.branchId || 'CN01',
+        staffId: st.id,
+        staffName: st.name,
+        weekStart: currentWeek.weekStart,
+        days: daysObj,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser?.displayName || 'System'
+      };
+    });
+  });
+
+  // Subscribe to real-time weekly shift schedules
+  React.useEffect(() => {
+    const unsub = subscribeToWeeklyShiftSchedules((remoteSchedules) => {
+      if (remoteSchedules && remoteSchedules.length > 0) {
+        setWeeklySchedules(remoteSchedules);
+      }
+    }, selectedBranchId);
+    return () => unsub();
+  }, [selectedBranchId]);
+
   const [leaveRequests, setLeaveRequests] = useState(INITIAL_LEAVE_REQUESTS);
   const [commissions] = useState(INITIAL_COMMISSIONS);
   const [payrollSlips, setPayrollSlips] = useState(INITIAL_MONTHLY_PAYROLL_SLIPS);
   const [policies, setPolicies] = useState(INITIAL_POLICIES);
-
-  // Active current staff member object
-  const currentStaff = staffList.find(s => s && s.id === currentStaffId) || staffList[0];
 
   // Live Summary Metrics for Badges
   const activeCount = currentAttendanceList.filter(a => a.status === 'IN_PROGRESS' || a.status === 'COMPLETED').length;
@@ -122,10 +162,11 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
     }));
   };
 
-  const handleUpdateShift = (staffId: string, dateKey: string, shiftName: string) => {
-    setWeeklySchedules(weeklySchedules.map(sch => {
+  const handleUpdateShift = async (staffId: string, dateKey: string, shiftName: string) => {
+    let updatedSched: WeeklyShiftSchedule | null = null;
+    const newSchedules = weeklySchedules.map(sch => {
       if (sch.staffId === staffId) {
-        return {
+        updatedSched = {
           ...sch,
           days: {
             ...sch.days,
@@ -136,11 +177,23 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
               endTime: shiftName === 'Ca sáng' ? '17:00' : shiftName === 'Ca chiều' ? '21:00' : '22:00',
               status: shiftName === 'Nghỉ' ? 'OFF' : 'SCHEDULED'
             }
-          }
+          },
+          updatedAt: new Date().toISOString(),
+          updatedBy: currentUser?.displayName || 'Quản lý'
         };
+        return updatedSched;
       }
       return sch;
-    }));
+    });
+
+    setWeeklySchedules(newSchedules);
+    if (updatedSched) {
+      try {
+        await saveWeeklyShiftScheduleToFirestore(updatedSched);
+      } catch (err) {
+        console.warn('[WeeklyShiftSchedule Firestore write]', err);
+      }
+    }
   };
 
   const handleUpdatePolicy = (updatedPolicy: SalaryPolicy) => {

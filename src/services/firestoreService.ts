@@ -41,7 +41,8 @@ import {
   SOPTemplateItem,
   DailyShiftChecklistItem,
   LeaveRequest,
-  StaffMember
+  StaffMember,
+  WeeklyShiftSchedule
 } from '../types';
 import { 
   INITIAL_DEVICES, 
@@ -92,6 +93,7 @@ const SOP_TEMPLATES_COL = 'sopTemplates';
 const DAILY_CHECKLISTS_COL = 'dailyShiftChecklists';
 const LEAVE_REQUESTS_COL = 'leaveRequests';
 const STAFF_MEMBERS_COL = 'staffMembers';
+const WEEKLY_SCHEDULES_COL = 'weeklyShiftSchedules';
 
 // Helper to strip undefined values so Firestore setDoc does not throw
 export function cleanDataForFirestore<T>(data: T): T {
@@ -113,18 +115,13 @@ export function cleanDataForFirestore<T>(data: T): T {
   return data;
 }
 
-// Auto-seed Initial Configuration if Firestore is empty (Only seeds system branches, warehouses, users, settings without demo transaction data)
+// Auto-seed Initial Configuration if Firestore is empty (Only seeds system branches, warehouses and settings without demo transaction data)
 export async function seedInitialDataIfEmpty() {
   try {
     const branchesSnap = await getDocs(collection(db, BRANCHES_COL));
     if (branchesSnap.empty) {
       console.log('Seeding initial system branches, warehouses and settings to Firestore...');
       const batch = writeBatch(db);
-
-      INITIAL_USERS.forEach((usr) => {
-        const ref = doc(db, USERS_COL, usr.id);
-        batch.set(ref, cleanDataForFirestore(usr));
-      });
 
       INITIAL_BRANCHES.forEach((br) => {
         const ref = doc(db, BRANCHES_COL, br.id);
@@ -405,16 +402,11 @@ export function subscribeToUsers(onData: (users: UserAccount[]) => void) {
   return onSnapshot(
     colRef,
     (snapshot) => {
-      const items: UserAccount[] = [];
-      snapshot.forEach((doc) => {
-        items.push(doc.data() as UserAccount);
-      });
-      if (items.length > 0) {
-        onData(items);
-      } else {
-        // Fallback to default users if collection is empty
-        onData(INITIAL_USERS);
-      }
+      const items: UserAccount[] = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as UserAccount[];
+      onData(items);
     },
     (error) => {
       handleFirestoreError(error, OperationType.GET, USERS_COL);
@@ -1648,5 +1640,40 @@ export async function updateLeaveRequestInFirestore(request: LeaveRequest) {
     await setDoc(docRef, cleanDataForFirestore(request), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+// ----------------- WEEKLY SHIFT SCHEDULES (LỊCH & XẾP CA TUẦN) -----------------
+export function subscribeToWeeklyShiftSchedules(
+  onData: (schedules: WeeklyShiftSchedule[]) => void,
+  branchId?: string
+) {
+  const colRef = collection(db, WEEKLY_SCHEDULES_COL);
+  let schedQuery: any = colRef;
+  if (branchId && branchId !== 'ALL') {
+    schedQuery = query(colRef, where('branchId', '==', branchId));
+  }
+  return onSnapshot(
+    schedQuery,
+    (snapshot: any) => {
+      const items = snapshot.docs.map((d: any) => ({
+        ...d.data(),
+        id: d.id
+      })) as WeeklyShiftSchedule[];
+      onData(items);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, WEEKLY_SCHEDULES_COL);
+    }
+  );
+}
+
+export async function saveWeeklyShiftScheduleToFirestore(schedule: WeeklyShiftSchedule) {
+  const path = `${WEEKLY_SCHEDULES_COL}/${schedule.id}`;
+  try {
+    const docRef = doc(db, WEEKLY_SCHEDULES_COL, schedule.id);
+    await setDoc(docRef, cleanDataForFirestore(schedule), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
   }
 }

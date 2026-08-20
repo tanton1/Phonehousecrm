@@ -13,6 +13,7 @@ import {
   StaffDualWalletSummary,
   StoreBranch
 } from '../types';
+import { getVietnamWeekRange, getVietnamDateString } from '../utils/dateTimeUtils';
 import { 
   Users, 
   Clock, 
@@ -555,55 +556,68 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
           {/* WEEKLY MATRIX GRID */}
           <div className="overflow-x-auto">
-            <table className="w-full text-center text-xs border-collapse">
-              <thead>
-                <tr className="bg-zinc-100 text-zinc-700 font-bold uppercase text-[11px]">
-                  <th className="py-3 px-4 text-left border border-zinc-200">Nhân viên</th>
-                  <th className="py-3 px-2 border border-zinc-200">T2 (11)</th>
-                  <th className="py-3 px-2 border border-zinc-200">T3 (12)</th>
-                  <th className="py-3 px-2 border border-zinc-200">T4 (13)</th>
-                  <th className="py-3 px-2 border border-zinc-200">T5 (14)</th>
-                  <th className="py-3 px-2 border border-zinc-200">T6 (15)</th>
-                  <th className="py-3 px-2 border border-zinc-200 bg-orange-100/60 text-[#FF4B16]">T7 (16)</th>
-                  <th className="py-3 px-2 border border-zinc-200">CN (17)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weeklySchedules.map((sch) => (
-                  <tr key={sch.id} className="hover:bg-zinc-50/50">
-                    <td className="py-3 px-4 text-left font-bold text-zinc-900 border border-zinc-200 bg-white">
-                      <div>{sch.staffName}</div>
-                      <div className="text-[10px] text-zinc-400 font-normal">{sch.role}</div>
-                    </td>
-
-                    {['2026-05-11', '2026-05-12', '2026-05-13', '2026-05-14', '2026-05-15', '2026-05-16', '2026-05-17'].map(dKey => {
-                      const day = sch.days[dKey];
-                      const shiftName = day ? day.shiftName : 'Nghỉ';
-                      
-                      let badgeStyle = 'bg-zinc-100 text-zinc-500';
-                      if (shiftName === 'Ca sáng') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
-                      if (shiftName === 'Ca chiều') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
-                      if (shiftName === 'Ca tối') badgeStyle = 'bg-rose-100 text-rose-900 border border-rose-200 font-bold';
-
-                      return (
-                        <td key={dKey} className="py-2.5 px-2 border border-zinc-200">
-                          <button
-                            onClick={() => {
-                              const nextShift = shiftName === 'Ca sáng' ? 'Ca chiều' : shiftName === 'Ca chiều' ? 'Ca tối' : shiftName === 'Ca tối' ? 'Nghỉ' : 'Ca sáng';
-                              onUpdateShift(sch.staffId, dKey, nextShift);
-                            }}
-                            className={`w-full py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer ${badgeStyle}`}
-                            title="Click để đổi nhanh ca làm"
-                          >
-                            {shiftName}
-                          </button>
+            {(() => {
+              const currentWeek = getVietnamWeekRange();
+              return (
+                <table className="w-full text-center text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-100 text-zinc-700 font-bold uppercase text-[11px]">
+                      <th className="py-3 px-4 text-left border border-zinc-200">Nhân viên</th>
+                      {currentWeek.days.map((d) => (
+                        <th 
+                          key={d.dateStr} 
+                          className={`py-3 px-2 border border-zinc-200 ${
+                            d.isToday 
+                              ? 'bg-orange-100/70 text-[#FF4B16] font-black' 
+                              : d.dayOfWeek === 'Chủ Nhật'
+                                ? 'bg-zinc-50 text-rose-600'
+                                : ''
+                          }`}
+                        >
+                          {d.dayOfWeek.replace('Thứ ', 'T').replace('Chủ Nhật', 'CN')} ({d.dayOfMonth})
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {weeklySchedules.map((sch) => (
+                      <tr key={sch.id} className="hover:bg-zinc-50/50">
+                        <td className="py-3 px-4 text-left font-bold text-zinc-900 border border-zinc-200 bg-white">
+                          <div>{sch.staffName}</div>
+                          <div className="text-[10px] text-zinc-400 font-normal">{sch.role}</div>
                         </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+                        {currentWeek.days.map((d) => {
+                          const dKey = d.dateStr;
+                          const day = sch.days?.[dKey];
+                          const shiftName = day ? day.shiftName : 'Nghỉ';
+                          
+                          let badgeStyle = 'bg-zinc-100 text-zinc-500';
+                          if (shiftName === 'Ca sáng') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
+                          if (shiftName === 'Ca chiều') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
+                          if (shiftName === 'Ca tối') badgeStyle = 'bg-rose-100 text-rose-900 border border-rose-200 font-bold';
+
+                          return (
+                            <td key={dKey} className="py-2.5 px-2 border border-zinc-200">
+                              <button
+                                onClick={() => {
+                                  const nextShift = shiftName === 'Ca sáng' ? 'Ca chiều' : shiftName === 'Ca chiều' ? 'Ca tối' : shiftName === 'Ca tối' ? 'Nghỉ' : 'Ca sáng';
+                                  onUpdateShift(sch.staffId, dKey, nextShift);
+                                }}
+                                className={`w-full py-1.5 px-2 rounded-lg text-xs transition-all cursor-pointer ${badgeStyle}`}
+                                title="Click để đổi nhanh ca làm"
+                              >
+                                {shiftName}
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              );
+            })()}
           </div>
         </div>
       )}
