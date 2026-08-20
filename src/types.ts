@@ -382,6 +382,9 @@ export interface DeviceItem {
   supplierId?: string;
   currentCustodian?: string; // Người hiện đang chịu trách nhiệm trực tiếp (Thủ kho / KTV / NV Bán)
   technicianAssigned?: string; // KTV đang giữ / xử lý máy
+  reservedForLeadId?: string; // Giữ máy theo Lead Báo giá CRM
+  reservedUntil?: string; // Thời hạn giữ máy (ISO)
+  reservedByStaffId?: string; // Nhân viên sale giữ máy
   history?: DeviceHistoryLog[]; // Danh sách sự kiện lịch sử (Timeline)
 }
 
@@ -428,7 +431,7 @@ export interface FaceEnrollmentRecord {
   version?: number;
 }
 
-export type LeadStatus = 'new' | 'contacted' | 'negotiating' | 'appointment_scheduled' | 'deposit_paid' | 'deposit' | 'won' | 'lost';
+export type LeadStatus = 'new' | 'contacted' | 'negotiating' | 'consulting' | 'appointment_scheduled' | 'deposit_paid' | 'deposit' | 'won' | 'lost';
 
 export type CareStatus = 
   | 'NOT_STARTED'
@@ -642,6 +645,86 @@ export interface LeadQuote {
   reservedDeviceId?: string;
   reservedUntil?: string;
   notes?: string;
+  createdAt: string;
+}
+
+export interface LeadEvidence {
+  id: string;
+  activityId: string;
+  leadId: string;
+  customerId?: string;
+  branchId: string;
+  type: EvidenceType;
+  provider?: 'PANCAKE' | 'ZALO_OA' | 'STRINGEE_CALL' | 'MANUAL_UPLOAD' | 'POS_SYSTEM';
+  externalId?: string;
+  storagePath?: string;
+  fileUrl?: string;
+  mimeType?: string;
+  fileSize?: number;
+  immutableHash?: string;
+  verificationStatus: EvidenceVerificationStatus;
+  capturedAt: string;
+  capturedBy: string;
+}
+
+export interface CustomerActivity {
+  id: string;
+  customerId: string;
+  leadId?: string;
+  type: 'LEAD_CREATED' | 'CARE' | 'QUOTE' | 'APPOINTMENT' | 'DEPOSIT' | 'INVOICE' | 'WARRANTY' | 'TRADE_IN' | 'NOTE';
+  entityId?: string;
+  staffId: string;
+  staffName?: string;
+  branchId: string;
+  summary: string;
+  details?: Record<string, any>;
+  createdAt: string;
+}
+
+export interface DeviceReservation {
+  id: string;
+  deviceId: string;
+  imei: string;
+  model: string;
+  leadId: string;
+  quoteId?: string;
+  customerId?: string;
+  staffId: string;
+  branchId: string;
+  reservedAt: string;
+  expiresAt: string; // Typically +30m
+  status: 'ACTIVE' | 'EXPIRED' | 'CONVERTED' | 'CANCELLED';
+}
+
+export interface LeadAssignmentHistory {
+  id: string;
+  leadId: string;
+  fromStaffId: string;
+  fromStaffName: string;
+  toStaffId: string;
+  toStaffName: string;
+  changedBy: string;
+  changedByName: string;
+  reason: 'SHIFT_END' | 'NO_RESPONSE' | 'MANAGER_REASSIGN' | 'BRANCH_TRANSFER' | 'STAFF_OFF' | 'OVERLOAD' | 'MANUAL_REASSIGN';
+  notes?: string;
+  changedAt: string;
+}
+
+export interface CRMTask {
+  id: string;
+  leadId?: string;
+  customerId?: string;
+  type: 'NEW_LEAD_SLA' | 'CARE_FOLLOW_UP' | 'APPOINTMENT_REMINDER' | 'NO_SHOW_RECOVERY' | 'QUOTE_EXPIRY' | 'PAYDAY_NURTURE' | 'STOCK_AVAILABLE';
+  priority: 'P0' | 'P1' | 'P2' | 'P3';
+  dueAt: string;
+  assignedStaffId: string;
+  assignedStaffName?: string;
+  branchId: string;
+  title: string;
+  description?: string;
+  sourceEntityType?: 'LEAD' | 'CARE_ACTIVITY' | 'APPOINTMENT' | 'QUOTE';
+  sourceEntityId?: string;
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   createdAt: string;
 }
 

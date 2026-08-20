@@ -23,6 +23,7 @@ import {
   subscribeToLeadQuotes,
   addLeadQuoteToFirestore
 } from '../services/firestoreService';
+import { requestServerCareReview } from '../services/crmApiClient';
 
 import { LeadKanbanBoard } from '../features/crm/components/LeadKanbanBoard';
 import { CompleteCareActivityModal } from '../features/crm/components/CompleteCareActivityModal';
@@ -274,42 +275,49 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     note?: string,
     reviewer?: { id: string; name: string }
   ) => {
-    const act = activities.find(a => a.id === activityId);
-    if (act) {
-      const nowStr = getVietnamDateTimeString();
-      const reviewerId = reviewer?.id || currentUser?.id || 'QA_MGR';
-      const reviewerName = reviewer?.name || currentUser?.displayName || 'Quản Lý QA';
-      
-      const newAuditItem = {
-        previousStatus: act.verificationStatus,
-        newStatus: status,
-        changedBy: reviewerId,
-        changedByName: reviewerName,
-        changedAt: nowStr,
-        note: note || ''
-      };
+    try {
+      // 1. Authoritative Backend QA Audit Request
+      const serverUpdated = await requestServerCareReview(activityId, status, note);
+      setActivities(prev => prev.map(a => a.id === activityId ? serverUpdated : a));
+    } catch (err) {
+      console.warn('[CRM QA Server Audit Error, applying optimistic local fallback]:', err);
+      const act = activities.find(a => a.id === activityId);
+      if (act) {
+        const nowStr = getVietnamDateTimeString();
+        const reviewerId = reviewer?.id || currentUser?.id || 'QA_MGR';
+        const reviewerName = reviewer?.name || currentUser?.displayName || 'Quản Lý QA';
+        
+        const newAuditItem = {
+          previousStatus: act.verificationStatus,
+          newStatus: status,
+          changedBy: reviewerId,
+          changedByName: reviewerName,
+          changedAt: nowStr,
+          note: note || ''
+        };
 
-      const updated: LeadCareActivity = {
-        ...act,
-        verificationStatus: status,
-        qaReview: {
-          status,
-          reviewedBy: reviewerId,
-          reviewedByName: reviewerName,
-          reviewedAt: nowStr,
-          note
-        },
-        auditHistory: [...(act.auditHistory || []), newAuditItem],
-        evidenceData: {
-          ...act.evidenceData,
-          managerNote: note,
-          managerReviewedBy: reviewerName,
-          managerReviewedAt: nowStr
-        }
-      };
+        const updated: LeadCareActivity = {
+          ...act,
+          verificationStatus: status,
+          qaReview: {
+            status,
+            reviewedBy: reviewerId,
+            reviewedByName: reviewerName,
+            reviewedAt: nowStr,
+            note
+          },
+          auditHistory: [...(act.auditHistory || []), newAuditItem],
+          evidenceData: {
+            ...act.evidenceData,
+            managerNote: note,
+            managerReviewedBy: reviewerName,
+            managerReviewedAt: nowStr
+          }
+        };
 
-      await updateLeadCareActivityInFirestore(updated);
-      setActivities(prev => prev.map(a => a.id === activityId ? updated : a));
+        await updateLeadCareActivityInFirestore(updated);
+        setActivities(prev => prev.map(a => a.id === activityId ? updated : a));
+      }
     }
   };
 

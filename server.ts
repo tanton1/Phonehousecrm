@@ -121,6 +121,12 @@ app.use('/api/users', createUsersRouter(adminDb));
 import { createFinanceRouter } from './server/routes/finance';
 app.use('/api/finance', createFinanceRouter(adminDb));
 
+// -------------------------------------------------------------
+// 5. CRM AUTHORITATIVE QA & STATE MACHINE ROUTER
+// -------------------------------------------------------------
+import { createCrmRouter } from './server/routes/crm';
+app.use('/api/crm', createCrmRouter(adminDb));
+
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
 
 // Vietnam Timezone (UTC+7) Date Helper

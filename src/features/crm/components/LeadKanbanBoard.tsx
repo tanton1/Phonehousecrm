@@ -75,6 +75,7 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
     new: 'contacted',
     contacted: 'negotiating',
     negotiating: 'appointment_scheduled',
+    consulting: 'appointment_scheduled',
     appointment_scheduled: 'deposit',
     deposit: 'won',
     deposit_paid: 'won',

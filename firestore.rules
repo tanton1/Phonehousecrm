@@ -277,32 +277,68 @@ service cloud.firestore {
       allow write: if isAdmin() || isManager();
     }
 
-    // 8. Verifiable CRM 3.1 Collections (Lead Care Activities, Appointments, Quotes)
+    // 8. Verifiable CRM Collections (Lead Care Activities, Appointments, Quotes, Evidence, Customer Ledger)
     match /leadCareActivities/{activityId} {
-      allow read: if isAuthenticated() && isActiveUser();
-      // Sale can create activity as SELF_REPORTED or PENDING_EVIDENCE, but cannot self-escalate to MANAGER_VERIFIED
-      allow create: if isAuthenticated() && isActiveUser() && (
+      allow read: if isAdmin() || (
+        isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid)
+      );
+      // Sale can create activity as SELF_REPORTED or PENDING_EVIDENCE within their branch, cannot self-escalate to MANAGER_VERIFIED
+      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId) && (
         isManager() || (request.resource.data.verificationStatus != 'MANAGER_VERIFIED')
       );
-      // Only Manager/Admin can approve to MANAGER_VERIFIED or update reviewed activity.
+      // Only Manager/Admin can approve to MANAGER_VERIFIED.
       // Sales cannot edit activity once MANAGER_VERIFIED.
       allow update: if isAuthenticated() && isActiveUser() && (
-        isManager() || (
+        (isManager() && canAccessBranch(resource.data.branchId)) || (
+          canAccessBranch(resource.data.branchId) &&
+          resource.data.staffId == request.auth.uid &&
           resource.data.verificationStatus != 'MANAGER_VERIFIED' &&
           request.resource.data.verificationStatus != 'MANAGER_VERIFIED' &&
           (!('qaReview' in request.resource.data) || request.resource.data.qaReview == resource.data.qaReview)
         )
       );
-      allow delete: if isAdmin() || isManager();
+      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
     }
 
     match /leadAppointments/{apptId} {
-      allow read: if isAuthenticated() && isActiveUser();
-      allow create, update: if isAuthenticated() && isActiveUser();
-      allow delete: if isAdmin() || isManager();
+      allow read: if isAdmin() || (
+        isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.assignedStaffId == request.auth.uid || resource.data.staffId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && isActiveUser() && (
+        isAdmin() || (isManager() && canAccessBranch(resource.data.branchId)) || (
+          canAccessBranch(resource.data.branchId) && (resource.data.assignedStaffId == request.auth.uid || resource.data.staffId == request.auth.uid)
+        )
+      );
+      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
     }
 
     match /leadQuotes/{quoteId} {
+      allow read: if isAdmin() || (
+        isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid)
+      );
+      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId);
+      allow update: if isAuthenticated() && isActiveUser() && (
+        isAdmin() || (isManager() && canAccessBranch(resource.data.branchId)) || (
+          canAccessBranch(resource.data.branchId) && resource.data.staffId == request.auth.uid
+        )
+      );
+      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
+    }
+
+    match /leadEvidence/{evidenceId} {
+      allow read: if isAdmin() || (isActiveUser() && canAccessBranch(resource.data.branchId));
+      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId);
+      allow update, delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
+    }
+
+    match /customerActivities/{activityId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow create: if isAuthenticated() && isActiveUser();
+      allow update, delete: if isAdmin();
+    }
+
+    match /deviceReservations/{reservationId} {
       allow read: if isAuthenticated() && isActiveUser();
       allow create, update: if isAuthenticated() && isActiveUser();
       allow delete: if isAdmin() || isManager();
