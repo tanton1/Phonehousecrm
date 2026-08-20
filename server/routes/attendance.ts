@@ -115,5 +115,57 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     }
   });
 
+  // 4. Authoritative Attendance Review Endpoint (Requires Manager/Admin)
+  router.post('/review', authenticateFirebase, async (req: Request, res: Response) => {
+    try {
+      const { attendanceId, decision, reason } = req.body;
+
+      if (!attendanceId || !decision) {
+        return res.status(400).json({
+          success: false,
+          error: 'Thiếu thông tin attendanceId hoặc decision phê duyệt.'
+        });
+      }
+
+      const reviewerUid = req.user?.uid;
+      const reviewerName = req.user?.name || req.user?.email || reviewerUid;
+      const reviewerRole = req.user?.role;
+      const reviewerBranchId = req.user?.branchId;
+      const reviewerAssignedBranches = req.user?.assignedBranchIds || [];
+
+      if (!reviewerUid || !reviewerRole || !reviewerBranchId) {
+        return res.status(401).json({
+          success: false,
+          error: 'UNAUTHENTICATED: Không xác thực được danh tính hoặc chi nhánh người phê duyệt.'
+        });
+      }
+
+      const { processAttendanceReview } = await import('../services/attendanceService');
+      const result = await processAttendanceReview(db, {
+        attendanceId,
+        decision,
+        reviewerUid,
+        reviewerName,
+        reviewerRole,
+        reviewerBranchId,
+        reviewerAssignedBranches,
+        reason
+      });
+
+      return res.json({
+        success: true,
+        data: result,
+        message: `Đã ${decision === 'APPROVE' ? 'phê duyệt' : 'từ chối'} bản ghi chấm công ${attendanceId}.`
+      });
+    } catch (error: any) {
+      console.error('[Attendance Review Error]:', error);
+      const isForbidden = error?.message?.includes('PERMISSION_DENIED') || error?.message?.includes('BRANCH_FORBIDDEN');
+      return res.status(isForbidden ? 403 : 400).json({
+        success: false,
+        error: error?.message || 'Lỗi xử lý phê duyệt chấm công.'
+      });
+    }
+  });
+
   return router;
 }

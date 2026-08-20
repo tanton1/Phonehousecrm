@@ -1293,6 +1293,43 @@ export interface AttendanceRecord {
     action: string;
     notes?: string;
   }>;
+  reviewData?: {
+    reviewedByUid: string;
+    reviewedByName: string;
+    reviewedAt: string;
+    decision: 'APPROVE' | 'REJECT';
+    reason?: string;
+  };
+}
+
+export interface StaffFaceProfile {
+  staffUid: string;
+  staffName?: string;
+  enrollmentStatus: 'PENDING' | 'APPROVED' | 'REVOKED';
+  facePhotoUrl?: string;
+  faceEmbedding?: number[];
+  faceFeatureVector?: number[];
+  embeddingVersion: number;
+  enrolledAt: string;
+  approvedByUid?: string;
+  approvedByName?: string;
+  approvedAt?: string;
+  revokedAt?: string;
+  revocationReason?: string;
+}
+
+export interface AttendanceAuditLog {
+  id: string;
+  attendanceId: string;
+  staffId: string;
+  branchId: string;
+  action: 'CHECK_IN' | 'CHECK_OUT' | 'REVIEW_APPROVED' | 'REVIEW_REJECTED';
+  performedByUid: string;
+  performedByName: string;
+  previousStatus?: string;
+  newStatus?: string;
+  reason?: string;
+  timestamp: string;
 }
 
 export interface LeaveRequest {

@@ -26,7 +26,7 @@ export interface AttendanceApiResponse<T> {
  * Executes an authenticated API request to the backend Attendance service
  */
 async function sendAttendanceApiRequest<T>(
-  endpoint: 'check-in' | 'check-out' | 'network-check',
+  endpoint: 'check-in' | 'check-out' | 'network-check' | 'review',
   payload: Record<string, any> = {}
 ): Promise<T> {
   const firebaseUser = auth.currentUser;
@@ -93,4 +93,19 @@ export async function requestNetworkCheck(branchId?: string): Promise<{
   serverDateFormatted: string;
 }> {
   return sendAttendanceApiRequest('network-check', { branchId });
+}
+
+/**
+ * Authoritative Attendance Review (Approve/Reject PENDING_REVIEW records)
+ */
+export async function requestAttendanceReview(
+  attendanceId: string,
+  decision: 'APPROVE' | 'REJECT',
+  reason?: string
+): Promise<AttendanceRecord> {
+  return sendAttendanceApiRequest<AttendanceRecord>('review', {
+    attendanceId,
+    decision,
+    reason
+  });
 }

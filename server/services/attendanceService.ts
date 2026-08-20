@@ -1,5 +1,6 @@
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { verifyGeofence, LatLng } from './geofenceService';
+import { verifyFaceBiometric } from './biometricService';
 
 export interface CheckInEvidenceRequest {
   staffId: string;
@@ -9,6 +10,7 @@ export interface CheckInEvidenceRequest {
   branchName?: string;
   userCoords?: LatLng;
   faceCaptureBase64?: string;
+  faceEmbedding?: number[];
   faceSessionId?: string;
   qrScanned?: boolean;
   clientIp?: string;
@@ -18,6 +20,17 @@ export interface CheckInEvidenceRequest {
 export interface CheckOutRequest {
   staffId: string;
   branchId: string;
+}
+
+export interface AttendanceReviewRequest {
+  attendanceId: string;
+  decision: 'APPROVE' | 'REJECT';
+  reviewerUid: string;
+  reviewerName: string;
+  reviewerRole: string;
+  reviewerBranchId: string;
+  reviewerAssignedBranches?: string[];
+  reason?: string;
 }
 
 export interface ShiftDefinition {
@@ -91,9 +104,17 @@ export interface AttendanceRecordResult {
     gpsVerified: boolean;
     distanceMeters: number;
     faceVerified: boolean;
+    faceScore?: number;
     networkVerified: boolean;
     qrScanned: boolean;
     serverTimeIso: string;
+  };
+  reviewData?: {
+    reviewedByUid: string;
+    reviewedByName: string;
+    reviewedAt: string;
+    decision: 'APPROVE' | 'REJECT';
+    reason?: string;
   };
 }
 
@@ -114,6 +135,18 @@ export function diffMinutes(startMinutes: number, endMinutes: number): number {
 }
 
 /**
+ * Normalizes minutes relative to shift start timestamp
+ */
+export function normalizeRelativeMinutes(timeStr: string, shiftStartStr: string): number {
+  const tMins = parseTimeToMinutes(timeStr);
+  const sMins = parseTimeToMinutes(shiftStartStr);
+  if (tMins >= sMins) {
+    return tMins - sMins;
+  }
+  return (1440 - sMins) + tMins;
+}
+
+/**
  * Calculates Monday week start date (YYYY-MM-DD) for Vietnam timezone
  */
 export function getVietnamWeekStart(dateStr: string): string {
@@ -126,10 +159,7 @@ export function getVietnamWeekStart(dateStr: string): string {
 }
 
 /**
- * Authoritative Fail-Closed Shift Matching Engine:
- * - Query schedule with O(1) Doc ID: SCHED_{branchId}_{weekStart}_{staffId}
- * - Throws SHIFT_NOT_ASSIGNED if no schedule is found
- * - Throws OFF_DAY if scheduled as day off (Nghỉ / OFF)
+ * Authoritative Fail-Closed Shift Matching Engine
  */
 export async function resolveShiftAssignment(
   db: Firestore | null,
@@ -142,13 +172,15 @@ export async function resolveShiftAssignment(
 ): Promise<ShiftDefinition> {
   const { staffId, branchId, workDate, testShiftMock } = params;
 
-  if (!db) {
-    if (testShiftMock) {
-      if (testShiftMock.isOff || testShiftMock.shiftId === 'OFF' || testShiftMock.shiftName === 'Nghỉ') {
-        throw new Error(`OFF_DAY: Hôm nay (${workDate}) là ngày nghỉ của bạn theo lịch phân ca.`);
-      }
-      return testShiftMock;
+  if (testShiftMock) {
+    if (testShiftMock.isOff || testShiftMock.shiftId === 'OFF' || testShiftMock.shiftName === 'Nghỉ') {
+      throw new Error(`OFF_DAY: Hôm nay (${workDate}) là ngày nghỉ của bạn theo lịch phân ca.`);
     }
+    return testShiftMock;
+  }
+
+  if (!db) {
+    // In-memory test default
     return STANDARD_SHIFTS.SHIFT_MORNING;
   }
 
@@ -224,6 +256,7 @@ export async function processServerCheckIn(
     branchName = 'Chi nhánh PhoneHouse',
     userCoords,
     faceCaptureBase64,
+    faceEmbedding,
     faceSessionId,
     qrScanned = false,
     clientIp = '127.0.0.1',
@@ -242,12 +275,10 @@ export async function processServerCheckIn(
   let authoritativeStoreCoords: LatLng;
   let authoritativeRadius = 150; // meters
   let isNetworkAllowed = clientIp === '127.0.0.1' || clientIp === '::1';
-  let isFaceVerified = false;
 
   if (!db) {
     // In memory / mock test mode
     authoritativeStoreCoords = { latitude: 16.0678, longitude: 108.2208 };
-    isFaceVerified = Boolean(faceCaptureBase64 && faceCaptureBase64.startsWith('VALID_CAPTURE_'));
     isNetworkAllowed = true;
   } else {
     // 1A. Geofence & Network Authority
@@ -257,7 +288,6 @@ export async function processServerCheckIn(
     }
     const bData = branchDoc.data()!;
 
-    // Fail-closed GPS invariant: Must have registered coordinates
     if (typeof bData.gpsLatitude !== 'number' || typeof bData.gpsLongitude !== 'number') {
       throw new Error(`BRANCH_GPS_NOT_CONFIGURED: Chi nhánh "${bData.name || branchId}" chưa được cấu hình tọa độ GPS chuẩn.`);
     }
@@ -267,45 +297,19 @@ export async function processServerCheckIn(
       authoritativeRadius = bData.attendanceRadius;
     }
 
-    // Authoritative Server Network Check against Branch Static IPs
     const allowedIps: string[] = bData.allowedPublicIps || [];
     if (allowedIps.includes(clientIp)) {
       isNetworkAllowed = true;
     }
-
-    // 1B. Authoritative Face Biometric Matching against staffFaceProfiles collection
-    try {
-      const faceProfileDoc = await db.collection('staffFaceProfiles').doc(staffId).get();
-      if (faceProfileDoc.exists) {
-        const fpData = faceProfileDoc.data()!;
-        if (fpData.enrollmentStatus === 'APPROVED' && fpData.revokedAt == null) {
-          if (faceCaptureBase64 && faceCaptureBase64.length > 200 && !faceCaptureBase64.includes('FAKE')) {
-            isFaceVerified = true;
-          }
-        }
-      } else {
-        // Fallback to legacy staff profile doc
-        const staffDoc = await db.collection('staff').doc(staffId).get();
-        if (staffDoc.exists) {
-          const sData = staffDoc.data()!;
-          const registeredProfile = sData.registeredFaceProfile || sData.faceDescriptorHash;
-
-          if (registeredProfile && faceCaptureBase64) {
-            const isMatch = faceCaptureBase64.length > 200 && !faceCaptureBase64.includes('FAKE');
-            isFaceVerified = isMatch;
-          } else if (registeredProfile && faceSessionId) {
-            const sessionDoc = await db.collection('faceAuthSessions').doc(faceSessionId).get();
-            if (sessionDoc.exists && sessionDoc.data()?.verifiedStaffUid === staffId) {
-              isFaceVerified = true;
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[Attendance Face Verification Error]:', err);
-      isFaceVerified = false;
-    }
   }
+
+  // 1B. Biometric Face Verification V2 (Single Source of Truth: staffFaceProfiles)
+  const faceCheck = await verifyFaceBiometric(db, {
+    staffUid: staffId,
+    liveEmbedding: faceEmbedding,
+    liveCaptureBase64: faceCaptureBase64
+  });
+  const isFaceVerified = faceCheck.verified;
 
   // 2. Authoritative Geofencing Calculation
   const geoCheck = verifyGeofence(userCoords, authoritativeStoreCoords, authoritativeRadius);
@@ -392,6 +396,7 @@ export async function processServerCheckIn(
       gpsVerified: true,
       distanceMeters: geoCheck.distanceMeters,
       faceVerified: isFaceVerified,
+      faceScore: faceCheck.score,
       networkVerified: isNetworkAllowed,
       qrScanned,
       serverTimeIso
@@ -482,16 +487,19 @@ export async function processServerCheckOut(
     const outMinutes = parseTimeToMinutes(timeStr);
     const workDurationMinutes = diffMinutes(inMinutes, outMinutes);
 
+    const scheduledStart = data.scheduledStart || '08:00';
     const scheduledEnd = data.scheduledEnd || '17:00';
-    const shiftEndMinutes = parseTimeToMinutes(scheduledEnd);
     
-    // Early / Overtime calculations
+    // Relative Timeline Calculations (Robust against overnight shifts)
+    const scheduledShiftDuration = diffMinutes(parseTimeToMinutes(scheduledStart), parseTimeToMinutes(scheduledEnd));
+    const relativeCheckout = normalizeRelativeMinutes(timeStr, scheduledStart);
+
     let earlyMinutes = 0;
     let otMinutes = 0;
-    if (outMinutes < shiftEndMinutes) {
-      earlyMinutes = shiftEndMinutes - outMinutes;
+    if (relativeCheckout < scheduledShiftDuration) {
+      earlyMinutes = scheduledShiftDuration - relativeCheckout;
     } else {
-      otMinutes = outMinutes - shiftEndMinutes;
+      otMinutes = relativeCheckout - scheduledShiftDuration;
     }
 
     const scheduledBreak = data.scheduledBreakMinutes || data.breakDurationMinutes || 0;
@@ -519,4 +527,125 @@ export async function processServerCheckOut(
   });
 
   return completedRecord;
+}
+
+/**
+ * Authoritative Attendance Review Process (For PENDING_REVIEW records)
+ */
+export async function processAttendanceReview(
+  db: Firestore | null,
+  payload: AttendanceReviewRequest
+): Promise<AttendanceRecordResult> {
+  const {
+    attendanceId,
+    decision,
+    reviewerUid,
+    reviewerName,
+    reviewerRole,
+    reviewerBranchId,
+    reviewerAssignedBranches = [],
+    reason = ''
+  } = payload;
+
+  if (!reviewerUid || !reviewerBranchId) {
+    throw new Error('MISSING_STAFF_IDENTITY: Thiếu mã hoặc chi nhánh người kiểm duyệt.');
+  }
+
+  const isAuthorized = reviewerRole === 'ADMIN' || reviewerRole === 'MANAGER';
+  if (!isAuthorized) {
+    throw new Error('PERMISSION_DENIED: Chỉ Quản lý cửa hàng (Manager) hoặc Quản trị viên (Admin) mới có quyền duyệt chấm công.');
+  }
+
+  const nowIso = new Date().toISOString();
+
+  if (!db) {
+    return {
+      id: attendanceId,
+      staffId: 'STAFF-01',
+      staffName: 'Nhân viên A',
+      branchId: reviewerBranchId,
+      date: '2026-08-20',
+      checkInTime: '08:00:00',
+      status: decision === 'APPROVE' ? 'ON_TIME' : 'REJECTED',
+      attendanceStatus: 'CHECKED_IN',
+      punctualityStatus: 'ON_TIME',
+      verificationStatus: decision === 'APPROVE' ? 'VERIFIED' : 'REJECTED',
+      workDurationMinutes: 0,
+      netWorkMinutes: 0,
+      verification: {
+        gpsVerified: true,
+        distanceMeters: 10,
+        faceVerified: decision === 'APPROVE',
+        networkVerified: decision === 'APPROVE',
+        qrScanned: false,
+        serverTimeIso: nowIso
+      },
+      reviewData: {
+        reviewedByUid: reviewerUid,
+        reviewedByName: reviewerName,
+        reviewedAt: nowIso,
+        decision,
+        reason
+      }
+    };
+  }
+
+  const attRef = db.collection('attendance').doc(attendanceId);
+  const auditRef = db.collection('attendanceAuditLogs').doc(`AUDIT_${attendanceId}_${Date.now()}`);
+
+  return await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(attRef);
+    if (!snap.exists) {
+      throw new Error(`ATTENDANCE_NOT_FOUND: Không tìm thấy bản ghi chấm công "${attendanceId}".`);
+    }
+
+    const data = snap.data()! as AttendanceRecordResult;
+
+    // Branch Isolation check
+    if (reviewerRole !== 'ADMIN') {
+      const allowedBranches = [reviewerBranchId, ...reviewerAssignedBranches];
+      if (!allowedBranches.includes(data.branchId)) {
+        throw new Error(`BRANCH_FORBIDDEN: Bạn chỉ có quyền duyệt chấm công thuộc chi nhánh phụ trách (${reviewerBranchId}).`);
+      }
+    }
+
+    const newVerificationStatus: 'VERIFIED' | 'REJECTED' = decision === 'APPROVE' ? 'VERIFIED' : 'REJECTED';
+    const newStatus: 'ON_TIME' | 'LATE' | 'REJECTED' = decision === 'APPROVE' ? (data.lateMinutes && data.lateMinutes > 0 ? 'LATE' : 'ON_TIME') : 'REJECTED';
+
+    const reviewData = {
+      reviewedByUid: reviewerUid,
+      reviewedByName: reviewerName,
+      reviewedAt: nowIso,
+      decision,
+      reason
+    };
+
+    const updateFields = {
+      verificationStatus: newVerificationStatus,
+      status: newStatus,
+      reviewData,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    transaction.update(attRef, updateFields);
+
+    transaction.set(auditRef, {
+      id: auditRef.id,
+      attendanceId,
+      staffId: data.staffId,
+      branchId: data.branchId,
+      action: decision === 'APPROVE' ? 'REVIEW_APPROVED' : 'REVIEW_REJECTED',
+      performedByUid: reviewerUid,
+      performedByName: reviewerName,
+      previousStatus: data.verificationStatus || 'PENDING_REVIEW',
+      newStatus: newVerificationStatus,
+      reason,
+      timestamp: nowIso
+    });
+
+    return {
+      ...data,
+      ...updateFields
+    } as unknown as AttendanceRecordResult;
+  });
 }
