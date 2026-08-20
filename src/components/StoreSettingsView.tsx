@@ -45,6 +45,7 @@ import {
 } from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
+import { apiJson } from '../services/apiClient';
 
 interface StoreSettingsViewProps {
   branches: StoreBranch[];
@@ -146,19 +147,26 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const handleGetDeviceIP = async () => {
     setIsGettingIp(true);
     try {
-      const res = await fetch('/api/client-ip');
-      const data = await res.json();
+      const data = await apiJson<{ success: boolean; ip: string }>('/api/client-ip');
       if (data.success && data.ip) {
-        setBranchForm(prev => ({
-          ...prev,
-          storePublicIp: data.ip
-        }));
-        alert(`Đã tự động lấy IP Router Wi-Fi cửa hàng thành công:\n\n📍 Địa chỉ IP: ${data.ip}\n(${data.ip.includes(':') ? 'Định dạng IPv6 - Mạng thế hệ mới do nhà mạng cấp' : 'Định dạng IPv4'})\n\nBấm "Lưu" để cập nhật địa chỉ IP này cho cửa hàng.`);
+        setBranchForm(prev => {
+          const currentIps = Array.isArray(prev.allowedPublicIps) ? [...prev.allowedPublicIps] : [];
+          if (!currentIps.includes(data.ip)) {
+            currentIps.push(data.ip);
+          }
+          return {
+            ...prev,
+            storePublicIp: data.ip,
+            allowedPublicIps: currentIps
+          };
+        });
+        showToast(`Đã lấy IP Router Wi-Fi: ${data.ip}`, 'success');
+        alert(`Đã tự động lấy IP Router Wi-Fi cửa hàng thành công:\n\n📍 Địa chỉ IP: ${data.ip}\n(${data.ip.includes(':') ? 'Định dạng IPv6' : 'Định dạng IPv4'})\n\nBấm "Lưu" để cập nhật địa chỉ IP này cho chi nhánh.`);
       } else {
         alert('Không thể xác định địa chỉ IP tự động. Vui lòng kiểm tra lại kết nối mạng.');
       }
-    } catch (err) {
-      alert('Lỗi kết nối khi lấy IP: ' + err);
+    } catch (err: any) {
+      alert('Lỗi kết nối khi lấy IP: ' + (err?.message || err));
     } finally {
       setIsGettingIp(false);
     }
@@ -229,9 +237,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         accountHolder: ''
       },
       allowedWifiSSID: 'PH_HAICHAU_5G',
-      storePublicIp: '113.161.45.88',
+      storePublicIp: '',
+      allowedPublicIps: [],
       gpsLatitude: 16.0612,
       gpsLongitude: 108.2170,
+      attendanceRadius: 50,
       allowedGpsRadiusMeters: 50,
       notes: ''
     });
@@ -240,7 +250,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
   const handleOpenEditBranch = (branch: StoreBranch) => {
     setEditingBranch(branch);
-    setBranchForm({ ...branch });
+    setBranchForm({
+      ...branch,
+      storePublicIp: branch.storePublicIp || (Array.isArray(branch.allowedPublicIps) ? branch.allowedPublicIps.join(', ') : ''),
+      allowedPublicIps: Array.isArray(branch.allowedPublicIps) ? branch.allowedPublicIps : (branch.storePublicIp ? branch.storePublicIp.split(',').map(s => s.trim()).filter(Boolean) : []),
+      attendanceRadius: branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50
+    });
     setIsBranchModalOpen(true);
   };
 
@@ -251,10 +266,19 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       return;
     }
 
+    const ips = Array.isArray(branchForm.allowedPublicIps) && branchForm.allowedPublicIps.length > 0
+      ? branchForm.allowedPublicIps
+      : (branchForm.storePublicIp ? branchForm.storePublicIp.split(',').map(s => s.trim()).filter(Boolean) : []);
+    const radius = Number(branchForm.attendanceRadius ?? branchForm.allowedGpsRadiusMeters ?? 50);
+
     if (editingBranch) {
       const updated: StoreBranch = {
         ...editingBranch,
-        ...(branchForm as StoreBranch)
+        ...(branchForm as StoreBranch),
+        allowedPublicIps: ips,
+        storePublicIp: ips.join(', '),
+        attendanceRadius: radius,
+        allowedGpsRadiusMeters: radius
       };
       onUpdateBranch(updated);
     } else {
@@ -274,10 +298,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         taxCode: branchForm.taxCode || '',
         bankAccount: branchForm.bankAccount || { bankName: '', accountNumber: '', accountHolder: '' },
         allowedWifiSSID: branchForm.allowedWifiSSID || 'PH_HAICHAU_5G',
-        storePublicIp: branchForm.storePublicIp || '113.161.45.88',
+        allowedPublicIps: ips,
+        storePublicIp: ips.join(', '),
         gpsLatitude: branchForm.gpsLatitude ?? 16.0612,
         gpsLongitude: branchForm.gpsLongitude ?? 108.2170,
-        allowedGpsRadiusMeters: branchForm.allowedGpsRadiusMeters ?? 50,
+        attendanceRadius: radius,
+        allowedGpsRadiusMeters: radius,
         notes: branchForm.notes || ''
       };
       onAddBranch(newBranch);

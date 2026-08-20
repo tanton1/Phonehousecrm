@@ -164,6 +164,12 @@ app.use('/api/crm', createCrmRouter(adminDb));
 import { createTechnicalRouter } from './server/routes/technical';
 app.use('/api/technical', createTechnicalRouter(adminDb));
 
+// -------------------------------------------------------------
+// 7. ADMIN MANAGEMENT ROUTER (NETWORK ENROLL, AUDIT)
+// -------------------------------------------------------------
+import { createAdminRouter } from './server/routes/admin';
+app.use('/api/admin', createAdminRouter(adminDb));
+
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
 
 // Vietnam Timezone (UTC+7) Date Helper
@@ -989,6 +995,15 @@ Trả về ĐÚNG định dạng JSON sau:
 
 // Setup Vite middleware for SPA
 async function startServer() {
+  // Strict API 404 Handler: Prevent SPA HTML fallback from swallowing unmatched /api/* calls
+  app.all('/api/*', (_req, res) => {
+    res.status(404).json({
+      success: false,
+      error: 'API_ENDPOINT_NOT_FOUND',
+      message: 'Endpoint API không tồn tại trên hệ thống.'
+    });
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1003,10 +1018,17 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`PhoneHouse CRM & ERP server running on http://0.0.0.0:${PORT} (Offline-First Ready)`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`PhoneHouse CRM & ERP server running on http://0.0.0.0:${PORT} (Offline-First Ready)`);
+    });
+  }
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export { app };
+export default app;
 

@@ -44,10 +44,12 @@ export interface StoreBranch {
   notes?: string;
   // GPS & Wi-Fi Check-in anti-spoofing config
   allowedWifiSSID?: string;
-  storePublicIp?: string; // IP Tĩnh Router Wi-Fi cửa hàng (e.g. 113.161.45.88 hoặc nhiều IP phân cách dấu phẩy)
+  allowedPublicIps?: string[]; // Canonical array of router public IPs (IPv4 / IPv6)
+  attendanceRadius?: number; // Canonical GPS geofence radius in meters (default 50-100m)
+  storePublicIp?: string; // Legacy string format for backward compatibility
   gpsLatitude?: number;
   gpsLongitude?: number;
-  allowedGpsRadiusMeters?: number;
+  allowedGpsRadiusMeters?: number; // Legacy format for backward compatibility
 }
 
 export interface StoreSettings {

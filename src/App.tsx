@@ -1276,14 +1276,24 @@ export default function App() {
     }
   };
 
-  const handleAddBranch = (newBranch: StoreBranch) => {
-    setBranches(prev => [...prev, newBranch]);
-    addBranchToFirestore(newBranch);
+  const handleAddBranch = async (newBranch: StoreBranch) => {
+    try {
+      await addBranchToFirestore(newBranch);
+      setBranches(prev => [...prev, newBranch]);
+    } catch (err: any) {
+      console.error('Error adding branch:', err);
+      alert('Lỗi lưu chi nhánh: ' + (err?.message || 'Không có quyền thực hiện.'));
+    }
   };
 
-  const handleUpdateBranch = (updatedBranch: StoreBranch) => {
-    setBranches(prev => prev.map(b => b.id === updatedBranch.id ? updatedBranch : b));
-    updateBranchInFirestore(updatedBranch);
+  const handleUpdateBranch = async (updatedBranch: StoreBranch) => {
+    try {
+      await updateBranchInFirestore(updatedBranch);
+      setBranches(prev => prev.map(b => b.id === updatedBranch.id ? updatedBranch : b));
+    } catch (err: any) {
+      console.error('Error updating branch:', err);
+      alert('Lỗi cập nhật chi nhánh: ' + (err?.message || 'Không có quyền thực hiện (Yêu cầu quyền ADMIN).'));
+    }
   };
 
   const handleDeleteBranch = (branchId: string) => {
@@ -2206,8 +2216,8 @@ export default function App() {
             staffList={staffMembers}
             branches={branches}
             attendanceRecords={attendanceRecords}
-            onCheckInSuccess={(record) => {
-              handleCheckIn(record);
+            onCheckInSuccess={async (record) => {
+              return await handleCheckIn(record);
             }}
             onClose={() => setActiveTab('dashboard')}
             onNavigateToHR={() => setActiveTab('hr-attendance')}

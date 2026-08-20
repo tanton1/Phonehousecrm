@@ -295,9 +295,17 @@ export async function processServerCheckIn(
     authoritativeStoreCoords = { latitude: bData.gpsLatitude, longitude: bData.gpsLongitude };
     if (typeof bData.attendanceRadius === 'number') {
       authoritativeRadius = bData.attendanceRadius;
+    } else if (typeof bData.allowedGpsRadiusMeters === 'number') {
+      authoritativeRadius = bData.allowedGpsRadiusMeters;
     }
 
-    const allowedIps: string[] = bData.allowedPublicIps || [];
+    let allowedIps: string[] = [];
+    if (Array.isArray(bData.allowedPublicIps)) {
+      allowedIps = bData.allowedPublicIps;
+    } else if (typeof bData.storePublicIp === 'string') {
+      allowedIps = bData.storePublicIp.split(',').map((s: string) => s.trim()).filter(Boolean);
+    }
+
     if (allowedIps.includes(clientIp)) {
       isNetworkAllowed = true;
     }
@@ -472,11 +480,26 @@ export async function processServerCheckOut(
     return completedRecord;
   }
 
-  const attRef = db.collection('attendance').doc(recordId);
+  // 1. Find active check-in document for this staffId (handles overnight and regular shifts)
+  let targetAttRef = db.collection('attendance').doc(recordId);
+  try {
+    const openQuery = await db.collection('attendance')
+      .where('staffId', '==', staffId)
+      .where('attendanceStatus', '==', 'CHECKED_IN')
+      .limit(1)
+      .get();
+
+    if (!openQuery.empty) {
+      targetAttRef = openQuery.docs[0].ref;
+    }
+  } catch (queryErr) {
+    console.warn('[Checkout] Fallback to direct record ID:', queryErr);
+  }
+
   completedRecord = await db.runTransaction(async (transaction) => {
-    const snap = await transaction.get(attRef);
+    const snap = await transaction.get(targetAttRef);
     if (!snap.exists) {
-      throw new Error('NOT_CHECKED_IN: Không tìm thấy lượt điểm danh vào ca của ngày hôm nay.');
+      throw new Error('NOT_CHECKED_IN: Không tìm thấy lượt điểm danh vào ca đang mở để kết thúc ca.');
     }
     const data = snap.data()!;
     if (data.checkOutTime) {
@@ -517,7 +540,7 @@ export async function processServerCheckOut(
       updatedAt: FieldValue.serverTimestamp()
     };
 
-    transaction.update(attRef, updateFields);
+    transaction.update(targetAttRef, updateFields);
 
     return {
       ...data,
