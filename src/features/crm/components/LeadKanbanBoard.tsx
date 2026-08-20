@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Lead, LeadStatus, StaffMember } from '../../../types';
+import { Lead, LeadStatus, StaffMember, LeadCareActivity } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
+import { LeadCardCareBadge } from './LeadCardCareBadge';
 import { 
   Users, 
   Plus, 
@@ -19,9 +20,11 @@ import {
 
 export interface LeadKanbanBoardProps {
   leads: Lead[];
+  activities?: LeadCareActivity[];
   onSelectLead: (lead: Lead) => void;
   onUpdateLeadStatus: (leadId: string, newStatus: LeadStatus, lostReason?: string) => Promise<void> | void;
   onOpenCreateModal: () => void;
+  onOpenCareModal?: (lead: Lead) => void;
 }
 
 const STAGES: { id: LeadStatus; label: string; color: string; badgeBg: string }[] = [
@@ -49,9 +52,11 @@ const LOST_REASONS = [
 
 export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
   leads,
+  activities = [],
   onSelectLead,
   onUpdateLeadStatus,
-  onOpenCreateModal
+  onOpenCreateModal,
+  onOpenCareModal
 }) => {
   const [sourceFilter, setSourceFilter] = useState('ALL');
   const [selectedMobileStage, setSelectedMobileStage] = useState<string>('ALL');
@@ -283,6 +288,13 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
                             </div>
                           )}
                         </div>
+
+                        {/* Care Progress & SLA Badge */}
+                        <LeadCardCareBadge
+                          lead={lead}
+                          activities={activities}
+                          onOpenCareModal={onOpenCareModal}
+                        />
 
                         {/* Budget & Actions */}
                         <div className="pt-1.5 border-t border-zinc-100 flex items-center justify-between text-[10px]">

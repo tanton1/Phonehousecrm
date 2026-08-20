@@ -1909,6 +1909,8 @@ export default function App() {
                 branches={branches}
                 leads={filteredLeads}
                 devices={filteredDevices}
+                invoices={filteredInvoices}
+                warrantyTickets={filteredWarrantyTickets}
                 onAddLead={handleAddLead}
                 onUpdateLead={handleUpdateLead}
                 onConvertLeadToSale={(lead) => {

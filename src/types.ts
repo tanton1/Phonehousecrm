@@ -430,8 +430,163 @@ export interface FaceEnrollmentRecord {
 
 export type LeadStatus = 'new' | 'contacted' | 'negotiating' | 'appointment_scheduled' | 'deposit_paid' | 'deposit' | 'won' | 'lost';
 
+export type CareStatus = 
+  | 'NOT_STARTED'
+  | 'CARE_1_PENDING'
+  | 'CARE_1_DONE'
+  | 'CARE_2_PENDING'
+  | 'CARE_2_DONE'
+  | 'CARE_3_PENDING'
+  | 'CARE_3_DONE'
+  | 'LONG_TERM_NURTURE'
+  | 'CLOSED_WON'
+  | 'CLOSED_LOST';
+
+export type CareChannel = 'CALL' | 'ZALO' | 'FACEBOOK' | 'TIKTOK' | 'SMS' | 'IN_PERSON';
+
+export type CareAction = 
+  | 'CALL_CUSTOMER' 
+  | 'SEND_MESSAGE' 
+  | 'SEND_QUOTE' 
+  | 'SEND_PRODUCT' 
+  | 'BOOK_APPOINTMENT' 
+  | 'FOLLOW_UP' 
+  | 'STORE_VISIT';
+
+export type CareOutcome = 
+  | 'CONNECTED' 
+  | 'NO_ANSWER' 
+  | 'BUSY' 
+  | 'SEEN_NO_REPLY' 
+  | 'REPLIED' 
+  | 'APPOINTMENT_CREATED' 
+  | 'DEPOSIT_CREATED' 
+  | 'FOLLOW_UP_REQUESTED' 
+  | 'LOST_NOT_INTERESTED';
+
+export type CustomerResponseCode = 
+  | 'READY_TO_BUY'
+  | 'THINKING'
+  | 'COMPARING_PRICE'
+  | 'WAITING_SALARY'
+  | 'NEED_FAMILY_CONSULT'
+  | 'WILL_VISIT_STORE'
+  | 'ASK_TRADE_IN'
+  | 'ASK_INSTALLMENT'
+  | 'TOO_EXPENSIVE'
+  | 'OUT_OF_BUDGET'
+  | 'BOUGHT_OTHER_STORE'
+  | 'NO_RESPONSE';
+
+export type ObjectionCode = 
+  | 'PRICE_GAP'
+  | 'NO_STOCK_COLOR'
+  | 'WARRANTY_TERMS'
+  | 'INSTALLMENT_FEES'
+  | 'TRADE_IN_VALUATION'
+  | 'OTHER';
+
+export type EvidenceType = 
+  | 'CALL_LOG'
+  | 'CONVERSATION_ATTACHED'
+  | 'MESSAGE_LOG'
+  | 'QUOTE_ATTACHED'
+  | 'APPOINTMENT_ATTACHED'
+  | 'SCREENSHOT_UPLOAD'
+  | 'STORE_VISIT_IN_PERSON'
+  | 'SELF_REPORTED';
+
+export type EvidenceVerificationStatus = 'VERIFIED' | 'SELF_REPORTED' | 'FLAGGED';
+
+export interface LeadCareActivity {
+  id: string;
+  leadId: string;
+  customerId?: string;
+  sequence: number; // 1, 2, 3, 4...
+  isMeaningfulContact: boolean;
+  staffId: string;
+  staffName: string;
+  branchId: string;
+  channel: CareChannel;
+  action: CareAction;
+  outcome: CareOutcome;
+  customerResponseCode?: CustomerResponseCode;
+  customerResponseText?: string;
+  objectionCode?: ObjectionCode;
+  priceDetails?: {
+    storePrice?: number;
+    competitorPrice?: number;
+    customerExpectedPrice?: number;
+    priceGap?: number;
+    competitorName?: string;
+  };
+  evidenceType: EvidenceType;
+  verificationStatus: EvidenceVerificationStatus;
+  evidenceData?: {
+    callDurationSeconds?: number;
+    callStartedAt?: string;
+    conversationId?: string;
+    messageCount?: number;
+    quoteId?: string;
+    quoteCode?: string;
+    appointmentId?: string;
+    screenshotUrl?: string;
+    screenshotFileName?: string;
+    screenshotHash?: string;
+    managerNote?: string;
+    managerReviewedBy?: string;
+    managerReviewedAt?: string;
+  };
+  nextActionType?: 'CALL' | 'ZALO' | 'SEND_QUOTE' | 'APPOINTMENT' | 'LONG_TERM_NURTURE' | 'CLOSE_DEAL';
+  nextActionAt?: string;
+  nextActionNotes?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface LeadAppointment {
+  id: string;
+  leadId: string;
+  customerId?: string;
+  customerName: string;
+  customerPhone: string;
+  branchId: string;
+  branchName?: string;
+  assignedStaffId?: string;
+  assignedStaffName?: string;
+  scheduledAt: string; // YYYY-MM-DD HH:mm
+  interestedModel: string;
+  reservationDeviceId?: string;
+  notes?: string;
+  status: 'SCHEDULED' | 'ARRIVED' | 'NO_SHOW' | 'CANCELLED' | 'COMPLETED';
+  createdAt: string;
+}
+
+export interface LeadQuote {
+  id: string;
+  quoteCode: string; // QT-XXXXX
+  leadId: string;
+  customerId?: string;
+  customerName: string;
+  customerPhone: string;
+  staffId: string;
+  staffName: string;
+  branchId: string;
+  model: string;
+  unitPrice: number;
+  accessoriesPrice?: number;
+  tradeInSubsidy?: number;
+  discountAmount?: number;
+  finalPrice: number;
+  warrantyPackage?: string;
+  validUntil: string;
+  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'EXPIRED' | 'CONVERTED_POS';
+  notes?: string;
+  createdAt: string;
+}
+
 export interface LeadNextAction {
-  type: 'CALL' | 'MESSAGE' | 'APPOINTMENT' | 'SEND_QUOTE' | 'CHECK_STOCK';
+  type: 'CALL' | 'MESSAGE' | 'APPOINTMENT' | 'SEND_QUOTE' | 'CHECK_STOCK' | 'LONG_TERM_NURTURE';
   dueAt?: string;
   notes?: string;
   assignedTo?: string;
@@ -451,12 +606,23 @@ export interface Lead {
   tradeInRequirose: boolean;
   tradeInModel?: string;
   status: LeadStatus;
+  careStatus?: CareStatus;
+  careAttempts?: number;
+  meaningfulCareCount?: number;
+  careQualityScore?: number; // 0 - 100
+  lastCustomerResponse?: string;
+  lastCustomerResponseCode?: CustomerResponseCode;
+  lastEvidenceType?: EvidenceType;
+  lastCareOutcome?: CareOutcome;
+  lastCareAt?: string;
   lostReason?: string;
   lostReasonDetails?: string;
   assignedStaff: string;
   assignedStaffId?: string;
   followUpDate: string;
   nextAction?: LeadNextAction;
+  nextActionAt?: string;
+  nextActionNotes?: string;
   createdAt: string;
   lastContactedAt?: string;
   notes: string;

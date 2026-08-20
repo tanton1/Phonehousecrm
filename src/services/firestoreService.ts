@@ -42,7 +42,10 @@ import {
   DailyShiftChecklistItem,
   LeaveRequest,
   StaffMember,
-  WeeklyShiftSchedule
+  WeeklyShiftSchedule,
+  LeadCareActivity,
+  LeadAppointment,
+  LeadQuote
 } from '../types';
 import { 
   INITIAL_DEVICES, 
@@ -67,7 +70,7 @@ import { INITIAL_CATALOG_ITEMS } from '../data/catalogData';
 import { INITIAL_TODAY_ATTENDANCE_LIST, INITIAL_STAFF_MEMBERS, INITIAL_LEAVE_REQUESTS } from '../data/attendanceData';
 import { INITIAL_SOP_TEMPLATES, INITIAL_TODAY_SHIFT_CHECKLISTS, INITIAL_HANDOVER_REPORTS } from '../data/sopTemplatesData';
 
-// Collection Names
+// Firestore Collection Names Constants
 const DEVICES_COL = 'devices';
 const LEADS_COL = 'leads';
 const TRADEINS_COL = 'tradeIns';
@@ -75,8 +78,8 @@ const WARRANTY_COL = 'warrantyTickets';
 const INVOICES_COL = 'invoices';
 const USERS_COL = 'users';
 const PARTNERS_COL = 'partners';
-const TRANSFERS_COL = 'transfers';
 const PRODUCTS_COL = 'products';
+const TRANSFERS_COL = 'transfers';
 const BRANCHES_COL = 'branches';
 const WAREHOUSES_COL = 'warehouses';
 const SETTINGS_COL = 'storeSettings';
@@ -94,6 +97,9 @@ const DAILY_CHECKLISTS_COL = 'dailyShiftChecklists';
 const LEAVE_REQUESTS_COL = 'leaveRequests';
 const STAFF_MEMBERS_COL = 'staffMembers';
 const WEEKLY_SCHEDULES_COL = 'weeklyShiftSchedules';
+const LEAD_CARE_ACTIVITIES_COL = 'leadCareActivities';
+const LEAD_APPOINTMENTS_COL = 'leadAppointments';
+const LEAD_QUOTES_COL = 'leadQuotes';
 
 // Helper to strip undefined values so Firestore setDoc does not throw
 export function cleanDataForFirestore<T>(data: T): T {
@@ -1675,5 +1681,140 @@ export async function saveWeeklyShiftScheduleToFirestore(schedule: WeeklyShiftSc
     await setDoc(docRef, cleanDataForFirestore(schedule), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+// ----------------- LEAD CARE ACTIVITIES (HOẠT ĐỘNG CHĂM SÓC LEAD CÓ BẰNG CHỨNG) -----------------
+export function subscribeToLeadCareActivities(
+  onData: (activities: LeadCareActivity[]) => void,
+  leadId?: string
+) {
+  const colRef = collection(db, LEAD_CARE_ACTIVITIES_COL);
+  let actQuery: any = colRef;
+  if (leadId) {
+    actQuery = query(colRef, where('leadId', '==', leadId));
+  }
+  return onSnapshot(
+    actQuery,
+    (snapshot: any) => {
+      const items = snapshot.docs.map((d: any) => ({
+        ...d.data(),
+        id: d.id
+      })) as LeadCareActivity[];
+      onData(items);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, LEAD_CARE_ACTIVITIES_COL);
+    }
+  );
+}
+
+export async function addLeadCareActivityToFirestore(activity: LeadCareActivity) {
+  const path = `${LEAD_CARE_ACTIVITIES_COL}/${activity.id}`;
+  try {
+    const docRef = doc(db, LEAD_CARE_ACTIVITIES_COL, activity.id);
+    await setDoc(docRef, cleanDataForFirestore(activity));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateLeadCareActivityInFirestore(activity: LeadCareActivity) {
+  const path = `${LEAD_CARE_ACTIVITIES_COL}/${activity.id}`;
+  try {
+    const docRef = doc(db, LEAD_CARE_ACTIVITIES_COL, activity.id);
+    await setDoc(docRef, cleanDataForFirestore(activity), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+// ----------------- LEAD APPOINTMENTS (LỊCH HẸN SHOWROOM) -----------------
+export function subscribeToLeadAppointments(
+  onData: (appointments: LeadAppointment[]) => void,
+  branchId?: string
+) {
+  const colRef = collection(db, LEAD_APPOINTMENTS_COL);
+  let apptQuery: any = colRef;
+  if (branchId && branchId !== 'ALL') {
+    apptQuery = query(colRef, where('branchId', '==', branchId));
+  }
+  return onSnapshot(
+    apptQuery,
+    (snapshot: any) => {
+      const items = snapshot.docs.map((d: any) => ({
+        ...d.data(),
+        id: d.id
+      })) as LeadAppointment[];
+      onData(items);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, LEAD_APPOINTMENTS_COL);
+    }
+  );
+}
+
+export async function addLeadAppointmentToFirestore(appointment: LeadAppointment) {
+  const path = `${LEAD_APPOINTMENTS_COL}/${appointment.id}`;
+  try {
+    const docRef = doc(db, LEAD_APPOINTMENTS_COL, appointment.id);
+    await setDoc(docRef, cleanDataForFirestore(appointment));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateLeadAppointmentInFirestore(appointment: LeadAppointment) {
+  const path = `${LEAD_APPOINTMENTS_COL}/${appointment.id}`;
+  try {
+    const docRef = doc(db, LEAD_APPOINTMENTS_COL, appointment.id);
+    await setDoc(docRef, cleanDataForFirestore(appointment), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+// ----------------- LEAD QUOTES (BÁO GIÁ SẢN PHẨM & DEAL) -----------------
+export function subscribeToLeadQuotes(
+  onData: (quotes: LeadQuote[]) => void,
+  leadId?: string
+) {
+  const colRef = collection(db, LEAD_QUOTES_COL);
+  let quoteQuery: any = colRef;
+  if (leadId) {
+    quoteQuery = query(colRef, where('leadId', '==', leadId));
+  }
+  return onSnapshot(
+    quoteQuery,
+    (snapshot: any) => {
+      const items = snapshot.docs.map((d: any) => ({
+        ...d.data(),
+        id: d.id
+      })) as LeadQuote[];
+      onData(items);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, LEAD_QUOTES_COL);
+    }
+  );
+}
+
+export async function addLeadQuoteToFirestore(quote: LeadQuote) {
+  const path = `${LEAD_QUOTES_COL}/${quote.id}`;
+  try {
+    const docRef = doc(db, LEAD_QUOTES_COL, quote.id);
+    await setDoc(docRef, cleanDataForFirestore(quote));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateLeadQuoteInFirestore(quote: LeadQuote) {
+  const path = `${LEAD_QUOTES_COL}/${quote.id}`;
+  try {
+    const docRef = doc(db, LEAD_QUOTES_COL, quote.id);
+    await setDoc(docRef, cleanDataForFirestore(quote), { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
