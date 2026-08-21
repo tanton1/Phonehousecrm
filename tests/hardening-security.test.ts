@@ -128,4 +128,19 @@ describe('Hardening Sprint: Production Security & Server Truth Suite', () => {
       expect(honestFallback.includes(marker)).toBe(false);
     }
   });
+
+  it('Case 6: mỗi dòng POS phải chọn đúng một tag hoa hồng', () => {
+    const base = {
+      idempotencyKey: 'IDEM-TAG-01', branchId: 'CN01', deviceIds: ['DEV-01'],
+      payment: { method: 'BANK', fundId: 'BANK-01' }
+    };
+    expect(validateCheckoutPayload({
+      ...base,
+      commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-01', tagIds: ['MAY_FULL_BH', 'MAY_TRAN'] }]
+    })).toMatchObject({ isValid: false });
+    expect(validateCheckoutPayload({
+      ...base,
+      commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-01', tagIds: ['MAY_FULL_BH'] }]
+    })).toMatchObject({ isValid: true });
+  });
 });

@@ -16,7 +16,6 @@ import {
   CashTransaction,
   ProductItem,
   StockTransferSlip,
-  WarehouseId,
   StoreBranch,
   WarehouseInfo,
   StoreSettings,
@@ -467,9 +466,7 @@ export default function App() {
       const found = branches.find(b => 
         b.id === userBranch || 
         b.code === userBranch || 
-        b.warehouseId === userBranch ||
-        (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase())) ||
-        (b.systemType && b.systemType.toLowerCase() === userBranch.toLowerCase())
+        (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase()))
       );
       if (found) return found;
     }
@@ -486,72 +483,69 @@ export default function App() {
       manager: '',
       openingHours: '',
       warehouseId: '',
-      systemType: 'PHONEHOUSE',
       isActive: true,
       isHeadquarter: false,
       notes: ''
     };
   }, [branches, selectedBranchId, currentUser]);
+  const scopedBranch = branches.find(branch => branch.id === activeBranchId || branch.code === activeBranchId);
+  const scopedBranchId = scopedBranch?.id || activeBranchId;
 
   // Filtered Data based on Active Branch
   const filteredDevices = activeBranchId === 'ALL' || !activeBranchId 
     ? devices 
     : devices.filter(d => 
-        d.branchId === activeBranchId || 
-        (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.parentWarehouseId === activeBranchId) ||
-        (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.systemType === branches.find(b => b.id === activeBranchId || b.code === activeBranchId)?.systemType)
+        d.branchId === scopedBranchId ||
+        (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.branchId === scopedBranchId)
       );
 
   const filteredLeads = activeBranchId === 'ALL' || !activeBranchId 
     ? leads 
-    : leads.filter(l => l.branchId === activeBranchId || !l.branchId); // Fallback to all if lead has no branch yet
+    : leads.filter(l => l.branchId === scopedBranchId || !l.branchId); // Fallback to all if lead has no branch yet
 
   const filteredTradeIns = activeBranchId === 'ALL' || !activeBranchId 
     ? tradeIns 
-    : tradeIns.filter(t => t.branchId === activeBranchId || !t.branchId);
+    : tradeIns.filter(t => t.branchId === scopedBranchId || !t.branchId);
 
   const filteredWarrantyTickets = activeBranchId === 'ALL' || !activeBranchId 
     ? warrantyTickets 
-    : warrantyTickets.filter(w => w.branchId === activeBranchId || !w.branchId);
+    : warrantyTickets.filter(w => w.branchId === scopedBranchId || !w.branchId);
 
   const filteredInvoices = activeBranchId === 'ALL' || !activeBranchId 
     ? invoices 
     : invoices.filter(i => {
         const br = branches.find(b => b.id === activeBranchId || b.code === activeBranchId);
         const currentBranchName = br?.name;
-        const currentSysType = br?.systemType;
-        return i.branchId === activeBranchId || 
+        return i.branchId === scopedBranchId ||
                i.branch === currentBranchName || 
-               (currentSysType && (i.branch?.toLowerCase().includes(currentSysType.toLowerCase()) || (i as any).systemType === currentSysType)) ||
-               (br?.warehouseId && i.warehouseId === br.warehouseId) ||
+               (i.warehouseId && warehouses.find(warehouse => warehouse.id === i.warehouseId)?.branchId === scopedBranchId) ||
                !i.branch;
       });
 
   const filteredCashTransactions = activeBranchId === 'ALL' || !activeBranchId 
     ? cashTransactions 
-    : cashTransactions.filter(c => c.branchId === activeBranchId || !c.branchId);
+    : cashTransactions.filter(c => c.branchId === scopedBranchId || !c.branchId);
 
   const filteredUsers = activeBranchId === 'ALL' || !activeBranchId 
     ? users 
-    : users.filter(u => u.branchId === activeBranchId);
+    : users.filter(u => u.branchId === scopedBranchId);
 
     const filteredPurchaseOrders = activeBranchId === 'ALL' || !activeBranchId
     ? purchaseOrders
     : purchaseOrders.filter(o => {
-        const currentWarehouseId = branches.find(b => b.id === activeBranchId)?.warehouseId;
-        return o.warehouseId === currentWarehouseId || !o.warehouseId;
+        return warehouses.find(warehouse => warehouse.id === o.warehouseId)?.branchId === scopedBranchId || !o.warehouseId;
       });
 
   const filteredPartners = activeBranchId === 'ALL' || !activeBranchId 
     ? partners 
-    : partners.filter(p => p.branchId === activeBranchId || !p.branchId);
+    : partners.filter(p => p.branchId === scopedBranchId || !p.branchId);
 
   const filteredTransfers = activeBranchId === 'ALL' || !activeBranchId 
     ? transfers 
     : transfers.filter(t => {
-        // A transfer is visible if the branch's warehouse is either the source or the destination
-        const currentWarehouseId = branches.find(b => b.id === activeBranchId)?.warehouseId;
-        return t.fromWarehouse === currentWarehouseId || t.toWarehouse === currentWarehouseId;
+        const sourceWarehouseBranch = warehouses.find(warehouse => warehouse.id === (t.sourceLocationId || t.fromWarehouse))?.branchId;
+        const destinationWarehouseBranch = warehouses.find(warehouse => warehouse.id === (t.destinationLocationId || t.toWarehouse))?.branchId;
+        return t.sourceBranchId === scopedBranchId || t.destinationBranchId === scopedBranchId || sourceWarehouseBranch === scopedBranchId || destinationWarehouseBranch === scopedBranchId;
       });
 
   // Adapter mapping UserAccount to StaffMember Single Source of Truth
@@ -1319,26 +1313,25 @@ export default function App() {
   const handleAddBranch = async (newBranch: StoreBranch) => {
     try {
       await addBranchToFirestore(newBranch);
-      setBranches(prev => [...prev, newBranch]);
     } catch (err: any) {
       console.error('Error adding branch:', err);
       alert('Lỗi lưu chi nhánh: ' + (err?.message || 'Không có quyền thực hiện.'));
+      throw err;
     }
   };
 
   const handleUpdateBranch = async (updatedBranch: StoreBranch) => {
     try {
       await updateBranchInFirestore(updatedBranch);
-      setBranches(prev => prev.map(b => b.id === updatedBranch.id ? updatedBranch : b));
     } catch (err: any) {
       console.error('Error updating branch:', err);
       alert('Lỗi cập nhật chi nhánh: ' + (err?.message || 'Không có quyền thực hiện (Yêu cầu quyền ADMIN).'));
+      throw err;
     }
   };
 
   const handleDeleteBranch = async (branchId: string) => {
     await deleteBranchFromFirestore(branchId);
-    setBranches(prev => prev.filter(b => b.id !== branchId));
   };
 
   const handleAddWarehouse = async (newWarehouse: WarehouseInfo) => {
@@ -1469,10 +1462,10 @@ export default function App() {
               buyPrice: item.importPrice,
               sellPrice: item.expectedSellPrice || Math.round(item.importPrice * 1.15),
               status: 'in_stock',
-              branchId: order.branchId || warehouses.find(location => String(location.id) === String(order.warehouseId))?.branchId || (activeBranchId !== 'ALL' ? activeBranchId : currentUser?.branchId),
+              branchId: order.branchId || warehouses.find(location => String(location.id) === String(order.warehouseId))?.branchId || (scopedBranchId !== 'ALL' ? scopedBranchId : currentUser?.branchId),
               currentLocationId: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
               warehouseId: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
-              warehouse: (order.warehouseId as WarehouseId) || resolvedCurrentBranch.warehouseId || 'KHO_TONG',
+              warehouse: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
               supplier: order.supplierName,
               supplierId: order.supplierId,
               receivedDate: order.orderDate,
@@ -2317,6 +2310,7 @@ export default function App() {
             onUpdateDeviceStatus={handleUpdateDeviceStatus}
             preSelectedDevice={posPreSelectedDevice}
             onNavigateToInvoices={() => setActiveTab('invoices')}
+            onOpenPOS={() => setActiveTab('pos')}
             funds={funds}
             onAddTransaction={handleAddCashTransaction}
             onOpenNewDeviceModal={() => setActiveTab('inventory')}

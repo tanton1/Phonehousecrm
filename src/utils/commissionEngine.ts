@@ -1,5 +1,6 @@
 import {
   SalesInvoice,
+  SalesInvoiceItem,
   WarrantyTicket,
   StaffMember,
   CommissionTransaction,
@@ -10,6 +11,20 @@ import {
 import { getLiveTechCommissionMatrix, getDeviceGroupForModel } from '../data/techCommissionMatrix';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import { getCachedOperationalConfigs } from '../services/configurationApiClient';
+
+export function calculateSalesCommissionFromTagSnapshots(
+  item: SalesInvoiceItem,
+  onlineFactor = 1
+): { amount: number; percentRate: number } {
+  const baseAmount = Math.max(0, item.totalPrice || item.unitPrice || 0);
+  const quantity = Math.max(1, Number(item.quantity || 1));
+  const tags = item.commissionTags || [];
+  const rawAmount = tags.reduce((sum, tag) => sum + (
+    tag.calculationType === 'PERCENT' ? baseAmount * tag.value / 100 : tag.value * quantity
+  ), 0);
+  const percentRate = tags.filter(tag => tag.calculationType === 'PERCENT').reduce((sum, tag) => sum + tag.value, 0);
+  return { amount: Math.round(rawAmount * onlineFactor), percentRate: percentRate * onlineFactor };
+}
 
 /**
  * Helper tìm thông tin nhân viên theo tên hoặc ID hoặc alias
@@ -240,6 +255,8 @@ export function calculateInvoiceCommissions(
       let type: CommissionTransaction['type'] = 'OTHER_BONUS';
       const baseAmount = Math.max(0, item.totalPrice || item.unitPrice || 0);
       let rate = 0;
+      let policyId = salesConfig.id;
+      let policyVersion = salesConfig.version;
 
       if (item.type === 'phone' || item.type === 'device') {
         type = 'DEVICE_SALE';
@@ -250,7 +267,21 @@ export function calculateInvoiceCommissions(
         rate = salesConfig.accessoryProfitPercent;
         notes = `Hoa hồng phụ kiện theo cấu hình ${salesConfig.name}`;
       }
-      comm = Math.round(baseAmount * (rate / 100) * onlineFactor);
+      const tagSnapshots = item.commissionTags || [];
+      if (tagSnapshots.length > 0) {
+        const tagCommission = calculateSalesCommissionFromTagSnapshots(item, onlineFactor);
+        rate = tagCommission.percentRate;
+        comm = tagCommission.amount;
+        policyId = tagSnapshots[0].policyId;
+        policyVersion = tagSnapshots[0].policyVersion;
+        notes = `Tag hoa hồng: ${tagSnapshots.map(tag => tag.name).join(', ')}`;
+      } else if (!Array.isArray(item.commissionTags)) {
+        // Chỉ dùng tỷ lệ nền cho hóa đơn cũ chưa có snapshot tag.
+        comm = Math.round(baseAmount * (rate / 100) * onlineFactor);
+      } else {
+        // Hóa đơn mới có snapshot rỗng nghĩa là loại hàng này không được cấu hình hoa hồng.
+        comm = 0;
+      }
 
       if (comm > 0) {
         transactions.push({
@@ -268,11 +299,11 @@ export function calculateInvoiceCommissions(
           type: type,
           baseAmount,
           profitAmount: baseAmount,
-          commissionRate: rate * onlineFactor,
+          commissionRate: tagSnapshots.length > 0 ? rate : rate * onlineFactor,
           commissionAmount: comm,
           status: txStatus,
-          policyId: salesConfig.id,
-          policyVersion: salesConfig.version,
+          policyId,
+          policyVersion,
           occurredAt: nowStr,
           approvedAt: nowStr,
           notes: notes,

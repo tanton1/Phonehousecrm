@@ -11,7 +11,7 @@ export function useCheckout() {
     createdInvoice: null
   });
 
-  const runCheckout = useCallback(async (payload: POSCheckoutPayload): Promise<boolean> => {
+  const runCheckout = useCallback(async (payload: POSCheckoutPayload): Promise<POSCheckoutPayload['invoice'] | null> => {
     // Step 1: Validating
     setCheckoutInfo({
       state: 'VALIDATING',
@@ -23,7 +23,7 @@ export function useCheckout() {
 
     if (!payload.invoice || !payload.invoice.id) {
       setCheckoutInfo(prev => ({ ...prev, state: 'FAILED', error: 'Thiếu thông tin hóa đơn bán lẻ.' }));
-      return false;
+      return null;
     }
 
     try {
@@ -53,7 +53,8 @@ export function useCheckout() {
         financeCompanyPartner: payload.financeCompanyPartner,
         fundToUpdate: payload.fundToUpdate,
         payments: payload.invoice?.splitPayments as any,
-        idempotencyKey: payload.idempotencyKey
+        idempotencyKey: payload.idempotencyKey,
+        commissionTagSelections: payload.commissionTagSelections
       });
 
       const canonicalInvoice = result?.invoice || payload.invoice;
@@ -67,7 +68,7 @@ export function useCheckout() {
         createdInvoice: canonicalInvoice
       });
 
-      return true;
+      return canonicalInvoice;
     } catch (err: any) {
       console.error('POS Checkout Critical Error:', err);
       const errorMessage = err?.message || 'Giao dịch thanh toán thất bại. Vui lòng kiểm tra lại.';
@@ -78,7 +79,7 @@ export function useCheckout() {
         error: errorMessage,
         createdInvoice: null
       });
-      return false;
+      return null;
     }
   }, []);
 

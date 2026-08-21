@@ -61,8 +61,29 @@ describe('Mandatory operational setup', () => {
     expect(() => validateOperationalConfig('sales', { name: 'Sales 2026', version: 'v1' })).toThrow(/SALES_CONFIG_INVALID/);
     expect(validateOperationalConfig('sales', {
       name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
+      onlineSaleSplitPercent: 50, maxDiscountPercent: 3, defaultMonthlyTarget: 800000000, isActive: true,
+      commissionTags: [
+        { id: 'may_full_bh', name: 'Máy full BH', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 150000, isActive: true },
+        { id: 'phu_kien', name: 'Phụ kiện', appliesTo: 'ACCESSORY', calculationType: 'PERCENT', value: 5, isActive: true }
+      ]
+    })).toMatchObject({
+      id: 'sales', deviceProfitPercent: 4, isActive: true,
+      commissionTags: [{ id: 'MAY_FULL_BH', appliesTo: 'DEVICE', value: 150000 }, { id: 'PHU_KIEN', appliesTo: 'ACCESSORY', value: 5 }]
+    });
+  });
+
+  it('rejects duplicate, invalid and inactive-only Sales commission tags', () => {
+    const base = {
+      name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
       onlineSaleSplitPercent: 50, maxDiscountPercent: 3, defaultMonthlyTarget: 800000000, isActive: true
-    })).toMatchObject({ id: 'sales', deviceProfitPercent: 4, isActive: true });
+    };
+    expect(() => validateOperationalConfig('sales', { ...base, commissionTags: [] })).toThrow(/SALES_COMMISSION_TAG_REQUIRED/);
+    expect(() => validateOperationalConfig('sales', { ...base, commissionTags: [
+      { id: 'MAY', name: 'Máy', appliesTo: 'DEVICE', calculationType: 'PERCENT', value: 101, isActive: true }
+    ] })).toThrow(/SALES_COMMISSION_TAG_INVALID/);
+    expect(() => validateOperationalConfig('sales', { ...base, commissionTags: [
+      { id: 'MAY', name: 'Máy', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: false }
+    ] })).toThrow(/SALES_ACTIVE_COMMISSION_TAG_REQUIRED/);
   });
 
   it('requires an explicit CSKH schedule', () => {

@@ -57,9 +57,9 @@ export interface StoreSettingsViewProps {
   warrantyTickets?: WarrantyTicket[];
   attendanceRecords?: AttendanceRecord[];
   staffMembers?: StaffMember[];
-  onAddBranch: (branch: StoreBranch) => void;
-  onUpdateBranch: (branch: StoreBranch) => void;
-  onDeleteBranch: (branchId: string) => void;
+  onAddBranch: (branch: StoreBranch) => Promise<void> | void;
+  onUpdateBranch: (branch: StoreBranch) => Promise<void> | void;
+  onDeleteBranch: (branchId: string) => Promise<void> | void;
   onAddWarehouse: (warehouse: WarehouseInfo) => Promise<void> | void;
   onUpdateWarehouse: (warehouse: WarehouseInfo) => Promise<void> | void;
   onDeleteWarehouse: (warehouseId: string) => Promise<void> | void;
@@ -89,7 +89,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   isFirebaseConnected = true
 }) => {
   const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty'>('branches');
-  const [warehouseSystemFilter, setWarehouseSystemFilter] = useState<'ALL' | 'TONG' | 'PHONEHOUSE' | 'XSTORE'>('ALL');
+  const [warehouseBranchFilter, setWarehouseBranchFilter] = useState<string>('ALL');
   
   // Executive AI Modal state
   const [isExecutiveModalOpen, setIsExecutiveModalOpen] = useState(false);
@@ -109,6 +109,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   
   const [teleTemplates, setTeleTemplates] = useState<Array<{ id: string; title: string; content: string }>>([]);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
+  const [isSavingBranch, setIsSavingBranch] = useState(false);
   const [editingBranch, setEditingBranch] = useState<StoreBranch | null>(null);
   const [branchForm, setBranchForm] = useState<Partial<StoreBranch>>({
     code: '',
@@ -230,7 +231,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     manager: '',
     phone: '',
     color: 'from-orange-500 to-orange-500',
-    systemType: 'TONG',
     type: 'CENTRAL',
     technicianName: '',
     technicianId: '',
@@ -253,7 +253,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       email: '',
       manager: '',
       openingHours: '',
-      warehouseId: warehouses[0]?.id || '',
+      warehouseId: '',
       isActive: true,
       isHeadquarter: false,
       taxCode: '',
@@ -278,7 +278,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     setIsBranchModalOpen(true);
   };
 
-  const handleSaveBranch = (e: React.FormEvent) => {
+  const handleSaveBranch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!branchForm.name || !branchForm.address) {
       alert('Vui lòng điền đầy đủ Tên chi nhánh và Địa chỉ');
@@ -290,43 +290,49 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       : (branchForm.storePublicIp ? branchForm.storePublicIp.split(',').map(s => s.trim()).filter(Boolean) : []);
     const radius = Number(branchForm.attendanceRadius ?? branchForm.allowedGpsRadiusMeters ?? 0);
 
-    if (editingBranch) {
-      const updated: StoreBranch = {
-        ...editingBranch,
-        ...(branchForm as StoreBranch),
-        allowedPublicIps: ips,
-        storePublicIp: ips.join(', '),
-        attendanceRadius: radius,
-        allowedGpsRadiusMeters: radius
-      };
-      onUpdateBranch(updated);
-    } else {
-      const newBranch: StoreBranch = {
-        id: branchForm.id || `BR-${Date.now()}`,
-        code: branchForm.code || `CN-0${branches.length + 1}`,
-        name: branchForm.name || '',
-        address: branchForm.address || '',
-        phone: branchForm.phone || '',
-        email: branchForm.email || '',
-        manager: branchForm.manager || '',
-        openingHours: branchForm.openingHours || '',
-        warehouseId: branchForm.warehouseId || '',
-        systemType: branchForm.systemType,
-        isActive: branchForm.isActive ?? true,
-        isHeadquarter: branchForm.isHeadquarter ?? false,
-        taxCode: branchForm.taxCode || '',
-        allowedWifiSSID: branchForm.allowedWifiSSID || '',
-        allowedPublicIps: ips,
-        storePublicIp: ips.join(', '),
-        gpsLatitude: branchForm.gpsLatitude,
-        gpsLongitude: branchForm.gpsLongitude,
-        attendanceRadius: radius,
-        allowedGpsRadiusMeters: radius,
-        notes: branchForm.notes || ''
-      };
-      onAddBranch(newBranch);
+    setIsSavingBranch(true);
+    try {
+      if (editingBranch) {
+        const updated: StoreBranch = {
+          ...editingBranch,
+          ...(branchForm as StoreBranch),
+          allowedPublicIps: ips,
+          storePublicIp: ips.join(', '),
+          attendanceRadius: radius,
+          allowedGpsRadiusMeters: radius
+        };
+        await onUpdateBranch(updated);
+      } else {
+        const newBranch: StoreBranch = {
+          id: branchForm.id || `BR-${Date.now()}`,
+          code: branchForm.code || `CN-0${branches.length + 1}`,
+          name: branchForm.name || '',
+          address: branchForm.address || '',
+          phone: branchForm.phone || '',
+          email: branchForm.email || '',
+          manager: branchForm.manager || '',
+          openingHours: branchForm.openingHours || '',
+          warehouseId: '',
+          isActive: branchForm.isActive ?? true,
+          isHeadquarter: branchForm.isHeadquarter ?? false,
+          taxCode: branchForm.taxCode || '',
+          allowedWifiSSID: branchForm.allowedWifiSSID || '',
+          allowedPublicIps: ips,
+          storePublicIp: ips.join(', '),
+          gpsLatitude: branchForm.gpsLatitude,
+          gpsLongitude: branchForm.gpsLongitude,
+          attendanceRadius: radius,
+          allowedGpsRadiusMeters: radius,
+          notes: branchForm.notes || ''
+        };
+        await onAddBranch(newBranch);
+      }
+      setIsBranchModalOpen(false);
+    } catch (err: any) {
+      showToast(err?.message || 'Không thể lưu chi nhánh', 'error');
+    } finally {
+      setIsSavingBranch(false);
     }
-    setIsBranchModalOpen(false);
   };
 
   const handleOpenAddWarehouse = () => {
@@ -342,8 +348,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       manager: '',
       phone: '',
       color: 'from-rose-600 to-rose-600',
-      systemType: 'TONG',
-      type: 'TECHNICIAN_SUB',
+      type: 'RETAIL_STORE',
       technicianName: '',
       technicianId: '',
       custodianUid: '',
@@ -378,11 +383,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       return;
     }
 
-    const systemColor = warehouseForm.systemType === 'TONG' 
-      ? 'from-rose-600 to-rose-600' 
-      : warehouseForm.systemType === 'PHONEHOUSE' 
-        ? 'from-orange-500 to-orange-500' 
-        : 'from-orange-600 to-orange-500';
+    const warehouseColor = isChild ? 'from-rose-600 to-rose-600' : 'from-orange-500 to-orange-500';
 
     try {
       const warehouse: WarehouseInfo = editingWarehouse ? {
@@ -394,7 +395,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         custodianName: isChild ? warehouseForm.custodianName : undefined,
         parentWarehouseId: isChild ? warehouseForm.parentWarehouseId : undefined,
         isMain: isChild ? false : Boolean(warehouseForm.isMain),
-        color: systemColor
+        color: warehouseColor
       } : {
         id: (warehouseForm.id || `KHO_${Date.now()}`) as WarehouseId,
         branchId: warehouseForm.branchId,
@@ -404,9 +405,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         address: warehouseForm.address || '',
         manager: warehouseForm.manager || '',
         phone: warehouseForm.phone || '',
-        color: systemColor,
-        systemType: warehouseForm.systemType || 'TONG',
-        systemName: warehouseForm.systemType === 'TONG' ? 'Tổng Hệ Thống' : warehouseForm.systemType === 'PHONEHOUSE' ? 'PhoneHouse Retail' : 'Xstore Premium',
+        color: warehouseColor,
         type: warehouseForm.type || 'RETAIL_STORE',
         technicianName: isChild ? warehouseForm.custodianName : undefined,
         technicianId: isChild ? warehouseForm.custodianUid : undefined,
@@ -427,8 +426,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   };
 
   const filteredWarehouses = warehouses.filter(w => {
-    if (warehouseSystemFilter === 'ALL') return true;
-    return (w.systemType || 'TONG') === warehouseSystemFilter;
+    if (warehouseBranchFilter === 'ALL') return true;
+    return w.branchId === warehouseBranchFilter;
   });
 
   const handleSaveCompanySettings = (e: React.FormEvent) => {
@@ -724,7 +723,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             <div>
               <h3 className="font-black text-zinc-900 text-base">Danh Sách Hệ Thống Kho Hàng & Kho Kỹ Thuật</h3>
               <p className="text-xs text-zinc-500">
-                Quản lý kho Tổng, các kho con cho từng Kỹ thuật viên, kho bán lẻ PhoneHouse và kho Xstore độc lập.
+                Mỗi kho thuộc đúng một chi nhánh. Kho được đánh dấu là kho tổng mới có thể quản lý các kho con.
               </p>
             </div>
             <button
@@ -736,88 +735,57 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </button>
           </div>
 
-          {/* System Filter Pills */}
+          {/* Branch Filter Pills */}
           <div className="flex flex-wrap gap-2 items-center bg-white p-2.5 rounded-2xl border border-zinc-200 text-xs font-bold">
-            <span className="text-zinc-400 px-2 uppercase text-[11px] tracking-wider">Lọc theo hệ thống:</span>
+            <span className="text-zinc-400 px-2 uppercase text-[11px] tracking-wider">Lọc theo chi nhánh:</span>
             <button
-              onClick={() => setWarehouseSystemFilter('ALL')}
+              onClick={() => setWarehouseBranchFilter('ALL')}
               className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
-                warehouseSystemFilter === 'ALL'
+                warehouseBranchFilter === 'ALL'
                   ? 'bg-zinc-900 text-white shadow-sm'
                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
               }`}
             >
-              Tất Cả Hệ Thống ({warehouses.length})
+              Tất cả chi nhánh ({warehouses.length})
             </button>
-
-            <button
-              onClick={() => setWarehouseSystemFilter('TONG')}
-              className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
-                warehouseSystemFilter === 'TONG'
-                  ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/30'
-                  : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-100'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-rose-400"></span>
-              <span>Tổng Kho & Kho KTV Con ({warehouses.filter(w => (w.systemType || 'TONG') === 'TONG').length})</span>
-            </button>
-
-            <button
-              onClick={() => setWarehouseSystemFilter('PHONEHOUSE')}
-              className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
-                warehouseSystemFilter === 'PHONEHOUSE'
-                  ? 'bg-orange-500 text-white shadow-sm shadow-orange-500/30'
-                  : 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-orange-400"></span>
-              <span>Hệ Thống PhoneHouse ({warehouses.filter(w => w.systemType === 'PHONEHOUSE').length})</span>
-            </button>
-
-            <button
-              onClick={() => setWarehouseSystemFilter('XSTORE')}
-              className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
-                warehouseSystemFilter === 'XSTORE'
-                  ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/30'
-                  : 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-orange-400"></span>
-              <span>Hệ Thống Xstore ({warehouses.filter(w => w.systemType === 'XSTORE').length})</span>
-            </button>
+            {branches.filter(branch => branch.isActive !== false).map(branch => (
+              <button
+                key={branch.id}
+                onClick={() => setWarehouseBranchFilter(branch.id)}
+                className={`px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer ${
+                  warehouseBranchFilter === branch.id
+                    ? 'bg-orange-500 text-white shadow-sm shadow-orange-500/30'
+                    : 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-100'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-current opacity-70"></span>
+                <span>{branch.name} ({warehouses.filter(w => w.branchId === branch.id).length})</span>
+              </button>
+            ))}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {filteredWarehouses.map((wh) => {
-              const isTong = (wh.systemType || 'TONG') === 'TONG';
-              const isPhoneHouse = wh.systemType === 'PHONEHOUSE';
-              const isXstore = wh.systemType === 'XSTORE';
               const isTechSub = wh.type === 'TECHNICIAN_SUB';
+              const branch = branches.find(item => item.id === wh.branchId);
+              const parentWarehouse = warehouses.find(item => item.id === wh.parentWarehouseId);
 
               return (
                 <div 
                   key={wh.id}
                   className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
-                    isTechSub 
+                    isTechSub || wh.isMain
                       ? 'border-rose-200 hover:border-rose-400 hover:shadow-rose-500/5'
-                      : isTong 
-                        ? 'border-rose-200 hover:border-rose-400 hover:shadow-rose-500/5'
-                        : isPhoneHouse 
-                          ? 'border-orange-200 hover:border-orange-400 hover:shadow-orange-500/5'
-                          : 'border-orange-200 hover:border-orange-400 hover:shadow-orange-500/5'
+                      : 'border-orange-200 hover:border-orange-400 hover:shadow-orange-500/5'
                   } hover:shadow-lg`}
                 >
                   <div className="space-y-4">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center space-x-3">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                          isTechSub 
+                          isTechSub || wh.isMain
                             ? 'bg-rose-50 text-rose-600'
-                            : isTong
-                              ? 'bg-rose-50 text-rose-600'
-                              : isPhoneHouse
-                                ? 'bg-orange-50 text-orange-600'
-                                : 'bg-orange-50 text-orange-600'
+                            : 'bg-orange-50 text-orange-600'
                         }`}>
                           <Warehouse className="w-6 h-6" />
                         </div>
@@ -826,20 +794,13 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                             <span className="font-mono text-xs font-bold px-2 py-0.5 bg-zinc-100 text-zinc-700 rounded-md">
                               {wh.code}
                             </span>
-                            {/* System Badge */}
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                              isTong 
-                                ? 'bg-rose-100 text-rose-800' 
-                                : isPhoneHouse 
-                                  ? 'bg-orange-100 text-orange-800' 
-                                  : 'bg-orange-100 text-orange-800'
-                            }`}>
-                              {isTong ? 'Tổng Hệ Thống' : isPhoneHouse ? 'PhoneHouse' : 'Xstore'}
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">
+                              {branch ? `${branch.name} (${branch.code})` : 'Chưa gán chi nhánh'}
                             </span>
 
                             {wh.isMain && (
                               <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-100 text-orange-800 rounded-full">
-                                Kho Trung Tâm
+                                Kho tổng
                               </span>
                             )}
                           </div>
@@ -894,7 +855,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
                       {isTechSub && wh.parentWarehouseId && (
                         <span className="text-[11px] text-zinc-500 font-medium">
-                          Kho cha: <strong>Kho Tổng (KT-01)</strong>
+                          Kho cha: <strong>{parentWarehouse ? `${parentWarehouse.name} (${parentWarehouse.code})` : wh.parentWarehouseId}</strong>
                         </span>
                       )}
                     </div>
@@ -1634,9 +1595,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl text-sm shadow-md shadow-orange-500/20"
+                  disabled={isSavingBranch}
+                  className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold rounded-xl text-sm shadow-md shadow-orange-500/20"
                 >
-                  {editingBranch ? 'Lưu Thay Đổi' : 'Tạo Cửa Hàng'}
+                  {isSavingBranch ? 'Đang lưu...' : editingBranch ? 'Lưu Thay Đổi' : 'Tạo Cửa Hàng'}
                 </button>
               </div>
             </form>
@@ -1664,53 +1626,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveWarehouse} className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
-              {/* System Brand Selection */}
-              <div className="p-3.5 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
-                <label className="block text-xs font-bold text-zinc-800">
-                  Thuộc Hệ Thống Nào? <span className="text-rose-600">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'TONG', type: warehouseForm.type || 'TECHNICIAN_SUB' })}
-                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
-                      warehouseForm.systemType === 'TONG'
-                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-600 ring-offset-1'
-                        : 'bg-white text-zinc-700 hover:bg-rose-50 border border-zinc-200'
-                    }`}
-                  >
-                    <span>🟣 TỔNG KHO</span>
-                    <span className="text-[10px] opacity-80 font-normal">Central & KTV</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'PHONEHOUSE', type: 'RETAIL_STORE' })}
-                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
-                      warehouseForm.systemType === 'PHONEHOUSE'
-                        ? 'bg-orange-500 text-white shadow-md shadow-orange-500/30 ring-2 ring-orange-500 ring-offset-1'
-                        : 'bg-white text-zinc-700 hover:bg-orange-50 border border-zinc-200'
-                    }`}
-                  >
-                    <span>🟠 PHONEHOUSE</span>
-                    <span className="text-[10px] opacity-80 font-normal">Hệ thống Retail</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setWarehouseForm({ ...warehouseForm, systemType: 'XSTORE', type: 'RETAIL_STORE' })}
-                    className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all text-center flex flex-col items-center gap-1 cursor-pointer ${
-                      warehouseForm.systemType === 'XSTORE'
-                        ? 'bg-orange-600 text-white shadow-md shadow-orange-600/30 ring-2 ring-orange-600 ring-offset-1'
-                        : 'bg-white text-zinc-700 hover:bg-orange-50 border border-zinc-200'
-                    }`}
-                  >
-                    <span>🔵 XSTORE</span>
-                    <span className="text-[10px] opacity-80 font-normal">Store Độc Lập</span>
-                  </button>
-                </div>
-              </div>
-
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">
                   Chi nhánh sở hữu kho <span className="text-rose-600">*</span>

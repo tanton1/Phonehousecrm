@@ -24,6 +24,11 @@ export interface PureIntentCheckoutPayload {
     productId: string;
     quantity: number;
   }>;
+  commissionTagSelections?: Array<{
+    itemType: 'DEVICE' | 'ACCESSORY';
+    itemId: string;
+    tagIds: string[];
+  }>;
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
@@ -130,6 +135,28 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
       }
     }
 
+    const commissionTagSelections = Array.isArray(body.commissionTagSelections) ? body.commissionTagSelections : [];
+    const selectionKeys = new Set<string>();
+    const cartDeviceIds = new Set(deviceIds);
+    const cartAccessoryIds = new Set(accessoryLines.map((line: any) => line.productId));
+    for (const selection of commissionTagSelections) {
+      if (!selection || !['DEVICE', 'ACCESSORY'].includes(selection.itemType) || typeof selection.itemId !== 'string' || !selection.itemId.trim()) {
+        return { isValid: false, error: 'Dữ liệu tag hoa hồng theo dòng hàng không hợp lệ.' };
+      }
+      if (!Array.isArray(selection.tagIds) || selection.tagIds.length !== 1 || selection.tagIds.some((id: any) => typeof id !== 'string' || !id.trim())) {
+        return { isValid: false, error: `Mỗi dòng hàng "${selection.itemId}" phải chọn đúng một tag hoa hồng.` };
+      }
+      if (new Set(selection.tagIds).size !== selection.tagIds.length) {
+        return { isValid: false, error: `Tag hoa hồng của dòng "${selection.itemId}" bị trùng.` };
+      }
+      const key = `${selection.itemType}:${selection.itemId}`;
+      if (selectionKeys.has(key)) return { isValid: false, error: `Dòng chọn tag "${key}" bị trùng.` };
+      if ((selection.itemType === 'DEVICE' && !cartDeviceIds.has(selection.itemId)) || (selection.itemType === 'ACCESSORY' && !cartAccessoryIds.has(selection.itemId))) {
+        return { isValid: false, error: `Dòng chọn tag "${key}" không có trong giỏ hàng.` };
+      }
+      selectionKeys.add(key);
+    }
+
     // Multi-Payment (Split Tender) Validation
     if (Array.isArray(body.payments) && body.payments.length > 0) {
       let installmentCount = 0;
@@ -226,4 +253,3 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
 
   return { isValid: true, data: body as LegacyCheckoutPayload };
 }
-

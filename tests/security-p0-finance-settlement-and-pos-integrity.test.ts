@@ -37,6 +37,10 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
                   data: () => ({ id: ref.docId, model: 'iPhone 16 Pro', imei: '123456789012345', sellPrice: 30000000, status: 'in_stock', branchId: 'CN01' })
                 };
               }
+              if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return {
+                exists: true,
+                data: () => ({ isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
+              };
               if (ref.col === 'partners') {
                 return {
                   exists: true,
@@ -69,7 +73,8 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
           fundId: 'FUND-CASH-01',
           installmentFinancePartnerId: 'FINANCE-PARTNER-01'
         },
-        installmentFinancePartnerId: 'FINANCE-PARTNER-01'
+        installmentFinancePartnerId: 'FINANCE-PARTNER-01',
+        commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-01', tagIds: ['MAY_TEST'] }]
       });
 
       expect(result.success).toBe(true);
@@ -155,6 +160,10 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
                   })
                 };
               }
+              if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return {
+                exists: true,
+                data: () => ({ isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
+              };
               return { exists: false };
             },
             set: () => {},
@@ -168,7 +177,8 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
         deviceIds: ['DEV-RESERVED-01'],
         branchId: 'CN01',
         leadId: 'LEAD-MATCH-01',
-        payment: { method: 'CASH', fundId: 'FUND-01' }
+        payment: { method: 'CASH', fundId: 'FUND-01' },
+        commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-RESERVED-01', tagIds: ['MAY_TEST'] }]
       });
 
       expect(result.success).toBe(true);

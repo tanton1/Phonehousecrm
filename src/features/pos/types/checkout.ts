@@ -19,6 +19,11 @@ export interface POSCheckoutPayload {
   financeCompanyPartner: Partner | null;
   fundToUpdate?: FundAccount | null;
   idempotencyKey?: string;
+  commissionTagSelections?: Array<{
+    itemType: 'DEVICE' | 'ACCESSORY';
+    itemId: string;
+    tagIds: string[];
+  }>;
 }
 
 export interface POSCheckoutStateInfo {

@@ -73,9 +73,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       const found = branches.find(b => 
         b.id === userBranch || 
         b.code === userBranch || 
-        b.warehouseId === userBranch ||
-        (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase())) ||
-        (b.systemType && b.systemType.toLowerCase() === userBranch.toLowerCase())
+        (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase()))
       );
       if (found) return found;
     }

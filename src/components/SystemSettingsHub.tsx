@@ -13,6 +13,7 @@ import {
   Save,
   Settings2,
   ShoppingBag,
+  Trash2,
   Warehouse,
   Wrench
 } from 'lucide-react';
@@ -65,7 +66,7 @@ const tabs: Array<{ id: SetupTab; label: string; icon: React.ElementType }> = [
 const emptySales = (): SalesSetupConfig => ({
   id: 'sales', name: '', version: '', deviceProfitPercent: Number.NaN,
   accessoryProfitPercent: Number.NaN, onlineSaleSplitPercent: Number.NaN,
-  maxDiscountPercent: Number.NaN, defaultMonthlyTarget: Number.NaN, isActive: true
+  maxDiscountPercent: Number.NaN, defaultMonthlyTarget: Number.NaN, commissionTags: [], isActive: true
 });
 
 const emptyCare = (): CustomerCareSetupConfig => ({
@@ -134,8 +135,8 @@ function OperationalPolicyPanel({ kind, config, onSaved }: {
           <input value={draft.version} onChange={e => setDraft({ ...draft, version: e.target.value })} placeholder="Ví dụ: 2026.01" className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 outline-none focus:border-orange-500" />
         </label>
         {sales && <>
-          <NumberField label="Tỷ lệ hoa hồng doanh thu máy" value={sales.deviceProfitPercent} suffix="%" onChange={value => setDraft({ ...sales, deviceProfitPercent: value })} />
-          <NumberField label="Tỷ lệ hoa hồng doanh thu phụ kiện" value={sales.accessoryProfitPercent} suffix="%" onChange={value => setDraft({ ...sales, accessoryProfitPercent: value })} />
+          <NumberField label="Tỷ lệ nền cho máy không có tag (dữ liệu cũ)" value={sales.deviceProfitPercent} suffix="%" onChange={value => setDraft({ ...sales, deviceProfitPercent: value })} />
+          <NumberField label="Tỷ lệ nền cho phụ kiện không có tag (dữ liệu cũ)" value={sales.accessoryProfitPercent} suffix="%" onChange={value => setDraft({ ...sales, accessoryProfitPercent: value })} />
           <NumberField label="Tỷ lệ chia đơn online" value={sales.onlineSaleSplitPercent} suffix="%" onChange={value => setDraft({ ...sales, onlineSaleSplitPercent: value })} />
           <NumberField label="Mức giảm giá tối đa" value={sales.maxDiscountPercent} suffix="%" onChange={value => setDraft({ ...sales, maxDiscountPercent: value })} />
           <NumberField label="Chỉ tiêu doanh thu tháng" value={sales.defaultMonthlyTarget} onChange={value => setDraft({ ...sales, defaultMonthlyTarget: value })} />
@@ -151,6 +152,28 @@ function OperationalPolicyPanel({ kind, config, onSaved }: {
           <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={care.requireQaApproval} onChange={e => setDraft({ ...care, requireQaApproval: e.target.checked })} /> Bắt buộc QA duyệt</label>
         </>}
       </div>
+      {sales && <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50/40 p-4">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div><h3 className="font-black text-zinc-900">Tag phân loại & hoa hồng POS</h3><p className="text-xs text-zinc-600">Admin tự tạo tag. Nhân viên bắt buộc chọn tag phù hợp trên từng dòng Máy/Phụ kiện khi bán.</p></div>
+          <button type="button" onClick={() => setDraft({ ...sales, commissionTags: [...(sales.commissionTags || []), { id: '', name: '', appliesTo: 'DEVICE', calculationType: 'FLAT', value: Number.NaN, description: '', isActive: true }] })} className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-black text-white">+ Thêm tag</button>
+        </div>
+        <div className="mt-4 space-y-3">
+          {(sales.commissionTags || []).length === 0 && <div className="rounded-xl border border-dashed border-orange-300 bg-white p-4 text-sm text-orange-800">Chưa có tag. Ví dụ tên: Máy full BH, Máy trần, Máy bóc; mã do Admin tự đặt.</div>}
+          {(sales.commissionTags || []).map((tag, index) => {
+            const tags = sales.commissionTags || [];
+            const updateTag = (value: typeof tag) => setDraft({ ...sales, commissionTags: tags.map((item, itemIndex) => itemIndex === index ? value : item) });
+            return <div key={`${tag.id}-${index}`} className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 md:grid-cols-2 xl:grid-cols-6">
+              <label className="space-y-1 text-xs font-bold"><span>Mã tag</span><input value={tag.id} onChange={e => updateTag({ ...tag, id: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })} placeholder="MAY_FULL_BH" className="w-full rounded-lg border px-2.5 py-2" /></label>
+              <label className="space-y-1 text-xs font-bold"><span>Tên hiển thị</span><input value={tag.name} onChange={e => updateTag({ ...tag, name: e.target.value })} placeholder="Máy full BH" className="w-full rounded-lg border px-2.5 py-2" /></label>
+              <label className="space-y-1 text-xs font-bold"><span>Áp dụng</span><select value={tag.appliesTo} onChange={e => updateTag({ ...tag, appliesTo: e.target.value as typeof tag.appliesTo })} className="w-full rounded-lg border px-2.5 py-2"><option value="DEVICE">Máy</option><option value="ACCESSORY">Phụ kiện</option></select></label>
+              <label className="space-y-1 text-xs font-bold"><span>Cách tính</span><select value={tag.calculationType} onChange={e => updateTag({ ...tag, calculationType: e.target.value as typeof tag.calculationType })} className="w-full rounded-lg border px-2.5 py-2"><option value="FLAT">Tiền cố định</option><option value="PERCENT">% doanh thu</option></select></label>
+              <NumberField label={tag.calculationType === 'FLAT' ? 'Mức hưởng (đ)' : 'Mức hưởng (%)'} value={tag.value} onChange={value => updateTag({ ...tag, value })} />
+              <div className="flex items-end gap-2 pb-1"><label className="flex flex-1 items-center gap-2 text-xs font-bold"><input type="checkbox" checked={tag.isActive} onChange={e => updateTag({ ...tag, isActive: e.target.checked })} /> Đang dùng</label><button type="button" onClick={() => setDraft({ ...sales, commissionTags: tags.filter((_, itemIndex) => itemIndex !== index) })} className="rounded-lg p-2 text-red-600 hover:bg-red-50" title="Xóa tag"><Trash2 className="h-4 w-4" /></button></div>
+              <label className="space-y-1 text-xs font-bold md:col-span-2 xl:col-span-6"><span>Ghi chú</span><input value={tag.description || ''} onChange={e => updateTag({ ...tag, description: e.target.value })} placeholder="Điều kiện áp dụng để nhân viên chọn đúng" className="w-full rounded-lg border px-2.5 py-2" /></label>
+            </div>;
+          })}
+        </div>
+      </div>}
       <label className="mt-4 flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} /> Kích hoạt cấu hình</label>
       <div className="mt-5 flex items-center gap-3">
         <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">

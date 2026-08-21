@@ -112,7 +112,26 @@ export interface SalesSetupConfig {
   onlineSaleSplitPercent: number;
   maxDiscountPercent: number;
   defaultMonthlyTarget: number;
+  commissionTags: SalesCommissionTag[];
   isActive: boolean;
+}
+
+export type SalesCommissionAppliesTo = 'DEVICE' | 'ACCESSORY';
+export type SalesCommissionCalculation = 'FLAT' | 'PERCENT';
+
+export interface SalesCommissionTag {
+  id: string;
+  name: string;
+  appliesTo: SalesCommissionAppliesTo;
+  calculationType: SalesCommissionCalculation;
+  value: number;
+  description?: string;
+  isActive: boolean;
+}
+
+export interface SalesCommissionTagSnapshot extends SalesCommissionTag {
+  policyId: 'sales';
+  policyVersion: string;
 }
 
 export interface CustomerCareSetupConfig {
@@ -936,6 +955,7 @@ export interface SalesInvoiceItem {
   batteryHealth?: number;
   warrantyMonths?: number;
   warrantyExpiryDate?: string;
+  commissionTags?: SalesCommissionTagSnapshot[];
 }
 
 export interface SalesInvoice {

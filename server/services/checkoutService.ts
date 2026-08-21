@@ -45,6 +45,11 @@ export async function executeAtomicCheckout(
       productId: a.productId || a.product?.id,
       quantity: a.quantity
     })).sort((a: any, b: any) => String(a.productId).localeCompare(String(b.productId))),
+    commissionTagSelections: (payload.commissionTagSelections || []).map((selection: any) => ({
+      itemType: selection.itemType,
+      itemId: selection.itemId,
+      tagIds: [...(selection.tagIds || [])].sort()
+    })).sort((a: any, b: any) => `${a.itemType}:${a.itemId}`.localeCompare(`${b.itemType}:${b.itemId}`)),
     payments: payload.payments,
     payment: payload.payment,
     branchId: payload.branchId || payload.invoice?.branchId,
@@ -237,6 +242,37 @@ export async function executeAtomicCheckout(
         authoritativePrice: price
       });
     }
+
+    // Resolve every selected commission tag from the active policy. Client values are never trusted.
+    const salesConfigRef = db.collection('operationalConfigs').doc('sales');
+    const salesConfigSnap = await transaction.get(salesConfigRef);
+    const salesConfig = salesConfigSnap.exists ? salesConfigSnap.data()! : null;
+    if (!salesConfig || salesConfig.isActive !== true || !Array.isArray(salesConfig.commissionTags)) {
+      throw new Error('SALES_CONFIG_REQUIRED: Chưa có chính sách Sales và tag hoa hồng được kích hoạt.');
+    }
+    const activeCommissionTags = salesConfig.commissionTags.filter((tag: any) => tag?.isActive === true);
+    const commissionTagMap = new Map(activeCommissionTags.map((tag: any) => [String(tag.id), tag]));
+    const selectionMap = new Map((payload.commissionTagSelections || []).map((selection: any) => [`${selection.itemType}:${selection.itemId}`, selection.tagIds || []]));
+    const resolveCommissionTags = (itemType: 'DEVICE' | 'ACCESSORY', itemId: string) => {
+      const eligibleTags = activeCommissionTags.filter((tag: any) => tag.appliesTo === itemType);
+      const selectedIds = selectionMap.get(`${itemType}:${itemId}`) as string[] | undefined;
+      if (eligibleTags.length > 0 && (!selectedIds || selectedIds.length === 0)) {
+        throw new Error(`COMMISSION_TAG_REQUIRED: Bắt buộc chọn tag hoa hồng cho ${itemType === 'DEVICE' ? 'máy' : 'phụ kiện'} "${itemId}".`);
+      }
+      if ((selectedIds || []).length > 1) throw new Error(`COMMISSION_TAG_MULTIPLE_NOT_ALLOWED: Mỗi dòng hàng chỉ được chọn một tag hoa hồng.`);
+      return (selectedIds || []).map(tagId => {
+        const tag: any = commissionTagMap.get(tagId);
+        if (!tag || tag.appliesTo !== itemType) throw new Error(`COMMISSION_TAG_INVALID: Tag "${tagId}" không hợp lệ cho dòng hàng "${itemId}".`);
+        return {
+          id: String(tag.id), name: String(tag.name), appliesTo: itemType,
+          calculationType: tag.calculationType, value: Number(tag.value),
+          description: String(tag.description || ''), isActive: true,
+          policyId: 'sales', policyVersion: String(salesConfig.version)
+        };
+      });
+    };
+    loadedDevices.forEach(device => { device.commissionTags = resolveCommissionTags('DEVICE', device.id); });
+    loadedAccessories.forEach(accessory => { accessory.commissionTags = resolveCommissionTags('ACCESSORY', accessory.id); });
 
     const subTotal = authoritativeDeviceSubtotal + authoritativeAccessorySubtotal;
 
@@ -608,6 +644,19 @@ export async function executeAtomicCheckout(
         quantity: a.quantity,
         price: a.authoritativePrice
       })),
+      detailedItems: [
+        ...loadedDevices.map(d => ({
+          sku: d.data.sku || d.id, name: d.data.model, quantity: 1,
+          unitPrice: d.authoritativePrice, totalPrice: d.authoritativePrice,
+          imei: d.data.imei, type: 'device', color: d.data.color, storage: d.data.storage,
+          commissionTags: d.commissionTags
+        })),
+        ...loadedAccessories.map(a => ({
+          sku: a.data.sku || a.id, name: a.data.name, quantity: a.quantity,
+          unitPrice: a.authoritativePrice, totalPrice: a.authoritativePrice * a.quantity,
+          type: 'accessory', commissionTags: a.commissionTags
+        }))
+      ],
       totalAmount: subTotal,
       discountAmount: authoritativeDiscount,
       tradeInDeduction: authoritativeTradeInDeduction,

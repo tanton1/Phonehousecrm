@@ -49,6 +49,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   // 1. Cart State
   const [selectedDevices, setSelectedDevices] = useState<DeviceItem[]>([]);
   const [selectedAccessories, setSelectedAccessories] = useState<{ product: ProductItem; quantity: number }[]>([]);
+  const [commissionTagSelections, setCommissionTagSelections] = useState<Record<string, string[]>>({});
   const [warrantyPackage, setWarrantyPackage] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
   const [tradeInDeduction, setTradeInDeduction] = useState(0);
@@ -110,6 +111,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const totalAmount = devicesTotal + accessoriesTotal;
   const finalAmount = Math.max(0, totalAmount - discountAmount - tradeInDeduction);
   const salesConfig = getCachedOperationalConfigs().sales;
+  const activeCommissionTags = (salesConfig?.commissionTags || []).filter(tag => tag.isActive);
   const setValidatedDiscount = (amount: number) => {
     if (!salesConfig?.isActive) {
       alert('Chưa có chính sách Sales được kích hoạt.');
@@ -190,6 +192,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
 
   const handleRemoveDevice = (deviceId: string) => {
     setSelectedDevices(prev => prev.filter(d => d.id !== deviceId));
+    setCommissionTagSelections(prev => { const next = { ...prev }; delete next[`DEVICE:${deviceId}`]; return next; });
   };
 
   const handleUpdateAccessoryQty = (productId: string, delta: number) => {
@@ -206,6 +209,12 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
 
   const handleRemoveAccessory = (productId: string) => {
     setSelectedAccessories(prev => prev.filter(item => item.product.id !== productId));
+    setCommissionTagSelections(prev => { const next = { ...prev }; delete next[`ACCESSORY:${productId}`]; return next; });
+  };
+
+  const handleToggleCommissionTag = (itemType: 'DEVICE' | 'ACCESSORY', itemId: string, tagId: string) => {
+    const key = `${itemType}:${itemId}`;
+    setCommissionTagSelections(prev => ({ ...prev, [key]: prev[key]?.includes(tagId) ? [] : [tagId] }));
   };
 
   const handleClearCart = () => {
@@ -214,12 +223,23 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setDiscountAmount(0);
     setTradeInDeduction(0);
     setTradeInDevice(null);
+    setCommissionTagSelections({});
     resetCheckout();
   };
 
   const handleExecuteCheckout = async (splitData?: any) => {
     if (selectedDevices.length === 0 && selectedAccessories.length === 0) {
       alert('Giỏ hàng đang trống. Vui lòng chọn máy hoặc phụ kiện.');
+      return;
+    }
+    if (!salesConfig?.isActive) {
+      alert('Chưa có chính sách Sales được kích hoạt trong Cài đặt.');
+      return;
+    }
+    const missingDevice = selectedDevices.find(device => activeCommissionTags.some(tag => tag.appliesTo === 'DEVICE') && (commissionTagSelections[`DEVICE:${device.id}`] || []).length !== 1);
+    const missingAccessory = selectedAccessories.find(accessory => activeCommissionTags.some(tag => tag.appliesTo === 'ACCESSORY') && (commissionTagSelections[`ACCESSORY:${accessory.product.id}`] || []).length !== 1);
+    if (missingDevice || missingAccessory) {
+      alert(`Bắt buộc chọn đúng một tag hoa hồng cho ${missingDevice ? `máy ${missingDevice.model}` : `phụ kiện ${missingAccessory!.product.name}`}.`);
       return;
     }
 
@@ -409,15 +429,19 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       customerPartner: customerPartner,
       financeCompanyPartner: null,
       fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.currentBalance + paidAmt } : null,
-      idempotencyKey: `POS-${invoiceId}-${Date.now()}`
+      idempotencyKey: `POS-${invoiceId}-${Date.now()}`,
+      commissionTagSelections: [
+        ...selectedDevices.filter(() => activeCommissionTags.some(tag => tag.appliesTo === 'DEVICE')).map(device => ({ itemType: 'DEVICE' as const, itemId: device.id, tagIds: commissionTagSelections[`DEVICE:${device.id}`] || [] })),
+        ...selectedAccessories.filter(() => activeCommissionTags.some(tag => tag.appliesTo === 'ACCESSORY')).map(accessory => ({ itemType: 'ACCESSORY' as const, itemId: accessory.product.id, tagIds: commissionTagSelections[`ACCESSORY:${accessory.product.id}`] || [] }))
+      ]
     };
 
-    const isSuccess = await runCheckout(payload as any);
+    const completedInvoice = await runCheckout(payload as any);
 
-    if (isSuccess) {
-      setReceiptData(newInvoice);
+    if (completedInvoice) {
+      setReceiptData(completedInvoice);
       onCheckoutSuccess?.(
-        newInvoice,
+        completedInvoice,
         selectedDevices,
         selectedAccessories,
         cashTx,
@@ -430,6 +454,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       setDiscountAmount(0);
       setTradeInDeduction(0);
       setTradeInDevice(null);
+      setCommissionTagSelections({});
       setCustomerName('');
       setCustomerPhone('');
       setDownPaymentAmount(0);
@@ -608,6 +633,9 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
               alert('Vui lòng chọn tính năng Thu Cũ Đổi Mới từ danh mục hoặc tạo phiếu thẩm định.');
             }}
             onClearCart={handleClearCart}
+            commissionTags={activeCommissionTags}
+            commissionTagSelections={commissionTagSelections}
+            onToggleCommissionTag={handleToggleCommissionTag}
           />
         </div>
 

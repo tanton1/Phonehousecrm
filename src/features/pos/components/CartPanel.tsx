@@ -1,5 +1,5 @@
 import React from 'react';
-import { DeviceItem, ProductItem } from '../../../types';
+import { DeviceItem, ProductItem, SalesCommissionTag } from '../../../types';
 import { ShoppingCart, Trash2, ShieldCheck, Plus, Minus, Tag, Repeat, Smartphone, Sparkles, Gem, ArrowRight } from 'lucide-react';
 
 export interface CartPanelProps {
@@ -16,6 +16,9 @@ export interface CartPanelProps {
   onOpenDiscountModal: () => void;
   onOpenTradeInModal: () => void;
   onClearCart: () => void;
+  commissionTags: SalesCommissionTag[];
+  commissionTagSelections: Record<string, string[]>;
+  onToggleCommissionTag: (itemType: 'DEVICE' | 'ACCESSORY', itemId: string, tagId: string) => void;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
@@ -31,7 +34,10 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   onSelectWarranty,
   onOpenDiscountModal,
   onOpenTradeInModal,
-  onClearCart
+  onClearCart,
+  commissionTags,
+  commissionTagSelections,
+  onToggleCommissionTag
 }) => {
   // Subtotal Calculation
   const devicesTotal = selectedDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
@@ -43,6 +49,22 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   const finalAmount = Math.max(0, totalAmount - discountAmount - tradeInDeduction);
 
   const totalItemsCount = selectedDevices.length + selectedAccessories.reduce((sum, a) => sum + a.quantity, 0);
+  const renderCommissionTags = (itemType: 'DEVICE' | 'ACCESSORY', itemId: string) => {
+    const tags = commissionTags.filter(tag => tag.isActive && tag.appliesTo === itemType);
+    if (tags.length === 0) return <p className="mt-2 text-[10px] font-bold text-red-600">Chưa có tag {itemType === 'DEVICE' ? 'Máy' : 'Phụ kiện'} hoạt động trong Cài đặt Sales.</p>;
+    const selected = commissionTagSelections[`${itemType}:${itemId}`] || [];
+    return <div className="mt-2 flex flex-wrap gap-1.5 border-t border-zinc-200/70 pt-2">
+      <span className="mr-1 text-[10px] font-black text-zinc-500">Tag hoa hồng *</span>
+      {tags.map(tag => {
+        const checked = selected.includes(tag.id);
+        const valueLabel = tag.calculationType === 'PERCENT' ? `${tag.value}%` : `${tag.value.toLocaleString('vi-VN')}đ`;
+        return <label key={tag.id} title={tag.description || tag.name} className={`cursor-pointer rounded-lg border px-2 py-1 text-[10px] font-bold ${checked ? 'border-orange-500 bg-orange-500 text-white' : 'border-zinc-200 bg-white text-zinc-600 hover:border-orange-300'}`}>
+          <input type="checkbox" className="sr-only" checked={checked} onChange={() => onToggleCommissionTag(itemType, itemId, tag.id)} />
+          {tag.name} · {valueLabel}
+        </label>;
+      })}
+    </div>;
+  };
 
   const warrantyOptions = [
     { id: 'Gói Tiêu Chuẩn 6T', label: 'Chuẩn 6 Tháng', desc: 'Bảo hành phần cứng 6T' },
@@ -88,8 +110,9 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {selectedDevices.map(dev => (
               <div
                 key={dev.id}
-                className="p-3 rounded-2xl border border-zinc-200/80 bg-zinc-50/70 flex items-center justify-between group hover:bg-orange-50/40 transition-colors"
+                className="p-3 rounded-2xl border border-zinc-200/80 bg-zinc-50/70 group hover:bg-orange-50/40 transition-colors"
               >
+                <div className="flex items-center justify-between">
                 <div className="min-w-0 pr-2">
                   <div className="flex items-center space-x-1.5">
                     <span className="text-[9px] font-black font-mono px-1.5 py-0.2 rounded bg-orange-100 text-[#ff4b16]">
@@ -119,6 +142,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+                </div>
+                {renderCommissionTags('DEVICE', dev.id)}
               </div>
             ))}
 
@@ -126,8 +151,9 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {selectedAccessories.map(acc => (
               <div
                 key={acc.product.id}
-                className="p-3 rounded-2xl border border-zinc-200/80 bg-zinc-50/70 flex items-center justify-between group"
+                className="p-3 rounded-2xl border border-zinc-200/80 bg-zinc-50/70 group"
               >
+                <div className="flex items-center justify-between">
                 <div className="min-w-0 pr-2">
                   <div className="flex items-center space-x-1.5">
                     <span className="text-[9px] font-bold font-mono px-1.5 py-0.2 rounded bg-blue-100 text-blue-700">
@@ -172,6 +198,8 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+                </div>
+                {renderCommissionTags('ACCESSORY', acc.product.id)}
               </div>
             ))}
           </>

@@ -49,6 +49,10 @@ describe('Security Rules, Auth Hardening & Finance Idempotency Suite', () => {
                   })
                 };
               }
+              if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return {
+                exists: true,
+                data: () => ({ isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
+              };
               return { exists: false };
             },
             set: (ref: any, data: any) => {
@@ -66,7 +70,8 @@ describe('Security Rules, Auth Hardening & Finance Idempotency Suite', () => {
         deviceIds: ['DEV-RESERVED-10'],
         branchId: 'CN01',
         leadId: 'LEAD-BUYER-01',
-        payment: { method: 'CASH', fundId: 'FUND-01' }
+        payment: { method: 'CASH', fundId: 'FUND-01' },
+        commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-RESERVED-10', tagIds: ['MAY_TEST'] }]
       });
 
       expect(result.success).toBe(true);

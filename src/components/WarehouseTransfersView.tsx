@@ -164,8 +164,8 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const activeBranches = useMemo(() => branches.filter(branch => branch.isActive !== false), [branches]);
-  const mainWarehouse = useMemo(() => warehouses.find(item => item.isMain || item.type === 'CENTRAL') || warehouses.find(item => item.id === 'KHO_TONG'), [warehouses]);
-  const mainBranch = useMemo(() => activeBranches.find(branch => branch.isHeadquarter || branch.systemType === 'TONG' || branch.warehouseId === mainWarehouse?.id) || activeBranches[0], [activeBranches, mainWarehouse]);
+  const mainBranch = useMemo(() => activeBranches.find(branch => branch.isHeadquarter) || activeBranches.find(branch => warehouses.some(warehouse => warehouse.isMain && warehouse.isActive !== false && warehouse.branchId === branch.id)) || activeBranches[0], [activeBranches, warehouses]);
+  const mainWarehouse = useMemo(() => warehouses.find(item => item.isMain && item.isActive !== false && item.branchId === mainBranch?.id), [warehouses, mainBranch]);
   const role = String(currentUser.role || '').toUpperCase();
   const isAdmin = role === 'ADMIN';
   const canCreateTransfer = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH_LEAD'].includes(role);
@@ -227,10 +227,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   }, [transfers]);
 
   const locationsForBranch = (branchId: string) => {
-    const branch = activeBranches.find(item => item.id === branchId);
-    return warehouses.filter(location => location.isActive !== false && (
-      location.branchId === branchId || location.id === branch?.warehouseId || (!location.branchId && location.systemType === branch?.systemType)
-    ));
+    return warehouses.filter(location => location.isActive !== false && location.branchId === branchId);
   };
 
   const technicalLocations = useMemo(() => warehouses.filter(location =>

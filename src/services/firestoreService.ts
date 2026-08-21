@@ -863,6 +863,11 @@ export async function processCheckoutTransaction(params: {
     accountNumber?: string;
   }>;
   idempotencyKey?: string;
+  commissionTagSelections?: Array<{
+    itemType: 'DEVICE' | 'ACCESSORY';
+    itemId: string;
+    tagIds: string[];
+  }>;
 }) {
   const idToken = await auth.currentUser?.getIdToken().catch(() => null);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -881,6 +886,7 @@ export async function processCheckoutTransaction(params: {
       productId: a.product.id,
       quantity: a.quantity
     })),
+    commissionTagSelections: params.commissionTagSelections || [],
     customerId: params.customerPartner?.id,
     customerName: params.invoice.customerName,
     customerPhone: params.invoice.customerPhone || params.invoice.phone,

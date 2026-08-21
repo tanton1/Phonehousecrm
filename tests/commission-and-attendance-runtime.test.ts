@@ -4,7 +4,8 @@ import {
   calculateInvoiceCommissions, 
   calculateWarrantyTicketCommissions, 
   syncCommissionsFromAllSources, 
-  calculateStaffDualWallet 
+  calculateStaffDualWallet,
+  calculateSalesCommissionFromTagSnapshots
 } from '../src/utils/commissionEngine';
 import { SalesInvoice, WarrantyTicket, StaffMember } from '../src/types';
 
@@ -124,5 +125,24 @@ describe('HR & Attendance Runtime Stability & Empty Data Resilience Test Suite',
 
     const comms = calculateInvoiceCommissions(invoiceWithUnknownSeller, validStaff);
     expect(comms).toBeDefined();
+  });
+
+  it('Case 7: tính hoa hồng từ snapshot tag cố định và nhân theo số lượng phụ kiện', () => {
+    const flat = calculateSalesCommissionFromTagSnapshots({
+      name: 'Ốp lưng', type: 'accessory', quantity: 2, unitPrice: 500000, totalPrice: 1000000,
+      commissionTags: [{
+        id: 'PK_50K', name: 'Phụ kiện 50K', appliesTo: 'ACCESSORY', calculationType: 'FLAT',
+        value: 50000, isActive: true, policyId: 'sales', policyVersion: '2026.08'
+      }]
+    });
+    const percentOnline = calculateSalesCommissionFromTagSnapshots({
+      name: 'Máy full BH', type: 'device', quantity: 1, unitPrice: 20000000, totalPrice: 20000000,
+      commissionTags: [{
+        id: 'MAY_FULL_BH', name: 'Máy full BH', appliesTo: 'DEVICE', calculationType: 'PERCENT',
+        value: 2, isActive: true, policyId: 'sales', policyVersion: '2026.08'
+      }]
+    }, 0.5);
+    expect(flat).toEqual({ amount: 100000, percentRate: 0 });
+    expect(percentOnline).toEqual({ amount: 200000, percentRate: 1 });
   });
 });

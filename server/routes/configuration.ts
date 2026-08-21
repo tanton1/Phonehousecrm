@@ -58,10 +58,28 @@ export function validateOperationalConfig(configKey: string, input: any) {
     const maxDiscountPercent = Number(input?.maxDiscountPercent);
     const defaultMonthlyTarget = Number(input?.defaultMonthlyTarget);
     const numbers = [deviceProfitPercent, accessoryProfitPercent, onlineSaleSplitPercent, maxDiscountPercent, defaultMonthlyTarget];
-    if (numbers.some(value => !Number.isFinite(value) || value < 0) || onlineSaleSplitPercent > 100 || maxDiscountPercent > 100) {
+    if (numbers.some(value => !Number.isFinite(value) || value < 0) || deviceProfitPercent > 100 || accessoryProfitPercent > 100 || onlineSaleSplitPercent > 100 || maxDiscountPercent > 100) {
       throw new Error('SALES_CONFIG_INVALID');
     }
-    return { id: configKey, name, version, deviceProfitPercent, accessoryProfitPercent, onlineSaleSplitPercent, maxDiscountPercent, defaultMonthlyTarget, isActive: input?.isActive === true };
+    if (!Array.isArray(input?.commissionTags) || input.commissionTags.length === 0) throw new Error('SALES_COMMISSION_TAG_REQUIRED');
+    const tagIds = new Set<string>();
+    const commissionTags = input.commissionTags.map((tag: any) => {
+      const id = String(tag?.id || '').trim().toUpperCase();
+      const tagName = String(tag?.name || '').trim();
+      const appliesTo = String(tag?.appliesTo || '').trim().toUpperCase();
+      const calculationType = String(tag?.calculationType || '').trim().toUpperCase();
+      const value = Number(tag?.value);
+      if (!/^[A-Z0-9_]{2,50}$/.test(id) || !tagName || !['DEVICE', 'ACCESSORY'].includes(appliesTo) || !['FLAT', 'PERCENT'].includes(calculationType)) {
+        throw new Error('SALES_COMMISSION_TAG_INVALID');
+      }
+      if (!Number.isFinite(value) || value < 0 || (calculationType === 'PERCENT' && value > 100) || tagIds.has(id)) {
+        throw new Error('SALES_COMMISSION_TAG_INVALID');
+      }
+      tagIds.add(id);
+      return { id, name: tagName, appliesTo, calculationType, value, description: String(tag?.description || '').trim(), isActive: tag?.isActive === true };
+    });
+    if (input?.isActive === true && !commissionTags.some((tag: any) => tag.isActive)) throw new Error('SALES_ACTIVE_COMMISSION_TAG_REQUIRED');
+    return { id: configKey, name, version, deviceProfitPercent, accessoryProfitPercent, onlineSaleSplitPercent, maxDiscountPercent, defaultMonthlyTarget, commissionTags, isActive: input?.isActive === true };
   }
 
   if (typeof input?.firstResponseMinutes !== 'number' || typeof input?.followUpAttempts !== 'number') throw new Error('CUSTOMER_CARE_CONFIG_INVALID');
@@ -138,7 +156,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         { id: 'funds', label: 'Quỹ tiền mặt theo chi nhánh', complete: activeBranches.length > 0 && activeBranches.every(item => cashAccountBranches.has(item.id)), detail: `${cashAccountBranches.size}/${activeBranches.length} chi nhánh có quỹ tiền mặt` },
         { id: 'sop', label: 'Quy trình SOP', complete: sopSnap.docs.some(item => item.data().isActive !== false), detail: `${sopSnap.docs.filter(item => item.data().isActive !== false).length} SOP hoạt động` },
         { id: 'technicalTasks', label: 'Task và hoa hồng kỹ thuật', complete: taskTypesSnap.docs.some(item => item.data().isActive !== false), detail: `${taskTypesSnap.docs.filter(item => item.data().isActive !== false).length} task hoạt động` },
-        { id: 'sales', label: 'Chính sách Sales', complete: salesSnap.exists && salesSnap.data()?.isActive === true, detail: salesSnap.exists ? 'Đã tạo cấu hình' : 'Chưa tạo cấu hình' },
+        { id: 'sales', label: 'Chính sách Sales', complete: salesSnap.exists && salesSnap.data()?.isActive === true && Array.isArray(salesSnap.data()?.commissionTags) && salesSnap.data()!.commissionTags.some((tag: any) => tag.isActive === true), detail: salesSnap.exists ? `${(salesSnap.data()?.commissionTags || []).filter((tag: any) => tag.isActive === true).length} tag hoa hồng hoạt động` : 'Chưa tạo cấu hình' },
         { id: 'customerCare', label: 'Quy trình CSKH', complete: careSnap.exists && careSnap.data()?.isActive === true, detail: careSnap.exists ? 'Đã tạo cấu hình' : 'Chưa tạo cấu hình' }
       ];
       return res.json({ success: true, data: { complete: checks.every(item => item.complete), checks } });

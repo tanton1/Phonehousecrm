@@ -22,6 +22,7 @@ interface SalesWorkspaceViewProps {
   onUpdateDeviceStatus: (imei: string, status: DeviceItem['status'], customerName?: string, phone?: string) => void;
   preSelectedDevice?: DeviceItem | null;
   onNavigateToInvoices?: () => void;
+  onOpenPOS?: () => void;
   funds: FundAccount[];
   onAddTransaction: (tx: CashTransaction) => void;
   onOpenNewDeviceModal?: () => void;
@@ -51,7 +52,7 @@ interface SalesWorkspaceViewProps {
 
 export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({ 
   devices, invoices, leads = [], branches, warehouses, storeSettings, 
-  onCreateInvoice, onUpdateDeviceStatus, preSelectedDevice, onNavigateToInvoices,
+  onCreateInvoice, onUpdateDeviceStatus, preSelectedDevice, onNavigateToInvoices, onOpenPOS,
   funds, onAddTransaction, onOpenNewDeviceModal, onOpenCheckIn,
   onAddLead, onUpdateLead, onConvertLeadToSale,
   currentUser, users, onUpdateUser, warrantyTickets,
@@ -60,6 +61,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
 }) => {
   const [activeMode, setActiveMode] = useState<'POS' | 'SEARCH' | 'TRADEIN' | 'CRM' | 'KPI' | 'HR'>('KPI');
   const [searchQuery, setSearchQuery] = useState('');
+  const openPos = () => onOpenPOS ? onOpenPOS() : setActiveMode('POS');
 
   const filteredDevices = devices.filter(d => 
     d.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -136,7 +138,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
         <div className="absolute top-16 left-1/2 -translate-x-1/2 w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-zinc-200 z-50 p-2 animate-scaleIn origin-top">
           <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 mb-2">
             <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Kết quả tìm kiếm</span>
-            <button onClick={() => { setSearchQuery(''); setActiveMode('POS'); }} className="text-xs text-orange-600 font-medium">Đóng</button>
+            <button onClick={() => { setSearchQuery(''); openPos(); }} className="text-xs text-orange-600 font-medium">Đóng</button>
           </div>
           {filteredDevices.length > 0 ? (
             <div className="space-y-1">
@@ -224,7 +226,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
                 devices={devices}
                 attendanceRecords={attendanceRecords}
                 onNavigate={() => {}}
-                onOpenPOS={() => setActiveMode('POS')}
+                onOpenPOS={openPos}
               />
             </div>
           )}
@@ -249,7 +251,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
       {/* BOTTOM TAB BAR */}
       <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-zinc-200 flex items-center justify-around z-40 px-2 pb-safe">
         <button 
-          onClick={() => setActiveMode('POS')}
+          onClick={openPos}
           className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'POS' ? 'text-[#FF4B16]' : 'text-zinc-400'}`}
         >
           <ShoppingCart className={`w-5 h-5 ${activeMode === 'POS' ? 'scale-110' : ''}`} />
