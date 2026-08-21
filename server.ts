@@ -165,6 +165,12 @@ import { createTechnicalRouter } from './server/routes/technical';
 app.use('/api/technical', createTechnicalRouter(adminDb));
 
 // -------------------------------------------------------------
+// 6B. TECHNICAL CUSTODY & INTER-BRANCH INVENTORY TRANSFERS
+// -------------------------------------------------------------
+import { createInventoryTransfersRouter } from './server/routes/inventoryTransfers';
+app.use('/api/inventory-transfers', createInventoryTransfersRouter(adminDb));
+
+// -------------------------------------------------------------
 // 7. ADMIN MANAGEMENT ROUTER (NETWORK ENROLL, AUDIT)
 // -------------------------------------------------------------
 import { createAdminRouter } from './server/routes/admin';

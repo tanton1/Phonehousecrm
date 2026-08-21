@@ -120,9 +120,6 @@ import {
   deleteCashTransactionFromFirestore,
   executeFundTransferInFirestore,
   subscribeToTransfers,
-  addTransferToFirestore,
-  updateTransferInFirestore,
-  deleteTransferFromFirestore,
   subscribeToProducts,
   addProductToFirestore,
   updateProductInFirestore,
@@ -1193,51 +1190,15 @@ export default function App() {
     }
   };
 
-  const handleAddTransfer = (slip: StockTransferSlip) => {
-    setTransfers(prev => [slip, ...prev]);
-    addTransferToFirestore(slip);
-
-    // If transfer is in transit, lock devices by setting status to in_transit
-    if (slip.status === 'IN_TRANSIT' && slip.items && slip.items.length > 0) {
-      const deviceImeis = slip.items.map(i => i.imei).filter(Boolean);
-      if (deviceImeis.length > 0) {
-        setDevices(prev => prev.map(d => {
-          if (deviceImeis.includes(d.imei)) {
-            const updated = { ...d, status: 'in_transit' as any };
-            updateDeviceInFirestore(updated);
-            return updated;
-          }
-          return d;
-        }));
-      }
-    }
-  };
-
-  const handleUpdateTransfer = (updatedSlip: StockTransferSlip) => {
-    setTransfers(prev => prev.map(t => (t.id === updatedSlip.id ? updatedSlip : t)));
-    updateTransferInFirestore(updatedSlip);
-
-    // When completed, update warehouse and restore to in_stock
-    if (updatedSlip.status === 'COMPLETED' && updatedSlip.items && updatedSlip.items.length > 0) {
-      const deviceImeis = updatedSlip.items.map(i => i.imei).filter(Boolean);
-      if (deviceImeis.length > 0) {
-        setDevices(prev => prev.map(d => {
-          if (deviceImeis.includes(d.imei)) {
-            const targetBranch = branches.find(b => b.warehouseId === updatedSlip.toWarehouse);
-            const updated: DeviceItem = { 
-              ...d, 
-              warehouseId: updatedSlip.toWarehouse, 
-              status: 'in_stock',
-              branchId: targetBranch?.id || d.branchId,
-              branchName: targetBranch?.name || d.branchName
-            };
-            updateDeviceInFirestore(updated);
-            return updated;
-          }
-          return d;
-        }));
-      }
-    }
+  // Transfer writes and device movements are server-authoritative. This only keeps
+  // the optimistic view in sync until the Firestore subscription delivers the same record.
+  const handleTransferServerSync = (transfer: StockTransferSlip) => {
+    setTransfers(previous => {
+      const exists = previous.some(item => item.id === transfer.id);
+      return exists
+        ? previous.map(item => item.id === transfer.id ? transfer : item)
+        : [transfer, ...previous];
+    });
   };
 
   const handleTransferFunds = async (
@@ -1619,19 +1580,6 @@ export default function App() {
     }
   };
 
-  const handleUpdateDevicesWarehouse = (deviceImeis: string[], targetWarehouse: WarehouseId) => {
-    setDevices(prevDevices =>
-      prevDevices.map(d => {
-        if (deviceImeis.includes(d.imei)) {
-          const updated = { ...d, warehouse: targetWarehouse };
-          updateDeviceInFirestore(updated);
-          return updated;
-        }
-        return d;
-      })
-    );
-  };
-
   const handleUpdateDeviceStatus = (
     imei: string, 
     status: DeviceItem['status'], 
@@ -1798,16 +1746,12 @@ export default function App() {
 
         {activeTab === 'transfers' && (
           <WarehouseTransfersView
-            transfers={filteredTransfers}
+            transfers={currentUser.role === 'ADMIN' ? transfers : filteredTransfers}
             currentUser={currentUser}
-            devices={filteredDevices}
-            products={products}
+            devices={currentUser.role === 'ADMIN' ? devices : filteredDevices}
             warehouses={warehouses}
-            users={filteredUsers}
-            onAddTransfer={handleAddTransfer}
-            onUpdateTransfer={handleUpdateTransfer}
-            onUpdateDevicesWarehouse={handleUpdateDevicesWarehouse}
-            onAddWarrantyTicket={handleAddWarrantyTicket}
+            branches={branches}
+            onTransferSynced={handleTransferServerSync}
           />
         )}
 

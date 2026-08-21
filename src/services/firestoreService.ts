@@ -638,36 +638,6 @@ export function subscribeToTransfers(onData: (transfers: StockTransferSlip[]) =>
   }, (error) => handleFirestoreError(error, OperationType.LIST, TRANSFERS_COL));
 }
 
-export async function addTransferToFirestore(transfer: StockTransferSlip) {
-  const path = `${TRANSFERS_COL}/${transfer.id}`;
-  try {
-    const docRef = doc(db, TRANSFERS_COL, transfer.id);
-    await setDoc(docRef, cleanDataForFirestore(transfer));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateTransferInFirestore(transfer: StockTransferSlip) {
-  const path = `${TRANSFERS_COL}/${transfer.id}`;
-  try {
-    const docRef = doc(db, TRANSFERS_COL, transfer.id);
-    await setDoc(docRef, cleanDataForFirestore(transfer), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteTransferFromFirestore(id: string) {
-  const path = `${TRANSFERS_COL}/${id}`;
-  try {
-    const docRef = doc(db, TRANSFERS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
 // ----------------- PRODUCTS (ACCESSORIES / PARTS) -----------------
 export function subscribeToProducts(onData: (products: ProductItem[]) => void) {
   const colRef = collection(db, PRODUCTS_COL);

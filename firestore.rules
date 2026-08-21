@@ -116,6 +116,11 @@ service cloud.firestore {
       allow update: if isAuthenticated() && canManageInventory() &&
         canAccessBranch(resource.data.branchId) && 
         canAccessBranch(request.resource.data.branchId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'currentLocationId', 'warehouseId', 'warehouse',
+          'activeTransferId', 'transferLockId', 'activeWorkOrderId', 'transferState',
+          'currentCustodianUid', 'currentCost', 'costVersion', 'costCalculatedAt'
+        ]) &&
         request.resource.data.status == resource.data.status &&
         request.resource.data.sellPrice == resource.data.sellPrice &&
         request.resource.data.branchId == resource.data.branchId &&
@@ -190,16 +195,35 @@ service cloud.firestore {
         canAccessBranch(resource.data.destinationBranchId) ||
         canAccessBranch(resource.data.branchId)
       );
-      allow create: if isAuthenticated() && canManageInventory() && (
-        canAccessBranch(request.resource.data.sourceBranchId) ||
-        canAccessBranch(request.resource.data.branchId)
+      allow write: if false; // Single Writer: /api/inventory-transfers transaction only
+    }
+
+    match /stockIssues/{issueId} {
+      allow read: if isAuthenticated() && isActiveUser() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /stockReceipts/{receiptId} {
+      allow read: if isAuthenticated() && isActiveUser() && (
+        canAccessBranch(resource.data.branchId) || canAccessBranch(resource.data.sourceBranchId)
       );
-      allow update: if isAuthenticated() && canManageInventory() && (
-        isAdmin() ||
-        canAccessBranch(resource.data.sourceBranchId) ||
-        canAccessBranch(resource.data.destinationBranchId)
+      allow write: if false;
+    }
+
+    match /interBranchLedger/{entryId} {
+      allow read: if isAuthenticated() && isActiveUser() && (
+        isAdmin() || canAccessBranch(resource.data.sourceBranchId) || canAccessBranch(resource.data.destinationBranchId)
       );
-      allow delete: if isAdmin();
+      allow write: if false; // One balanced entry, never two client-written debts
+    }
+
+    match /inventoryTransferIdempotency/{keyId} {
+      allow read, write: if false;
+    }
+
+    match /technicalTaskTypes/{taskTypeId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow write: if false; // Versioned configuration is maintained by an Admin API
     }
 
     match /purchaseOrders/{orderId} {

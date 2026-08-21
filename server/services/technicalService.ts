@@ -242,10 +242,6 @@ export async function processAcceptCustody(
     throw new Error('SCANNED_IMEI_REQUIRED: Bắt buộc quét mã IMEI thực tế của máy để nhận bàn giao.');
   }
   
-  if (!preRepairInspection) {
-    throw new Error('PRE_REPAIR_INSPECTION_REQUIRED: KTV bắt buộc phải điền Checklist Test Máy Đầu Vào trước khi nhận.');
-  }
-
   return await db.runTransaction(async (transaction) => {
     const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
     const woSnap = await transaction.get(woRef);
@@ -283,7 +279,7 @@ export async function processAcceptCustody(
     }
 
     const now = new Date().toISOString();
-    const techLocationId = `KHO_KTV_${technicianUser.uid.slice(0, 8).toUpperCase()}`;
+    const techLocationId = woData.destinationLocationId || `KHO_KTV_${technicianUser.uid.slice(0, 8).toUpperCase()}`;
 
     // Update Work Order
     transaction.update(woRef, {
@@ -292,10 +288,14 @@ export async function processAcceptCustody(
       currentCustodianName: technicianUser.name || 'Kỹ thuật viên',
       currentLocationId: techLocationId,
       acceptedAt: now,
-      preRepairInspection: {
+      preRepairInspection: preRepairInspection ? {
         ...preRepairInspection,
         inspectedAt: now,
         technicianId: technicianUser.uid
+      } : {
+        recorded: false,
+        technicianId: technicianUser.uid,
+        acceptedAt: now
       },
       updatedAt: FieldValue.serverTimestamp()
     });
@@ -319,7 +319,9 @@ export async function processAcceptCustody(
         currentCustodian: technicianUser.name || 'Kỹ thuật viên',
         currentCustodianUid: technicianUser.uid,
         technicianAssigned: technicianUser.name || 'Kỹ thuật viên',
+        currentLocationId: techLocationId,
         warehouseId: techLocationId,
+        warehouse: techLocationId,
         updatedAt: FieldValue.serverTimestamp()
       });
     }
@@ -436,19 +438,15 @@ export async function processCompleteTaskLine(
       throw new Error(transition.reason);
     }
 
-    const now = new Date().toISOString();
-    transaction.update(lineRef, {
-      status: 'COMPLETED',
-      completedAt: now,
-      evidencePhotoUrls: evidencePhotoUrls || [],
-      completionNotes: notes || '',
-      updatedAt: FieldValue.serverTimestamp()
-    });
-
-    // Check if ALL lines in the Work Order are now completed
+    // Read every dependent record before the first write (Firestore transaction invariant).
     const allLinesSnap = await transaction.get(
       db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId)
     );
+    const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+    const woSnap = await transaction.get(woRef);
+    const woData = woSnap.exists ? woSnap.data()! : {};
+    const linkedTransferRef = woData.transferId ? db.collection('transfers').doc(woData.transferId) : null;
+    const linkedTransferSnap = linkedTransferRef ? await transaction.get(linkedTransferRef) : null;
 
     let allCompleted = true;
     for (const doc of allLinesSnap.docs) {
@@ -460,13 +458,29 @@ export async function processCompleteTaskLine(
       }
     }
 
-    const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+    const now = new Date().toISOString();
+    transaction.update(lineRef, {
+      status: 'COMPLETED',
+      completedAt: now,
+      evidencePhotoUrls: evidencePhotoUrls || [],
+      completionNotes: notes || '',
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
     if (allCompleted) {
       transaction.update(woRef, {
         status: 'TECH_COMPLETED',
         techCompletedAt: now,
         updatedAt: FieldValue.serverTimestamp()
       });
+      if (linkedTransferRef && linkedTransferSnap?.exists) {
+        const transfer = linkedTransferSnap.data()!;
+        const items = (transfer.items || []).map((item: any) =>
+          item.workOrderId === workOrderId ? { ...item, itemStatus: 'WAITING_QC', techCompletedAt: now } : item
+        );
+        const allReadyForQc = items.every((item: any) => ['WAITING_QC', 'QC_FAILED', 'QC_PASSED', 'RETURNED_TO_MAIN_WAREHOUSE'].includes(item.itemStatus));
+        transaction.update(linkedTransferRef, { items, status: allReadyForQc ? 'WAITING_QC' : 'IN_PROGRESS', updatedAt: now });
+      }
     }
 
     return { success: true, lineId, workOrderId, allLinesCompleted: allCompleted };
@@ -505,6 +519,8 @@ export async function processQCInspection(
     const allLinesSnap = await transaction.get(
       db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId)
     );
+    const linkedTransferRef = woData.transferId ? db.collection('transfers').doc(woData.transferId) : null;
+    const linkedTransferSnap = linkedTransferRef ? await transaction.get(linkedTransferRef) : null;
 
     for (const doc of allLinesSnap.docs) {
       const lStatus = doc.data().status;
@@ -567,10 +583,15 @@ export async function processQCInspection(
         updatedAt: FieldValue.serverTimestamp()
       });
 
-      // Activate all commission records to ELIGIBLE
+      // Transfer-created commissions remain PENDING until the machine is physically returned to Kho Tổng.
       for (const lineDoc of allLinesSnap.docs) {
         const commRef = db.collection('commissionLedger').doc(`COMM_${lineDoc.id}`);
-        transaction.update(commRef, {
+        transaction.update(commRef, woData.eligibilityRequiresStockReturn ? {
+          status: 'PENDING',
+          qcApprovedAt: now,
+          qcApprovedByUid: inspectorUser.uid,
+          updatedAt: FieldValue.serverTimestamp()
+        } : {
           status: 'ELIGIBLE',
           eligibleAt: now,
           approvedByUid: inspectorUser.uid,
@@ -582,6 +603,14 @@ export async function processQCInspection(
           qcVerifiedAt: now,
           updatedAt: FieldValue.serverTimestamp()
         });
+      }
+      if (linkedTransferRef && linkedTransferSnap?.exists) {
+        const transfer = linkedTransferSnap.data()!;
+        const items = (transfer.items || []).map((item: any) =>
+          item.workOrderId === workOrderId ? { ...item, itemStatus: 'QC_PASSED', qcPassedAt: now } : item
+        );
+        const allQcPassed = items.every((item: any) => ['QC_PASSED', 'RETURNED_TO_MAIN_WAREHOUSE'].includes(item.itemStatus));
+        transaction.update(linkedTransferRef, { items, status: allQcPassed ? 'COMPLETED' : 'WAITING_QC', updatedAt: now });
       }
     } else {
       // 4B. On FAIL: Increment reworkCount, set status to QC_FAILED_REWORK
@@ -601,6 +630,13 @@ export async function processQCInspection(
           reworkReason: inspection.failedReason,
           updatedAt: FieldValue.serverTimestamp()
         });
+      }
+      if (linkedTransferRef && linkedTransferSnap?.exists) {
+        const transfer = linkedTransferSnap.data()!;
+        const items = (transfer.items || []).map((item: any) =>
+          item.workOrderId === workOrderId ? { ...item, itemStatus: 'QC_FAILED', qcFailedAt: now, qcFailedReason: inspection.failedReason } : item
+        );
+        transaction.update(linkedTransferRef, { items, status: 'QC_FAILED', updatedAt: now });
       }
     }
 
@@ -626,6 +662,9 @@ export async function processReturnToStock(
     }
 
     const woData = woSnap.data()!;
+
+    const linkedTransferRef = woData.transferId ? db.collection('transfers').doc(woData.transferId) : null;
+    const linkedTransferSnap = linkedTransferRef ? await transaction.get(linkedTransferRef) : null;
 
     // Protection Invariant (P0-02): Never put customer repair/warranty devices back into saleable stock!
     if (woData.workOrderType === 'CUSTOMER_SERVICE' || woData.workOrderType === 'WARRANTY') {
@@ -657,15 +696,40 @@ export async function processReturnToStock(
       const devRef = db.collection('devices').doc(woData.deviceId);
       transaction.update(devRef, {
         status: 'in_stock',
+        currentLocationId: targetWarehouseId,
         warehouseId: targetWarehouseId,
         warehouse: targetWarehouseId,
         currentCustodian: warehouseStaff.name || 'Thủ Kho',
         currentCustodianUid: warehouseStaff.uid,
         technicianAssigned: FieldValue.delete(),
+        activeTransferId: FieldValue.delete(),
+        transferState: FieldValue.delete(),
         activeWorkOrderId: FieldValue.delete(),
         lastQcPassedAt: now,
         updatedAt: FieldValue.serverTimestamp()
       });
+    }
+
+    if (woData.eligibilityRequiresStockReturn) {
+      for (const lineId of woData.taskLineIds || []) {
+        transaction.update(db.collection('commissionLedger').doc(`COMM_${lineId}`), {
+          status: 'ELIGIBLE',
+          eligibleAt: now,
+          approvedByUid: warehouseStaff.uid,
+          stockReturnConfirmedAt: now,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
+    }
+
+    if (linkedTransferRef && linkedTransferSnap?.exists) {
+      const transfer = linkedTransferSnap.data()!;
+      const items = (transfer.items || []).map((item: any) =>
+        item.workOrderId === workOrderId ? { ...item, itemStatus: 'RETURNED_TO_MAIN_WAREHOUSE', returnedAt: now } : item
+      );
+      const allReturned = items.every((item: any) => item.itemStatus === 'RETURNED_TO_MAIN_WAREHOUSE');
+      const allQcReady = items.every((item: any) => ['QC_PASSED', 'RETURNED_TO_MAIN_WAREHOUSE'].includes(item.itemStatus));
+      transaction.update(linkedTransferRef, { items, status: allReturned ? 'RETURNED_TO_MAIN_WAREHOUSE' : allQcReady ? 'COMPLETED' : 'WAITING_QC', updatedAt: now });
     }
 
     // 3. Record Final Movement back to Stock

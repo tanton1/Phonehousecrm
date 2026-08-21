@@ -1,0 +1,892 @@
+import crypto from 'crypto';
+import { FieldValue, Firestore } from 'firebase-admin/firestore';
+
+export type TechnicalPriority = 'NORMAL' | 'PRIORITY' | 'URGENT';
+export type ReceiptResult = 'RECEIVED' | 'MISSING' | 'WRONG_DEVICE' | 'DAMAGED';
+
+export interface TransferActor {
+  uid: string;
+  name?: string;
+  role?: string;
+  branchId?: string;
+  assignedBranchIds?: string[];
+}
+
+export interface TechnicalTaskTypeRecord {
+  id: string;
+  taskType: string;
+  name: string;
+  taskCode: string;
+  baseCommission: number;
+  normalSlaHours: number;
+  prioritySlaHours: number;
+  urgentSlaHours: number;
+  priorityMultiplier: Record<TechnicalPriority, number>;
+  requiresQc: boolean;
+  isActive: boolean;
+  version: string;
+}
+
+export interface CreateTechnicalTransferInput {
+  sourceBranchId: string;
+  sourceLocationId: string;
+  destinationLocationId: string;
+  items: Array<{
+    deviceId: string;
+    tasks: Array<{ taskType: string; priority: TechnicalPriority }>;
+  }>;
+  notes?: string;
+  handoverImageUrls?: string[];
+  idempotencyKey: string;
+}
+
+export interface CreateInterBranchTransferInput {
+  sourceBranchId: string;
+  destinationBranchId: string;
+  sourceLocationId: string;
+  destinationLocationId: string;
+  deviceIds: string[];
+  expectedDeliveryAt?: string;
+  transporter?: string;
+  notes?: string;
+  idempotencyKey: string;
+}
+
+export interface InterBranchReceiptInput {
+  results: Array<{
+    imei: string;
+    result: ReceiptResult;
+    scannedImei?: string;
+    notes?: string;
+  }>;
+  idempotencyKey: string;
+}
+
+const DEFAULT_TASK_TYPES: TechnicalTaskTypeRecord[] = [
+  { id: 'GENERAL_CHECK', taskType: 'GENERAL_CHECK', name: 'Kiểm tra tổng thể', taskCode: 'KCS', baseCommission: 50000, normalSlaHours: 12, prioritySlaHours: 8, urgentSlaHours: 4, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
+  { id: 'BATTERY_REPLACE', taskType: 'BATTERY_REPLACE', name: 'Thay pin', taskCode: 'TP', baseCommission: 80000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
+  { id: 'SCREEN_REPLACE', taskType: 'SCREEN_REPLACE', name: 'Thay màn hình', taskCode: 'EK', baseCommission: 120000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
+  { id: 'STORAGE_UPGRADE', taskType: 'STORAGE_UPGRADE', name: 'Nâng cấp dung lượng', taskCode: 'RC2.5', baseCommission: 250000, normalSlaHours: 48, prioritySlaHours: 24, urgentSlaHours: 12, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
+  { id: 'CLEANING', taskType: 'CLEANING', name: 'Vệ sinh máy', taskCode: 'OTHER', baseCommission: 30000, normalSlaHours: 8, prioritySlaHours: 4, urgentSlaHours: 2, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
+  { id: 'FACE_ID_REPAIR', taskType: 'FACE_ID_REPAIR', name: 'Sửa Face ID', taskCode: 'FIX_FACE', baseCommission: 180000, normalSlaHours: 36, prioritySlaHours: 18, urgentSlaHours: 8, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
+  { id: 'COSMETIC_REPAIR', taskType: 'COSMETIC_REPAIR', name: 'Xử lý ngoại hình', taskCode: 'LV', baseCommission: 100000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
+  { id: 'WARRANTY_DIAGNOSIS', taskType: 'WARRANTY_DIAGNOSIS', name: 'Kiểm tra lỗi bảo hành', taskCode: 'MAIN', baseCommission: 100000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' }
+];
+
+export function getDefaultTechnicalTaskTypes(): TechnicalTaskTypeRecord[] {
+  return DEFAULT_TASK_TYPES.map(item => ({ ...item, priorityMultiplier: { ...item.priorityMultiplier } }));
+}
+
+export function getCanonicalDeviceLocation(device: any): string {
+  return device?.currentLocationId || device?.warehouseId || device?.warehouse || '';
+}
+
+export function getDeviceCostSnapshot(device: any, now: string): { costAtTransfer: number; costVersion: string; costCalculatedAt: string } {
+  const currentCost = Number(device?.currentCost ?? device?.buyPrice);
+  if (!Number.isFinite(currentCost) || currentCost < 0) {
+    throw new Error(`DEVICE_COST_INVALID: IMEI ${device?.imei || device?.id || ''} chưa có giá vốn hợp lệ.`);
+  }
+  return {
+    costAtTransfer: currentCost,
+    costVersion: String(device?.costVersion || 'LEGACY_CURRENT_COST_V1'),
+    costCalculatedAt: String(device?.costCalculatedAt || now)
+  };
+}
+
+export function calculateTechnicalTaskQuote(config: TechnicalTaskTypeRecord, priority: TechnicalPriority, dispatchedAt: string) {
+  if (!config.isActive) {
+    throw new Error(`TASK_TYPE_INACTIVE: Hạng mục "${config.name}" đã ngừng áp dụng.`);
+  }
+  const multiplier = Number(config.priorityMultiplier?.[priority]);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) {
+    throw new Error(`PRIORITY_CONFIG_INVALID: Hạng mục "${config.name}" chưa cấu hình hệ số ${priority}.`);
+  }
+  const slaHours = priority === 'URGENT'
+    ? config.urgentSlaHours
+    : priority === 'PRIORITY'
+      ? config.prioritySlaHours
+      : config.normalSlaHours;
+  const deadlineAt = new Date(new Date(dispatchedAt).getTime() + slaHours * 60 * 60 * 1000).toISOString();
+  return {
+    commissionAmount: Math.round(config.baseCommission * multiplier),
+    slaHours,
+    deadlineAt
+  };
+}
+
+function canAccessBranch(actor: TransferActor, branchId: string): boolean {
+  const role = String(actor.role || '').toUpperCase();
+  return role === 'ADMIN' || role === 'REGIONAL_MANAGER' || actor.branchId === branchId || (actor.assignedBranchIds || []).includes(branchId);
+}
+
+function assertCanDispatch(actor: TransferActor, branchId: string) {
+  if (!canAccessBranch(actor, branchId)) {
+    throw new Error(`SOURCE_BRANCH_FORBIDDEN: Bạn không có quyền xuất hàng tại chi nhánh "${branchId}".`);
+  }
+}
+
+function assertIdempotencyKey(key?: string) {
+  if (!key || key.trim().length < 8 || key.length > 160) {
+    throw new Error('IDEMPOTENCY_KEY_REQUIRED: Mỗi lần xác nhận phải có idempotencyKey hợp lệ.');
+  }
+}
+
+function idempotencyDocId(scope: string, key: string): string {
+  return crypto.createHash('sha256').update(`${scope}:${key}`).digest('hex');
+}
+
+function randomSuffix(bytes = 3): string {
+  return crypto.randomBytes(bytes).toString('hex').toUpperCase();
+}
+
+function assertUnique(values: string[], errorCode: string) {
+  if (new Set(values).size !== values.length) {
+    throw new Error(`${errorCode}: Danh sách có thiết bị/IMEI bị trùng.`);
+  }
+}
+
+function assertDeviceUnlocked(device: any) {
+  if (device.activeTransferId || device.transferLockId) {
+    throw new Error(`DEVICE_ALREADY_IN_TRANSFER: IMEI ${device.imei} đang nằm trong phiếu ${device.activeTransferId || device.transferLockId}.`);
+  }
+  if (device.activeWorkOrderId || device.technicianAssigned) {
+    throw new Error(`DEVICE_ALREADY_ASSIGNED_TO_TECH: IMEI ${device.imei} đang có task kỹ thuật chưa đóng.`);
+  }
+  if (device.reservedForLeadId || device.reservedUntil || device.soldInvoiceId) {
+    throw new Error(`DEVICE_COMMERCIALLY_LOCKED: IMEI ${device.imei} đang bán, giữ chỗ hoặc đặt cọc.`);
+  }
+}
+
+function locationBranchId(location: any): string {
+  return String(location?.branchId || '');
+}
+
+function publicTransferRecord(data: any): any {
+  return JSON.parse(JSON.stringify(data));
+}
+
+export async function listTechnicalTaskTypes(db: Firestore): Promise<TechnicalTaskTypeRecord[]> {
+  const snap = await db.collection('technicalTaskTypes').get();
+  const merged = new Map(getDefaultTechnicalTaskTypes().map(item => [item.taskType, item]));
+  snap.docs.forEach(doc => {
+    const record = { id: doc.id, ...doc.data() } as TechnicalTaskTypeRecord;
+    merged.set(record.taskType || doc.id, record);
+  });
+  return [...merged.values()].filter(item => item.isActive !== false);
+}
+
+export async function processCreateTechnicalTransfer(
+  db: Firestore,
+  input: CreateTechnicalTransferInput,
+  actor: TransferActor
+): Promise<{ transferId: string; code: string; transfer: any; idempotentReplay?: boolean }> {
+  assertIdempotencyKey(input.idempotencyKey);
+  assertCanDispatch(actor, input.sourceBranchId);
+  if (!input.sourceBranchId || !input.sourceLocationId || !input.destinationLocationId) {
+    throw new Error('TRANSFER_LOCATIONS_REQUIRED: Thiếu branchId/locationId giao hoặc nhận.');
+  }
+  if (input.sourceLocationId === input.destinationLocationId) {
+    throw new Error('SAME_LOCATION_FORBIDDEN: Kho giao và kho KTV không được trùng nhau.');
+  }
+  if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 50) {
+    throw new Error('TRANSFER_ITEMS_INVALID: Phiếu kỹ thuật cần từ 1 đến 50 máy.');
+  }
+  assertUnique(input.items.map(item => item.deviceId), 'DUPLICATE_DEVICE');
+  input.items.forEach(item => {
+    if (!item.tasks?.length) throw new Error(`TASK_REQUIRED: Thiết bị ${item.deviceId} chưa có hạng mục kỹ thuật.`);
+    assertUnique(item.tasks.map(task => task.taskType), 'DUPLICATE_TASK');
+  });
+
+  const now = new Date().toISOString();
+  const transferId = `TTR_${Date.now()}_${randomSuffix()}`;
+  const code = `KT-${now.slice(0, 10).replace(/-/g, '')}-${randomSuffix(2)}`;
+  const idemRef = db.collection('inventoryTransferIdempotency').doc(idempotencyDocId('CREATE_TECHNICAL', input.idempotencyKey));
+
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) {
+      const idem = idemSnap.data()!;
+      const existingSnap = await transaction.get(db.collection('transfers').doc(idem.transferId));
+      if (!existingSnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      const transfer = existingSnap.data()!;
+      return { transferId: idem.transferId, code: transfer.code, transfer: publicTransferRecord(transfer), idempotentReplay: true };
+    }
+
+    const sourceLocationRef = db.collection('warehouses').doc(input.sourceLocationId);
+    const destinationLocationRef = db.collection('warehouses').doc(input.destinationLocationId);
+    const sourceLocationSnap = await transaction.get(sourceLocationRef);
+    const destinationLocationSnap = await transaction.get(destinationLocationRef);
+    if (!sourceLocationSnap.exists) throw new Error(`SOURCE_LOCATION_NOT_FOUND: Không tìm thấy kho giao "${input.sourceLocationId}".`);
+    if (!destinationLocationSnap.exists) throw new Error(`TECH_LOCATION_NOT_FOUND: Không tìm thấy kho KTV "${input.destinationLocationId}".`);
+    const sourceLocation = sourceLocationSnap.data()!;
+    const destinationLocation = destinationLocationSnap.data()!;
+    if (locationBranchId(sourceLocation) && locationBranchId(sourceLocation) !== input.sourceBranchId) {
+      throw new Error('SOURCE_LOCATION_BRANCH_MISMATCH');
+    }
+    if (destinationLocation.type !== 'TECHNICIAN_SUB' || destinationLocation.isActive === false) {
+      throw new Error('INVALID_TECH_LOCATION: Kho nhận phải là kho KTV đang hoạt động.');
+    }
+    if (locationBranchId(destinationLocation) && locationBranchId(destinationLocation) !== input.sourceBranchId) {
+      throw new Error('TECH_LOCATION_BRANCH_MISMATCH: Kho KTV phải thuộc cùng Chi nhánh Tổng.');
+    }
+    if (destinationLocation.parentWarehouseId && destinationLocation.parentWarehouseId !== input.sourceLocationId) {
+      throw new Error('TECH_LOCATION_PARENT_MISMATCH');
+    }
+    const technicianUid = String(destinationLocation.technicianId || destinationLocation.technicianUid || '');
+    if (!technicianUid) throw new Error('TECH_LOCATION_ASSIGNEE_REQUIRED: Kho KTV chưa gắn với tài khoản kỹ thuật viên.');
+    const technicianName = String(destinationLocation.technicianName || destinationLocation.manager || 'Kỹ thuật viên');
+
+    const requestedTaskTypes = [...new Set(input.items.flatMap(item => item.tasks.map(task => task.taskType)))];
+    const taskConfigMap = new Map(DEFAULT_TASK_TYPES.map(item => [item.taskType, item]));
+    for (const taskType of requestedTaskTypes) {
+      const configSnap = await transaction.get(db.collection('technicalTaskTypes').doc(taskType));
+      if (configSnap.exists) taskConfigMap.set(taskType, { id: configSnap.id, ...configSnap.data() } as TechnicalTaskTypeRecord);
+    }
+
+    const deviceSnapshots: Array<{ ref: any; data: any }> = [];
+    for (const requestedItem of input.items) {
+      const ref = db.collection('devices').doc(requestedItem.deviceId);
+      const snap = await transaction.get(ref);
+      if (!snap.exists) throw new Error(`DEVICE_NOT_FOUND: Không tìm thấy thiết bị "${requestedItem.deviceId}".`);
+      deviceSnapshots.push({ ref, data: snap.data()! });
+    }
+
+    const transferItems: any[] = [];
+    let totalEstimatedCommission = 0;
+    let totalTasks = 0;
+    let nearestDeadlineAt = '';
+
+    for (let itemIndex = 0; itemIndex < input.items.length; itemIndex++) {
+      const requestedItem = input.items[itemIndex];
+      const { ref: deviceRef, data: device } = deviceSnapshots[itemIndex];
+      assertDeviceUnlocked(device);
+      const deviceBranchId = String(device.branchId || input.sourceBranchId);
+      if (deviceBranchId !== input.sourceBranchId) throw new Error(`DEVICE_BRANCH_MISMATCH: IMEI ${device.imei} không thuộc chi nhánh giao.`);
+      if (getCanonicalDeviceLocation(device) !== input.sourceLocationId) throw new Error(`DEVICE_LOCATION_MISMATCH: IMEI ${device.imei} không thực tế ở kho giao.`);
+      if (!['in_stock', 'awaiting_technical'].includes(device.status)) throw new Error(`DEVICE_NOT_AVAILABLE: IMEI ${device.imei} đang ở trạng thái ${device.status}.`);
+
+      const workOrderId = `WO_${Date.now()}_${itemIndex + 1}_${randomSuffix(2)}`;
+      const taskSnapshots: any[] = [];
+      const lineIds: string[] = [];
+      let itemCommission = 0;
+
+      for (let taskIndex = 0; taskIndex < requestedItem.tasks.length; taskIndex++) {
+        const taskRequest = requestedItem.tasks[taskIndex];
+        const config = taskConfigMap.get(taskRequest.taskType);
+        if (!config) throw new Error(`TASK_TYPE_NOT_FOUND: Không tìm thấy cấu hình "${taskRequest.taskType}".`);
+        const quote = calculateTechnicalTaskQuote(config, taskRequest.priority, now);
+        const lineId = `WOL_${workOrderId}_${taskIndex + 1}`;
+        const commissionLedgerId = `COMM_${lineId}`;
+        lineIds.push(lineId);
+        itemCommission += quote.commissionAmount;
+        totalEstimatedCommission += quote.commissionAmount;
+        totalTasks += 1;
+        if (!nearestDeadlineAt || quote.deadlineAt < nearestDeadlineAt) nearestDeadlineAt = quote.deadlineAt;
+
+        const taskSnapshot = {
+          taskType: config.taskType,
+          taskCode: config.taskCode,
+          taskName: config.name,
+          priority: taskRequest.priority,
+          commissionAmount: quote.commissionAmount,
+          slaHours: quote.slaHours,
+          deadlineAt: quote.deadlineAt,
+          requiresQc: config.requiresQc,
+          configVersion: config.version,
+          lineId,
+          commissionLedgerId
+        };
+        taskSnapshots.push(taskSnapshot);
+
+        transaction.set(db.collection('technicalWorkOrderLines').doc(lineId), {
+          id: lineId,
+          workOrderId,
+          transferId,
+          deviceId: device.id || requestedItem.deviceId,
+          imei: device.imei,
+          model: device.model,
+          branchId: input.sourceBranchId,
+          ...taskSnapshot,
+          assigneeUid: technicianUid,
+          assigneeName: technicianName,
+          ratePolicyId: config.id,
+          ratePolicyVersion: config.version,
+          status: 'ASSIGNED',
+          createdAt: now,
+          updatedAt: now
+        });
+        transaction.set(db.collection('commissionLedger').doc(commissionLedgerId), {
+          id: commissionLedgerId,
+          staffUid: technicianUid,
+          staffName: technicianName,
+          workOrderId,
+          workOrderLineId: lineId,
+          transferId,
+          branchId: input.sourceBranchId,
+          imei: device.imei,
+          taskCode: config.taskCode,
+          taskName: config.name,
+          amount: quote.commissionAmount,
+          status: 'PENDING',
+          eligibilityRequiresStockReturn: true,
+          payrollPeriod: now.slice(0, 7),
+          createdAt: now
+        });
+      }
+
+      transaction.set(db.collection('technicalWorkOrders').doc(workOrderId), {
+        id: workOrderId,
+        code: `SC-${now.slice(0, 10).replace(/-/g, '')}-${randomSuffix(2)}`,
+        transferId,
+        deviceId: device.id || requestedItem.deviceId,
+        imei: device.imei,
+        model: device.model,
+        workOrderType: 'INBOUND_PREP',
+        branchId: input.sourceBranchId,
+        sourceWarehouseId: input.sourceLocationId,
+        destinationLocationId: input.destinationLocationId,
+        status: 'ASSIGNED',
+        currentCustodianUid: actor.uid,
+        currentCustodianName: actor.name || 'Thủ kho',
+        currentLocationId: input.sourceLocationId,
+        assignedTechnicianUid: technicianUid,
+        assignedTechnicianName: technicianName,
+        taskLineIds: lineIds,
+        totalCommissionAmount: itemCommission,
+        eligibilityRequiresStockReturn: true,
+        reworkCount: 0,
+        createdByUid: actor.uid,
+        createdByName: actor.name || 'Quản lý kho',
+        createdAt: now,
+        updatedAt: now
+      });
+
+      transaction.update(deviceRef, {
+        branchId: input.sourceBranchId,
+        currentLocationId: input.sourceLocationId,
+        warehouseId: input.sourceLocationId,
+        warehouse: input.sourceLocationId,
+        status: 'reserved',
+        activeTransferId: transferId,
+        activeWorkOrderId: workOrderId,
+        transferState: 'WAITING_KTV_ACCEPT',
+        technicianAssigned: technicianName,
+        updatedAt: now
+      });
+
+      const movementId = `MOV_${Date.now()}_${itemIndex + 1}_${randomSuffix(2)}`;
+      transaction.set(db.collection('inventoryMovements').doc(movementId), {
+        id: movementId,
+        transferId,
+        workOrderId,
+        deviceId: device.id || requestedItem.deviceId,
+        imei: device.imei,
+        branchId: input.sourceBranchId,
+        movementType: 'TECH_HANDOVER_CREATED',
+        fromLocationId: input.sourceLocationId,
+        toLocationId: input.destinationLocationId,
+        custodyAccepted: false,
+        performedByUid: actor.uid,
+        occurredAt: now,
+        createdAt: now
+      });
+
+      transferItems.push({
+        type: 'device',
+        id: device.id || requestedItem.deviceId,
+        deviceId: device.id || requestedItem.deviceId,
+        imei: device.imei,
+        name: `${device.model || ''} ${device.storage || ''} ${device.color || ''}`.trim(),
+        model: device.model,
+        storage: device.storage,
+        color: device.color,
+        condition: device.condition,
+        quantity: 1,
+        costPrice: Number(device.currentCost ?? device.buyPrice ?? 0),
+        sourceBranchId: input.sourceBranchId,
+        sourceLocationId: input.sourceLocationId,
+        destinationLocationId: input.destinationLocationId,
+        workOrderId,
+        itemStatus: 'WAITING_KTV_ACCEPT',
+        tasks: taskSnapshots
+      });
+    }
+
+    const transfer = {
+      id: transferId,
+      code,
+      transferType: 'TECHNICAL',
+      branchId: input.sourceBranchId,
+      sourceBranchId: input.sourceBranchId,
+      sourceBranchName: input.sourceBranchId,
+      destinationBranchId: input.sourceBranchId,
+      destinationBranchName: input.sourceBranchId,
+      sourceLocationId: input.sourceLocationId,
+      destinationLocationId: input.destinationLocationId,
+      fromWarehouse: input.sourceLocationId,
+      fromWarehouseName: sourceLocation.name || sourceLocation.shortName || input.sourceLocationId,
+      toWarehouse: input.destinationLocationId,
+      toWarehouseName: destinationLocation.name || destinationLocation.shortName || input.destinationLocationId,
+      technicianUid,
+      technicianName,
+      createdDate: now,
+      createdAt: now,
+      updatedAt: now,
+      creator: actor.name || actor.uid,
+      createdByUid: actor.uid,
+      status: 'WAITING_KTV_ACCEPT',
+      items: transferItems,
+      totalQuantity: transferItems.length,
+      totalValue: transferItems.reduce((sum, item) => sum + item.costPrice, 0),
+      totalTasks,
+      totalEstimatedCommission,
+      nearestDeadlineAt,
+      notes: input.notes || '',
+      handoverImageUrls: input.handoverImageUrls || [],
+      idempotencyKey: input.idempotencyKey
+    };
+
+    transaction.set(db.collection('transfers').doc(transferId), transfer);
+    transaction.set(idemRef, { scope: 'CREATE_TECHNICAL', key: input.idempotencyKey, transferId, createdAt: now });
+    return { transferId, code, transfer: publicTransferRecord(transfer) };
+  });
+}
+
+export async function processAcceptTechnicalTransfer(
+  db: Firestore,
+  transferId: string,
+  scannedImeis: string[],
+  idempotencyKey: string,
+  actor: TransferActor
+): Promise<{ transferId: string; transfer: any; acceptedCount: number; idempotentReplay?: boolean }> {
+  assertIdempotencyKey(idempotencyKey);
+  if (!scannedImeis?.length) throw new Error('SCANNED_IMEI_REQUIRED: KTV phải quét ít nhất một IMEI.');
+  assertUnique(scannedImeis, 'DUPLICATE_SCANNED_IMEI');
+  const idemRef = db.collection('inventoryTransferIdempotency').doc(idempotencyDocId(`ACCEPT_TECHNICAL_${transferId}`, idempotencyKey));
+
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    const transferRef = db.collection('transfers').doc(transferId);
+    const transferSnap = await transaction.get(transferRef);
+    if (!transferSnap.exists) throw new Error('TRANSFER_NOT_FOUND');
+    const transfer = transferSnap.data()!;
+    if (idemSnap.exists) return { transferId, transfer: publicTransferRecord(transfer), acceptedCount: Number(idemSnap.data()?.acceptedCount || 0), idempotentReplay: true };
+    if (transfer.transferType !== 'TECHNICAL') throw new Error('TRANSFER_TYPE_MISMATCH');
+    if (!['WAITING_KTV_ACCEPT', 'IN_PROGRESS'].includes(transfer.status)) throw new Error(`INVALID_TRANSFER_STATUS: ${transfer.status}`);
+    if (!canAccessBranch(actor, transfer.sourceBranchId)) throw new Error('BRANCH_FORBIDDEN');
+
+    const destinationSnap = await transaction.get(db.collection('warehouses').doc(transfer.destinationLocationId));
+    if (!destinationSnap.exists || destinationSnap.data()?.isActive === false) throw new Error('TECH_LOCATION_INACTIVE');
+    const destination = destinationSnap.data()!;
+    const actorRole = String(actor.role || '').toUpperCase();
+    if (destination.technicianId && destination.technicianId !== actor.uid && !['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(actorRole)) {
+      throw new Error('TECHNICIAN_NOT_ASSIGNED');
+    }
+
+    const itemByImei = new Map((transfer.items || []).map((item: any) => [String(item.imei), item]));
+    const targetItems = scannedImeis.map(imei => {
+      const item: any = itemByImei.get(String(imei));
+      if (!item) throw new Error(`IMEI_NOT_IN_TRANSFER: ${imei}`);
+      return item;
+    });
+    const deviceSnaps: any[] = [];
+    const workOrderSnaps: any[] = [];
+    const lineSnapsByWorkOrder = new Map<string, any[]>();
+    for (const item of targetItems) {
+      deviceSnaps.push(await transaction.get(db.collection('devices').doc(item.deviceId || item.id)));
+      workOrderSnaps.push(await transaction.get(db.collection('technicalWorkOrders').doc(item.workOrderId)));
+      const lineSnaps: any[] = [];
+      for (const task of item.tasks || []) lineSnaps.push(await transaction.get(db.collection('technicalWorkOrderLines').doc(task.lineId)));
+      lineSnapsByWorkOrder.set(item.workOrderId, lineSnaps);
+    }
+
+    const now = new Date().toISOString();
+    const nextItems = (transfer.items || []).map((item: any) => ({ ...item }));
+    let acceptedCount = 0;
+    for (let index = 0; index < targetItems.length; index++) {
+      const item = targetItems[index];
+      if (item.itemStatus !== 'WAITING_KTV_ACCEPT') continue;
+      const deviceSnap = deviceSnaps[index];
+      const workOrderSnap = workOrderSnaps[index];
+      if (!deviceSnap.exists || !workOrderSnap.exists) throw new Error(`TRANSFER_DATA_INCOMPLETE: ${item.imei}`);
+      const device = deviceSnap.data()!;
+      if (device.activeTransferId !== transferId) throw new Error(`DEVICE_LOCK_MISMATCH: ${item.imei}`);
+      transaction.update(deviceSnap.ref, {
+        status: 'in_repair',
+        currentLocationId: transfer.destinationLocationId,
+        warehouseId: transfer.destinationLocationId,
+        warehouse: transfer.destinationLocationId,
+        currentCustodianUid: actor.uid,
+        currentCustodian: actor.name || transfer.technicianName || 'Kỹ thuật viên',
+        transferState: 'IN_PROGRESS',
+        acceptedAt: now,
+        updatedAt: now
+      });
+      transaction.update(workOrderSnap.ref, {
+        status: 'ACCEPTED',
+        currentLocationId: transfer.destinationLocationId,
+        currentCustodianUid: actor.uid,
+        currentCustodianName: actor.name || transfer.technicianName || 'Kỹ thuật viên',
+        acceptedAt: now,
+        updatedAt: now
+      });
+      for (const lineSnap of lineSnapsByWorkOrder.get(item.workOrderId) || []) {
+        if (lineSnap.exists && lineSnap.data()?.status === 'ASSIGNED') transaction.update(lineSnap.ref, { status: 'ACCEPTED', acceptedAt: now, updatedAt: now });
+      }
+      const movementId = `MOV_${Date.now()}_${index + 1}_${randomSuffix(2)}`;
+      transaction.set(db.collection('inventoryMovements').doc(movementId), {
+        id: movementId,
+        transferId,
+        workOrderId: item.workOrderId,
+        deviceId: item.deviceId || item.id,
+        imei: item.imei,
+        branchId: transfer.sourceBranchId,
+        movementType: 'TECH_ACCEPT',
+        fromLocationId: transfer.sourceLocationId,
+        toLocationId: transfer.destinationLocationId,
+        toCustodianUid: actor.uid,
+        performedByUid: actor.uid,
+        confirmedByUid: actor.uid,
+        occurredAt: now,
+        createdAt: now
+      });
+      const nextItem = nextItems.find((candidate: any) => candidate.imei === item.imei);
+      nextItem.itemStatus = 'IN_PROGRESS';
+      nextItem.acceptedAt = now;
+      acceptedCount += 1;
+    }
+    const allAccepted = nextItems.every((item: any) => item.itemStatus !== 'WAITING_KTV_ACCEPT');
+    const nextTransfer = { ...transfer, items: nextItems, status: allAccepted ? 'IN_PROGRESS' : 'WAITING_KTV_ACCEPT', updatedAt: now };
+    transaction.update(transferRef, { items: nextItems, status: nextTransfer.status, updatedAt: now });
+    transaction.set(idemRef, { scope: 'ACCEPT_TECHNICAL', transferId, acceptedCount, createdAt: now });
+    return { transferId, transfer: publicTransferRecord(nextTransfer), acceptedCount };
+  });
+}
+
+export async function processCancelTechnicalTransfer(db: Firestore, transferId: string, reason: string, actor: TransferActor) {
+  return db.runTransaction(async transaction => {
+    const transferRef = db.collection('transfers').doc(transferId);
+    const snap = await transaction.get(transferRef);
+    if (!snap.exists) throw new Error('TRANSFER_NOT_FOUND');
+    const transfer = snap.data()!;
+    if (transfer.transferType !== 'TECHNICAL') throw new Error('TRANSFER_TYPE_MISMATCH');
+    if (!canAccessBranch(actor, transfer.sourceBranchId)) throw new Error('BRANCH_FORBIDDEN');
+    if (transfer.status !== 'WAITING_KTV_ACCEPT' || (transfer.items || []).some((item: any) => item.itemStatus !== 'WAITING_KTV_ACCEPT')) {
+      throw new Error('TECH_TRANSFER_CANNOT_CANCEL_AFTER_ACCEPT: Máy đã được KTV nhận phải làm nghiệp vụ trả máy.');
+    }
+    const deviceSnaps: any[] = [];
+    for (const item of transfer.items || []) deviceSnaps.push(await transaction.get(db.collection('devices').doc(item.deviceId || item.id)));
+    const now = new Date().toISOString();
+    for (let index = 0; index < (transfer.items || []).length; index++) {
+      const item = transfer.items[index];
+      const deviceSnap = deviceSnaps[index];
+      if (deviceSnap.exists && deviceSnap.data()?.activeTransferId === transferId) {
+        transaction.update(deviceSnap.ref, {
+          status: 'in_stock',
+          activeTransferId: FieldValue.delete(),
+          activeWorkOrderId: FieldValue.delete(),
+          transferState: FieldValue.delete(),
+          technicianAssigned: FieldValue.delete(),
+          updatedAt: now
+        });
+      }
+      transaction.update(db.collection('technicalWorkOrders').doc(item.workOrderId), { status: 'CANCELLED', cancelledAt: now, cancelledByUid: actor.uid, updatedAt: now });
+      for (const task of item.tasks || []) {
+        transaction.update(db.collection('technicalWorkOrderLines').doc(task.lineId), { status: 'CANCELLED', updatedAt: now });
+        transaction.update(db.collection('commissionLedger').doc(task.commissionLedgerId), { status: 'CANCELLED', updatedAt: now });
+      }
+    }
+    const items = (transfer.items || []).map((item: any) => ({ ...item, itemStatus: 'CANCELLED' }));
+    const nextTransfer = { ...transfer, items, status: 'CANCELLED', cancelledAt: now, cancelledByUid: actor.uid, cancellationReason: reason || '', updatedAt: now };
+    transaction.update(transferRef, { items, status: 'CANCELLED', cancelledAt: now, cancelledByUid: actor.uid, cancellationReason: reason || '', updatedAt: now });
+    return { transferId, transfer: publicTransferRecord(nextTransfer) };
+  });
+}
+
+export async function processCreateInterBranchTransfer(
+  db: Firestore,
+  input: CreateInterBranchTransferInput,
+  actor: TransferActor
+): Promise<{ transferId: string; code: string; transfer: any; idempotentReplay?: boolean }> {
+  assertIdempotencyKey(input.idempotencyKey);
+  assertCanDispatch(actor, input.sourceBranchId);
+  if (!input.sourceBranchId || !input.destinationBranchId || input.sourceBranchId === input.destinationBranchId) {
+    throw new Error('BRANCH_PAIR_INVALID: Chi nhánh chuyển và nhận phải khác nhau.');
+  }
+  if (!input.sourceLocationId || !input.destinationLocationId) throw new Error('TRANSFER_LOCATIONS_REQUIRED');
+  if (!input.deviceIds?.length || input.deviceIds.length > 100) throw new Error('TRANSFER_ITEMS_INVALID: Phiếu cần từ 1 đến 100 máy.');
+  assertUnique(input.deviceIds, 'DUPLICATE_DEVICE');
+
+  const now = new Date().toISOString();
+  const transferId = `IBT_${Date.now()}_${randomSuffix()}`;
+  const code = `DC-${now.slice(0, 10).replace(/-/g, '')}-${randomSuffix(2)}`;
+  const stockIssueId = `ISSUE_${transferId}`;
+  const stockReceiptId = `RECEIPT_${transferId}`;
+  const ledgerId = `IBL_${transferId}`;
+  const idemRef = db.collection('inventoryTransferIdempotency').doc(idempotencyDocId('CREATE_INTER_BRANCH', input.idempotencyKey));
+
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) {
+      const existing = await transaction.get(db.collection('transfers').doc(idemSnap.data()!.transferId));
+      if (!existing.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      const transfer = existing.data()!;
+      return { transferId: transfer.id, code: transfer.code, transfer: publicTransferRecord(transfer), idempotentReplay: true };
+    }
+
+    const sourceBranchSnap = await transaction.get(db.collection('branches').doc(input.sourceBranchId));
+    const destinationBranchSnap = await transaction.get(db.collection('branches').doc(input.destinationBranchId));
+    const sourceLocationSnap = await transaction.get(db.collection('warehouses').doc(input.sourceLocationId));
+    const destinationLocationSnap = await transaction.get(db.collection('warehouses').doc(input.destinationLocationId));
+    if (!sourceLocationSnap.exists || !destinationLocationSnap.exists) throw new Error('LOCATION_NOT_FOUND');
+    const sourceLocation = sourceLocationSnap.data()!;
+    const destinationLocation = destinationLocationSnap.data()!;
+    if (locationBranchId(sourceLocation) && locationBranchId(sourceLocation) !== input.sourceBranchId) throw new Error('SOURCE_LOCATION_BRANCH_MISMATCH');
+    if (locationBranchId(destinationLocation) && locationBranchId(destinationLocation) !== input.destinationBranchId) throw new Error('DESTINATION_LOCATION_BRANCH_MISMATCH');
+    if (sourceLocation.isActive === false || destinationLocation.isActive === false) throw new Error('LOCATION_INACTIVE');
+
+    const deviceSnapshots: any[] = [];
+    for (const deviceId of input.deviceIds) {
+      const snap = await transaction.get(db.collection('devices').doc(deviceId));
+      if (!snap.exists) throw new Error(`DEVICE_NOT_FOUND: ${deviceId}`);
+      deviceSnapshots.push(snap);
+    }
+    const items: any[] = [];
+    for (const deviceSnap of deviceSnapshots) {
+      const device = deviceSnap.data()!;
+      assertDeviceUnlocked(device);
+      if (String(device.branchId || '') !== input.sourceBranchId) throw new Error(`DEVICE_BRANCH_MISMATCH: IMEI ${device.imei} không thuộc chi nhánh chuyển.`);
+      if (getCanonicalDeviceLocation(device) !== input.sourceLocationId) throw new Error(`DEVICE_LOCATION_MISMATCH: IMEI ${device.imei} không nằm trong kho xuất.`);
+      if (device.status !== 'in_stock') throw new Error(`DEVICE_NOT_EXPORTABLE: IMEI ${device.imei} đang ở trạng thái ${device.status}.`);
+      const cost = getDeviceCostSnapshot(device, now);
+      items.push({
+        type: 'device',
+        id: device.id || deviceSnap.id,
+        deviceId: device.id || deviceSnap.id,
+        imei: device.imei,
+        name: `${device.model || ''} ${device.storage || ''} ${device.color || ''}`.trim(),
+        model: device.model,
+        storage: device.storage,
+        color: device.color,
+        condition: device.condition,
+        quantity: 1,
+        costPrice: cost.costAtTransfer,
+        ...cost,
+        sourceBranchId: input.sourceBranchId,
+        destinationBranchId: input.destinationBranchId,
+        sourceLocationId: input.sourceLocationId,
+        destinationLocationId: input.destinationLocationId,
+        receiptStatus: 'PENDING'
+      });
+    }
+    const totalValue = items.reduce((sum, item) => sum + item.costAtTransfer, 0);
+    const sourceBranchName = sourceBranchSnap.exists ? sourceBranchSnap.data()!.name || input.sourceBranchId : input.sourceBranchId;
+    const destinationBranchName = destinationBranchSnap.exists ? destinationBranchSnap.data()!.name || input.destinationBranchId : input.destinationBranchId;
+    const transfer = {
+      id: transferId,
+      code,
+      transferType: 'INTER_BRANCH',
+      branchId: input.sourceBranchId,
+      sourceBranchId: input.sourceBranchId,
+      sourceBranchName,
+      destinationBranchId: input.destinationBranchId,
+      destinationBranchName,
+      sourceLocationId: input.sourceLocationId,
+      destinationLocationId: input.destinationLocationId,
+      fromWarehouse: input.sourceLocationId,
+      fromWarehouseName: sourceLocation.name || sourceLocation.shortName || input.sourceLocationId,
+      toWarehouse: input.destinationLocationId,
+      toWarehouseName: destinationLocation.name || destinationLocation.shortName || input.destinationLocationId,
+      createdDate: now,
+      createdAt: now,
+      updatedAt: now,
+      creator: actor.name || actor.uid,
+      createdByUid: actor.uid,
+      approvedBy: actor.name || actor.uid,
+      approvedByUid: actor.uid,
+      approvedAt: now,
+      status: 'IN_TRANSIT',
+      items,
+      totalQuantity: items.length,
+      totalValue,
+      provisionalLedgerAmount: totalValue,
+      postedLedgerAmount: 0,
+      expectedDeliveryAt: input.expectedDeliveryAt || null,
+      transporter: input.transporter || '',
+      notes: input.notes || '',
+      stockIssueId,
+      stockReceiptId,
+      interBranchLedgerEntryId: ledgerId,
+      idempotencyKey: input.idempotencyKey
+    };
+
+    transaction.set(db.collection('stockIssues').doc(stockIssueId), {
+      id: stockIssueId, transferId, code: `PX-${code}`, branchId: input.sourceBranchId, locationId: input.sourceLocationId,
+      status: 'POSTED', items, totalValue, createdByUid: actor.uid, postedAt: now, createdAt: now
+    });
+    transaction.set(db.collection('stockReceipts').doc(stockReceiptId), {
+      id: stockReceiptId, transferId, code: `PN-${code}`, branchId: input.destinationBranchId, locationId: input.destinationLocationId,
+      sourceBranchId: input.sourceBranchId, status: 'PENDING_RECEIPT', items, totalValue, createdAt: now, updatedAt: now
+    });
+    transaction.set(db.collection('interBranchLedger').doc(ledgerId), {
+      id: ledgerId, transferId, sourceBranchId: input.sourceBranchId, destinationBranchId: input.destinationBranchId,
+      currency: 'VND', provisionalAmount: totalValue, postedAmount: 0, status: 'PROVISIONAL',
+      sourceView: { account: 'INTER_BRANCH_RECEIVABLE', amount: totalValue },
+      destinationView: { account: 'INTER_BRANCH_PAYABLE', amount: totalValue },
+      createdAt: now, updatedAt: now
+    });
+    transaction.set(db.collection('transfers').doc(transferId), transfer);
+
+    for (let index = 0; index < deviceSnapshots.length; index++) {
+      const deviceSnap = deviceSnapshots[index];
+      const item = items[index];
+      transaction.update(deviceSnap.ref, {
+        status: 'in_transit',
+        currentLocationId: 'IN_TRANSIT',
+        warehouseId: 'IN_TRANSIT',
+        warehouse: 'IN_TRANSIT',
+        activeTransferId: transferId,
+        transferState: 'IN_TRANSIT',
+        updatedAt: now
+      });
+      const movementId = `MOV_${Date.now()}_${index + 1}_${randomSuffix(2)}`;
+      transaction.set(db.collection('inventoryMovements').doc(movementId), {
+        id: movementId, transferId, deviceId: item.deviceId, imei: item.imei, movementType: 'INTER_BRANCH_DISPATCH',
+        branchId: input.sourceBranchId, sourceBranchId: input.sourceBranchId, destinationBranchId: input.destinationBranchId,
+        fromLocationId: input.sourceLocationId, toLocationId: 'IN_TRANSIT', performedByUid: actor.uid,
+        costAtTransfer: item.costAtTransfer, costVersion: item.costVersion, occurredAt: now, createdAt: now
+      });
+    }
+    transaction.set(idemRef, { scope: 'CREATE_INTER_BRANCH', key: input.idempotencyKey, transferId, createdAt: now });
+    return { transferId, code, transfer: publicTransferRecord(transfer) };
+  });
+}
+
+export function deriveInterBranchStatus(items: any[]): 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'DISPUTED' | 'IN_TRANSIT' {
+  const statuses = items.map(item => item.receiptStatus || 'PENDING');
+  const receivedCount = statuses.filter(status => status === 'RECEIVED' || status === 'DAMAGED').length;
+  const hasDispute = statuses.some(status => ['MISSING', 'WRONG_DEVICE', 'DAMAGED'].includes(status));
+  if (hasDispute) return 'DISPUTED';
+  if (receivedCount === statuses.length && statuses.length > 0) return 'RECEIVED';
+  if (receivedCount > 0) return 'PARTIALLY_RECEIVED';
+  return 'IN_TRANSIT';
+}
+
+export async function processReceiveInterBranchTransfer(
+  db: Firestore,
+  transferId: string,
+  input: InterBranchReceiptInput,
+  actor: TransferActor
+): Promise<{ transferId: string; transfer: any; postedAmount: number; idempotentReplay?: boolean }> {
+  assertIdempotencyKey(input.idempotencyKey);
+  if (!input.results?.length) throw new Error('RECEIPT_RESULTS_REQUIRED');
+  assertUnique(input.results.map(result => result.imei), 'DUPLICATE_RECEIPT_IMEI');
+  const idemRef = db.collection('inventoryTransferIdempotency').doc(idempotencyDocId(`RECEIVE_INTER_BRANCH_${transferId}`, input.idempotencyKey));
+
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    const transferRef = db.collection('transfers').doc(transferId);
+    const transferSnap = await transaction.get(transferRef);
+    if (!transferSnap.exists) throw new Error('TRANSFER_NOT_FOUND');
+    const transfer = transferSnap.data()!;
+    if (idemSnap.exists) return { transferId, transfer: publicTransferRecord(transfer), postedAmount: Number(transfer.postedLedgerAmount || 0), idempotentReplay: true };
+    if (transfer.transferType !== 'INTER_BRANCH') throw new Error('TRANSFER_TYPE_MISMATCH');
+    if (!['IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED'].includes(transfer.status)) throw new Error(`INVALID_TRANSFER_STATUS: ${transfer.status}`);
+    if (!canAccessBranch(actor, transfer.destinationBranchId)) throw new Error('DESTINATION_BRANCH_FORBIDDEN');
+    const itemMap = new Map((transfer.items || []).map((item: any) => [String(item.imei), item]));
+    input.results.forEach(result => {
+      const item: any = itemMap.get(String(result.imei));
+      if (!item) throw new Error(`IMEI_NOT_IN_TRANSFER: ${result.imei}`);
+      if (['RECEIVED', 'DAMAGED'].includes(item.receiptStatus)) throw new Error(`IMEI_ALREADY_RECEIVED: ${result.imei}`);
+      if (['RECEIVED', 'DAMAGED'].includes(result.result) && String(result.scannedImei || '') !== String(result.imei)) throw new Error(`SCANNED_IMEI_MISMATCH: ${result.imei}`);
+      if (result.result === 'WRONG_DEVICE' && (!result.scannedImei || result.scannedImei === result.imei)) throw new Error(`WRONG_DEVICE_SCAN_REQUIRED: ${result.imei}`);
+    });
+
+    const ledgerRef = db.collection('interBranchLedger').doc(transfer.interBranchLedgerEntryId);
+    const receiptRef = db.collection('stockReceipts').doc(transfer.stockReceiptId);
+    const ledgerSnap = await transaction.get(ledgerRef);
+    const receiptSnap = await transaction.get(receiptRef);
+    if (!ledgerSnap.exists || !receiptSnap.exists) throw new Error('TRANSFER_ACCOUNTING_DOCUMENTS_MISSING');
+    const deviceSnaps: any[] = [];
+    for (const result of input.results) {
+      const item: any = itemMap.get(String(result.imei));
+      deviceSnaps.push(await transaction.get(db.collection('devices').doc(item.deviceId || item.id)));
+    }
+
+    const now = new Date().toISOString();
+    const resultMap = new Map(input.results.map(result => [result.imei, result]));
+    const nextItems = (transfer.items || []).map((item: any) => {
+      const result = resultMap.get(item.imei);
+      return result ? { ...item, receiptStatus: result.result, scannedImei: result.scannedImei || '', receiptNotes: result.notes || '', receivedAt: ['RECEIVED', 'DAMAGED'].includes(result.result) ? now : undefined } : { ...item };
+    });
+    for (let index = 0; index < input.results.length; index++) {
+      const result = input.results[index];
+      if (!['RECEIVED', 'DAMAGED'].includes(result.result)) continue;
+      const item: any = itemMap.get(result.imei);
+      const deviceSnap = deviceSnaps[index];
+      if (!deviceSnap.exists || deviceSnap.data()?.activeTransferId !== transferId) throw new Error(`DEVICE_LOCK_MISMATCH: ${result.imei}`);
+      transaction.update(deviceSnap.ref, {
+        branchId: transfer.destinationBranchId,
+        currentLocationId: transfer.destinationLocationId,
+        warehouseId: transfer.destinationLocationId,
+        warehouse: transfer.destinationLocationId,
+        status: result.result === 'DAMAGED' ? 'repairing' : 'in_stock',
+        activeTransferId: FieldValue.delete(),
+        transferState: result.result === 'DAMAGED' ? 'TRANSPORT_DAMAGED' : FieldValue.delete(),
+        receivedTransferId: transferId,
+        receivedAt: now,
+        updatedAt: now
+      });
+      const movementId = `MOV_${Date.now()}_${index + 1}_${randomSuffix(2)}`;
+      transaction.set(db.collection('inventoryMovements').doc(movementId), {
+        id: movementId, transferId, deviceId: item.deviceId || item.id, imei: item.imei,
+        movementType: result.result === 'DAMAGED' ? 'INTER_BRANCH_RECEIPT_DAMAGED' : 'INTER_BRANCH_RECEIPT',
+        sourceBranchId: transfer.sourceBranchId, destinationBranchId: transfer.destinationBranchId,
+        branchId: transfer.destinationBranchId, fromLocationId: 'IN_TRANSIT', toLocationId: transfer.destinationLocationId,
+        performedByUid: actor.uid, confirmedByUid: actor.uid, costAtTransfer: item.costAtTransfer,
+        occurredAt: now, createdAt: now
+      });
+    }
+
+    const postedAmount = nextItems
+      .filter((item: any) => ['RECEIVED', 'DAMAGED'].includes(item.receiptStatus))
+      .reduce((sum: number, item: any) => sum + Number(item.costAtTransfer || 0), 0);
+    const nextStatus = deriveInterBranchStatus(nextItems);
+    const ledgerStatus = postedAmount > 0 ? 'POSTED' : nextItems.every((item: any) => item.receiptStatus !== 'PENDING') ? 'VOID' : 'PROVISIONAL';
+    const nextTransfer = { ...transfer, items: nextItems, status: nextStatus, postedLedgerAmount: postedAmount, receivedDate: now, receiver: actor.name || actor.uid, updatedAt: now };
+    transaction.update(transferRef, { items: nextItems, status: nextStatus, postedLedgerAmount: postedAmount, receivedDate: now, receiver: actor.name || actor.uid, updatedAt: now });
+    transaction.update(receiptRef, { items: nextItems, status: nextStatus === 'RECEIVED' ? 'RECEIVED' : nextStatus, receivedByUid: actor.uid, receivedAt: now, updatedAt: now });
+    transaction.update(ledgerRef, {
+      status: ledgerStatus,
+      postedAmount,
+      sourceView: { account: 'INTER_BRANCH_RECEIVABLE', amount: postedAmount },
+      destinationView: { account: 'INTER_BRANCH_PAYABLE', amount: postedAmount },
+      postedAt: postedAmount > 0 ? now : null,
+      updatedAt: now
+    });
+    transaction.set(idemRef, { scope: 'RECEIVE_INTER_BRANCH', transferId, postedAmount, createdAt: now });
+    return { transferId, transfer: publicTransferRecord(nextTransfer), postedAmount };
+  });
+}
+
+export async function processCompleteInterBranchTransfer(db: Firestore, transferId: string, actor: TransferActor) {
+  return db.runTransaction(async transaction => {
+    const transferRef = db.collection('transfers').doc(transferId);
+    const transferSnap = await transaction.get(transferRef);
+    if (!transferSnap.exists) throw new Error('TRANSFER_NOT_FOUND');
+    const transfer = transferSnap.data()!;
+    if (!canAccessBranch(actor, transfer.destinationBranchId)) throw new Error('DESTINATION_BRANCH_FORBIDDEN');
+    if (transfer.status !== 'RECEIVED' || !(transfer.items || []).every((item: any) => item.receiptStatus === 'RECEIVED')) {
+      throw new Error('TRANSFER_NOT_READY_TO_COMPLETE: Chỉ hoàn tất khi toàn bộ IMEI đã nhận đúng và không có tranh chấp.');
+    }
+    const ledgerRef = db.collection('interBranchLedger').doc(transfer.interBranchLedgerEntryId);
+    const ledgerSnap = await transaction.get(ledgerRef);
+    if (!ledgerSnap.exists || ledgerSnap.data()?.status !== 'POSTED' || Number(ledgerSnap.data()?.postedAmount) !== Number(transfer.totalValue)) {
+      throw new Error('LEDGER_NOT_BALANCED');
+    }
+    const now = new Date().toISOString();
+    const nextTransfer = { ...transfer, status: 'COMPLETED', completedAt: now, completedByUid: actor.uid, updatedAt: now };
+    transaction.update(transferRef, { status: 'COMPLETED', completedAt: now, completedByUid: actor.uid, updatedAt: now });
+    return { transferId, transfer: publicTransferRecord(nextTransfer) };
+  });
+}

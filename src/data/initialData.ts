@@ -391,11 +391,50 @@ export const REPAIR_SERVICES_PRICELIST: RepairServiceItem[] = [
 
 export const INITIAL_TRANSFERS: StockTransferSlip[] = [];
 
-export const INITIAL_BRANCHES: StoreBranch[] = [];
+export const INITIAL_BRANCHES: StoreBranch[] = [
+  {
+    id: 'CN_TONG',
+    code: 'CN-TONG',
+    name: 'Chi nhánh Tổng',
+    address: 'Tổng Kho Phân Phối Trung Tâm, Hà Nội',
+    phone: '0988.999.888',
+    manager: 'Giám Đốc Kho',
+    openingHours: '08:00 - 18:00',
+    warehouseId: 'KHO_TONG',
+    systemType: 'TONG',
+    isActive: true,
+    isHeadquarter: true
+  },
+  {
+    id: 'CN_PHONEHOUSE',
+    code: 'CN-PH',
+    name: 'PhoneHouse Cầu Giấy',
+    address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, Hà Nội',
+    phone: '0977.111.222',
+    manager: 'Cửa Hàng Trưởng Cầu Giấy',
+    openingHours: '08:30 - 21:30',
+    warehouseId: 'KHO_PHONEHOUSE',
+    systemType: 'PHONEHOUSE',
+    isActive: true
+  },
+  {
+    id: 'CN_XSTORE',
+    code: 'CN-XS',
+    name: 'Xstore Trần Duy Hưng',
+    address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, Hà Nội',
+    phone: '0966.333.444',
+    manager: 'Quản Lý Chi Nhánh',
+    openingHours: '08:30 - 21:30',
+    warehouseId: 'KHO_XSTORE',
+    systemType: 'XSTORE',
+    isActive: true
+  }
+];
 
 export const INITIAL_WAREHOUSES: WarehouseInfo[] = [
   {
     id: 'KHO_TONG',
+    branchId: 'CN_TONG',
     name: 'Tổng Kho Trung Tâm (Central Hub)',
     shortName: 'Kho Tổng',
     code: 'KT-01',
@@ -411,7 +450,62 @@ export const INITIAL_WAREHOUSES: WarehouseInfo[] = [
     isActive: true
   },
   {
+    id: 'KHO_KTV_NAM',
+    branchId: 'CN_TONG',
+    name: 'Kho KTV Nam (Kỹ Thuật Phần Cứng)',
+    shortName: 'Kho KTV Nam',
+    code: 'KTV-NAM',
+    address: 'Bàn Kỹ Thuật 01 - Trạm Kỹ Thuật Tổng',
+    manager: 'KTV Nam',
+    phone: '0912.345.678',
+    color: 'from-orange-500 to-orange-600',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'TECHNICIAN_SUB',
+    parentWarehouseId: 'KHO_TONG',
+    technicianId: 'STAFF_003',
+    technicianName: 'Lê Hoàng Nam',
+    isActive: true
+  },
+  {
+    id: 'KHO_KTV_TRONG',
+    branchId: 'CN_TONG',
+    name: 'Kho KTV Trọng (Ép Kính & Màn Hình)',
+    shortName: 'Kho KTV Trọng',
+    code: 'KTV-TRONG',
+    address: 'Bàn Kỹ Thuật 02 - Trạm Kỹ Thuật Tổng',
+    manager: 'KTV Trọng',
+    phone: '0912.888.999',
+    color: 'from-orange-500 to-orange-600',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'TECHNICIAN_SUB',
+    parentWarehouseId: 'KHO_TONG',
+    technicianId: 'STAFF_004',
+    technicianName: 'Phạm Văn Trọng',
+    isActive: true
+  },
+  {
+    id: 'KHO_KTV_DUONG',
+    branchId: 'CN_TONG',
+    name: 'Kho KTV Dương (Thay Pin & Test KCS)',
+    shortName: 'Kho KTV Dương',
+    code: 'KTV-DUONG',
+    address: 'Bàn Kỹ Thuật 03 - Trạm Kỹ Thuật Tổng',
+    manager: 'KTV Dương',
+    phone: '0912.555.444',
+    color: 'from-orange-500 to-orange-600',
+    systemType: 'TONG',
+    systemName: 'Tổng Hệ Thống (Central)',
+    type: 'TECHNICIAN_SUB',
+    parentWarehouseId: 'KHO_TONG',
+    technicianId: 'STAFF_005',
+    technicianName: 'Hoàng Minh Dương',
+    isActive: true
+  },
+  {
     id: 'KHO_PHONEHOUSE',
+    branchId: 'CN_PHONEHOUSE',
     name: 'Kho PhoneHouse (Cầu Giấy)',
     shortName: 'Kho Cầu Giấy',
     code: 'KPH-01',
@@ -427,6 +521,7 @@ export const INITIAL_WAREHOUSES: WarehouseInfo[] = [
   },
   {
     id: 'KHO_XSTORE',
+    branchId: 'CN_XSTORE',
     name: 'Kho Trần Duy Hưng',
     shortName: 'Kho TDH',
     code: 'KXS-02',

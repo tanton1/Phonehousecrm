@@ -4,6 +4,8 @@ export type WarehouseId = 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE' | 'KHO_KT
 
 export interface WarehouseInfo {
   id: WarehouseId;
+  /** Chi nhánh sở hữu hàng tại location này. Kho KTV dùng cùng branchId với Kho Tổng. */
+  branchId?: string;
   name: string;
   shortName: string;
   code: string;
@@ -74,6 +76,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
   // 1. HỆ THỐNG TỔNG (CENTRAL HEADQUARTERS)
   {
     id: 'KHO_TONG',
+    branchId: 'CN_TONG',
     name: 'Tổng Kho Trung Tâm (Central Hub)',
     shortName: 'Kho Tổng',
     code: 'KT-01',
@@ -89,6 +92,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
   },
   {
     id: 'KHO_KT_TONG',
+    branchId: 'CN_TONG',
     name: 'Kho Kỹ Thuật Tổng (Lab & KCS)',
     shortName: 'Kho KT Tổng',
     code: 'KT-LAB-01',
@@ -105,6 +109,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
   },
   {
     id: 'KHO_KTV_NAM',
+    branchId: 'CN_TONG',
     name: 'Kho KTV Nam (Kỹ Thuật Phần Cứng)',
     shortName: 'Kho KTV Nam',
     code: 'KTV-NAM',
@@ -122,6 +127,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
   },
   {
     id: 'KHO_KTV_TRONG',
+    branchId: 'CN_TONG',
     name: 'Kho KTV Trọng (Ép Kính & Màn Hình)',
     shortName: 'Kho KTV Trọng',
     code: 'KTV-TRONG',
@@ -139,6 +145,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
   },
   {
     id: 'KHO_KTV_DUONG',
+    branchId: 'CN_TONG',
     name: 'Kho KTV Dương (Thay Pin & Test KCS)',
     shortName: 'Kho KTV Dương',
     code: 'KTV-DUONG',
@@ -158,6 +165,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
   // 2. HỆ THỐNG PHONEHOUSE (RETAIL CHAIN)
   {
     id: 'KHO_PHONEHOUSE',
+    branchId: 'CN_PHONEHOUSE',
     name: 'Kho PhoneHouse (Cầu Giấy)',
     shortName: 'Kho PhoneHouse CG',
     code: 'KPH-02',
@@ -174,6 +182,7 @@ export const WAREHOUSE_LIST: WarehouseInfo[] = [
   // 3. HỆ THỐNG XSTORE (PREMIUM STORE)
   {
     id: 'KHO_XSTORE',
+    branchId: 'CN_XSTORE',
     name: 'Kho Xstore (Trần Duy Hưng)',
     shortName: 'Kho Xstore TDH',
     code: 'KXS-03',
@@ -199,6 +208,76 @@ export interface StockTransferItem {
   condition?: string;
   quantity: number;
   costPrice: number;
+  deviceId?: string;
+  sourceBranchId?: string;
+  destinationBranchId?: string;
+  sourceLocationId?: WarehouseId | string;
+  destinationLocationId?: WarehouseId | string;
+  costAtTransfer?: number;
+  costVersion?: string;
+  costCalculatedAt?: string;
+  receiptStatus?: TransferReceiptItemStatus;
+  scannedImei?: string;
+  workOrderId?: string;
+  itemStatus?: TechnicalTransferItemStatus;
+  acceptedAt?: string;
+  returnedAt?: string;
+  tasks?: TechnicalTransferTaskSnapshot[];
+}
+
+export type StockTransferType = 'TECHNICAL' | 'INTER_BRANCH';
+export type TechnicalPriority = 'NORMAL' | 'PRIORITY' | 'URGENT';
+export type TechnicalTransferItemStatus =
+  | 'WAITING_KTV_ACCEPT'
+  | 'IN_PROGRESS'
+  | 'WAITING_QC'
+  | 'QC_FAILED'
+  | 'QC_PASSED'
+  | 'RETURNED_TO_MAIN_WAREHOUSE'
+  | 'CANCELLED';
+export type TransferReceiptItemStatus = 'PENDING' | 'RECEIVED' | 'MISSING' | 'WRONG_DEVICE' | 'DAMAGED';
+export type StockTransferStatus =
+  | 'DRAFT'
+  | 'APPROVED'
+  | 'WAITING_KTV_ACCEPT'
+  | 'IN_PROGRESS'
+  | 'WAITING_QC'
+  | 'QC_FAILED'
+  | 'RETURNED_TO_MAIN_WAREHOUSE'
+  | 'IN_TRANSIT'
+  | 'PARTIALLY_RECEIVED'
+  | 'RECEIVED'
+  | 'DISPUTED'
+  | 'COMPLETED'
+  | 'CANCELLED';
+
+export interface TechnicalTaskTypeConfig {
+  id: string;
+  taskType: string;
+  name: string;
+  taskCode: string;
+  baseCommission: number;
+  normalSlaHours: number;
+  prioritySlaHours?: number;
+  urgentSlaHours: number;
+  priorityMultiplier: Record<TechnicalPriority, number>;
+  requiresQc: boolean;
+  isActive: boolean;
+  version: string;
+}
+
+export interface TechnicalTransferTaskSnapshot {
+  taskType: string;
+  taskCode: string;
+  taskName: string;
+  priority: TechnicalPriority;
+  commissionAmount: number;
+  slaHours: number;
+  deadlineAt: string;
+  requiresQc: boolean;
+  configVersion: string;
+  lineId?: string;
+  commissionLedgerId?: string;
 }
 
 export interface StockTransferSlip {
@@ -211,13 +290,35 @@ export interface StockTransferSlip {
   createdDate: string;
   creator: string;
   transporter?: string;
-  status: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'CANCELLED';
+  status: StockTransferStatus | 'PENDING';
   items: StockTransferItem[];
   totalQuantity: number;
   totalValue: number;
   notes?: string;
   receivedDate?: string;
   receiver?: string;
+  transferType?: StockTransferType;
+  branchId?: string;
+  sourceBranchId?: string;
+  sourceBranchName?: string;
+  destinationBranchId?: string;
+  destinationBranchName?: string;
+  sourceLocationId?: WarehouseId | string;
+  destinationLocationId?: WarehouseId | string;
+  approvedBy?: string;
+  approvedAt?: string;
+  expectedDeliveryAt?: string;
+  nearestDeadlineAt?: string;
+  totalTasks?: number;
+  totalEstimatedCommission?: number;
+  idempotencyKey?: string;
+  stockIssueId?: string;
+  stockReceiptId?: string;
+  interBranchLedgerEntryId?: string;
+  provisionalLedgerAmount?: number;
+  postedLedgerAmount?: number;
+  handoverImageUrls?: string[];
+  updatedAt?: string;
 }
 
 // ==========================================
@@ -366,10 +467,14 @@ export interface DeviceItem {
   condition: 'New Seal' | 'Like New 99%' | '98% Cấn Nhẹ' | '95% Trầy Xước' | 'Hàng Cũ Trưng Bày';
   buyPrice: number;
   sellPrice: number;
-  status: 'in_stock' | 'reserved' | 'sold' | 'warranty' | 'repairing';
+  status: 'in_stock' | 'reserved' | 'sold' | 'warranty' | 'repairing' | 'in_repair' | 'in_transit' | 'awaiting_technical';
   supplier: string;
   warehouse?: WarehouseId | string; // 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE'
+  /** Canonical physical location. `warehouse`/`warehouseId` are retained for legacy records. */
+  currentLocationId?: WarehouseId | string;
+  warehouseId?: WarehouseId | string;
   branch?: string;
+  branchName?: string;
   receivedDate: string;
   soldDate?: string;
   customerName?: string;
@@ -388,6 +493,12 @@ export interface DeviceItem {
   reservedUntil?: string; // Thời hạn giữ máy (ISO)
   reservedByStaffId?: string; // Nhân viên sale giữ máy
   history?: DeviceHistoryLog[]; // Danh sách sự kiện lịch sử (Timeline)
+  currentCost?: number;
+  costVersion?: string;
+  costCalculatedAt?: string;
+  activeTransferId?: string;
+  activeWorkOrderId?: string;
+  transferState?: string;
 }
 
 export type CustomerVIPTier = 'REGULAR' | 'SILVER' | 'GOLD' | 'DIAMOND';
