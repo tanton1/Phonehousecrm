@@ -23,9 +23,10 @@ function getServiceAccountCredential() {
 
 if (getApps().length === 0) {
   try {
+    const serviceAccountCredential = getServiceAccountCredential();
     adminApp = initializeApp({
       projectId: firebaseConfig.projectId,
-      credential: getServiceAccountCredential()
+      ...(serviceAccountCredential ? { credential: serviceAccountCredential } : {})
     });
   } catch (error) {
     console.warn('[Firebase Admin] Initializing with default app:', error);
