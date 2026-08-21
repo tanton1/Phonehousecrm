@@ -31,8 +31,7 @@ import {
   Bot,
   Mic,
   Archive,
-  RotateCcw,
-  ChevronDown
+  RotateCcw
 } from 'lucide-react';
 import { 
   StoreBranch, 
@@ -49,6 +48,7 @@ import {
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
 import { apiJson } from '../services/apiClient';
+import { isWarehouseActive, isWarehouseArchived } from '../utils/warehouseLifecycle';
 
 export interface StoreSettingsViewProps {
   branches: StoreBranch[];
@@ -434,8 +434,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     }
   };
 
-  const activeWarehouses = warehouses.filter(w => w.isActive !== false);
-  const archivedWarehouses = warehouses.filter(w => w.isActive === false);
+  const activeWarehouses = warehouses.filter(isWarehouseActive);
+  const archivedWarehouses = warehouses.filter(isWarehouseArchived);
   const filteredWarehouses = activeWarehouses.filter(w => {
     if (warehouseBranchFilter === 'ALL') return true;
     return w.branchId === warehouseBranchFilter;
@@ -562,7 +562,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {branches.map((branch) => {
-              const branchWarehouses = warehouses.filter(w => w.branchId === branch.id && w.isActive !== false);
+              const branchWarehouses = warehouses.filter(w => w.branchId === branch.id && isWarehouseActive(w));
               return (
                 <div 
                   key={branch.id} 
@@ -746,8 +746,25 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </button>
           </div>
 
+          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-white p-2 text-xs font-black">
+            <button
+              type="button"
+              onClick={() => setShowArchivedWarehouses(false)}
+              className={`rounded-xl px-3 py-2.5 transition-colors ${!showArchivedWarehouses ? 'bg-zinc-900 text-white' : 'bg-zinc-50 text-zinc-600 hover:bg-zinc-100'}`}
+            >
+              Kho đang hoạt động ({activeWarehouses.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowArchivedWarehouses(true)}
+              className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 transition-colors ${showArchivedWarehouses ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}
+            >
+              <Archive className="h-4 w-4" /> Kho đã ẩn ({archivedWarehouses.length})
+            </button>
+          </div>
+
           {/* Branch Filter Pills */}
-          <div className="flex flex-wrap gap-2 items-center bg-white p-2.5 rounded-2xl border border-zinc-200 text-xs font-bold">
+          <div className={`${showArchivedWarehouses ? 'hidden' : 'flex'} flex-wrap gap-2 items-center bg-white p-2.5 rounded-2xl border border-zinc-200 text-xs font-bold`}>
             <span className="text-zinc-400 px-2 uppercase text-[11px] tracking-wider">Lọc theo chi nhánh:</span>
             <button
               onClick={() => setWarehouseBranchFilter('ALL')}
@@ -775,7 +792,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             ))}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className={`${showArchivedWarehouses ? 'hidden' : 'grid'} grid-cols-1 md:grid-cols-3 gap-4`}>
             {filteredWarehouses.length === 0 && (
               <div className="col-span-full rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center text-sm text-zinc-500">
                 Chi nhánh đang chọn chưa có kho hoạt động.
@@ -842,7 +859,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                               const messages: Record<string, string> = {
                                 WAREHOUSE_HAS_DEVICES: 'Kho vẫn còn máy/IMEI. Hãy chuyển hết tồn kho trước khi xóa.',
                                 WAREHOUSE_HAS_CHILDREN: 'Kho đang có kho con. Hãy chuyển hoặc xóa các kho con trước.',
-                                WAREHOUSE_HAS_OPEN_TRANSFERS: 'Kho còn phiếu chuyển hàng đang mở. Hãy hoàn tất hoặc hủy phiếu trước.'
+                                WAREHOUSE_HAS_OPEN_TRANSFERS: 'Kho còn phiếu chuyển hàng đang mở. Hãy hoàn tất hoặc hủy phiếu trước.',
+                                WAREHOUSE_HAS_PURCHASE_ORDERS: 'Kho đã có phiếu nhập liên kết nên không thể xóa/ẩn như kho chưa phát sinh.'
                               };
                               showToast(messages[error?.message] || error?.message || 'Không thể xóa kho', 'error');
                             }
@@ -933,17 +951,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             })}
           </div>
 
-          {archivedWarehouses.length > 0 && (
+          {showArchivedWarehouses && (
             <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-              <button
-                type="button"
-                onClick={() => setShowArchivedWarehouses(value => !value)}
-                className="flex w-full items-center justify-between p-4 text-left hover:bg-zinc-50"
-              >
+              <div className="flex w-full items-center justify-between p-4 text-left">
                 <span className="flex items-center gap-2 font-black text-zinc-800"><Archive className="h-4 w-4" /> Kho đã lưu trữ ({archivedWarehouses.length})</span>
-                <ChevronDown className={`h-4 w-4 text-zinc-500 transition-transform ${showArchivedWarehouses ? 'rotate-180' : ''}`} />
-              </button>
-              {showArchivedWarehouses && (
+              </div>
+              {archivedWarehouses.length > 0 ? (
                 <div className="grid gap-3 border-t border-zinc-200 bg-zinc-50 p-4 md:grid-cols-2 xl:grid-cols-3">
                   {archivedWarehouses.map(warehouse => {
                     const branch = branches.find(item => item.id === warehouse.branchId);
@@ -972,6 +985,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     </div>;
                   })}
                 </div>
+              ) : (
+                <div className="border-t border-zinc-200 bg-zinc-50 p-8 text-center text-sm text-zinc-500">Chưa có kho nào bị ẩn.</div>
               )}
             </section>
           )}
@@ -1764,7 +1779,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-medium"
                     >
                       <option value="">Chọn kho tổng cùng chi nhánh</option>
-                      {warehouses.filter(w => w.isMain && w.isActive !== false && w.branchId === warehouseForm.branchId && w.id !== warehouseForm.id).map(w => (
+                      {warehouses.filter(w => w.isMain && isWarehouseActive(w) && w.branchId === warehouseForm.branchId && w.id !== warehouseForm.id).map(w => (
                         <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
                       ))}
                     </select>

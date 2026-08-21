@@ -9,6 +9,7 @@ import {
   DeviceItem, Partner, StoreBranch, WarehouseInfo, FundAccount, PurchaseOrder, MasterCatalogItem, UserAccount
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
+import { isWarehouseActive } from '../utils/warehouseLifecycle';
 
 interface UniformEntryFormProps {
   isOpen: boolean;
@@ -19,7 +20,7 @@ interface UniformEntryFormProps {
   funds?: FundAccount[];
   catalogItems?: MasterCatalogItem[];
   currentUser?: UserAccount | null;
-  onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void;
+  onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void | Promise<void>;
   onAddPartner?: (partner: Partner) => void | Promise<void>;
   onAddDevice?: () => void;
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
@@ -36,6 +37,7 @@ interface FormItem {
 
 interface FormValues {
   branchId: string;
+  warehouseId: string;
   supplierId: string;
   items: FormItem[];
   paymentMethod: 'BANK' | 'CASH' | 'DEBT';
@@ -61,10 +63,12 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogSeriesFilter, setCatalogSeriesFilter] = useState('ALL');
   const [activeSearchRowIndex, setActiveSearchRowIndex] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
       branchId: defaultBranchId,
+      warehouseId: '',
       supplierId: '',
       items: [{ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 }],
       paymentMethod: 'BANK',
@@ -81,7 +85,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const watchPaymentMethod = useWatch({ control, name: "paymentMethod" });
   const watchAmountPaid = useWatch({ control, name: "amountPaid" });
   const watchBranchId = useWatch({ control, name: "branchId" });
+  const watchWarehouseId = useWatch({ control, name: "warehouseId" });
   const [selectedFundId, setSelectedFundId] = useState<string>('');
+  const suppliers = useMemo(() => partners.filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH'), [partners]);
+  const branchWarehouses = useMemo(
+    () => warehouses.filter(warehouse => warehouse.branchId === watchBranchId && isWarehouseActive(warehouse)),
+    [warehouses, watchBranchId]
+  );
   
   useEffect(() => {
     const matchingFunds = funds.filter(f => f.type === watchPaymentMethod && f.branchId === watchBranchId && f.isArchived !== true && f.isActive !== false);
@@ -95,19 +105,25 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   }, [watchPaymentMethod, watchBranchId, funds]);
 
   useEffect(() => {
+    const selectedIsValid = branchWarehouses.some(warehouse => warehouse.id === watchWarehouseId);
+    if (!selectedIsValid) setValue('warehouseId', branchWarehouses[0]?.id || '');
+  }, [branchWarehouses, watchWarehouseId, setValue]);
+
+  useEffect(() => {
     if (isOpen) {
       reset({
         branchId: defaultBranchId,
+        warehouseId: warehouses.find(warehouse => warehouse.branchId === defaultBranchId && isWarehouseActive(warehouse))?.id || '',
         supplierId: suppliers[0]?.id || '',
         items: [{ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 }],
         paymentMethod: 'BANK',
         amountPaid: 0
       });
       setMobileTab('ITEMS');
+      setSelectedFundId('');
+      setIsSubmitting(false);
     }
-  }, [isOpen, reset, defaultBranchId]);
-
-  const suppliers = useMemo(() => partners.filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH'), [partners]);
+  }, [isOpen, reset, defaultBranchId, warehouses, suppliers]);
 
   const totalAmount = useMemo(() => {
     if (!Array.isArray(watchItems)) return 0;
@@ -175,7 +191,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     setActiveSearchRowIndex(null);
   };
 
-  const onSubmit = (data: FormValues) => {
+  const onSubmit = async (data: FormValues) => {
     if (totalQuantity === 0) {
       alert('Vui lòng nhập ít nhất 1 IMEI hợp lệ!');
       return;
@@ -207,15 +223,25 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       return;
     }
 
-    const targetBranch = branches.find(b => b.id === data.branchId) || (branches.length > 0 ? branches[0] : null);
-    const targetWarehouseId = targetBranch?.warehouseId || (warehouses.length > 0 ? warehouses[0]?.id : 'KHO_TONG');
-    const targetWarehouseName = warehouses.find(w => w.id === targetWarehouseId)?.name || targetBranch?.name || 'Kho Tổng';
+    const targetBranch = branches.find(b => b.id === data.branchId);
+    if (!targetBranch) {
+      alert('Vui lòng chọn đúng chi nhánh nhập hàng.');
+      return;
+    }
+    const targetWarehouse = warehouses.find(w => w.id === data.warehouseId && w.branchId === targetBranch.id && isWarehouseActive(w));
+    if (!targetWarehouse) {
+      alert('Vui lòng chọn một kho đang hoạt động thuộc đúng chi nhánh nhập hàng. Hệ thống không tự chọn kho toàn hệ thống.');
+      return;
+    }
 
     const debtAmount = remainingDebtAmount;
 
     if (onAddPurchaseOrder) {
-      const fund = (selectedFundId ? funds.find(f => f.id === selectedFundId) : null) || 
-                   funds.find(f => f.type === data.paymentMethod) || null;
+      const fund = selectedFundId ? funds.find(f => f.id === selectedFundId && f.branchId === targetBranch.id && f.type === data.paymentMethod && f.isArchived !== true && f.isActive !== false) : null;
+      if (actualPaidAmount > 0 && !fund) {
+        alert(`Chi nhánh "${targetBranch.name}" chưa có ${data.paymentMethod === 'CASH' ? 'quỹ tiền mặt' : 'tài khoản ngân hàng'} phù hợp. Phiếu chưa được tạo.`);
+        return;
+      }
       
       const orderItems = data.items.map((item, idx) => {
         const catalogItem = catalogItems.find(c => c.id === item.catalogItemId);
@@ -249,9 +275,10 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         supplierId: supplier.id,
         supplierName: supplier.name,
         supplierPhone: supplier.phone,
-        branchId: targetBranch?.id || data.branchId || 'CN01',
-        warehouseId: targetWarehouseId,
-        warehouseName: targetWarehouseName,
+        branchId: targetBranch.id,
+        branchName: targetBranch.name,
+        warehouseId: targetWarehouse.id,
+        warehouseName: targetWarehouse.name,
         orderDate: new Date().toISOString().split('T')[0],
         creatorName: currentUser ? currentUser.displayName : 'Hệ thống',
         status: 'COMPLETED',
@@ -266,10 +293,16 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         totalQuantity: totalValidQuantity
       };
       
-      onAddPurchaseOrder(purchaseOrder, true);
+      try {
+        setIsSubmitting(true);
+        await onAddPurchaseOrder(purchaseOrder, true);
+        onClose();
+      } catch (error: any) {
+        alert(error?.message || 'Không thể tạo phiếu nhập. Không có dữ liệu nào được ghi.');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
-    
-    onClose();
   };
 
   if (!isOpen) return null;
@@ -589,6 +622,22 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           </div>
 
           <div className="space-y-1 shrink-0">
+            <label className="block text-xs font-semibold text-zinc-700">Kho Nhận Hàng <span className="text-rose-600">*</span></label>
+            <select
+              {...register("warehouseId", { required: "Vui lòng chọn kho nhận hàng" })}
+              className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+            >
+              <option value="">-- Chọn kho thuộc chi nhánh --</option>
+              {branchWarehouses.map(warehouse => (
+                <option key={warehouse.id} value={warehouse.id}>{warehouse.name} ({warehouse.code})</option>
+              ))}
+            </select>
+            {branchWarehouses.length === 0 && (
+              <p className="text-[11px] font-semibold text-rose-600">Chi nhánh này chưa có kho hoạt động. Hãy tạo/khôi phục kho trong Cài đặt trước.</p>
+            )}
+          </div>
+
+          <div className="space-y-1 shrink-0">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-semibold text-zinc-700">Nhà Cung Cấp</label>
               <button
@@ -682,6 +731,22 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-semibold text-emerald-700 focus:outline-none focus:border-[#ff4b16] focus:bg-white disabled:bg-zinc-100 disabled:text-zinc-400"
               />
             </div>
+
+            {watchPaymentMethod !== 'DEBT' && actualPaidAmount > 0 && (
+              <div className="space-y-1 pt-1">
+                <label className="block text-[11px] font-semibold text-zinc-700">Sổ quỹ / tài khoản chi tiền <span className="text-rose-600">*</span></label>
+                <select
+                  value={selectedFundId}
+                  onChange={event => setSelectedFundId(event.target.value)}
+                  className="w-full h-9 px-3 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
+                >
+                  <option value="">-- Chọn tài khoản đúng chi nhánh --</option>
+                  {funds.filter(fund => fund.branchId === watchBranchId && fund.type === watchPaymentMethod && fund.isArchived !== true && fund.isActive !== false).map(fund => (
+                    <option key={fund.id} value={fund.id}>{fund.name} · {Number(fund.currentBalance || 0).toLocaleString('vi-VN')} đ</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="p-3.5 bg-gradient-to-br from-orange-500/10 via-white to-orange-50/20 rounded-2xl border border-orange-200/80 space-y-2 shrink-0 shadow-xs">
@@ -714,15 +779,15 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
           <button
             type="submit"
-            disabled={totalQuantity === 0}
+            disabled={totalQuantity === 0 || !watchWarehouseId || isSubmitting}
             className={`w-full py-3.5 rounded-2xl font-bold text-xs uppercase tracking-wider flex items-center justify-center space-x-2 transition-all shadow-md active:scale-98 cursor-pointer shrink-0 ${
-              totalQuantity > 0
+              totalQuantity > 0 && watchWarehouseId && !isSubmitting
                 ? 'bg-gradient-to-r from-orange-500 via-[#ff4b16] to-[#e03e0e] text-white shadow-orange-500/30 hover:brightness-105'
                 : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
             }`}
           >
             <PackagePlus className="w-4 h-4" />
-            <span>Xác Nhận & Nhập Kho ({totalQuantity} máy)</span>
+            <span>{isSubmitting ? 'Đang ghi phiếu, quỹ và IMEI...' : `Xác Nhận & Nhập Kho (${totalQuantity} máy)`}</span>
           </button>
         </div>
       </form>

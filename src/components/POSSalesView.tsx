@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, TradeInAppraisal, ProductItem, Partner, UserAccount } from '../types';
 import { processCheckoutTransaction } from '../services/firestoreService';
 import { TradeInAssessmentModal } from './TradeInAssessmentModal';
+import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { 
   ShoppingCart, 
   Search, 
@@ -117,7 +118,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
   // Warehouses list
   const activeWarehouses = useMemo(() => {
-    return warehouses || [];
+    return (warehouses || []).filter(isWarehouseActive);
   }, [warehouses]);
 
   // Selected Branch & Warehouse state

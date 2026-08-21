@@ -51,9 +51,13 @@ export function warehouseHasBlockingDevices(devices: any[]): boolean {
   return devices.some(item => String(item?.status || '').toLowerCase() !== 'sold');
 }
 
+export function isWarehouseRecordActive(item: any): boolean {
+  return item?.isActive !== false && item?.active !== false && item?.isArchived !== true;
+}
+
 export function calculateBranchWarehouseCoverage(branchIds: string[], warehouses: any[]) {
   const activeWarehouseBranches = new Set(
-    warehouses.filter(item => item?.isActive !== false && branchIds.includes(String(item?.branchId || ''))).map(item => String(item.branchId))
+    warehouses.filter(item => isWarehouseRecordActive(item) && branchIds.includes(String(item?.branchId || ''))).map(item => String(item.branchId))
   );
   return {
     coveredBranches: activeWarehouseBranches.size,
@@ -181,7 +185,7 @@ async function assertParentWarehouse(transaction: any, db: Firestore, parentId: 
   const parentSnap = await transaction.get(db.collection('warehouses').doc(parentId));
   if (!parentSnap.exists) throw new Error('PARENT_WAREHOUSE_NOT_FOUND');
   const parent = parentSnap.data()!;
-  if (parent.isMain !== true || parent.isActive === false) throw new Error('PARENT_MUST_BE_ACTIVE_MAIN_WAREHOUSE');
+  if (parent.isMain !== true || !isWarehouseRecordActive(parent)) throw new Error('PARENT_MUST_BE_ACTIVE_MAIN_WAREHOUSE');
   if (requiredBranchId(parent.branchId) !== branchId) throw new Error('PARENT_WAREHOUSE_BRANCH_MISMATCH');
 }
 
@@ -203,7 +207,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         db.collection('operationalConfigs').doc('customerCare').get()
       ]);
       const activeBranches = branchesSnap.docs.filter(item => item.data().isActive !== false);
-      const activeWarehouses = warehousesSnap.docs.filter(item => item.data().isActive !== false);
+      const activeWarehouses = warehousesSnap.docs.filter(item => isWarehouseRecordActive(item.data()));
       const warehouseCoverage = calculateBranchWarehouseCoverage(activeBranches.map(item => item.id), warehousesSnap.docs.map(item => item.data()));
       const mainWarehouseBranches = new Set(activeWarehouses.filter(item => item.data().isMain === true).map(item => item.data().branchId));
       const cashAccountBranches = new Set(fundsSnap.docs.filter(item => {
@@ -282,7 +286,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         await assertBranchActive(transaction, db, draft.branchId);
 
         const sameBranch = await transaction.get(db.collection('warehouses').where('branchId', '==', draft.branchId));
-        if (sameBranch.docs.some((item) => item.data().code === draft.code && item.data().isActive !== false)) {
+        if (sameBranch.docs.some((item) => item.data().code === draft.code && isWarehouseRecordActive(item.data()))) {
           throw new Error('WAREHOUSE_CODE_DUPLICATE');
         }
 
@@ -301,6 +305,8 @@ export function createConfigurationRouter(db: Firestore | null): Router {
           technicianId: draft.custodianUid || null,
           technicianName: custodianName || null,
           isActive: req.body.isActive !== false,
+          active: req.body.isActive !== false,
+          isArchived: false,
           createdByUid: req.user?.uid,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
@@ -326,13 +332,13 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         await assertBranchActive(transaction, db, draft.branchId);
 
         const children = await transaction.get(db.collection('warehouses').where('parentWarehouseId', '==', req.params.warehouseId));
-        const activeChildren = children.docs.filter(item => item.data().isActive !== false);
+        const activeChildren = children.docs.filter(item => isWarehouseRecordActive(item.data()));
         if (current.isMain === true && draft.isMain === false && activeChildren.length > 0) {
           throw new Error('WAREHOUSE_HAS_CHILDREN');
         }
 
         const sameBranch = await transaction.get(db.collection('warehouses').where('branchId', '==', draft.branchId));
-        if (sameBranch.docs.some(item => item.id !== req.params.warehouseId && item.data().code === draft.code && item.data().isActive !== false)) {
+        if (sameBranch.docs.some(item => item.id !== req.params.warehouseId && item.data().code === draft.code && isWarehouseRecordActive(item.data()))) {
           throw new Error('WAREHOUSE_CODE_DUPLICATE');
         }
 
@@ -382,10 +388,18 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       await db.runTransaction(async (transaction) => {
         const currentSnap = await transaction.get(warehouseRef);
         if (!currentSnap.exists) throw new Error('WAREHOUSE_NOT_FOUND');
-        const devices = await transaction.get(db.collection('devices').where('currentLocationId', '==', req.params.warehouseId));
-        if (warehouseHasBlockingDevices(devices.docs.map(item => item.data()))) throw new Error('WAREHOUSE_HAS_DEVICES');
+        const [canonicalDevices, legacyWarehouseIdDevices, legacyWarehouseDevices, purchaseOrders] = await Promise.all([
+          transaction.get(db.collection('devices').where('currentLocationId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('devices').where('warehouseId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('devices').where('warehouse', '==', req.params.warehouseId)),
+          transaction.get(db.collection('purchaseOrders').where('warehouseId', '==', req.params.warehouseId))
+        ]);
+        const linkedDevices = new Map<string, any>();
+        [...canonicalDevices.docs, ...legacyWarehouseIdDevices.docs, ...legacyWarehouseDevices.docs].forEach(item => linkedDevices.set(item.id, item.data()));
+        if (warehouseHasBlockingDevices([...linkedDevices.values()])) throw new Error('WAREHOUSE_HAS_DEVICES');
+        if (!purchaseOrders.empty) throw new Error('WAREHOUSE_HAS_PURCHASE_ORDERS');
         const children = await transaction.get(db.collection('warehouses').where('parentWarehouseId', '==', req.params.warehouseId));
-        if (children.docs.some(item => item.data().isActive !== false)) throw new Error('WAREHOUSE_HAS_CHILDREN');
+        if (children.docs.some(item => isWarehouseRecordActive(item.data()))) throw new Error('WAREHOUSE_HAS_CHILDREN');
         const sourceTransfers = await transaction.get(db.collection('transfers').where('sourceLocationId', '==', req.params.warehouseId));
         const destinationTransfers = await transaction.get(db.collection('transfers').where('destinationLocationId', '==', req.params.warehouseId));
         const openStatuses = new Set(['PENDING', 'WAITING_KTV_ACCEPT', 'IN_PROGRESS', 'IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED']);
@@ -394,6 +408,8 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         }
         transaction.update(warehouseRef, {
           isActive: false,
+          active: false,
+          isArchived: true,
           archivedAt: FieldValue.serverTimestamp(),
           archivedByUid: req.user?.uid
         });
@@ -413,22 +429,24 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         const currentSnap = await transaction.get(warehouseRef);
         if (!currentSnap.exists) throw new Error('WAREHOUSE_NOT_FOUND');
         const current = currentSnap.data()!;
-        if (current.isActive !== false) {
+        if (isWarehouseRecordActive(current)) {
           restored = { id: currentSnap.id, ...current };
           return;
         }
         await assertBranchActive(transaction, db, String(current.branchId || ''));
         const sameBranch = await transaction.get(db.collection('warehouses').where('branchId', '==', current.branchId));
-        if (sameBranch.docs.some(item => item.id !== currentSnap.id && item.data().code === current.code && item.data().isActive !== false)) {
+        if (sameBranch.docs.some(item => item.id !== currentSnap.id && item.data().code === current.code && isWarehouseRecordActive(item.data()))) {
           throw new Error('WAREHOUSE_CODE_DUPLICATE');
         }
         if (current.parentWarehouseId) {
           await assertParentWarehouse(transaction, db, String(current.parentWarehouseId), String(current.branchId));
           await assertCustodian(transaction, db, String(current.custodianUid || current.technicianId || ''), String(current.branchId));
         }
-        restored = { ...current, id: currentSnap.id, isActive: true, updatedByUid: req.user?.uid };
+        restored = { ...current, id: currentSnap.id, isActive: true, active: true, isArchived: false, updatedByUid: req.user?.uid };
         transaction.update(warehouseRef, {
           isActive: true,
+          active: true,
+          isArchived: false,
           archivedAt: FieldValue.delete(),
           archivedByUid: FieldValue.delete(),
           updatedByUid: req.user?.uid,

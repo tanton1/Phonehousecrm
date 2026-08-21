@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { financeAccountIdFromDraft, validateFinanceAccountDraft } from '../server/routes/finance';
-import { calculateBranchWarehouseCoverage, validateOperationalConfig, validateWarehouseDraft, warehouseHasBlockingDevices } from '../server/routes/configuration';
+import { calculateBranchWarehouseCoverage, isWarehouseRecordActive, validateOperationalConfig, validateWarehouseDraft, warehouseHasBlockingDevices } from '../server/routes/configuration';
 import { normalizeOperationalPolicyVersions, operationalPolicyPeriodsOverlap, selectEffectiveOperationalPolicy } from '../server/services/operationalPolicyService';
 
 describe('Branch-scoped finance accounts', () => {
@@ -87,6 +87,14 @@ describe('Branch-scoped warehouse hierarchy', () => {
       { branchId: 'CN01', type: 'CENTRAL', isMain: true, isActive: true },
       { branchId: 'CN02', type: 'RETAIL_STORE', isActive: false }
     ])).toMatchObject({ coveredBranches: 1, totalBranches: 2, complete: false });
+  });
+
+  it('does not count legacy archived flags as an active warehouse', () => {
+    expect(isWarehouseRecordActive({ isActive: true, active: false })).toBe(false);
+    expect(isWarehouseRecordActive({ isActive: true, isArchived: true })).toBe(false);
+    expect(calculateBranchWarehouseCoverage(['CN01'], [
+      { branchId: 'CN01', isActive: true, isArchived: true }
+    ])).toMatchObject({ coveredBranches: 0, totalBranches: 1, complete: false });
   });
 });
 

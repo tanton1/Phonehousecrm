@@ -66,6 +66,7 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { UniformEntryForm } from './UniformEntryForm';
+import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal';
 import { DeviceDetailModal } from './DeviceDetailModal';
 
@@ -83,7 +84,7 @@ interface InventoryViewProps {
   onSelectBranchId?: (branchId: string) => void;
   onAddDevice: (device: DeviceItem) => void;
   onAddMultipleDevices?: (devices: DeviceItem[]) => void;
-  onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void;
+  onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void | Promise<void>;
   onUpdateDevice: (device: DeviceItem) => void;
   onDeleteDevice: (id: string) => void;
   onQuickSell: (device: DeviceItem) => void;
@@ -172,7 +173,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Active warehouse options
   const activeWarehouses = useMemo(() => {
-    if (warehouses && warehouses.length > 0) return warehouses;
+    if (warehouses && warehouses.length > 0) return warehouses.filter(isWarehouseActive);
     return [];
   }, [warehouses]);
 

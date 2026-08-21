@@ -14,6 +14,7 @@ import {
 } from '../types';
 import { ActivityLog } from './ActivityLog';
 import { UniformEntryForm } from './UniformEntryForm';
+import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { 
   Database,
   Plus, 
@@ -1577,7 +1578,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         onClose={() => setIsCreateModalOpen(false)}
         partners={partners}
         branches={branches}
-        warehouses={warehouses}
+        warehouses={warehouses.filter(isWarehouseActive)}
         funds={funds}
         onAddDevice={() => {}} // Not used in batch
         onAddMultipleDevices={onAddMultipleDevices}

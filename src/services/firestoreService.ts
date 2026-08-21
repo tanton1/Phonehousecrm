@@ -634,7 +634,7 @@ export async function deleteBranchFromFirestore(id: string) {
 export function subscribeToWarehouses(onData: (warehouses: WarehouseInfo[]) => void) {
   const colRef = collection(db, WAREHOUSES_COL);
   return onSnapshot(colRef, (snapshot) => {
-    const data = snapshot.docs.map(doc => doc.data() as WarehouseInfo);
+    const data = snapshot.docs.map(snapshotDoc => ({ id: snapshotDoc.id, ...snapshotDoc.data() } as WarehouseInfo));
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, WAREHOUSES_COL));
 }

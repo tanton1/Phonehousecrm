@@ -1,5 +1,5 @@
 import { auth } from '../lib/firebase';
-import { DeviceItem, UserAccount } from '../types';
+import { DeviceItem, PurchaseOrder, UserAccount } from '../types';
 
 interface ApiEnvelope<T> {
   success: boolean;
@@ -56,6 +56,13 @@ export async function requestImportInventoryDevices(
   currentUser?: UserAccount
 ): Promise<{ devices: DeviceItem[]; importedCount: number; idempotentReplay?: boolean }> {
   return sendInventoryRequest('devices/import', 'POST', payload, currentUser);
+}
+
+export async function requestReceivePurchaseOrder(
+  order: PurchaseOrder,
+  currentUser?: UserAccount
+): Promise<{ order: PurchaseOrder; devices: DeviceItem[]; importedCount: number; idempotentReplay?: boolean }> {
+  return sendInventoryRequest('purchase-orders/receive', 'POST', { order }, currentUser);
 }
 
 export async function fetchInventoryAudit(currentUser?: UserAccount): Promise<{

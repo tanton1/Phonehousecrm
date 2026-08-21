@@ -136,7 +136,8 @@ import { requestServerCheckIn, requestServerCheckOut } from './services/attendan
 import {
   createInventoryIdempotencyKey,
   fetchInventoryDevices,
-  requestImportInventoryDevices
+  requestImportInventoryDevices,
+  requestReceivePurchaseOrder
 } from './services/inventoryApiClient';
 
 const BUSINESS_DATA_RESET_MARKER = 'phonehouse_business_data_reset_2026_08_21_v1';
@@ -1349,7 +1350,7 @@ export default function App() {
 
   const handleDeleteWarehouse = async (warehouseId: string) => {
     await deleteWarehouseFromFirestore(warehouseId);
-    setWarehouses(prev => prev.map(w => w.id === warehouseId ? { ...w, isActive: false } : w));
+    setWarehouses(prev => prev.map(w => w.id === warehouseId ? { ...w, isActive: false, active: false, isArchived: true } as WarehouseInfo : w));
   };
 
   const handleRestoreWarehouse = async (warehouseId: string) => {
@@ -1366,6 +1367,17 @@ export default function App() {
   // PURCHASE ORDERS (NHẬP HÀNG & NCC) HANDLERS
   // ==========================================
   const handleAddPurchaseOrder = async (order: PurchaseOrder, autoCreateDevices: boolean) => {
+    if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn. Phiếu chưa được tạo.');
+    if (!autoCreateDevices || order.status !== 'COMPLETED') {
+      throw new Error('Phiếu nhập kho chỉ được ghi khi đã hoàn tất và có danh sách IMEI đầy đủ.');
+    }
+    const receipt = await requestReceivePurchaseOrder(order, currentUser);
+    setPurchaseOrders(prev => [receipt.order, ...prev.filter(item => item.id !== receipt.order.id)]);
+    mergeImportedDevices(receipt.devices);
+    return;
+
+    /* Luồng cũ phía dưới được giữ tạm để đối chiếu migration; không còn được thực thi.
+       Trước đây phiếu được ghi trước quỹ/công nợ/IMEI nên có thể sinh phiếu ảo. */
     setPurchaseOrders(prev => [order, ...prev]);
     await addPurchaseOrderToFirestore(order);
 
@@ -1529,6 +1541,7 @@ export default function App() {
         mergeImportedDevices(result.devices);
       }
     }
+    /* end legacy purchase-order flow */
   };
 
   const handleUpdatePurchaseOrder = (updatedOrder: PurchaseOrder) => {

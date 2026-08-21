@@ -25,6 +25,10 @@ export interface WarehouseInfo {
   parentWarehouseId?: WarehouseId; // Kho cha (ví dụ KHO_TONG)
   capacityNotes?: string;
   isActive?: boolean;
+  /** Legacy lifecycle flag retained for old Firestore records. */
+  active?: boolean;
+  /** Canonical archive marker used together with isActive=false. */
+  isArchived?: boolean;
 }
 
 export interface StoreBranch {

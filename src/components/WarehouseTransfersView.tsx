@@ -48,6 +48,7 @@ import {
   requestCreateTechnicalTransfer,
   requestReceiveInterBranchTransfer
 } from '../services/inventoryTransferApiClient';
+import { isWarehouseActive } from '../utils/warehouseLifecycle';
 
 type TransferTab = 'TECHNICAL' | 'INTER_BRANCH';
 type ReceiptDraft = Record<string, { result: 'RECEIVED' | 'MISSING' | 'WRONG_DEVICE' | 'DAMAGED'; scannedImei: string; notes: string }>;
@@ -164,8 +165,8 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const activeBranches = useMemo(() => branches.filter(branch => branch.isActive !== false), [branches]);
-  const mainBranch = useMemo(() => activeBranches.find(branch => branch.isHeadquarter) || activeBranches.find(branch => warehouses.some(warehouse => warehouse.isMain && warehouse.isActive !== false && warehouse.branchId === branch.id)) || activeBranches[0], [activeBranches, warehouses]);
-  const mainWarehouse = useMemo(() => warehouses.find(item => item.isMain && item.isActive !== false && item.branchId === mainBranch?.id), [warehouses, mainBranch]);
+  const mainBranch = useMemo(() => activeBranches.find(branch => branch.isHeadquarter) || activeBranches.find(branch => warehouses.some(warehouse => warehouse.isMain && isWarehouseActive(warehouse) && warehouse.branchId === branch.id)) || activeBranches[0], [activeBranches, warehouses]);
+  const mainWarehouse = useMemo(() => warehouses.find(item => item.isMain && isWarehouseActive(item) && item.branchId === mainBranch?.id), [warehouses, mainBranch]);
   const role = String(currentUser.role || '').toUpperCase();
   const isAdmin = role === 'ADMIN';
   const canCreateTransfer = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH_LEAD'].includes(role);
@@ -227,11 +228,11 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   }, [transfers]);
 
   const locationsForBranch = (branchId: string) => {
-    return warehouses.filter(location => location.isActive !== false && location.branchId === branchId);
+    return warehouses.filter(location => isWarehouseActive(location) && location.branchId === branchId);
   };
 
   const technicalLocations = useMemo(() => warehouses.filter(location =>
-    location.type === 'TECHNICIAN_SUB' && location.isActive !== false && (
+    location.type === 'TECHNICIAN_SUB' && isWarehouseActive(location) && (
       !mainBranch?.id || location.branchId === mainBranch.id || location.parentWarehouseId === mainWarehouse?.id
     )
   ), [warehouses, mainBranch, mainWarehouse]);
