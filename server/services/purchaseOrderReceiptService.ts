@@ -227,8 +227,8 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
 
     const supplier = supplierSnap.data()!;
     const debtTransactions = [
-      ...(receipt.paidAmount > 0 ? [{ id: `TX_PAY_${receipt.order.id}`, date: receipt.order.orderDate || now.slice(0, 10), type: 'PAYMENT', amount: receipt.paidAmount, note: `Thanh toán ngay phiếu nhập ${receipt.order.code}`, referenceId: receipt.order.id }] : []),
-      { id: `TX_BUY_${receipt.order.id}`, date: receipt.order.orderDate || now.slice(0, 10), type: 'DEBT_INCREASE', amount: receipt.totalAmount, note: `Nhập hàng phiếu ${receipt.order.code}`, referenceId: receipt.order.id },
+      ...(receipt.paidAmount > 0 ? [{ id: `TX_PAY_${receipt.order.id}`, date: receipt.order.orderDate || now.slice(0, 10), type: 'PAYMENT', amount: receipt.paidAmount, note: `Thanh toán ngay phiếu nhập ${receipt.order.code}`, referenceId: receipt.order.id, referenceCode: receipt.order.code, referenceType: 'PURCHASE_ORDER' }] : []),
+      { id: `TX_BUY_${receipt.order.id}`, date: receipt.order.orderDate || now.slice(0, 10), type: 'DEBT_INCREASE', amount: receipt.totalAmount, note: `Nhập hàng phiếu ${receipt.order.code}`, referenceId: receipt.order.id, referenceCode: receipt.order.code, referenceType: 'PURCHASE_ORDER' },
       ...(Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : [])
     ];
     transaction.update(supplierRef, {

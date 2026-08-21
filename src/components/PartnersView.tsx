@@ -39,12 +39,15 @@ import {
   PartnerType, 
   CustomerTier, 
   SupplierCategory, 
-  DeviceItem 
+  DeviceItem,
+  PartnerDebtTransaction,
+  StoreBranch
 } from '../types';
 
 interface PartnersViewProps {
   partners: Partner[];
-  devices: DeviceItem[];
+  devices?: DeviceItem[];
+  branches?: StoreBranch[];
   initialTab?: 'ALL' | 'CUSTOMERS' | 'SUPPLIERS' | 'DEBT_HUB';
   onAddPartner: (partner: Partner) => void;
   onUpdatePartner: (partner: Partner) => void;
@@ -52,6 +55,7 @@ interface PartnersViewProps {
   funds: import('../types').FundAccount[];
   onAddTransaction: (tx: import('../types').CashTransaction) => void;
   onAutoPayDebt?: (partnerId: string, amount: number, direction: 'PAYMENT' | 'RECEIPT') => void;
+  onOpenReference?: (transaction: PartnerDebtTransaction) => void;
 }
 
 type TimeFilterType = 'ALL' | 'TODAY' | 'YESTERDAY' | 'LAST_7_DAYS' | 'THIS_MONTH' | 'LAST_MONTH';
@@ -59,14 +63,15 @@ type SortOptionType = 'NEWEST' | 'OLDEST' | 'AMOUNT_ASC' | 'AMOUNT_DESC' | 'NAME
 
 export const PartnersView: React.FC<PartnersViewProps> = ({
   partners,
-  devices,
+  devices = [],
   initialTab = 'ALL',
   onAddPartner,
   onUpdatePartner,
   onDeletePartner,
   funds,
   onAddTransaction,
-  onAutoPayDebt
+  onAutoPayDebt,
+  onOpenReference
 }) => {
   // Navigation & Filtering
   const [activeTab, setActiveTab] = useState<'ALL' | 'CUSTOMERS' | 'SUPPLIERS' | 'DEBT_HUB'>(initialTab);
@@ -1117,10 +1122,11 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
               ) : (
                 <div className="space-y-3">
                   {historyPartner.debtTransactions.map((tx, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                    <div key={idx} className="flex items-center justify-between gap-3 p-3 bg-zinc-50 rounded-xl border border-zinc-100">
                       <div className="space-y-1">
                         <div className="text-xs font-semibold text-zinc-800">{tx.note}</div>
-                        <div className="text-[11px] text-zinc-500">{new Date(tx.date).toLocaleDateString('vi-VN')} {tx.referenceId ? ` • Tham chiếu: ${tx.referenceId}` : ''}</div>
+                        <div className="text-[11px] text-zinc-500">{new Date(tx.date).toLocaleDateString('vi-VN')} {tx.referenceId ? ` • Tham chiếu: ${tx.referenceCode || tx.referenceId}` : ''}</div>
+                        {tx.referenceId && onOpenReference && <button type="button" onClick={() => onOpenReference(tx)} className="text-[11px] font-black text-orange-600 hover:underline">{tx.referenceType === 'PURCHASE_ORDER' || historyPartner.type === 'SUPPLIER' ? 'Mở phiếu nhập hàng →' : 'Mở hóa đơn bán hàng →'}</button>}
                       </div>
                       <div className={`text-sm font-bold ${['DEBT_INCREASE'].includes(tx.type) ? 'text-rose-600' : 'text-orange-600'}`}>
                         {['DEBT_INCREASE'].includes(tx.type) ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')} đ

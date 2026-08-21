@@ -131,7 +131,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     isHeadquarter: false,
     taxCode: '',
     allowedWifiSSID: '',
-    allowedGpsRadiusMeters: 0,
+    attendanceRadius: 50,
+    allowedGpsRadiusMeters: 50,
     notes: ''
   });
 
@@ -267,8 +268,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       allowedWifiSSID: '',
       storePublicIp: '',
       allowedPublicIps: [],
-      attendanceRadius: 0,
-      allowedGpsRadiusMeters: 0,
+      attendanceRadius: 50,
+      allowedGpsRadiusMeters: 50,
       notes: ''
     });
     setIsBranchModalOpen(true);
@@ -280,7 +281,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       ...branch,
       storePublicIp: branch.storePublicIp || (Array.isArray(branch.allowedPublicIps) ? branch.allowedPublicIps.join(', ') : ''),
       allowedPublicIps: Array.isArray(branch.allowedPublicIps) ? branch.allowedPublicIps : (branch.storePublicIp ? branch.storePublicIp.split(',').map(s => s.trim()).filter(Boolean) : []),
-      attendanceRadius: branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 0
+      attendanceRadius: branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50,
+      allowedGpsRadiusMeters: branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50
     });
     setIsBranchModalOpen(true);
   };
@@ -295,7 +297,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     const ips = Array.isArray(branchForm.allowedPublicIps) && branchForm.allowedPublicIps.length > 0
       ? branchForm.allowedPublicIps
       : (branchForm.storePublicIp ? branchForm.storePublicIp.split(',').map(s => s.trim()).filter(Boolean) : []);
-    const radius = Number(branchForm.attendanceRadius ?? branchForm.allowedGpsRadiusMeters ?? 0);
+    const radius = Number(branchForm.attendanceRadius ?? branchForm.allowedGpsRadiusMeters ?? 50);
+    if (!Number.isFinite(radius) || radius < 10 || radius > 5000) {
+      alert('Bán kính GPS phải từ 10 đến 5.000 mét. Mặc định khuyến nghị là 50 mét.');
+      return;
+    }
 
     setIsSavingBranch(true);
     try {
@@ -701,7 +707,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       <div className="flex items-center justify-between flex-wrap gap-1">
                         <div className="flex items-center space-x-2">
                           <MapPin className="w-4 h-4 text-[#FF4B16]" />
-                          <span>GPS: <strong className="font-mono">{branch.gpsLatitude ?? 'Chưa cài'}, {branch.gpsLongitude ?? 'Chưa cài'}</strong> ({branch.allowedGpsRadiusMeters ?? 0}m)</span>
+                          <span>GPS: <strong className="font-mono">{branch.gpsLatitude ?? 'Chưa cài'}, {branch.gpsLongitude ?? 'Chưa cài'}</strong> ({branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50}m)</span>
                         </div>
                         <span className="text-[10px] bg-white border border-orange-200 text-[#FF4B16] font-extrabold px-2 py-0.5 rounded-md">
                           SSID: {branch.allowedWifiSSID || 'Chưa cài'}
@@ -1583,8 +1589,13 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     <input
                       type="number"
                       placeholder="50"
-                      value={branchForm.allowedGpsRadiusMeters ?? ''}
-                      onChange={(e) => setBranchForm({ ...branchForm, allowedGpsRadiusMeters: e.target.value === '' ? undefined : Number(e.target.value) })}
+                      min={10}
+                      max={5000}
+                      value={branchForm.attendanceRadius ?? 50}
+                      onChange={(e) => {
+                        const value = e.target.value === '' ? 50 : Number(e.target.value);
+                        setBranchForm({ ...branchForm, attendanceRadius: value, allowedGpsRadiusMeters: value });
+                      }}
                       className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-bold text-zinc-900"
                     />
                   </div>

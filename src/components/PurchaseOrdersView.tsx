@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   PurchaseOrder, 
   PurchaseOrderItem, 
@@ -76,6 +76,7 @@ interface PurchaseOrdersViewProps {
   onUpdatePartner?: (partner: Partner) => void;
   onAddPartner?: (partner: Partner) => void;
   catalogItems: MasterCatalogItem[];
+  initialSelectedOrderId?: string | null;
 }
 
 type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
@@ -152,10 +153,19 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   onAddCashTransaction,
   onUpdatePartner,
   onAddPartner,
-  catalogItems = []
+  catalogItems = [],
+  initialSelectedOrderId
 }) => {
   // Master-Detail State
-  const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(() => initialSelectedOrderId
+    ? purchaseOrders.find(order => order.id === initialSelectedOrderId || order.code === initialSelectedOrderId) || null
+    : null);
+
+  useEffect(() => {
+    if (!initialSelectedOrderId) return;
+    const matched = purchaseOrders.find(order => order.id === initialSelectedOrderId || order.code === initialSelectedOrderId);
+    if (matched) setSelectedOrder(matched);
+  }, [initialSelectedOrderId, purchaseOrders]);
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');

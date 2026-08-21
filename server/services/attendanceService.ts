@@ -2,6 +2,14 @@ import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { verifyGeofence, LatLng } from './geofenceService';
 import { verifyFaceBiometric } from './biometricService';
 
+export function resolveAttendanceRadius(branch: { attendanceRadius?: unknown; allowedGpsRadiusMeters?: unknown } | null | undefined): number {
+  const canonical = Number(branch?.attendanceRadius);
+  if (Number.isFinite(canonical) && canonical > 0) return canonical;
+  const legacy = Number(branch?.allowedGpsRadiusMeters);
+  if (Number.isFinite(legacy) && legacy > 0) return legacy;
+  return 50;
+}
+
 export interface CheckInEvidenceRequest {
   staffId: string;
   staffName?: string;
@@ -273,7 +281,7 @@ export async function processServerCheckIn(
 
   // 1. Authoritative Store Geofence Lookup from DB with Fail-Closed Safety
   let authoritativeStoreCoords: LatLng;
-  let authoritativeRadius = 150; // meters
+  let authoritativeRadius = 50; // meters - default geofence for a configured branch
   let isNetworkAllowed = clientIp === '127.0.0.1' || clientIp === '::1';
 
   if (!db) {
@@ -293,11 +301,7 @@ export async function processServerCheckIn(
     }
 
     authoritativeStoreCoords = { latitude: bData.gpsLatitude, longitude: bData.gpsLongitude };
-    if (typeof bData.attendanceRadius === 'number') {
-      authoritativeRadius = bData.attendanceRadius;
-    } else if (typeof bData.allowedGpsRadiusMeters === 'number') {
-      authoritativeRadius = bData.allowedGpsRadiusMeters;
-    }
+    authoritativeRadius = resolveAttendanceRadius(bData);
 
     let allowedIps: string[] = [];
     if (Array.isArray(bData.allowedPublicIps)) {

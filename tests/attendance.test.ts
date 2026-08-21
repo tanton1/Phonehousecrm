@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { calculateDistanceInMeters, verifyGeofence } from '../server/services/geofenceService';
-import { processServerCheckIn } from '../server/services/attendanceService';
+import { processServerCheckIn, resolveAttendanceRadius } from '../server/services/attendanceService';
 
 describe('Sprint 2: Attendance Verification & Geofence Test Suite', () => {
   const storeLocation = { latitude: 16.0678, longitude: 108.2208 }; // PhoneHouse Da Nang Flagship
+
+  it('uses 50m when the branch radius is missing/zero and preserves a saved custom value', () => {
+    expect(resolveAttendanceRadius(undefined)).toBe(50);
+    expect(resolveAttendanceRadius({ attendanceRadius: 0, allowedGpsRadiusMeters: 0 })).toBe(50);
+    expect(resolveAttendanceRadius({ attendanceRadius: 85, allowedGpsRadiusMeters: 50 })).toBe(85);
+  });
 
   it('Case 1: Tính toán khoảng cách Haversine chính xác', () => {
     // Exact same point -> 0 meters

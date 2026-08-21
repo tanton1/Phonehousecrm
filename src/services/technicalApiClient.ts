@@ -101,6 +101,13 @@ export async function requestAcceptCustody(
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/accept`, { scannedImei, preRepairInspection });
 }
 
+/** Confirm a warehouse-dispatched device without retyping its known IMEI. */
+export async function requestQuickAcceptCustody(
+  workOrderId: string
+): Promise<{ success: boolean; workOrderId: string }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/quick-accept`, {});
+}
+
 /**
  * 3. Start Work Order Task Line
  */

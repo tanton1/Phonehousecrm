@@ -915,7 +915,7 @@ export interface WarrantyTicket {
   customerId?: string;
   branchId?: string;
   ticketNumber: string;
-  taskType?: 'INBOUND_QC' | 'WARRANTY' | 'RETAIL_REPAIR'; // Phân loại Phiếu
+  taskType?: 'INBOUND_QC' | 'WARRANTY' | 'RETAIL_REPAIR' | 'STORE_ESCALATION'; // Phân loại Phiếu
   assigneeId?: string; // ID của Kỹ Thuật Viên
   commissionAmount?: number;
   techTasks?: string[]; // Hoa hồng cho KTV
@@ -1188,6 +1188,8 @@ export interface PartnerDebtTransaction {
   amount: number;
   note: string;
   referenceId?: string; // Invoice ID or PO ID
+  referenceCode?: string;
+  referenceType?: 'INVOICE' | 'PURCHASE_ORDER' | 'PAYMENT' | 'MANUAL';
 }
 
 export interface Partner {

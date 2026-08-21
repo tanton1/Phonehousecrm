@@ -22,6 +22,8 @@ interface TechWorkspaceViewProps {
   attendanceRecord?: import('../types').AttendanceRecord;
   commissions?: CommissionTransaction[];
   onSyncCommissions?: () => void;
+  onUpdateTaskStatus?: (task: WarrantyTicket, status: WarrantyTicket['status']) => Promise<void> | void;
+  onOpenRepairIntake?: () => void;
 }
 
 export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ 
@@ -34,7 +36,9 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   onOpenCheckIn,
   attendanceRecord,
   commissions = [],
-  onSyncCommissions
+  onSyncCommissions,
+  onUpdateTaskStatus,
+  onOpenRepairIntake
 }) => {
   const [activeTab, setActiveTab] = useState<'KANBAN' | 'INVENTORY' | 'KPI' | 'HR'>('KANBAN');
   const [walletFilter, setWalletFilter] = useState<'ALL' | 'KCS' | 'REPAIR' | 'WARRANTY' | 'TRADEIN'>('ALL');
@@ -112,6 +116,38 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
       userNames.has(device.currentCustodian)
     );
   }, [devices, assignedWorkLines, currentUser, staffMember]);
+
+  const kanbanTasks = useMemo(() => {
+    const technicalTasks = assignedWorkLines.map(line => ({
+      id: `TECH-${line.id}`,
+      workOrderId: line.workOrderId,
+      workOrderStatus: line.workOrderStatus,
+      workOrderType: line.workOrderType,
+      sourceWarehouseId: line.sourceWarehouseId,
+      lineId: line.id,
+      sourceKind: 'TECHNICAL_WORK_ORDER',
+      ticketNumber: line.workOrderCode || line.workOrderId || line.id,
+      ticketCode: line.workOrderCode || line.workOrderId || line.id,
+      customerName: line.customerName || 'Máy nội bộ từ kho',
+      phone: line.customerPhone || '',
+      imei: line.imei || '',
+      model: line.model || 'Thiết bị',
+      deviceModel: line.model || 'Thiết bị',
+      issueType: 'Khác',
+      faultDescription: line.issueDescription || line.taskName || 'Công việc kỹ thuật từ kho',
+      issueDescription: line.taskName || line.taskType || 'Công việc kỹ thuật',
+      technician: line.assigneeName || currentUser?.displayName || '',
+      status: line.status || line.workOrderStatus || 'ASSIGNED',
+      priority: line.priority || 'NORMAL',
+      isWarrantyFree: true,
+      estimatedCost: Number(line.commissionAmount || 0),
+      estimatedLaborCost: Number(line.commissionAmount || 0),
+      finalCost: 0,
+      receivedDate: line.createdAt || '',
+      expectedReturnDate: line.deadlineAt || ''
+    })) as unknown as WarrantyTicket[];
+    return [...technicalTasks, ...tasks];
+  }, [assignedWorkLines, tasks, currentUser?.displayName]);
 
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
@@ -194,44 +230,27 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 <div className="flex items-center gap-2">
                   <h2 className="text-base sm:text-lg font-black text-zinc-900">Bảng Điều Phối Sửa Chữa & KCS</h2>
                   <span className="text-xs font-bold text-zinc-500 bg-white px-2.5 py-1 rounded-xl border border-zinc-200 shadow-2xs">
-                    {tasks.length + assignedWorkLines.length} công việc
+                    {kanbanTasks.length} công việc
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {onOpenRepairIntake && <button onClick={onOpenRepairIntake} className="rounded-xl bg-orange-600 px-3 py-1.5 text-xs font-black text-white shadow-sm hover:bg-orange-700">+ Tiếp nhận máy sửa</button>}
                   <div className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-700 flex items-center gap-2 shadow-2xs">
                     <Clock className="w-3.5 h-3.5 text-orange-500" />
                     <span>SLA Tiêu Chuẩn: &lt; 2h / ca</span>
                   </div>
                 </div>
               </div>
-              {(assignedWorkLines.length > 0 || assignedWorkError) && (
-                <div className="mb-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-black uppercase tracking-wide text-orange-900">Máy kho đã chuyển cho tôi</p>
-                      <p className="text-[11px] text-orange-700">{assignedWorkLines.length} task được định danh theo tài khoản đăng nhập</p>
-                    </div>
-                    <button onClick={handleManualSync} className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
-                  </div>
-                  {assignedWorkError && <p className="mt-2 text-xs font-semibold text-rose-600">{assignedWorkError}</p>}
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                    {assignedWorkLines.map(line => (
-                      <div key={line.id} className="rounded-xl border border-orange-100 bg-white p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div><p className="text-sm font-black text-zinc-900">{line.model || 'Thiết bị'}</p><p className="font-mono text-[11px] text-zinc-500">IMEI: {line.imei}</p></div>
-                          <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-black text-orange-800">{line.status || 'ASSIGNED'}</span>
-                        </div>
-                        <p className="mt-2 text-xs font-bold text-zinc-700">{line.taskName || line.taskType}</p>
-                        <p className="mt-1 text-[11px] text-zinc-500">Hạn xử lý: {line.deadlineAt ? new Date(line.deadlineAt).toLocaleString('vi-VN') : 'Chưa đặt'}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {(assignedWorkLines.length > 0 || assignedWorkError) && <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-3"><div><p className="text-xs font-black uppercase tracking-wide text-orange-900">Máy kho đã chuyển cho tôi: {assignedWorkLines.length} hạng mục</p><p className="text-[11px] text-orange-700">Đã đưa thẳng vào các cột Kanban bên dưới theo trạng thái thực tế.</p>{assignedWorkError && <p className="mt-1 text-xs font-semibold text-rose-600">{assignedWorkError}</p>}</div><button onClick={handleManualSync} className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /></button></div>}
               <div className="flex-1 min-h-0 bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden">
                 <TechKanbanBoard 
-                  tasks={tasks}
+                  tasks={kanbanTasks}
                   onTaskClick={(t) => console.log('View task', t)}
+                  onRefresh={handleManualSync}
+                  currentUserRole={currentUser?.role}
+                  onLegacyStatusChange={async (task, status) => {
+                    if (onUpdateTaskStatus) await onUpdateTaskStatus(task, status);
+                  }}
                 />
               </div>
             </div>

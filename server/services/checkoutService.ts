@@ -821,7 +821,19 @@ export async function executeAtomicCheckout(
           totalSpent: FieldValue.increment(finalAmount),
           outstandingDebt: FieldValue.increment(customerDebtAmount),
           lastInvoiceId: invoiceId,
-          lastPurchaseDate: FieldValue.serverTimestamp()
+          lastPurchaseDate: FieldValue.serverTimestamp(),
+          ...(customerDebtAmount > 0 ? {
+            debtTransactions: FieldValue.arrayUnion({
+              id: `DEBT_${invoiceId}`,
+              date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
+              type: 'DEBT_INCREASE',
+              amount: customerDebtAmount,
+              note: `Công nợ hóa đơn ${invoiceCode}`,
+              referenceId: invoiceId,
+              referenceCode: invoiceCode,
+              referenceType: 'INVOICE'
+            })
+          } : {})
         });
       }
     }

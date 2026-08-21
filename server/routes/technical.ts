@@ -80,6 +80,43 @@ export function createTechnicalRouter(db: Firestore | null): Router {
   );
 
   /**
+   * Quick acknowledgement for a device explicitly dispatched from inventory
+   * to the authenticated technician. The expected IMEI is read from the
+   * authoritative work order, so the technician only needs to tick confirm.
+   */
+  router.post(
+    '/work-orders/:id/quick-accept',
+    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const workOrderSnap = await db.collection('technicalWorkOrders').doc(req.params.id).get();
+        if (!workOrderSnap.exists) return res.status(404).json({ success: false, error: 'WORK_ORDER_NOT_FOUND' });
+        const workOrder = workOrderSnap.data()!;
+        if (!workOrder.transferId) throw new Error('QUICK_ACCEPT_ONLY_FOR_INVENTORY_TRANSFER');
+
+        const workOrderLines = await db.collection('technicalWorkOrderLines')
+          .where('workOrderId', '==', req.params.id)
+          .get();
+        const elevated = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(req.user!.role || '').toUpperCase());
+        const isAssigned = workOrderLines.docs.some(line => line.data().assigneeUid === req.user!.uid);
+        if (!isAssigned && !elevated) throw new Error('TECHNICIAN_NOT_ASSIGNED');
+
+        const expectedImei = String(workOrder.imei || '').trim();
+        if (!expectedImei) throw new Error('WORK_ORDER_IMEI_MISSING');
+        const stableKey = `tech-quick-accept:${req.params.id}:${req.user!.uid}`;
+        await processAcceptTechnicalTransfer(db, workOrder.transferId, [expectedImei], stableKey, req.user!, {
+          preRepairInspection: req.body?.preRepairInspection
+        });
+        return res.json({ success: true, data: { success: true, workOrderId: req.params.id } });
+      } catch (error: any) {
+        console.error('[Quick Accept Custody Error]:', error);
+        return res.status(400).json({ success: false, error: error?.message || 'Lỗi xác nhận nhanh nhận máy.' });
+      }
+    }
+  );
+
+  /**
    * 3. POST /api/technical/work-orders/:id/start-task
    * KTV starts working on a task line
    */
@@ -236,12 +273,40 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     }
 
     try {
-      const snap = await db.collection('technicalWorkOrderLines')
-        .where('assigneeUid', '==', req.user!.uid)
-        .limit(100)
-        .get();
+      const role = String(req.user!.role || '').toUpperCase();
+      const canSeeQcQueue = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(role);
+      const snap = canSeeQcQueue
+        ? await db.collection('technicalWorkOrderLines').limit(200).get()
+        : await db.collection('technicalWorkOrderLines').where('assigneeUid', '==', req.user!.uid).limit(100).get();
 
-      const lines = snap.docs.map(doc => doc.data());
+      const workOrderIds = [...new Set(snap.docs.map(doc => String(doc.data().workOrderId || '')).filter(Boolean))];
+      const workOrderSnaps = workOrderIds.length > 0
+        ? await db.getAll(...workOrderIds.map(id => db.collection('technicalWorkOrders').doc(id)))
+        : [];
+      const workOrders = new Map(workOrderSnaps.filter(item => item.exists).map(item => [item.id, item.data()!]));
+      const assignedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      const lines = snap.docs.filter(doc => {
+        const line = doc.data();
+        return line.status !== 'CANCELLED' && (role === 'ADMIN' || !canSeeQcQueue || assignedBranches.has(line.branchId));
+      }).map(doc => {
+        const line = doc.data();
+        const workOrder = workOrders.get(String(line.workOrderId || '')) || {};
+        return {
+          id: doc.id,
+          ...line,
+          workOrderId: line.workOrderId,
+          workOrderCode: workOrder.code || line.workOrderId,
+          workOrderStatus: workOrder.status || line.status,
+          workOrderType: workOrder.workOrderType,
+          sourceWarehouseId: workOrder.sourceWarehouseId,
+          transferId: workOrder.transferId || line.transferId,
+          customerName: workOrder.customerName || '',
+          customerPhone: workOrder.customerPhone || '',
+          issueDescription: workOrder.notes || line.taskName || '',
+          currentLocationId: workOrder.currentLocationId,
+          currentCustodianUid: workOrder.currentCustodianUid
+        };
+      }).sort((a: any, b: any) => String(a.deadlineAt || a.createdAt || '').localeCompare(String(b.deadlineAt || b.createdAt || '')));
       return res.json({ success: true, data: lines });
     } catch (error: any) {
       console.error('[Get My Work Error]:', error);

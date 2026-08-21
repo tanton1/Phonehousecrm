@@ -33,6 +33,7 @@ import { CreateLeadModal } from './features/crm/components/CreateLeadModal';
 import { Customer360Drawer } from './features/crm/components/Customer360Drawer';
 import { CRMLeadsView } from './components/CRMLeadsView';
 import { RepairKanbanBoard } from './features/warranty/components/RepairKanbanBoard';
+import { RepairIntakeModal } from './features/warranty/components/RepairIntakeModal';
 import { TradeInCockpitView } from './features/tradein/components/TradeInCockpitView';
 import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
 import { CashbookView } from './components/CashbookView';
@@ -174,6 +175,9 @@ clearLegacyBusinessCacheOnce();
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [isRepairIntakeOpen, setIsRepairIntakeOpen] = useState(false);
+  const [linkedInvoiceId, setLinkedInvoiceId] = useState<string | null>(null);
+  const [linkedPurchaseOrderId, setLinkedPurchaseOrderId] = useState<string | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ADMIN');
 
   // Persistence State
@@ -969,14 +973,14 @@ export default function App() {
     updateTradeInInFirestore(tradeIn);
   };
 
-  const handleAddWarrantyTicket = (ticket: WarrantyTicket) => {
-    setWarrantyTickets([ticket, ...warrantyTickets]);
-    addWarrantyTicketToFirestore(ticket);
+  const handleAddWarrantyTicket = async (ticket: WarrantyTicket) => {
+    await addWarrantyTicketToFirestore(ticket);
+    setWarrantyTickets(previous => [ticket, ...previous.filter(item => item.id !== ticket.id)]);
   };
 
-  const handleUpdateWarrantyTicket = (ticket: WarrantyTicket) => {
-    setWarrantyTickets(warrantyTickets.map(w => (w.id === ticket.id ? ticket : w)));
-    updateWarrantyTicketInFirestore(ticket);
+  const handleUpdateWarrantyTicket = async (ticket: WarrantyTicket) => {
+    await updateWarrantyTicketInFirestore(ticket);
+    setWarrantyTickets(previous => previous.map(item => item.id === ticket.id ? ticket : item));
   };
 
   const handleCreateInvoice = (invoice: SalesInvoice) => {
@@ -996,7 +1000,9 @@ export default function App() {
           type: 'DEBT_INCREASE' as const,
           amount: debtIncrease,
           note: `Mua trả góp đơn ${invoice.invoiceCode}`,
-          referenceId: invoice.id
+          referenceId: invoice.id,
+          referenceCode: invoice.invoiceCode,
+          referenceType: 'INVOICE' as const
         } : null;
         handleUpdatePartner({
           ...existingPartner,
@@ -1012,7 +1018,9 @@ export default function App() {
           type: 'DEBT_INCREASE' as const,
           amount: debtIncrease,
           note: `Mua trả góp đơn ${invoice.invoiceCode}`,
-          referenceId: invoice.id
+          referenceId: invoice.id,
+          referenceCode: invoice.invoiceCode,
+          referenceType: 'INVOICE' as const
         } : null;
         handleAddPartner({
           id: `PARTNER-${Date.now()}`,
@@ -1254,6 +1262,26 @@ export default function App() {
         console.error('Error adding cash transaction:', err);
         alert('Không thể ghi sổ: ' + (err?.message || 'Giao dịch không hợp lệ.'));
       });
+  };
+
+  const handleOpenDebtReference = (transaction: PartnerDebtTransaction) => {
+    const reference = String(transaction.referenceId || transaction.referenceCode || '').trim();
+    const purchaseOrder = purchaseOrders.find(order => order.id === reference || order.code === reference || order.code === transaction.referenceCode);
+    const invoice = invoices.find(item => item.id === reference || item.invoiceCode === reference || item.invoiceCode === transaction.referenceCode);
+    if (transaction.referenceType === 'PURCHASE_ORDER' || (!invoice && purchaseOrder)) {
+      if (!purchaseOrder) return alert('Không tìm thấy phiếu nhập hàng gốc. Chứng từ có thể là dữ liệu cũ chưa đủ mã liên kết.');
+      if (purchaseOrder.branchId) setSelectedBranchId(purchaseOrder.branchId);
+      setLinkedPurchaseOrderId(purchaseOrder.id);
+      setActiveTab('purchase-orders');
+      return;
+    }
+    if (invoice) {
+      if (invoice.branchId) setSelectedBranchId(invoice.branchId);
+      setLinkedInvoiceId(invoice.id);
+      setActiveTab('invoices');
+      return;
+    }
+    alert('Không tìm thấy hóa đơn hoặc phiếu nhập gốc cho dòng công nợ này.');
   };
 
   const handleSaveFund = async (fund: FundAccount, isNew: boolean) => {
@@ -1687,7 +1715,9 @@ export default function App() {
         type: 'PAYMENT',
         amount,
         note: note || `Trả nợ phiếu nhập hàng ${orderId}`,
-        referenceId: orderId
+        referenceId: orderId,
+        referenceCode: purchaseOrders.find(order => order.id === orderId)?.code || orderId,
+        referenceType: 'PURCHASE_ORDER'
       };
       handleUpdatePartner({
         ...supplier,
@@ -1845,6 +1875,7 @@ export default function App() {
             onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
             onDeletePurchaseOrder={handleDeletePurchaseOrder}
             onPaySupplierDebt={handlePaySupplierDebt}
+            initialSelectedOrderId={linkedPurchaseOrderId}
           />
         )}
 
@@ -2098,32 +2129,7 @@ export default function App() {
                 await handleUpdateWarrantyTicket({ ...t, status: newStatus });
               }
             }}
-            onOpenCreateModal={() => {
-              const customerName = window.prompt('Tên khách hàng tiếp nhận máy:');
-              if (!customerName) return;
-              const phone = window.prompt('Số điện thoại khách:') || '';
-              const model = window.prompt('Model máy (vd: iPhone 13 Pro 128GB):') || 'iPhone';
-              const fault = window.prompt('Mô tả tình trạng lỗi (vd: Màn sọc xanh, liệt cảm ứng):') || 'Lỗi chức năng';
-              const newTicket: WarrantyTicket = {
-                id: `TICKET-${Date.now()}`,
-                ticketNumber: `SC-${Date.now().toString().slice(-4)}`,
-                customerName,
-                phone,
-                model,
-                imei: '358' + Math.floor(100000000000 + Math.random() * 900000000000),
-                faultDescription: fault,
-                issueType: 'Màn Hình / Cảm Ứng',
-                status: 'received',
-                technician: currentUser?.displayName || 'KTV Ca trực',
-                branchId: branches[0]?.id || 'CN01',
-                isWarrantyFree: false,
-                estimatedCost: 1500000,
-                finalCost: 1500000,
-                receivedDate: new Date().toISOString(),
-                expectedReturnDate: new Date(Date.now() + 24 * 3600 * 1000).toISOString()
-              };
-              handleAddWarrantyTicket(newTicket);
-            }}
+            onOpenCreateModal={() => setIsRepairIntakeOpen(true)}
           />
         )}
 
@@ -2166,6 +2172,7 @@ export default function App() {
             onUpdateInvoice={handleUpdateInvoice}
             onCancelInvoice={handleCancelInvoice}
             onDeleteInvoice={handleDeleteInvoice}
+            initialSelectedInvoiceId={linkedInvoiceId}
           />
         )}
 
@@ -2205,11 +2212,13 @@ export default function App() {
           <PartnersView
             partners={partners}
             branches={branches}
+            devices={filteredDevices}
             onAddPartner={handleAddPartner}
             onUpdatePartner={handleUpdatePartner}
             onDeletePartner={handleDeletePartner}
             onAddTransaction={handleAddCashTransaction}
             funds={funds}
+            onOpenReference={handleOpenDebtReference}
           />
         )}
 
@@ -2327,6 +2336,8 @@ export default function App() {
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
             attendanceRecord={currentAttendance}
             attendanceRecords={attendanceRecords}
+            onUpdateTaskStatus={async (task, status) => handleUpdateWarrantyTicket({ ...task, status })}
+            onOpenRepairIntake={() => setIsRepairIntakeOpen(true)}
           />
         )}
 
@@ -2362,6 +2373,15 @@ export default function App() {
           />
         )}
       </AppShell>
+
+      <RepairIntakeModal
+        isOpen={isRepairIntakeOpen}
+        onClose={() => setIsRepairIntakeOpen(false)}
+        branches={branches}
+        users={users}
+        currentUser={currentUser}
+        onCreate={handleAddWarrantyTicket}
+      />
 
       {/* Floating AI Copilot Button */}
       <button

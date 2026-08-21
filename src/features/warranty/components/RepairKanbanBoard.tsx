@@ -52,11 +52,15 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
 
   const nextStageMap: Record<string, WarrantyTicket['status'] | null> = {
     received: 'inspecting',
-    inspecting: 'waiting_parts',
+    inspecting: 'repairing',
     waiting_parts: 'repairing',
     repairing: 'ready',
     ready: 'delivered',
     delivered: null
+  };
+  const nextStageLabels: Record<string, string> = {
+    received: 'Bắt đầu thẩm định', inspecting: 'Bắt đầu sửa', waiting_parts: 'Đã có linh kiện',
+    repairing: 'Sửa xong · Gửi KCS', ready: 'Đã giao khách'
   };
 
   return (
@@ -204,8 +208,9 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
                             <span>KTV: <strong className="text-zinc-700">{ticket.technician || 'Chưa gán'}</strong></span>
                           </div>
 
-                          {nextStage && (
-                            <button
+                          <div className="flex items-center gap-1">
+                          {(ticket.status === 'inspecting' || ticket.status === 'repairing') && <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTicketStatus(ticket.id, 'waiting_parts'); }} className="px-2 py-1 bg-amber-50 text-amber-700 font-bold rounded-lg text-[10px]">Chờ LK</button>}
+                          {nextStage && <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -214,9 +219,10 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
                               className="px-2 py-1 bg-zinc-100 hover:bg-orange-100 text-zinc-700 hover:text-[#ff4b16] font-bold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer active:scale-95 text-[10px]"
                               title="Chuyển sang giai đoạn tiếp theo"
                             >
-                              <span>Chuyển ➔</span>
+                              <span>{nextStageLabels[ticket.status] || 'Chuyển bước'} ➔</span>
                             </button>
-                          )}
+                          }
+                          </div>
                         </div>
                       </div>
                     );

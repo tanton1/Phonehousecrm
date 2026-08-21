@@ -129,7 +129,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
   const targetLat = activeBranchGps ? activeBranchGps.lat : (targetBranch?.gpsLatitude ?? 0);
   const targetLng = activeBranchGps ? activeBranchGps.lng : (targetBranch?.gpsLongitude ?? 0);
-  const allowedRadiusMeters = targetBranch?.allowedGpsRadiusMeters ?? 100;
+  const allowedRadiusMeters = targetBranch?.attendanceRadius ?? targetBranch?.allowedGpsRadiusMeters ?? 50;
   const targetWifiSSID = targetBranch?.allowedWifiSSID || currentUser?.allowedWifiSSID || 'WIFI_CUA_HANG';
 
   // Device coordinates & Error messages
@@ -644,7 +644,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         branchName: targetBranch?.name || 'Chi nhánh PhoneHouse',
         userCoords: userCoords ? { latitude: userCoords.lat, longitude: userCoords.lng } : undefined,
         storeCoords: targetBranch ? { latitude: targetBranch.gpsLatitude || targetBranch.latitude || 0, longitude: targetBranch.gpsLongitude || targetBranch.longitude || 0 } : undefined,
-        allowedRadiusMeters: targetBranch?.allowedGpsRadiusMeters || 150,
+        allowedRadiusMeters: targetBranch?.attendanceRadius || targetBranch?.allowedGpsRadiusMeters || 50,
         faceVerified: faceStatus === 'SUCCESS',
         faceConfidence: faceConfidence || 0,
         networkVerified: wifiStatus === 'SUCCESS',

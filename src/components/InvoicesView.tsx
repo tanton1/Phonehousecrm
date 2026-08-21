@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem } from '../types';
 import { ActivityLog } from "./ActivityLog";
 import { DocumentHeader } from './shared/DocumentHeader';
@@ -172,6 +172,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     }
     return null;
   });
+
+  useEffect(() => {
+    if (!initialSelectedInvoiceId) return;
+    const matched = invoices.find(invoice => invoice.id === initialSelectedInvoiceId || invoice.invoiceCode === initialSelectedInvoiceId);
+    if (matched) setSelectedInvoice(matched);
+  }, [initialSelectedInvoiceId, invoices]);
 
   // Modals inside InvoicesView
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);

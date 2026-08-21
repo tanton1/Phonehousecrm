@@ -281,6 +281,7 @@ export async function addWarrantyTicketToFirestore(ticket: WarrantyTicket) {
     await setDoc(docRef, cleanDataForFirestore(ticket));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 
@@ -291,6 +292,7 @@ export async function updateWarrantyTicketInFirestore(ticket: WarrantyTicket) {
     await setDoc(docRef, cleanDataForFirestore(ticket), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
   }
 }
 
