@@ -65,6 +65,14 @@ export async function requestReceivePurchaseOrder(
   return sendInventoryRequest('purchase-orders/receive', 'POST', { order }, currentUser);
 }
 
+export async function requestCancelPurchaseOrder(
+  orderId: string,
+  reason: string,
+  currentUser?: UserAccount
+): Promise<{ order: PurchaseOrder; removedDeviceIds: string[]; idempotentReplay?: boolean }> {
+  return sendInventoryRequest(`purchase-orders/${encodeURIComponent(orderId)}/cancel`, 'POST', { reason }, currentUser);
+}
+
 export async function fetchInventoryAudit(currentUser?: UserAccount): Promise<{
   dryRun: true;
   generatedAt: string;

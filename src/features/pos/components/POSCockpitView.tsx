@@ -257,13 +257,13 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     // Build Split Payments List if in Multi-Payment Mode
     const splitPaymentsList = isSplit ? [
       ...(splitData.splitCash > 0 ? [{
-        method: 'Tiền mặt',
+        method: 'CASH',
         amount: splitData.splitCash,
         fundId: splitData.splitCashFundId,
         fundName: funds.find(f => f.id === splitData.splitCashFundId)?.name || 'Két Tiền Mặt'
       }] : []),
       ...(splitData.splitBank1 > 0 ? [{
-        method: 'Chuyển khoản 1',
+        method: 'BANK',
         amount: splitData.splitBank1,
         fundId: splitData.splitBankFundId1,
         fundName: funds.find(f => f.id === splitData.splitBankFundId1)?.name || 'Tài Khoản Ngân Hàng 1',
@@ -271,7 +271,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         accountNumber: funds.find(f => f.id === splitData.splitBankFundId1)?.accountNumber
       }] : []),
       ...(splitData.splitBank2 > 0 ? [{
-        method: 'Chuyển khoản 2',
+        method: 'BANK',
         amount: splitData.splitBank2,
         fundId: splitData.splitBankFundId2,
         fundName: funds.find(f => f.id === splitData.splitBankFundId2)?.name || 'Tài Khoản Ngân Hàng 2',
@@ -279,13 +279,13 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         accountNumber: funds.find(f => f.id === splitData.splitBankFundId2)?.accountNumber
       }] : []),
       ...(splitData.splitCard > 0 ? [{
-        method: 'Quẹt thẻ POS',
+        method: 'CARD',
         amount: splitData.splitCard,
         fundId: splitData.splitCardFundId,
         fundName: funds.find(f => f.id === splitData.splitCardFundId)?.name || 'Máy POS'
       }] : []),
       ...(splitData.splitDebt > 0 ? [{
-        method: 'Ghi nợ / Trả góp',
+        method: 'DEBT',
         amount: splitData.splitDebt,
         fundId: '',
         fundName: 'Công nợ'

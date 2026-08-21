@@ -415,6 +415,7 @@ export async function addPartnerToFirestore(partner: Partner) {
     await setDoc(docRef, cleanDataForFirestore(partner));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 

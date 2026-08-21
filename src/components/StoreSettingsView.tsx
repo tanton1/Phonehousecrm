@@ -95,7 +95,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty'>('branches');
   const [warehouseBranchFilter, setWarehouseBranchFilter] = useState<string>('ALL');
-  const [showArchivedWarehouses, setShowArchivedWarehouses] = useState(false);
+  // Kho chưa phát sinh được xóa vĩnh viễn; dữ liệu lưu trữ cũ không còn hiển thị trong luồng thiết lập.
+  const showArchivedWarehouses = false;
   
   // Executive AI Modal state
   const [isExecutiveModalOpen, setIsExecutiveModalOpen] = useState(false);
@@ -746,23 +747,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-white p-2 text-xs font-black">
-            <button
-              type="button"
-              onClick={() => setShowArchivedWarehouses(false)}
-              className={`rounded-xl px-3 py-2.5 transition-colors ${!showArchivedWarehouses ? 'bg-zinc-900 text-white' : 'bg-zinc-50 text-zinc-600 hover:bg-zinc-100'}`}
-            >
-              Kho đang hoạt động ({activeWarehouses.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowArchivedWarehouses(true)}
-              className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 transition-colors ${showArchivedWarehouses ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}
-            >
-              <Archive className="h-4 w-4" /> Kho đã ẩn ({archivedWarehouses.length})
-            </button>
-          </div>
-
           {/* Branch Filter Pills */}
           <div className={`${showArchivedWarehouses ? 'hidden' : 'flex'} flex-wrap gap-2 items-center bg-white p-2.5 rounded-2xl border border-zinc-200 text-xs font-bold`}>
             <span className="text-zinc-400 px-2 uppercase text-[11px] tracking-wider">Lọc theo chi nhánh:</span>
@@ -851,16 +835,18 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                         </button>
                         <button
                           onClick={async () => {
-                            if (!confirm(`Bạn có chắc muốn xóa kho "${wh.name}"? Kho có máy, kho con hoặc phiếu chuyển đang mở sẽ không thể xóa.`)) return;
+                            if (!confirm(`Xóa vĩnh viễn kho "${wh.name}"? Chỉ kho chưa từng phát sinh dữ liệu hoặc liên kết mới được phép xóa.`)) return;
                             try {
                               await onDeleteWarehouse(wh.id);
-                              showToast('Đã xóa kho khỏi danh sách hoạt động', 'success');
+                              showToast('Đã xóa vĩnh viễn kho chưa phát sinh', 'success');
                             } catch (error: any) {
                               const messages: Record<string, string> = {
                                 WAREHOUSE_HAS_DEVICES: 'Kho vẫn còn máy/IMEI. Hãy chuyển hết tồn kho trước khi xóa.',
                                 WAREHOUSE_HAS_CHILDREN: 'Kho đang có kho con. Hãy chuyển hoặc xóa các kho con trước.',
-                                WAREHOUSE_HAS_OPEN_TRANSFERS: 'Kho còn phiếu chuyển hàng đang mở. Hãy hoàn tất hoặc hủy phiếu trước.',
-                                WAREHOUSE_HAS_PURCHASE_ORDERS: 'Kho đã có phiếu nhập liên kết nên không thể xóa/ẩn như kho chưa phát sinh.'
+                                WAREHOUSE_HAS_TRANSFERS: 'Kho đã có phiếu chuyển hàng liên kết nên không thể xóa.',
+                                WAREHOUSE_HAS_PURCHASE_ORDERS: 'Kho đã có phiếu nhập liên kết nên không thể xóa.',
+                                WAREHOUSE_HAS_INVOICES: 'Kho đã có hóa đơn liên kết nên không thể xóa.',
+                                WAREHOUSE_HAS_MOVEMENTS: 'Kho đã có lịch sử biến động tồn kho nên không thể xóa.'
                               };
                               showToast(messages[error?.message] || error?.message || 'Không thể xóa kho', 'error');
                             }

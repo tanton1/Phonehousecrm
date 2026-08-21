@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef } from 'react';
 import { 
   Wallet, ArrowUpRight, ArrowDownLeft, Search, Filter, Plus, Minus, Calendar,
   CreditCard, Building2, Users, Smartphone, FileText, ChevronDown, ChevronRight, RefreshCw, X, Share2, 
-  Printer, ArrowRightLeft, CheckCircle2, AlertCircle, Eye, EyeOff, Sparkles, User as UserIcon, Clock
+  Printer, ArrowRightLeft, CheckCircle2, AlertCircle, Eye, EyeOff, Sparkles, User as UserIcon, Clock, Trash2
 } from 'lucide-react';
 import { 
   CashTransaction, FundAccount, CashTransactionType, PaymentFundType, 
@@ -27,6 +27,7 @@ interface CashbookViewProps {
   partners: Partner[];
   onAddTransaction: (transaction: CashTransaction) => void;
   onSaveFund?: (fund: FundAccount, isNew: boolean) => Promise<void> | void;
+  onDeleteFund?: (fundId: string) => Promise<void> | void;
   onTransferFunds?: (fromFundId: string, toFundId: string, amount: number, notes: string, creator?: string) => Promise<void> | void;
   onAddPartner?: (partner: Partner) => void | Promise<void>;
 }
@@ -40,6 +41,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   partners = [], 
   onAddTransaction, 
   onSaveFund,
+  onDeleteFund,
   onTransferFunds, 
   onAddPartner 
 }) => {
@@ -1200,6 +1202,28 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     >
                       + Nạp tiền
                     </button>
+                    {onDeleteFund && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!window.confirm(`Xóa vĩnh viễn tài khoản "${fund.name}"? Chỉ tài khoản chưa từng phát sinh giao dịch và có số dư 0 mới xóa được.`)) return;
+                          try {
+                            await onDeleteFund(fund.id);
+                          } catch (error: any) {
+                            const message = error?.message === 'ACCOUNT_HAS_TRANSACTIONS'
+                              ? 'Tài khoản đã có giao dịch nên không thể xóa.'
+                              : error?.message === 'ACCOUNT_BALANCE_MUST_BE_ZERO'
+                                ? 'Tài khoản còn số dư, cần đối soát về 0 trước khi xóa.'
+                                : error?.message || 'Không thể xóa tài khoản.';
+                            alert(message);
+                          }
+                        }}
+                        className="grid h-9 w-9 place-items-center rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100"
+                        title="Xóa tài khoản chưa phát sinh"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 );

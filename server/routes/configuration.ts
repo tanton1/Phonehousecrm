@@ -388,35 +388,31 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       await db.runTransaction(async (transaction) => {
         const currentSnap = await transaction.get(warehouseRef);
         if (!currentSnap.exists) throw new Error('WAREHOUSE_NOT_FOUND');
-        const [canonicalDevices, legacyWarehouseIdDevices, legacyWarehouseDevices, purchaseOrders] = await Promise.all([
+        const [canonicalDevices, legacyWarehouseIdDevices, legacyWarehouseDevices, purchaseOrders, children, sourceTransfers, destinationTransfers, invoices, incomingMovements, outgoingMovements] = await Promise.all([
           transaction.get(db.collection('devices').where('currentLocationId', '==', req.params.warehouseId)),
           transaction.get(db.collection('devices').where('warehouseId', '==', req.params.warehouseId)),
           transaction.get(db.collection('devices').where('warehouse', '==', req.params.warehouseId)),
-          transaction.get(db.collection('purchaseOrders').where('warehouseId', '==', req.params.warehouseId))
+          transaction.get(db.collection('purchaseOrders').where('warehouseId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('warehouses').where('parentWarehouseId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('transfers').where('sourceLocationId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('transfers').where('destinationLocationId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('invoices').where('warehouseId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('inventoryMovements').where('toLocationId', '==', req.params.warehouseId)),
+          transaction.get(db.collection('inventoryMovements').where('fromLocationId', '==', req.params.warehouseId))
         ]);
         const linkedDevices = new Map<string, any>();
         [...canonicalDevices.docs, ...legacyWarehouseIdDevices.docs, ...legacyWarehouseDevices.docs].forEach(item => linkedDevices.set(item.id, item.data()));
-        if (warehouseHasBlockingDevices([...linkedDevices.values()])) throw new Error('WAREHOUSE_HAS_DEVICES');
+        if (linkedDevices.size > 0) throw new Error('WAREHOUSE_HAS_DEVICES');
         if (!purchaseOrders.empty) throw new Error('WAREHOUSE_HAS_PURCHASE_ORDERS');
-        const children = await transaction.get(db.collection('warehouses').where('parentWarehouseId', '==', req.params.warehouseId));
-        if (children.docs.some(item => isWarehouseRecordActive(item.data()))) throw new Error('WAREHOUSE_HAS_CHILDREN');
-        const sourceTransfers = await transaction.get(db.collection('transfers').where('sourceLocationId', '==', req.params.warehouseId));
-        const destinationTransfers = await transaction.get(db.collection('transfers').where('destinationLocationId', '==', req.params.warehouseId));
-        const openStatuses = new Set(['PENDING', 'WAITING_KTV_ACCEPT', 'IN_PROGRESS', 'IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED']);
-        if ([...sourceTransfers.docs, ...destinationTransfers.docs].some((item) => openStatuses.has(item.data().status))) {
-          throw new Error('WAREHOUSE_HAS_OPEN_TRANSFERS');
-        }
-        transaction.update(warehouseRef, {
-          isActive: false,
-          active: false,
-          isArchived: true,
-          archivedAt: FieldValue.serverTimestamp(),
-          archivedByUid: req.user?.uid
-        });
+        if (!children.empty) throw new Error('WAREHOUSE_HAS_CHILDREN');
+        if (!sourceTransfers.empty || !destinationTransfers.empty) throw new Error('WAREHOUSE_HAS_TRANSFERS');
+        if (!invoices.empty) throw new Error('WAREHOUSE_HAS_INVOICES');
+        if (!incomingMovements.empty || !outgoingMovements.empty) throw new Error('WAREHOUSE_HAS_MOVEMENTS');
+        transaction.delete(warehouseRef);
       });
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(400).json({ success: false, error: error.message || 'WAREHOUSE_ARCHIVE_FAILED' });
+      return res.status(400).json({ success: false, error: error.message || 'WAREHOUSE_DELETE_FAILED' });
     }
   });
 

@@ -100,7 +100,7 @@ class iPhoneDevice(Document):
     def validate(self):
         """Validate IMEI length and Battery Health"""
         if self.imei and len(self.imei) != 15:
-            frappe.throw("Số IMEI của iPhone bắt buộc phải đúng 15 chữ số tiêu chuẩn GSMA!")
+            frappe.throw("Mã IMEI/Serial bắt buộc phải từ 5 đến 15 chữ số!")
         
         if self.battery_health and (self.battery_health < 50 or self.battery_health > 100):
             frappe.throw("Tỷ lệ Pin (% Battery Health) phải nằm trong khoảng từ 50% đến 100%!")

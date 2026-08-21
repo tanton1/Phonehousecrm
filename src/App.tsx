@@ -93,6 +93,7 @@ import {
   subscribeToFunds,
   addFundToFirestore,
   updateFundInFirestore,
+  deleteFundFromFirestore,
   subscribeToCashTransactions,
   addCashTransactionToFirestore,
   executeFundTransferInFirestore,
@@ -137,7 +138,8 @@ import {
   createInventoryIdempotencyKey,
   fetchInventoryDevices,
   requestImportInventoryDevices,
-  requestReceivePurchaseOrder
+  requestReceivePurchaseOrder,
+  requestCancelPurchaseOrder
 } from './services/inventoryApiClient';
 
 const BUSINESS_DATA_RESET_MARKER = 'phonehouse_business_data_reset_2026_08_21_v1';
@@ -1226,9 +1228,9 @@ export default function App() {
     deleteUserFromFirestore(userId);
   };
 
-  const handleAddPartner = (newPartner: Partner) => {
-    setPartners([newPartner, ...partners]);
-    addPartnerToFirestore(newPartner);
+  const handleAddPartner = async (newPartner: Partner) => {
+    await addPartnerToFirestore(newPartner);
+    setPartners(previous => [newPartner, ...previous.filter(partner => partner.id !== newPartner.id)]);
   };
 
   const handleUpdatePartner = (updatedPartner: Partner) => {
@@ -1265,6 +1267,11 @@ export default function App() {
       alert('Không thể lưu tài khoản: ' + (err?.message || 'Dữ liệu không hợp lệ.'));
       throw err;
     }
+  };
+
+  const handleDeleteFund = async (fundId: string) => {
+    await deleteFundFromFirestore(fundId);
+    setFunds(previous => previous.filter(fund => fund.id !== fundId));
   };
 
   // Transfer writes and device movements are server-authoritative. This only keeps
@@ -1350,7 +1357,7 @@ export default function App() {
 
   const handleDeleteWarehouse = async (warehouseId: string) => {
     await deleteWarehouseFromFirestore(warehouseId);
-    setWarehouses(prev => prev.map(w => w.id === warehouseId ? { ...w, isActive: false, active: false, isArchived: true } as WarehouseInfo : w));
+    setWarehouses(prev => prev.filter(w => w.id !== warehouseId));
   };
 
   const handleRestoreWarehouse = async (warehouseId: string) => {
@@ -1549,9 +1556,14 @@ export default function App() {
     updatePurchaseOrderInFirestore(updatedOrder);
   };
 
-  const handleDeletePurchaseOrder = (orderId: string) => {
-    setPurchaseOrders(prev => prev.filter(o => o.id !== orderId));
-    deletePurchaseOrderFromFirestore(orderId);
+  const handleDeletePurchaseOrder = async (orderId: string) => {
+    if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn.');
+    const result = await requestCancelPurchaseOrder(orderId, 'Hủy phiếu nhập từ màn hình quản lý', currentUser);
+    setPurchaseOrders(prev => prev.map(order => order.id === orderId ? result.order : order));
+    if (result.removedDeviceIds.length > 0) {
+      const removedIds = new Set(result.removedDeviceIds);
+      setDevices(prev => prev.filter(device => !removedIds.has(device.id)));
+    }
   };
 
   // Master Catalog Handlers
@@ -2184,6 +2196,7 @@ export default function App() {
             onAddTransaction={handleAddCashTransaction}
             onAddPartner={handleAddPartner}
             onSaveFund={handleSaveFund}
+            onDeleteFund={handleDeleteFund}
             onTransferFunds={handleTransferFunds}
           />
         )}

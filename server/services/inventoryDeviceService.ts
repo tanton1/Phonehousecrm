@@ -65,7 +65,7 @@ function assertImportInput(input: ImportInventoryDevicesInput, actor: InventoryA
   if (!input.idempotencyKey || input.idempotencyKey.length < 8 || input.idempotencyKey.length > 160) throw new Error('IDEMPOTENCY_KEY_REQUIRED');
   if (!Array.isArray(input.devices) || input.devices.length === 0 || input.devices.length > 100) throw new Error('INVENTORY_DEVICE_COUNT_INVALID');
   const normalizedImeis = input.devices.map(device => normalizeImei(device.imei));
-  if (normalizedImeis.some(imei => !/^\d{15}$/.test(imei))) throw new Error('IMEI_INVALID: IMEI phải gồm đúng 15 chữ số.');
+  if (normalizedImeis.some(imei => !/^\d{5,15}$/.test(imei))) throw new Error('IMEI_INVALID: Mã IMEI/Serial phải gồm từ 5 đến 15 chữ số.');
   if (new Set(normalizedImeis).size !== normalizedImeis.length) throw new Error('DUPLICATE_IMEI_IN_REQUEST');
   input.devices.forEach(device => {
     if (!device.model?.trim()) throw new Error(`DEVICE_MODEL_REQUIRED: ${device.imei}`);
@@ -245,8 +245,8 @@ export async function buildInventoryAuditReport(db: Firestore) {
   for (const [deviceId, device] of devices) {
     const imei = normalizeImei(device.imei);
     if (imei) imeiGroups.set(imei, [...(imeiGroups.get(imei) || []), deviceId]);
-    if (!/^\d{15}$/.test(imei)) issues.push({ code: 'DEVICE_IMEI_INVALID', deviceId, imei });
-    if (/^\d{15}$/.test(imei)) {
+    if (!/^\d{5,15}$/.test(imei)) issues.push({ code: 'DEVICE_IMEI_INVALID', deviceId, imei });
+    if (/^\d{5,15}$/.test(imei)) {
       const registry = registries.get(imeiRegistryId(imei));
       if (!registry) issues.push({ code: 'IMEI_REGISTRY_MISSING', deviceId, imei });
       else if (registry.deviceId !== deviceId) issues.push({ code: 'IMEI_REGISTRY_DEVICE_MISMATCH', deviceId, imei, details: { registryDeviceId: registry.deviceId } });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Wrench, Package, Search, Bell, CheckCircle2, 
   Activity, Zap, Clock, Smartphone, ShieldCheck, RefreshCw,
@@ -9,6 +9,7 @@ import { StaffHRView } from './StaffHRView';
 import { UserAccount, WarrantyTicket, DeviceItem, CommissionTransaction, StoreBranch } from '../types';
 import { calculateStaffDualWallet, calculateWarrantyTicketCommissions } from '../utils/commissionEngine';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
+import { fetchMyTechnicalWork } from '../services/technicalApiClient';
 
 interface TechWorkspaceViewProps {
   tasks: WarrantyTicket[];
@@ -38,6 +39,25 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   const [activeTab, setActiveTab] = useState<'KANBAN' | 'INVENTORY' | 'KPI' | 'HR'>('KANBAN');
   const [walletFilter, setWalletFilter] = useState<'ALL' | 'KCS' | 'REPAIR' | 'WARRANTY' | 'TRADEIN'>('ALL');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [assignedWorkLines, setAssignedWorkLines] = useState<any[]>([]);
+  const [assignedWorkError, setAssignedWorkError] = useState('');
+
+  const loadAssignedWork = async () => {
+    setIsSyncing(true);
+    try {
+      const lines = await fetchMyTechnicalWork();
+      setAssignedWorkLines(Array.isArray(lines) ? lines : []);
+      setAssignedWorkError('');
+    } catch (error: any) {
+      setAssignedWorkError(error?.message || 'Không thể tải công việc được giao từ kho.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAssignedWork();
+  }, [currentUser?.id]);
 
   // Active tech staff identification
   const currentStaffId = currentUser?.id || 'STAFF_004';
@@ -75,15 +95,23 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   });
   const todayCompletedCount = todayTasks.filter(t => t.status === 'ready' || t.status === 'delivered').length;
 
-  const handleManualSync = () => {
-    setIsSyncing(true);
+  const handleManualSync = async () => {
     if (onSyncCommissions) {
       onSyncCommissions();
     }
-    setTimeout(() => {
-      setIsSyncing(false);
-    }, 600);
+    await loadAssignedWork();
   };
+
+  const assignedDevices = useMemo(() => {
+    const userNames = new Set([currentUser?.displayName, currentUser?.name, staffMember?.name].filter(Boolean));
+    const assignedDeviceIds = new Set(assignedWorkLines.map(line => String(line.deviceId || '')).filter(Boolean));
+    return devices.filter(device =>
+      assignedDeviceIds.has(String(device.id)) ||
+      (device as any).currentCustodianUid === currentUser?.id ||
+      userNames.has(device.technicianAssigned) ||
+      userNames.has(device.currentCustodian)
+    );
+  }, [devices, assignedWorkLines, currentUser, staffMember]);
 
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
@@ -166,7 +194,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 <div className="flex items-center gap-2">
                   <h2 className="text-base sm:text-lg font-black text-zinc-900">Bảng Điều Phối Sửa Chữa & KCS</h2>
                   <span className="text-xs font-bold text-zinc-500 bg-white px-2.5 py-1 rounded-xl border border-zinc-200 shadow-2xs">
-                    {tasks.length} phiếu
+                    {tasks.length + assignedWorkLines.length} công việc
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -176,6 +204,30 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                   </div>
                 </div>
               </div>
+              {(assignedWorkLines.length > 0 || assignedWorkError) && (
+                <div className="mb-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wide text-orange-900">Máy kho đã chuyển cho tôi</p>
+                      <p className="text-[11px] text-orange-700">{assignedWorkLines.length} task được định danh theo tài khoản đăng nhập</p>
+                    </div>
+                    <button onClick={handleManualSync} className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /></button>
+                  </div>
+                  {assignedWorkError && <p className="mt-2 text-xs font-semibold text-rose-600">{assignedWorkError}</p>}
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {assignedWorkLines.map(line => (
+                      <div key={line.id} className="rounded-xl border border-orange-100 bg-white p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div><p className="text-sm font-black text-zinc-900">{line.model || 'Thiết bị'}</p><p className="font-mono text-[11px] text-zinc-500">IMEI: {line.imei}</p></div>
+                          <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-black text-orange-800">{line.status || 'ASSIGNED'}</span>
+                        </div>
+                        <p className="mt-2 text-xs font-bold text-zinc-700">{line.taskName || line.taskType}</p>
+                        <p className="mt-1 text-[11px] text-zinc-500">Hạn xử lý: {line.deadlineAt ? new Date(line.deadlineAt).toLocaleString('vi-VN') : 'Chưa đặt'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex-1 min-h-0 bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden">
                 <TechKanbanBoard 
                   tasks={tasks}
@@ -363,9 +415,12 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
           )}
 
           {activeTab === 'INVENTORY' && (
-            <div className="flex flex-col items-center justify-center h-full text-zinc-400 space-y-4">
-              <Package className="w-16 h-16 text-zinc-200" />
-              <p className="font-medium text-sm">Kho linh kiện đang được đồng bộ ERP...</p>
+            <div className="mx-auto max-w-4xl space-y-3">
+              <div className="flex items-center justify-between"><div><h2 className="font-black text-zinc-900">Máy tôi đang chịu trách nhiệm</h2><p className="text-xs text-zinc-500">Đối chiếu theo task và tài khoản KTV được gắn với kho con</p></div><span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-black text-orange-800">{assignedDevices.length} máy</span></div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {assignedDevices.map(device => <div key={device.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><div><p className="font-black text-zinc-900">{device.model} {device.storage}</p><p className="mt-1 font-mono text-xs text-zinc-500">IMEI: {device.imei}</p></div><span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-black text-zinc-600">{device.status}</span></div><p className="mt-3 text-xs text-zinc-600">Kho/vị trí: {String(device.currentLocationId || device.warehouseId || device.warehouse || 'Đang chờ nhận')}</p></div>)}
+                {assignedDevices.length === 0 && <div className="col-span-full rounded-2xl border border-dashed border-zinc-300 bg-white p-10 text-center"><Package className="mx-auto h-12 w-12 text-zinc-200" /><p className="mt-3 text-sm font-semibold text-zinc-500">Chưa có máy nào được giao cho tài khoản này.</p></div>}
+              </div>
             </div>
           )}
           

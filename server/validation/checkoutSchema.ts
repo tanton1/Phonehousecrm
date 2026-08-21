@@ -6,6 +6,17 @@
 export const ALLOWED_PAYMENT_METHODS = ['CASH', 'BANK', 'CARD', 'INSTALLMENT', 'DEBT'] as const;
 export type PaymentMethodType = typeof ALLOWED_PAYMENT_METHODS[number];
 
+export function normalizeCheckoutPaymentMethod(value: unknown): PaymentMethodType | null {
+  const method = String(value || '').trim().toUpperCase();
+  if (ALLOWED_PAYMENT_METHODS.includes(method as PaymentMethodType)) return method as PaymentMethodType;
+  if (['TIỀN MẶT', 'TIEN MAT', 'KÉT TIỀN', 'KET TIEN'].includes(method)) return 'CASH';
+  if (method.startsWith('CHUYỂN KHOẢN') || method.startsWith('CHUYEN KHOAN') || method.includes('VIETQR')) return 'BANK';
+  if (method.includes('QUẸT THẺ') || method.includes('QUET THE') || method.includes('POS')) return 'CARD';
+  if (method.includes('GHI NỢ') || method.includes('GHI NO')) return 'DEBT';
+  if (method.includes('TRẢ GÓP') || method.includes('TRA GOP')) return 'INSTALLMENT';
+  return null;
+}
+
 export interface SplitPaymentLine {
   method: PaymentMethodType;
   amount: number;
@@ -167,12 +178,14 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
           return { isValid: false, error: 'Khoản thanh toán trong mảng payments không hợp lệ.' };
         }
         // Strict runtime enum check for payment method (P0 fix)
-        if (!p.method || !ALLOWED_PAYMENT_METHODS.includes(p.method as PaymentMethodType)) {
+        const normalizedMethod = normalizeCheckoutPaymentMethod(p.method);
+        if (!normalizedMethod) {
           return { 
             isValid: false, 
             error: `Phương thức thanh toán "${p.method}" không hợp lệ. Chỉ chấp nhận: ${ALLOWED_PAYMENT_METHODS.join(', ')}.` 
           };
         }
+        p.method = normalizedMethod;
         if (typeof p.amount !== 'number' || !Number.isFinite(p.amount) || p.amount < 0) {
           return { isValid: false, error: 'Số tiền thanh toán phải là số dương hợp lệ.' };
         }

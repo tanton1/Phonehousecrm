@@ -97,9 +97,9 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
 
   const handleFinish = async () => {
     // Validate IMEIs
-    const emptyImeis = deviceRows.filter(r => !/^\d{15}$/.test(r.imei.trim()));
+    const emptyImeis = deviceRows.filter(r => !/^\d{5,15}$/.test(r.imei.trim()));
     if (emptyImeis.length > 0) {
-      alert('Vui lòng nhập IMEI đúng 15 chữ số cho tất cả các máy.');
+      alert('Vui lòng nhập IMEI/Serial từ 5 đến 15 chữ số cho tất cả các máy.');
       setStep(2);
       return;
     }

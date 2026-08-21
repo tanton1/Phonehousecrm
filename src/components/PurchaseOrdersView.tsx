@@ -69,7 +69,7 @@ interface PurchaseOrdersViewProps {
   currentUser?: UserAccount | null;
   onAddPurchaseOrder: (order: PurchaseOrder, autoCreateDevices: boolean) => Promise<void> | void;
   onUpdatePurchaseOrder: (order: PurchaseOrder) => void;
-  onDeletePurchaseOrder: (orderId: string) => void;
+  onDeletePurchaseOrder: (orderId: string) => Promise<void> | void;
   onPaySupplierDebt?: (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => void;
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
   onAddCashTransaction?: (tx: import('../types').CashTransaction) => void;
@@ -197,8 +197,24 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   };
 
   // Quick Status Change on Detail View
-  const handleQuickChangeStatus = (newStatus: PurchaseOrderStatus) => {
+  const handleQuickChangeStatus = async (newStatus: PurchaseOrderStatus) => {
     if (!selectedOrder) return;
+    if (newStatus === 'CANCELLED') {
+      if (!window.confirm(`Hủy phiếu ${selectedOrder.code}? Hệ thống sẽ hoàn tác IMEI, tồn kho, công nợ và khoản chi liên quan.`)) return;
+      try {
+        await onDeletePurchaseOrder(selectedOrder.id);
+        setSelectedOrder({ ...selectedOrder, status: 'CANCELLED' });
+        setShowStatusPicker(false);
+        triggerToast('Đã hủy phiếu và hoàn tác dữ liệu nhập kho');
+      } catch (error: any) {
+        alert(error?.message || 'Không thể hủy phiếu nhập.');
+      }
+      return;
+    }
+    if (selectedOrder.status === 'COMPLETED' || selectedOrder.status === 'CANCELLED') {
+      alert('Phiếu đã nhập kho/đã hủy không thể đổi trạng thái thủ công. Hãy dùng nghiệp vụ hủy phiếu để bảo toàn tồn kho.');
+      return;
+    }
     const updatedOrder: PurchaseOrder = {
       ...selectedOrder,
       status: newStatus,
@@ -737,10 +753,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                   <span>{copiedText === 'link' ? 'Đã sao chép liên kết!' : 'Sao chép liên kết phiếu'}</span>
                 </button>
                 <button
-                  onClick={() => {
-                    if (window.confirm(`Bạn có chắc muốn xóa/hủy phiếu nhập ${orderCode}?`)) {
-                      onDeletePurchaseOrder(selectedOrder.id);
-                      setSelectedOrder(null);
+                  onClick={async () => {
+                    if (window.confirm(`Hủy phiếu nhập ${orderCode}? IMEI, tồn kho, quỹ và công nợ liên quan sẽ được hoàn tác đồng bộ.`)) {
+                      try {
+                        await onDeletePurchaseOrder(selectedOrder.id);
+                        setSelectedOrder(null);
+                      } catch (error: any) {
+                        alert(error?.message || 'Không thể hủy phiếu nhập.');
+                      }
                     }
                   }}
                   className="w-full px-3.5 py-2 text-left font-medium text-rose-600 hover:bg-rose-50 flex items-center space-x-2 border-t border-zinc-100"
@@ -1275,6 +1295,13 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       {/* 1. Quick Horizontal Status Filter Pills */}
       <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-1">
         <button
+          type="button"
+          onClick={() => setIsCreateModalOpen(true)}
+          className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 rounded-full bg-orange-600 px-3 py-1.5 text-xs font-black text-white shadow-sm"
+        >
+          <Plus className="h-3.5 w-3.5" /> Nhập hàng / IMEI
+        </button>
+        <button
           onClick={() => setStatusFilter('all')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${
             statusFilter === 'all'
@@ -1554,7 +1581,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       )}
 
       {/* Floating "+ Nhập Hàng Mới" Button on Mobile / Master View */}
-      <div className="fixed bottom-4 right-4 z-40">
+      <div className="fixed bottom-24 right-4 z-40 sm:bottom-6">
         <button
           onClick={() => {
             setNewSupplierId(suppliers[0]?.id || '');

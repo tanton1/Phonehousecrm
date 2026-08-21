@@ -228,6 +228,12 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       alert('Vui lòng chọn đúng chi nhánh nhập hàng.');
       return;
     }
+
+    const invalidImeis = [...seenImeis].filter(imei => !/^\d{5,15}$/.test(imei));
+    if (invalidImeis.length > 0) {
+      alert(`IMEI/Serial phải gồm từ 5 đến 15 chữ số. Mã chưa hợp lệ: ${invalidImeis.slice(0, 5).join(', ')}`);
+      return;
+    }
     const targetWarehouse = warehouses.find(w => w.id === data.warehouseId && w.branchId === targetBranch.id && isWarehouseActive(w));
     if (!targetWarehouse) {
       alert('Vui lòng chọn một kho đang hoạt động thuộc đúng chi nhánh nhập hàng. Hệ thống không tự chọn kho toàn hệ thống.');
@@ -795,14 +801,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       <CreatePartnerModal
         isOpen={isCreateSupplierModalOpen}
         onClose={() => setIsCreateSupplierModalOpen(false)}
-        onAddPartner={async (newPartner) => {
+        onSavePartner={async (newPartner) => {
           if (onAddPartner) {
-            await onAddPartner({ ...newPartner, type: 'SUPPLIER' });
+            await onAddPartner({ ...newPartner, type: 'SUPPLIER', branchId: watchBranchId });
           }
           setValue('supplierId', newPartner.id);
           setIsCreateSupplierModalOpen(false);
         }}
-        branches={branches}
         defaultType="SUPPLIER"
       />
     </div>

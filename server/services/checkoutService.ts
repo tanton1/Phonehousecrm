@@ -365,8 +365,8 @@ export async function executeAtomicCheckout(
     if (payload.tradeInDevice) {
       const draft = payload.tradeInDevice;
       const normalizedImei = normalizeImei(draft.imei);
-      if (!/^\d{15}$/.test(normalizedImei)) {
-        throw new Error('TRADE_IN_IMEI_INVALID: IMEI máy thu cũ phải gồm đúng 15 chữ số.');
+      if (!/^\d{5,15}$/.test(normalizedImei)) {
+        throw new Error('TRADE_IN_IMEI_INVALID: IMEI máy thu cũ phải gồm từ 5 đến 15 chữ số.');
       }
       if (!draft.model || !String(draft.model).trim()) {
         throw new Error('TRADE_IN_MODEL_REQUIRED: Thiếu model máy thu cũ.');
@@ -667,7 +667,7 @@ export async function executeAtomicCheckout(
       debtAmount: customerDebtAmount,
       financeAmount,
       paymentMethod,
-      splitPayments: isMultiPayment ? payload.payments : undefined,
+      ...(isMultiPayment ? { splitPayments: payload.payments } : {}),
       installmentDownPayment: downPayment,
       installmentFinanceAmount: financeAmount,
       installmentFinancePartnerId: payload.installmentFinancePartnerId || payload.payment?.installmentFinancePartnerId || null,

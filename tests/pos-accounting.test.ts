@@ -311,4 +311,28 @@ describe('PhoneHouse POS & Financial Invariants Test Suite', () => {
     expect(valid.isValid).toBe(true);
     expect(valid.data?.invoice.finalAmount).toBe(12000000);
   });
+
+  it('Case 8: Chia nhiều nguồn chỉ gửi mã thanh toán chuẩn cho API', () => {
+    const result = validateCheckoutPayload({
+      idempotencyKey: 'POS-SPLIT-0001',
+      branchId: 'CN01',
+      deviceIds: ['DEV-01'],
+      payments: [
+        { method: 'CASH', amount: 5000, fundId: 'FUND-CASH' },
+        { method: 'BANK', amount: 10000, fundId: 'FUND-BANK' },
+        { method: 'CARD', amount: 2600, fundId: 'FUND-CARD' }
+      ]
+    });
+    expect(result.isValid).toBe(true);
+    const legacyMobilePayload = validateCheckoutPayload({
+      idempotencyKey: 'POS-SPLIT-0002', branchId: 'CN01', deviceIds: ['DEV-01'],
+      payments: [{ method: 'Tiền mặt', amount: 5000, fundId: 'FUND-CASH' }]
+    });
+    expect(legacyMobilePayload.isValid).toBe(true);
+    expect(legacyMobilePayload.data?.payments[0].method).toBe('CASH');
+    expect(validateCheckoutPayload({
+      idempotencyKey: 'POS-SPLIT-0003', branchId: 'CN01', deviceIds: ['DEV-01'],
+      payments: [{ method: 'CRYPTO', amount: 5000, fundId: 'FUND-CASH' }]
+    }).isValid).toBe(false);
+  });
 });

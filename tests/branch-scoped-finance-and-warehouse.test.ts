@@ -73,7 +73,7 @@ describe('Branch-scoped warehouse hierarchy', () => {
     })).toMatchObject({ type: 'RETAIL_STORE', isMain: false, isChild: false });
   });
 
-  it('allows an empty warehouse with sold-device history to be archived or reassigned', () => {
+  it('allows sold-device history when validating whether a warehouse can be reassigned', () => {
     expect(warehouseHasBlockingDevices([{ status: 'sold' }, { status: 'SOLD' }])).toBe(false);
     expect(warehouseHasBlockingDevices([{ status: 'sold' }, { status: 'in_stock' }])).toBe(true);
   });

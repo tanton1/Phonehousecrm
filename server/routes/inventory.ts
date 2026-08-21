@@ -3,7 +3,7 @@ import { Firestore } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { buildInventoryAuditReport, listInventoryDevicesForActor, processImportInventoryDevices } from '../services/inventoryDeviceService';
-import { processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
+import { processCancelPurchaseOrderReceipt, processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
 
 function sendInventoryError(res: Response, error: any) {
   const message = error?.message || 'Lỗi xử lý dữ liệu kho.';
@@ -40,6 +40,16 @@ export function createInventoryRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await processPurchaseOrderReceipt(db, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
+  router.post('/purchase-orders/:orderId/cancel', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processCancelPurchaseOrderReceipt(db, req.params.orderId, req.user!, String(req.body?.reason || ''));
       return res.json({ success: true, data: result });
     } catch (error: any) {
       return sendInventoryError(res, error);

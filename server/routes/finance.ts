@@ -247,21 +247,17 @@ export function createFinanceRouter(db: Firestore | null): Router {
         const accountTransactions = await transaction.get(
           db.collection('cashTransactions').where('fundId', '==', req.params.accountId)
         );
-        if (accountTransactions.docs.some((item) => item.data().status === 'PENDING')) {
-          throw new Error('ACCOUNT_HAS_PENDING_TRANSACTIONS');
+        const peerAccounts = await transaction.get(db.collection('funds').where('branchId', '==', account.branchId));
+        if (!accountTransactions.empty) throw new Error('ACCOUNT_HAS_TRANSACTIONS');
+        if (account.isDefault === true) {
+          const replacement = peerAccounts.docs.find(item => item.id !== accountSnap.id && item.data().type === account.type && item.data().isActive !== false && item.data().isArchived !== true);
+          if (replacement) transaction.update(replacement.ref, { isDefault: true, updatedAt: getVietnamDateTime() });
         }
-        transaction.update(accountRef, {
-          isArchived: true,
-          isActive: false,
-          active: false,
-          isDefault: false,
-          archivedAt: FieldValue.serverTimestamp(),
-          archivedByUid: req.user?.uid
-        });
+        transaction.delete(accountRef);
       });
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(400).json({ success: false, error: error.message || 'ACCOUNT_ARCHIVE_FAILED' });
+      return res.status(400).json({ success: false, error: error.message || 'ACCOUNT_DELETE_FAILED' });
     }
   });
 
