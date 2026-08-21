@@ -27,7 +27,9 @@ export const InvoiceRefundDialog: React.FC<InvoiceRefundDialogProps> = ({
 
   const isLegacy = !invoice.paymentFundId;
   const originalFund = invoice.paymentFundId ? funds.find(f => f.id === invoice.paymentFundId) : null;
-  const availableFunds = funds.filter(f => !invoice.branchId || f.branchId === invoice.branchId || f.branchId === 'ALL');
+  const availableFunds = invoice.branchId
+    ? funds.filter(f => f.branchId === invoice.branchId && f.isArchived !== true && f.isActive !== false)
+    : [];
 
   const fundToUseId = isLegacy ? (selectedFundId || availableFunds[0]?.id || '') : (invoice.paymentFundId || '');
   const refundAmount = invoice.paidAmount || invoice.finalAmount || 0;

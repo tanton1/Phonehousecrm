@@ -4,8 +4,8 @@ export type WarehouseId = 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE' | 'KHO_KT
 
 export interface WarehouseInfo {
   id: WarehouseId;
-  /** Chi nhánh sở hữu hàng tại location này. Kho KTV dùng cùng branchId với Kho Tổng. */
-  branchId?: string;
+  /** Chi nhánh sở hữu hàng tại location này. Bắt buộc với mọi kho vật lý. */
+  branchId: string;
   name: string;
   shortName: string;
   code: string;
@@ -19,6 +19,9 @@ export interface WarehouseInfo {
   type?: WarehouseType;
   technicianId?: string; // ID của Kỹ thuật viên nếu là kho con KTV
   technicianName?: string; // Tên KTV phụ trách
+  /** Tài khoản Firebase/Firestore chịu trách nhiệm mặc định cho kho con. */
+  custodianUid?: string;
+  custodianName?: string;
   parentWarehouseId?: WarehouseId; // Kho cha (ví dụ KHO_TONG)
   capacityNotes?: string;
   isActive?: boolean;
@@ -1193,8 +1196,8 @@ export type CashPaymentCategory =
 
 export interface CashTransaction {
   id: string;
-  branchId?: string;
-  fundId?: string;
+  branchId: string;
+  fundId: string;
   code: string; // PT-20250215-01 / PC-20250215-01
   type: CashTransactionType;
   category: CashReceiptCategory | CashPaymentCategory;
@@ -1217,12 +1220,13 @@ export interface CashTransaction {
 
 export interface FundAccount {
   id: string;
-  branchId?: string;
+  branchId: string;
   isCompanyFund?: boolean;
   name: string;
   type: PaymentFundType;
   accountNumber?: string;
   bankName?: string;
+  accountHolder?: string;
   branch?: string;
   qrCodeUrl?: string;
   currentBalance: number;
@@ -1230,6 +1234,8 @@ export interface FundAccount {
   totalIncome: number;
   totalExpense: number;
   isActive: boolean;
+  isDefault?: boolean;
+  isArchived?: boolean;
   color: string;
 }
 

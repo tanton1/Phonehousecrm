@@ -83,7 +83,6 @@ import {
   updateInvoiceInFirestore,
   deleteInvoiceFromFirestore,
   cancelInvoiceInFirestore,
-  transferFundsInFirestore,
   subscribeToUsers,
   addUserToFirestore,
   updateUserInFirestore,
@@ -95,11 +94,8 @@ import {
   subscribeToFunds,
   addFundToFirestore,
   updateFundInFirestore,
-  deleteFundFromFirestore,
   subscribeToCashTransactions,
   addCashTransactionToFirestore,
-  updateCashTransactionInFirestore,
-  deleteCashTransactionFromFirestore,
   executeFundTransferInFirestore,
   subscribeToTransfers,
   subscribeToProducts,
@@ -540,6 +536,7 @@ export default function App() {
           name: user.displayName,
           displayName: user.displayName,
           email: user.email,
+          phone: user.phone || '',
           role: user.role,
           roleTitle:
             user.role === 'ADMIN'
@@ -552,8 +549,14 @@ export default function App() {
                     ? 'Nhân viên bán hàng'
                     : 'Nhân viên',
           branchId: user.branchId || '',
+          assignedBranchIds: user.assignedBranchIds || [],
           branchName: branch?.name || 'Chi Nhánh Showroom',
-          avatar: user.avatarUrl
+          avatar: user.avatarUrl || '',
+          baseSalary: user.baseSalary || 0,
+          monthlyTargetRevenue: user.kpiTargetRevenue || 0,
+          monthlyTargetOrders: user.kpiTargetOrders || 0,
+          status: user.active === false ? 'INACTIVE' : 'ACTIVE',
+          joinDate: user.createdAt || ''
         } as unknown as StaffMember;
       })
       .filter((s): s is StaffMember => Boolean(s && s.id && s.name));
@@ -1038,6 +1041,10 @@ export default function App() {
   };
 
   const handleCancelInvoice = async (invoice: SalesInvoice, reason: string) => {
+    if (!invoice.branchId || invoice.branchId === 'ALL') {
+      alert('Không thể hoàn tiền: hóa đơn chưa được định danh chi nhánh. Cần xử lý dữ liệu hóa đơn trước.');
+      return;
+    }
     // 1. Devices to restore
     const invoiceImeis = (invoice.imeiList || invoice.devices?.map(d => d.imei) || invoice.items?.map(i => i.imei) || []).filter(Boolean);
     const devicesToRestore = devices.filter(d => invoiceImeis.includes(d.imei));
@@ -1056,14 +1063,16 @@ export default function App() {
     // 3. Exact Refund Fund Routing
     let fundToDeduct: FundAccount | null = null;
     if (invoice.paymentFundId) {
-      fundToDeduct = funds.find(f => f.id === invoice.paymentFundId) || null;
+      fundToDeduct = funds.find(f => f.id === invoice.paymentFundId && f.branchId === invoice.branchId && f.isActive !== false && f.isArchived !== true) || null;
       if (!fundToDeduct) {
         alert(`Lỗi kế toán: Không tìm thấy Quỹ gốc (Mã: ${invoice.paymentFundId}) của đơn hàng để hoàn tiền. Vui lòng kiểm tra cấu hình Quỹ.`);
         return;
       }
     } else {
       // Legacy invoice without paymentFundId: Prompt Admin to explicitly select refund fund
-      const candidateFunds = funds.filter(f => !invoice.branchId || f.branchId === invoice.branchId || f.branchId === 'ALL');
+      const candidateFunds = invoice.branchId
+        ? funds.filter(f => f.branchId === invoice.branchId && f.isArchived !== true && f.isActive !== false)
+        : [];
       if (candidateFunds.length === 0) {
         alert('Không tìm thấy Quỹ nào khả dụng để hoàn tiền.');
         return;
@@ -1103,7 +1112,7 @@ export default function App() {
         partnerName: invoice.customerName,
         partnerPhone: invoice.customerPhone || invoice.phone,
         notes: `Hoàn tiền hủy hóa đơn ${invoice.invoiceCode || invoice.id}: ${reason}`,
-        branchId: invoice.branchId || 'CN01',
+        branchId: invoice.branchId,
         creator: currentUser?.displayName || 'Admin',
         status: 'COMPLETED',
         referenceCode: invoice.invoiceCode || invoice.id
@@ -1113,8 +1122,9 @@ export default function App() {
     const customerPartner = partners.find(p => p.phone === invoice.customerPhone) || null;
 
     try {
-      await cancelInvoiceInFirestore({
+      const refundResult = await cancelInvoiceInFirestore({
         invoiceId: invoice.id,
+        branchId: invoice.branchId || '',
         cancelledBy: currentUser?.displayName || 'Admin',
         reason,
         devicesToRestore,
@@ -1127,7 +1137,7 @@ export default function App() {
       // Update local state
       setInvoices(prev => prev.map(inv => inv.id === invoice.id ? {
         ...inv,
-        status: 'CANCELLED',
+        status: 'cancelled',
         cancellationReason: reason,
         cancelledBy: currentUser?.displayName || 'Admin',
         cancelledAt: new Date().toISOString()
@@ -1142,8 +1152,16 @@ export default function App() {
         }));
       }
 
-      if (refundTx) {
-        setCashTransactions(prev => [refundTx!, ...prev]);
+      if (accessoriesToRestore.length > 0) {
+        setProducts(prev => prev.map(product => {
+          const restored = accessoriesToRestore.find(item => item.product.id === product.id);
+          return restored ? { ...product, stockQuantity: product.stockQuantity + restored.quantity } : product;
+        }));
+      }
+
+      const savedRefundTx = refundResult.data.refundTransaction;
+      if (savedRefundTx) {
+        setCashTransactions(prev => [savedRefundTx, ...prev.filter(tx => tx.id !== savedRefundTx.id)]);
         if (fundToDeduct) {
           setFunds(prev => prev.map(f => f.id === fundToDeduct.id ? {
             ...f,
@@ -1196,21 +1214,28 @@ export default function App() {
   };
 
   const handleAddCashTransaction = (newTx: CashTransaction) => {
-    setCashTransactions(prev => [newTx, ...prev]);
-    addCashTransactionToFirestore(newTx);
+    setCashTransactions(prev => [newTx, ...prev.filter(tx => tx.id !== newTx.id)]);
+    void addCashTransactionToFirestore(newTx)
+      .then(savedTx => {
+        setCashTransactions(prev => [savedTx, ...prev.filter(tx => tx.id !== newTx.id && tx.id !== savedTx.id)]);
+      })
+      .catch((err: any) => {
+        setCashTransactions(prev => prev.filter(tx => tx.id !== newTx.id));
+        console.error('Error adding cash transaction:', err);
+        alert('Không thể ghi sổ: ' + (err?.message || 'Giao dịch không hợp lệ.'));
+      });
+  };
 
-    // 1. Update matching fund balance
-    const fundToUpdate = funds.find(f => (newTx.fundId && f.id === newTx.fundId) || f.name === newTx.fundName || f.id === newTx.fundType || f.type === newTx.fundType);
-    if (fundToUpdate) {
-       const balanceDelta = newTx.type === 'RECEIPT' ? newTx.amount : -newTx.amount;
-       const updatedFund = {
-          ...fundToUpdate,
-          currentBalance: fundToUpdate.currentBalance + balanceDelta,
-          totalIncome: newTx.type === 'RECEIPT' ? (fundToUpdate.totalIncome || 0) + newTx.amount : fundToUpdate.totalIncome,
-          totalExpense: newTx.type === 'PAYMENT' ? (fundToUpdate.totalExpense || 0) + newTx.amount : fundToUpdate.totalExpense
-       };
-       setFunds(prevFunds => prevFunds.map(f => f.id === updatedFund.id ? updatedFund : f));
-       updateFundInFirestore(updatedFund);
+  const handleSaveFund = async (fund: FundAccount, isNew: boolean) => {
+    try {
+      const saved = isNew
+        ? await addFundToFirestore(fund)
+        : await updateFundInFirestore(fund);
+      setFunds(prev => [saved, ...prev.filter(item => item.id !== saved.id)]);
+    } catch (err: any) {
+      console.error('Error saving finance account:', err);
+      alert('Không thể lưu tài khoản: ' + (err?.message || 'Dữ liệu không hợp lệ.'));
+      throw err;
     }
   };
 
@@ -1286,19 +1311,19 @@ export default function App() {
     deleteBranchFromFirestore(branchId);
   };
 
-  const handleAddWarehouse = (newWarehouse: WarehouseInfo) => {
-    setWarehouses(prev => [...prev, newWarehouse]);
-    addWarehouseToFirestore(newWarehouse);
+  const handleAddWarehouse = async (newWarehouse: WarehouseInfo) => {
+    const saved = await addWarehouseToFirestore(newWarehouse);
+    setWarehouses(prev => [saved, ...prev.filter(w => w.id !== saved.id)]);
   };
 
-  const handleUpdateWarehouse = (updatedWarehouse: WarehouseInfo) => {
-    setWarehouses(prev => prev.map(w => w.id === updatedWarehouse.id ? updatedWarehouse : w));
-    updateWarehouseInFirestore(updatedWarehouse);
+  const handleUpdateWarehouse = async (updatedWarehouse: WarehouseInfo) => {
+    const saved = await updateWarehouseInFirestore(updatedWarehouse);
+    setWarehouses(prev => prev.map(w => w.id === saved.id ? saved : w));
   };
 
-  const handleDeleteWarehouse = (warehouseId: string) => {
-    setWarehouses(prev => prev.filter(w => w.id !== warehouseId));
-    deleteWarehouseFromFirestore(warehouseId);
+  const handleDeleteWarehouse = async (warehouseId: string) => {
+    await deleteWarehouseFromFirestore(warehouseId);
+    setWarehouses(prev => prev.map(w => w.id === warehouseId ? { ...w, isActive: false } : w));
   };
 
   const handleSaveStoreSettings = (newSettings: StoreSettings) => {
@@ -2079,7 +2104,6 @@ export default function App() {
             onAddTransaction={handleAddCashTransaction}
             onUpdateFunds={(updatedFunds) => {
               setFunds(updatedFunds);
-              updatedFunds.forEach(f => updateFundInFirestore(f));
             }}
             onUpdatePartner={handleUpdatePartner}
           />
@@ -2095,30 +2119,8 @@ export default function App() {
             partners={partners}
             onAddTransaction={handleAddCashTransaction}
             onAddPartner={handleAddPartner}
-            onUpdateFunds={(updatedFunds) => {
-              setFunds(updatedFunds);
-              updatedFunds.forEach(f => updateFundInFirestore(f));
-            }}
-            onTransferFunds={async (fromId, toId, amount, notes, creator) => {
-              const fromFund = funds.find(f => f.id === fromId);
-              const toFund = funds.find(f => f.id === toId);
-              await transferFundsInFirestore({
-                fromFundId: fromId,
-                toFundId: toId,
-                fromFundName: fromFund?.name || 'Quỹ nguồn',
-                toFundName: toFund?.name || 'Quỹ đích',
-                amount,
-                note: notes,
-                transferredBy: creator || currentUser?.displayName || 'Thủ quỹ',
-                branchId: branches[0]?.id || 'CN01',
-                branchName: branches[0]?.name || 'PhoneHouse'
-              });
-              setFunds(prev => prev.map(f => {
-                if (f.id === fromId) return { ...f, currentBalance: (f.currentBalance || 0) - amount };
-                if (f.id === toId) return { ...f, currentBalance: (f.currentBalance || 0) + amount };
-                return f;
-              }));
-            }}
+            onSaveFund={handleSaveFund}
+            onTransferFunds={handleTransferFunds}
           />
         )}
 
@@ -2144,7 +2146,7 @@ export default function App() {
             devices={devices}
             warrantyTickets={warrantyTickets}
             attendanceRecords={attendanceRecords}
-            staffMembers={users as any}
+            staffMembers={staffMembers}
             onAddBranch={handleAddBranch}
             onUpdateBranch={handleUpdateBranch}
             onDeleteBranch={handleDeleteBranch}
@@ -2324,7 +2326,7 @@ export default function App() {
         funds={funds}
         warrantyTickets={warrantyTickets}
         attendanceRecords={attendanceRecords}
-        staffMembers={users as any}
+        staffMembers={staffMembers}
       />
 
       {/* Phone House Dedicated Login Modal */}

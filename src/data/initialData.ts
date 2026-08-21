@@ -192,81 +192,9 @@ export const INITIAL_INVOICES: SalesInvoice[] = [];
 
 export const INITIAL_PARTNERS: Partner[] = [];
 
-// INITIAL CASHBOOK FUND ACCOUNTS (Tài khoản Sổ Quỹ sẵn sàng hoạt động)
-export const INITIAL_FUNDS: FundAccount[] = [
-  {
-    id: 'FUND-CASH-STORE',
-    name: 'Quỹ Tiền Mặt Tại Két Cửa Hàng',
-    type: 'CASH',
-    branchId: 'ALL',
-    branch: 'Toàn hệ thống',
-    currentBalance: 0,
-    openingBalance: 0,
-    totalIncome: 0,
-    totalExpense: 0,
-    isActive: true,
-    color: 'orange'
-  },
-  {
-    id: 'FUND-BANK-TECHCOM',
-    name: 'Tài Khoản Ngân Hàng Techcombank (VietQR Chính)',
-    type: 'BANK',
-    branchId: 'ALL',
-    branch: 'Toàn hệ thống',
-    accountNumber: '190388889999',
-    bankName: 'Techcombank',
-    currentBalance: 0,
-    openingBalance: 0,
-    totalIncome: 0,
-    totalExpense: 0,
-    isActive: true,
-    color: 'rose'
-  },
-  {
-    id: 'FUND-BANK-MB',
-    name: 'Tài Khoản MBBank (Phone House QR)',
-    type: 'BANK',
-    branchId: 'ALL',
-    branch: 'Toàn hệ thống',
-    accountNumber: '0932435377',
-    bankName: 'MBBank',
-    currentBalance: 0,
-    openingBalance: 0,
-    totalIncome: 0,
-    totalExpense: 0,
-    isActive: true,
-    color: 'orange'
-  },
-  {
-    id: 'FUND-POS-CARD',
-    name: 'Cổng MPOS / Quẹt Thẻ Tín Dụng',
-    type: 'POS_CARD',
-    branchId: 'ALL',
-    branch: 'Toàn hệ thống',
-    accountNumber: 'MPOS-POS889',
-    bankName: 'MPOS Vietnam',
-    currentBalance: 0,
-    openingBalance: 0,
-    totalIncome: 0,
-    totalExpense: 0,
-    isActive: true,
-    color: 'orange'
-  },
-  {
-    id: 'FUND-CREDIT-HDSAISON',
-    name: 'Tài Khoản Trả Góp HD Saison / Home Credit',
-    type: 'INSTALLMENT_CREDIT',
-    branchId: 'ALL',
-    branch: 'Toàn hệ thống',
-    bankName: 'HD SAISON Finance',
-    currentBalance: 0,
-    openingBalance: 0,
-    totalIncome: 0,
-    totalExpense: 0,
-    isActive: true,
-    color: 'rose'
-  }
-];
+// Không tạo tài khoản tài chính mẫu. Mọi tài khoản phải được người quản trị
+// khai báo cho một chi nhánh cụ thể qua Finance API.
+export const INITIAL_FUNDS: FundAccount[] = [];
 
 // INITIAL CASHBOOK TRANSACTIONS (Sổ Quỹ Thu - Chi)
 export const INITIAL_CASH_TRANSACTIONS: CashTransaction[] = [];

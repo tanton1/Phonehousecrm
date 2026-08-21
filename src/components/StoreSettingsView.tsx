@@ -60,9 +60,9 @@ interface StoreSettingsViewProps {
   onAddBranch: (branch: StoreBranch) => void;
   onUpdateBranch: (branch: StoreBranch) => void;
   onDeleteBranch: (branchId: string) => void;
-  onAddWarehouse: (warehouse: WarehouseInfo) => void;
-  onUpdateWarehouse: (warehouse: WarehouseInfo) => void;
-  onDeleteWarehouse: (warehouseId: string) => void;
+  onAddWarehouse: (warehouse: WarehouseInfo) => Promise<void> | void;
+  onUpdateWarehouse: (warehouse: WarehouseInfo) => Promise<void> | void;
+  onDeleteWarehouse: (warehouseId: string) => Promise<void> | void;
   onSaveSettings: (settings: StoreSettings) => void;
   onNavigateToCashbook?: (branchId?: string) => void;
   isFirebaseConnected?: boolean;
@@ -129,11 +129,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     isActive: true,
     isHeadquarter: false,
     taxCode: '',
-    bankAccount: {
-      bankName: 'Techcombank',
-      accountNumber: '',
-      accountHolder: ''
-    },
     allowedWifiSSID: 'PH_HAICHAU_5G',
     gpsLatitude: 16.0612,
     gpsLongitude: 108.2170,
@@ -237,6 +232,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [warehouseForm, setWarehouseForm] = useState<Partial<WarehouseInfo>>({
     id: '',
     code: '',
+    branchId: branches[0]?.id || '',
     name: '',
     shortName: '',
     address: '',
@@ -247,7 +243,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     type: 'CENTRAL',
     technicianName: '',
     technicianId: '',
-    parentWarehouseId: 'KHO_TONG',
+    custodianUid: '',
+    custodianName: '',
+    parentWarehouseId: undefined,
     capacityNotes: '',
     isMain: false,
     isActive: true
@@ -269,11 +267,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       isActive: true,
       isHeadquarter: false,
       taxCode: '',
-      bankAccount: {
-        bankName: 'Techcombank',
-        accountNumber: '',
-        accountHolder: ''
-      },
       allowedWifiSSID: 'PH_HAICHAU_5G',
       storePublicIp: '',
       allowedPublicIps: [],
@@ -334,7 +327,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         isActive: branchForm.isActive ?? true,
         isHeadquarter: branchForm.isHeadquarter ?? false,
         taxCode: branchForm.taxCode || '',
-        bankAccount: branchForm.bankAccount || { bankName: '', accountNumber: '', accountHolder: '' },
         allowedWifiSSID: branchForm.allowedWifiSSID || 'PH_HAICHAU_5G',
         allowedPublicIps: ips,
         storePublicIp: ips.join(', '),
@@ -355,6 +347,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     setWarehouseForm({
       id: newId,
       code: `KHO-0${warehouses.length + 1}`,
+      branchId: branches[0]?.id || '',
       name: '',
       shortName: '',
       address: '',
@@ -365,7 +358,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       type: 'TECHNICIAN_SUB',
       technicianName: '',
       technicianId: '',
-      parentWarehouseId: 'KHO_TONG',
+      custodianUid: '',
+      custodianName: '',
+      parentWarehouseId: undefined,
       capacityNotes: '',
       isMain: false,
       isActive: true
@@ -375,14 +370,23 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
   const handleOpenEditWarehouse = (warehouse: WarehouseInfo) => {
     setEditingWarehouse(warehouse);
-    setWarehouseForm({ ...warehouse });
+    setWarehouseForm({
+      ...warehouse,
+      custodianUid: warehouse.custodianUid || warehouse.technicianId || '',
+      custodianName: warehouse.custodianName || warehouse.technicianName || ''
+    });
     setIsWarehouseModalOpen(true);
   };
 
-  const handleSaveWarehouse = (e: React.FormEvent) => {
+  const handleSaveWarehouse = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!warehouseForm.name || !warehouseForm.address) {
-      alert('Vui lòng điền đầy đủ Tên kho và Địa chỉ');
+    if (!warehouseForm.branchId || warehouseForm.branchId === 'ALL' || !warehouseForm.name || !warehouseForm.address) {
+      alert('Vui lòng chọn chi nhánh và điền đầy đủ Tên kho, Địa chỉ');
+      return;
+    }
+    const isChild = warehouseForm.type === 'TECHNICIAN_SUB' || Boolean(warehouseForm.parentWarehouseId);
+    if (isChild && (!warehouseForm.parentWarehouseId || !warehouseForm.custodianUid)) {
+      alert('Kho con bắt buộc chọn kho tổng cùng chi nhánh và nhân viên chịu trách nhiệm.');
       return;
     }
 
@@ -392,16 +396,20 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         ? 'from-orange-500 to-orange-500' 
         : 'from-orange-600 to-orange-500';
 
-    if (editingWarehouse) {
-      const updated: WarehouseInfo = {
+    try {
+      const warehouse: WarehouseInfo = editingWarehouse ? {
         ...editingWarehouse,
         ...(warehouseForm as WarehouseInfo),
+        technicianId: isChild ? warehouseForm.custodianUid : undefined,
+        technicianName: isChild ? warehouseForm.custodianName : undefined,
+        custodianUid: isChild ? warehouseForm.custodianUid : undefined,
+        custodianName: isChild ? warehouseForm.custodianName : undefined,
+        parentWarehouseId: isChild ? warehouseForm.parentWarehouseId : undefined,
+        isMain: isChild ? false : Boolean(warehouseForm.isMain),
         color: systemColor
-      };
-      onUpdateWarehouse(updated);
-    } else {
-      const newWh: WarehouseInfo = {
+      } : {
         id: (warehouseForm.id || `KHO_${Date.now()}`) as WarehouseId,
+        branchId: warehouseForm.branchId,
         code: warehouseForm.code || `KHO-0${warehouses.length + 1}`,
         name: warehouseForm.name || '',
         shortName: warehouseForm.shortName || warehouseForm.name || '',
@@ -412,16 +420,22 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         systemType: warehouseForm.systemType || 'TONG',
         systemName: warehouseForm.systemType === 'TONG' ? 'Tổng Hệ Thống' : warehouseForm.systemType === 'PHONEHOUSE' ? 'PhoneHouse Retail' : 'Xstore Premium',
         type: warehouseForm.type || 'RETAIL_STORE',
-        technicianName: warehouseForm.technicianName,
-        technicianId: warehouseForm.technicianId,
-        parentWarehouseId: warehouseForm.type === 'TECHNICIAN_SUB' ? (warehouseForm.parentWarehouseId || 'KHO_TONG') : undefined,
+        technicianName: isChild ? warehouseForm.custodianName : undefined,
+        technicianId: isChild ? warehouseForm.custodianUid : undefined,
+        custodianName: isChild ? warehouseForm.custodianName : undefined,
+        custodianUid: isChild ? warehouseForm.custodianUid : undefined,
+        parentWarehouseId: isChild ? warehouseForm.parentWarehouseId : undefined,
         capacityNotes: warehouseForm.capacityNotes || '',
-        isMain: warehouseForm.isMain ?? false,
+        isMain: isChild ? false : Boolean(warehouseForm.isMain),
         isActive: warehouseForm.isActive ?? true
       };
-      onAddWarehouse(newWh);
+      if (editingWarehouse) await onUpdateWarehouse(warehouse);
+      else await onAddWarehouse(warehouse);
+      setIsWarehouseModalOpen(false);
+      showToast(editingWarehouse ? 'Đã cập nhật kho' : 'Đã tạo kho', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Không thể lưu kho', 'error');
     }
-    setIsWarehouseModalOpen(false);
   };
 
   const filteredWarehouses = warehouses.filter(w => {
@@ -639,8 +653,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
                     {/* Bank & Cash Fund Info */}
                     {(() => {
-                      const cashFund = funds.find(f => f.branchId === branch.id && f.type === 'CASH');
-                      const bankFund = funds.find(f => f.branchId === branch.id && f.type === 'BANK');
+                      const cashFunds = funds.filter(f => f.branchId === branch.id && f.type === 'CASH' && f.isArchived !== true);
+                      const bankFunds = funds.filter(f => f.branchId === branch.id && f.type === 'BANK' && f.isArchived !== true);
+                      const cashBalance = cashFunds.reduce((sum, fund) => sum + (fund.currentBalance || 0), 0);
+                      const bankBalance = bankFunds.reduce((sum, fund) => sum + (fund.currentBalance || 0), 0);
                       const formatCurrency = (amt: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amt);
                       
                       return (
@@ -665,16 +681,15 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                             <div className="bg-white/80 p-2 rounded-xl border border-orange-100">
                               <div className="text-zinc-500 text-[10px]">Quỹ tiền mặt tại quầy</div>
                               <div className="font-bold text-emerald-700 text-xs">
-                                {cashFund ? formatCurrency(cashFund.currentBalance) : '0 ₫ (Chưa tạo)'}
+                                {cashFunds.length ? `${formatCurrency(cashBalance)} · ${cashFunds.length} quỹ` : '0 ₫ (Chưa tạo)'}
                               </div>
                             </div>
                             <div className="bg-white/80 p-2 rounded-xl border border-orange-100">
                               <div className="text-zinc-500 text-[10px]">
-                                {branch.bankAccount?.bankName ? `TK ${branch.bankAccount.bankName}` : 'TK Ngân Hàng VietQR'}
+                                Tài khoản ngân hàng theo chi nhánh
                               </div>
-                              <div className="font-bold text-orange-700 text-xs truncate" title={branch.bankAccount?.accountNumber || ''}>
-                                {branch.bankAccount?.accountNumber ? `${branch.bankAccount.accountNumber}` : 'Chưa cấu hình STK'}
-                                {bankFund ? ` (${formatCurrency(bankFund.currentBalance)})` : ''}
+                              <div className="font-bold text-orange-700 text-xs truncate">
+                                {bankFunds.length ? `${bankFunds.length} tài khoản · ${formatCurrency(bankBalance)}` : 'Chưa cấu hình tài khoản'}
                               </div>
                             </div>
                           </div>
@@ -1488,44 +1503,23 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </div>
               </div>
 
-              {/* Bank Account */}
               <div className="p-3 bg-orange-50/60 rounded-2xl border border-orange-100 space-y-2">
                 <div className="text-xs font-bold text-orange-900 flex items-center gap-1.5">
                   <CreditCard className="w-3.5 h-3.5" />
-                  <span>Tài Khoản Ngân Hàng Nhận Tiền Tại Quầy</span>
+                  <span>Tài khoản tiền mặt và ngân hàng</span>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    placeholder="Tên ngân hàng (Techcombank)"
-                    value={branchForm.bankAccount?.bankName}
-                    onChange={(e) => setBranchForm({
-                      ...branchForm,
-                      bankAccount: { ...branchForm.bankAccount!, bankName: e.target.value }
-                    })}
-                    className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Số tài khoản"
-                    value={branchForm.bankAccount?.accountNumber}
-                    onChange={(e) => setBranchForm({
-                      ...branchForm,
-                      bankAccount: { ...branchForm.bankAccount!, accountNumber: e.target.value }
-                    })}
-                    className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs"
-                  />
-                </div>
-                <input
-                  type="text"
-                  placeholder="Chủ tài khoản (viết hoa không dấu)"
-                  value={branchForm.bankAccount?.accountHolder}
-                  onChange={(e) => setBranchForm({
-                    ...branchForm,
-                    bankAccount: { ...branchForm.bankAccount!, accountHolder: e.target.value }
-                  })}
-                  className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs"
-                />
+                <p className="text-[11px] leading-relaxed text-orange-800">
+                  Mỗi tài khoản được tạo và định danh riêng theo chi nhánh trong Sổ quỹ. Một chi nhánh có thể có nhiều tài khoản ngân hàng và nhiều quỹ tiền mặt.
+                </p>
+                {editingBranch && onNavigateToCashbook && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigateToCashbook(editingBranch.id)}
+                    className="text-[11px] font-bold text-orange-700 hover:underline"
+                  >
+                    Mở Sổ quỹ để quản lý tài khoản
+                  </button>
+                )}
               </div>
 
               {/* GPS & Wi-Fi Check-in Configuration */}
@@ -1729,6 +1723,35 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Chi nhánh sở hữu kho <span className="text-rose-600">*</span>
+                </label>
+                <select
+                  required
+                  disabled={Boolean(editingWarehouse)}
+                  value={warehouseForm.branchId || ''}
+                  onChange={(e) => setWarehouseForm({
+                    ...warehouseForm,
+                    branchId: e.target.value,
+                    parentWarehouseId: undefined,
+                    custodianUid: '',
+                    custodianName: '',
+                    technicianId: '',
+                    technicianName: ''
+                  })}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900 disabled:opacity-70"
+                >
+                  <option value="">Chọn chi nhánh</option>
+                  {branches.filter(branch => branch.isActive !== false).map(branch => (
+                    <option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>
+                  ))}
+                </select>
+                {editingWarehouse && (
+                  <p className="mt-1 text-[10px] text-zinc-500">Không thể đổi chi nhánh của kho đã tạo.</p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Mã kho / Mã KTV *</label>
@@ -1745,7 +1768,17 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Phân loại kho</label>
                   <select
                     value={warehouseForm.type}
-                    onChange={(e) => setWarehouseForm({ ...warehouseForm, type: e.target.value as any })}
+                    onChange={(e) => {
+                      const type = e.target.value as WarehouseInfo['type'];
+                      setWarehouseForm({
+                        ...warehouseForm,
+                        type,
+                        isMain: type === 'TECHNICIAN_SUB' ? false : warehouseForm.isMain,
+                        parentWarehouseId: type === 'TECHNICIAN_SUB' ? warehouseForm.parentWarehouseId : undefined,
+                        custodianUid: type === 'TECHNICIAN_SUB' ? warehouseForm.custodianUid : undefined,
+                        custodianName: type === 'TECHNICIAN_SUB' ? warehouseForm.custodianName : undefined
+                      });
+                    }}
                     className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-900"
                   >
                     <option value="CENTRAL">Kho Tổng Phân Phối (Central Hub)</option>
@@ -1765,50 +1798,50 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     <span>Thiết Lập Kỹ Thuật Viên Phụ Trách Kho Này</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="block text-[11px] font-bold text-rose-900 mb-1">Tên Kỹ Thuật Viên *</label>
-                      <input
-                        type="text"
-                        placeholder="Ví dụ: Lê Hoàng Nam, Trọng, Dương..."
-                        value={warehouseForm.technicianName || ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setWarehouseForm({ 
-                            ...warehouseForm, 
-                            technicianName: val,
-                            manager: warehouseForm.manager || val,
-                            name: warehouseForm.name || (val ? `Kho KTV ${val}` : ''),
-                            shortName: warehouseForm.shortName || (val ? `Kho KTV ${val}` : '')
-                          });
-                        }}
-                        className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-medium"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-rose-900 mb-1">Mã KTV / Nhân viên</label>
-                      <input
-                        type="text"
-                        placeholder="STAFF_003, KTV-01..."
-                        value={warehouseForm.technicianId || ''}
-                        onChange={(e) => setWarehouseForm({ ...warehouseForm, technicianId: e.target.value })}
-                        className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-mono"
-                      />
-                    </div>
-                  </div>
-
                   <div>
-                    <label className="block text-[11px] font-bold text-rose-900 mb-1">Kho cha trực thuộc</label>
+                    <label className="block text-[11px] font-bold text-rose-900 mb-1">Kho tổng trực thuộc *</label>
                     <select
-                      value={warehouseForm.parentWarehouseId || 'KHO_TONG'}
+                      required
+                      value={warehouseForm.parentWarehouseId || ''}
                       onChange={(e) => setWarehouseForm({ ...warehouseForm, parentWarehouseId: e.target.value })}
                       className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-medium"
                     >
-                      <option value="KHO_TONG">Kho Tổng Trung Tâm (KHO_TONG - KT-01)</option>
-                      {warehouses.filter(w => w.type === 'CENTRAL' && w.id !== warehouseForm.id).map(w => (
+                      <option value="">Chọn kho tổng cùng chi nhánh</option>
+                      {warehouses.filter(w => w.isMain && w.isActive !== false && w.branchId === warehouseForm.branchId && w.id !== warehouseForm.id).map(w => (
                         <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
                       ))}
                     </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-rose-900 mb-1">Nhân viên chịu trách nhiệm *</label>
+                    <select
+                      required
+                      value={warehouseForm.custodianUid || ''}
+                      onChange={(e) => {
+                        const staff = staffMembers.find(item => item.id === e.target.value);
+                        const staffName = staff?.name || '';
+                        setWarehouseForm({
+                          ...warehouseForm,
+                          custodianUid: staff?.id || '',
+                          custodianName: staffName,
+                          technicianId: staff?.id || '',
+                          technicianName: staffName,
+                          manager: staffName || warehouseForm.manager,
+                          name: warehouseForm.name || (staffName ? `Kho ${staffName}` : ''),
+                          shortName: warehouseForm.shortName || (staffName ? `Kho ${staffName}` : '')
+                        });
+                      }}
+                      className="w-full px-3 py-1.5 bg-white border border-rose-200 rounded-xl text-xs text-zinc-900 font-medium"
+                    >
+                      <option value="">Chọn nhân viên đang hoạt động</option>
+                      {staffMembers
+                        .filter(staff => staff.status === 'ACTIVE' && (staff.branchId === warehouseForm.branchId || staff.assignedBranchIds?.includes(warehouseForm.branchId || '')))
+                        .map(staff => (
+                          <option key={staff.id} value={staff.id}>{staff.name} ({staff.code})</option>
+                        ))}
+                    </select>
+                    <p className="mt-1 text-[10px] text-rose-700">IMEI trong kho con sẽ quy trách nhiệm mặc định cho nhân viên này.</p>
                   </div>
                 </div>
               )}
@@ -1887,11 +1920,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={warehouseForm.isMain}
+                    disabled={warehouseForm.type === 'TECHNICIAN_SUB'}
+                    checked={Boolean(warehouseForm.isMain)}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, isMain: e.target.checked })}
-                    className="w-4 h-4 text-rose-600 rounded"
+                    className="w-4 h-4 text-rose-600 rounded disabled:opacity-50"
                   />
-                  <span className="text-xs font-bold text-zinc-700">Kho Trung Tâm Trực Thuộc</span>
+                  <span className="text-xs font-bold text-zinc-700">Kho tổng – được phép có kho con</span>
                 </label>
 
                 <label className="flex items-center space-x-2 cursor-pointer">

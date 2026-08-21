@@ -105,7 +105,7 @@ service cloud.firestore {
 
     match /warehouses/{warehouseId} {
       allow read: if isAuthenticated() && isActiveUser();
-      allow write: if isAdmin();
+      allow write: if false; // Strict Single Writer: Only Configuration API via Admin SDK
     }
 
     // 3. Operational Collections - Strict Server Authority Protection

@@ -151,6 +151,9 @@ app.use('/api/users', createUsersRouter(adminDb));
 import { createFinanceRouter } from './server/routes/finance';
 app.use('/api/finance', createFinanceRouter(adminDb));
 
+import { createConfigurationRouter } from './server/routes/configuration';
+app.use('/api/configuration', createConfigurationRouter(adminDb));
+
 // -------------------------------------------------------------
 // 5. CRM AUTHORITATIVE QA & STATE MACHINE ROUTER
 // -------------------------------------------------------------

@@ -84,7 +84,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const [selectedFundId, setSelectedFundId] = useState<string>('');
   
   useEffect(() => {
-    const matchingFunds = funds.filter(f => f.type === watchPaymentMethod && (!f.branchId || f.branchId === watchBranchId));
+    const matchingFunds = funds.filter(f => f.type === watchPaymentMethod && f.branchId === watchBranchId && f.isArchived !== true && f.isActive !== false);
     if (matchingFunds.length > 0) {
       if (!matchingFunds.find(f => f.id === selectedFundId)) {
         setSelectedFundId(matchingFunds[0].id);

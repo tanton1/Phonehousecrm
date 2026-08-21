@@ -349,9 +349,14 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
     }
 
     // Resolve exact matching fund without arbitrary funds[0] fallback
-    const fund = (selectedFundId ? funds.find(f => f.id === selectedFundId) : null) || 
-                 funds.find(f => f.type === fundTypeToUse && (!currentBranch.id || f.branchId === currentBranch.id || f.branchId === 'ALL')) ||
-                 funds.find(f => f.type === fundTypeToUse) || null;
+    const eligibleFunds = funds.filter(f =>
+      f.type === fundTypeToUse &&
+      f.branchId === currentBranch.id &&
+      f.isArchived !== true &&
+      f.isActive !== false
+    );
+    const fund = (selectedFundId ? eligibleFunds.find(f => f.id === selectedFundId) : null) ||
+                 eligibleFunds.find(f => f.isDefault) || eligibleFunds[0] || null;
 
     let cashTx: import('../types').CashTransaction | null = null;
     if (receiptAmount > 0) {
@@ -1500,20 +1505,13 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                   {funds
                     .filter(f => {
                        const t = paymentMethod === 'Chuyển khoản QR' ? 'BANK' : paymentMethod === 'Tiền mặt' ? 'CASH' : paymentMethod === 'Quẹt thẻ POS' ? 'POS_CARD' : 'CASH';
-                       return f.type === t;
+                       return f.type === t && f.branchId === currentBranch.id && f.isArchived !== true && f.isActive !== false;
                     })
-                    .sort((a, b) => {
-                       const aWeight = a.branchId === currentBranch.id ? 0 : (!a.branchId || a.isCompanyFund) ? 1 : 2;
-                       const bWeight = b.branchId === currentBranch.id ? 0 : (!b.branchId || b.isCompanyFund) ? 1 : 2;
-                       return aWeight - bWeight;
-                    })
+                    .sort((a, b) => Number(Boolean(b.isDefault)) - Number(Boolean(a.isDefault)))
                     .map(f => {
-                      const isSameBranch = f.branchId === currentBranch.id;
-                      const isCompany = f.isCompanyFund || !f.branchId;
-                      const prefix = isSameBranch ? '[Chi nhánh này] ' : isCompany ? '[Quỹ Công ty] ' : '[Chi nhánh khác] ';
                       return (
                         <option key={f.id} value={f.id}>
-                          {prefix} {f.name} {f.accountNumber ? ` - ${f.accountNumber}` : ''}
+                          {f.isDefault ? '[Mặc định] ' : ''}{f.name} {f.accountNumber ? ` - ${f.accountNumber}` : ''}
                         </option>
                       );
                   })}

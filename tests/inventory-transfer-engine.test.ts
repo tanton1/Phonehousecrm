@@ -74,8 +74,8 @@ describe('Technical custody transfer transaction', () => {
   it('reserves an IMEI without changing branch or physical location until KTV accepts', async () => {
     const store = createFirestoreMock({
       warehouses: {
-        KHO_TONG: { id: 'KHO_TONG', branchId: 'CN_TONG', type: 'CENTRAL', isActive: true, name: 'Kho Tổng' },
-        KHO_KTV_TRONG: { id: 'KHO_KTV_TRONG', branchId: 'CN_TONG', type: 'TECHNICIAN_SUB', parentWarehouseId: 'KHO_TONG', technicianId: 'STAFF_004', technicianName: 'KTV Trọng', isActive: true, name: 'Kho KTV Trọng' }
+        KHO_TONG: { id: 'KHO_TONG', branchId: 'CN_TONG', type: 'CENTRAL', isMain: true, isActive: true, name: 'Kho Tổng' },
+        KHO_KTV_TRONG: { id: 'KHO_KTV_TRONG', branchId: 'CN_TONG', type: 'TECHNICIAN_SUB', parentWarehouseId: 'KHO_TONG', custodianUid: 'STAFF_004', custodianName: 'KTV Trọng', isActive: true, name: 'Kho KTV Trọng' }
       },
       devices: {
         DEV_01: { id: 'DEV_01', imei: '356789012345678', model: 'iPhone 15 Pro', storage: '256GB', color: 'Titan', condition: 'Like New 99%', branchId: 'CN_TONG', currentLocationId: 'KHO_TONG', status: 'in_stock', currentCost: 15_000_000 }

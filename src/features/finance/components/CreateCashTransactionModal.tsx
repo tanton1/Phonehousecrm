@@ -96,6 +96,7 @@ export const CreateCashTransactionModal: React.FC<CreateCashTransactionModalProp
         category: category as any,
         categoryName: (type === 'RECEIPT' ? receiptCategories : paymentCategories).find(c => c.id === category)?.label || category,
         amount,
+        branchId: selectedFund.branchId,
         fundId: selectedFund.id,
         fundType: selectedFund.type,
         fundName: selectedFund.name,

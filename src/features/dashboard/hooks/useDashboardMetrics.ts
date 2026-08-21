@@ -80,7 +80,7 @@ export function calculateDashboardMetrics(params: UseDashboardMetricsParams): Da
     : warrantyTickets;
 
   const branchFunds = selectedBranchId && selectedBranchId !== 'ALL'
-    ? funds.filter(f => !f.branchId || f.branchId === selectedBranchId || f.branchId === 'ALL')
+    ? funds.filter(f => f.branchId === selectedBranchId && f.isArchived !== true)
     : funds;
 
   // 2. Revenue & Orders

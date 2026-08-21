@@ -4,11 +4,53 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 
 function canAccessBranch(user: any, targetBranchId?: string): boolean {
-  if (!targetBranchId) return true;
+  if (!targetBranchId || targetBranchId === 'ALL') return false;
   if (user?.role === 'ADMIN') return true;
   const userBranchId = user?.branchId;
   const assigned = user?.assignedBranchIds || [];
   return userBranchId === targetBranchId || assigned.includes(targetBranchId);
+}
+
+const FINANCE_ACCOUNT_TYPES = new Set(['CASH', 'BANK', 'POS_CARD', 'INSTALLMENT_CREDIT']);
+
+function requiredBranchId(value: unknown): string {
+  const branchId = String(value || '').trim();
+  if (!branchId || branchId === 'ALL') {
+    throw new Error('BRANCH_REQUIRED: Tài khoản tài chính bắt buộc thuộc một chi nhánh cụ thể.');
+  }
+  return branchId;
+}
+
+function normalizedAccountNumber(value: unknown): string {
+  return String(value || '').replace(/\s+/g, '').trim();
+}
+
+export function validateFinanceAccountDraft(input: any) {
+  const branchId = requiredBranchId(input?.branchId);
+  const type = String(input?.type || '').trim().toUpperCase();
+  const name = String(input?.name || '').trim();
+  if (!FINANCE_ACCOUNT_TYPES.has(type)) throw new Error('ACCOUNT_TYPE_INVALID');
+  if (!name) throw new Error('ACCOUNT_NAME_REQUIRED');
+
+  const bankName = String(input?.bankName || '').trim();
+  const accountNumber = normalizedAccountNumber(input?.accountNumber);
+  const accountHolder = String(input?.accountHolder || '').trim();
+  if (type === 'BANK' && (!bankName || !accountNumber || !accountHolder)) {
+    throw new Error('BANK_FIELDS_REQUIRED: Tài khoản ngân hàng cần tên ngân hàng, số tài khoản và chủ tài khoản.');
+  }
+
+  const openingBalance = Number(input?.openingBalance ?? input?.initialBalance ?? 0);
+  if (!Number.isFinite(openingBalance) || openingBalance < 0) throw new Error('OPENING_BALANCE_INVALID');
+  return {
+    branchId,
+    type,
+    name,
+    bankName: type === 'BANK' ? bankName : '',
+    accountNumber: type === 'BANK' ? accountNumber : '',
+    accountHolder: type === 'BANK' ? accountHolder : '',
+    openingBalance,
+    isDefault: input?.isDefault === true
+  };
 }
 
 export function createFinanceRouter(db: Firestore | null): Router {
@@ -29,6 +71,181 @@ export function createFinanceRouter(db: Firestore | null): Router {
       second: '2-digit'
     }).format(new Date()).replace('T', ' ');
   };
+
+  router.get('/accounts', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const requestedBranchId = String(req.query.branchId || '').trim();
+      if (requestedBranchId && !canAccessBranch(req.user, requestedBranchId)) {
+        return res.status(403).json({ success: false, error: 'BRANCH_FORBIDDEN' });
+      }
+      const snapshot = requestedBranchId
+        ? await db.collection('funds').where('branchId', '==', requestedBranchId).get()
+        : await db.collection('funds').get();
+      const accounts = snapshot.docs
+        .map((item) => ({ id: item.id, ...item.data() }))
+        .filter((item: any) => canAccessBranch(req.user, item.branchId));
+      return res.json({ success: true, accounts });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'ACCOUNT_LIST_FAILED' });
+    }
+  });
+
+  router.post('/accounts', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const draft = validateFinanceAccountDraft(req.body);
+      const accountId = `FUND_${draft.branchId}_${draft.type}_${Date.now()}`;
+      const now = getVietnamDateTime();
+      let result: any;
+
+      await db.runTransaction(async (transaction) => {
+        const branchRef = db.collection('branches').doc(draft.branchId);
+        const branchSnap = await transaction.get(branchRef);
+        if (!branchSnap.exists || branchSnap.data()?.isActive === false) {
+          throw new Error('BRANCH_NOT_ACTIVE: Chi nhánh không tồn tại hoặc đã ngừng hoạt động.');
+        }
+
+        const branchAccountsQuery = db.collection('funds').where('branchId', '==', draft.branchId);
+        const branchAccounts = await transaction.get(branchAccountsQuery);
+        if (draft.type === 'BANK' && branchAccounts.docs.some((item) => {
+          const data = item.data();
+          return data.type === 'BANK' && normalizedAccountNumber(data.accountNumber) === draft.accountNumber && data.isArchived !== true;
+        })) {
+          throw new Error('BANK_ACCOUNT_DUPLICATE: Số tài khoản đã được khai báo tại chi nhánh này.');
+        }
+
+        const sameTypeActive = branchAccounts.docs.filter((item) => {
+          const data = item.data();
+          return data.type === draft.type && data.isArchived !== true && data.isActive !== false;
+        });
+        const shouldBeDefault = draft.isDefault || sameTypeActive.length === 0;
+        if (shouldBeDefault) {
+          sameTypeActive.forEach((item) => transaction.update(item.ref, { isDefault: false, updatedAt: now }));
+        }
+
+        result = {
+          id: accountId,
+          branchId: draft.branchId,
+          name: draft.name,
+          type: draft.type,
+          bankName: draft.bankName,
+          accountNumber: draft.accountNumber,
+          accountHolder: draft.accountHolder,
+          openingBalance: draft.openingBalance,
+          currentBalance: draft.openingBalance,
+          totalIncome: draft.openingBalance,
+          totalExpense: 0,
+          isDefault: shouldBeDefault,
+          isActive: true,
+          active: true,
+          isArchived: false,
+          color: draft.type === 'CASH' ? 'orange' : 'blue',
+          createdByUid: req.user?.uid,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: now
+        };
+        transaction.set(db.collection('funds').doc(accountId), result);
+
+        if (draft.openingBalance > 0) {
+          const txId = `OPENING_${accountId}`;
+          transaction.set(db.collection('cashTransactions').doc(txId), {
+            id: txId,
+            code: `SDDK-${Date.now().toString().slice(-6)}`,
+            type: 'RECEIPT',
+            category: 'OPENING_BALANCE',
+            categoryName: 'Số dư đầu kỳ',
+            amount: draft.openingBalance,
+            fundId: accountId,
+            fundName: draft.name,
+            fundType: draft.type,
+            branchId: draft.branchId,
+            date: now,
+            creator: req.user?.name || req.user?.email || 'Quản trị viên',
+            creatorUid: req.user?.uid,
+            notes: 'Khởi tạo số dư tài khoản',
+            isPLAccounted: false,
+            status: 'COMPLETED',
+            createdAt: FieldValue.serverTimestamp()
+          });
+        }
+      });
+      return res.status(201).json({ success: true, account: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'ACCOUNT_CREATE_FAILED' });
+    }
+  });
+
+  router.patch('/accounts/:accountId', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const accountRef = db.collection('funds').doc(req.params.accountId);
+      let updatedAccount: any;
+      await db.runTransaction(async (transaction) => {
+        const accountSnap = await transaction.get(accountRef);
+        if (!accountSnap.exists) throw new Error('ACCOUNT_NOT_FOUND');
+        const current = accountSnap.data()!;
+        const draft = validateFinanceAccountDraft({ ...current, ...req.body, openingBalance: current.openingBalance || 0 });
+        if (draft.branchId !== current.branchId) throw new Error('ACCOUNT_BRANCH_IMMUTABLE');
+        if (draft.type !== current.type) throw new Error('ACCOUNT_TYPE_IMMUTABLE');
+        if (req.body.isActive === false && Number(current.currentBalance || 0) !== 0) {
+          throw new Error('ACCOUNT_BALANCE_MUST_BE_ZERO');
+        }
+
+        if (draft.isDefault) {
+          const peers = await transaction.get(db.collection('funds').where('branchId', '==', current.branchId));
+          peers.docs
+            .filter((item) => item.id !== accountSnap.id && item.data().type === current.type && item.data().isDefault === true)
+            .forEach((item) => transaction.update(item.ref, { isDefault: false }));
+        }
+        updatedAccount = {
+          ...current,
+          name: draft.name,
+          bankName: draft.bankName,
+          accountNumber: draft.accountNumber,
+          accountHolder: draft.accountHolder,
+          isDefault: draft.isDefault || current.isDefault === true,
+          isActive: req.body.isActive !== false,
+          active: req.body.isActive !== false,
+          updatedAt: getVietnamDateTime()
+        };
+        transaction.set(accountRef, updatedAccount, { merge: true });
+      });
+      return res.json({ success: true, account: { id: req.params.accountId, ...updatedAccount } });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'ACCOUNT_UPDATE_FAILED' });
+    }
+  });
+
+  router.post('/accounts/:accountId/archive', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const accountRef = db.collection('funds').doc(req.params.accountId);
+      await db.runTransaction(async (transaction) => {
+        const accountSnap = await transaction.get(accountRef);
+        if (!accountSnap.exists) throw new Error('ACCOUNT_NOT_FOUND');
+        const account = accountSnap.data()!;
+        if (Number(account.currentBalance || 0) !== 0) throw new Error('ACCOUNT_BALANCE_MUST_BE_ZERO');
+        const accountTransactions = await transaction.get(
+          db.collection('cashTransactions').where('fundId', '==', req.params.accountId)
+        );
+        if (accountTransactions.docs.some((item) => item.data().status === 'PENDING')) {
+          throw new Error('ACCOUNT_HAS_PENDING_TRANSACTIONS');
+        }
+        transaction.update(accountRef, {
+          isArchived: true,
+          isActive: false,
+          active: false,
+          isDefault: false,
+          archivedAt: FieldValue.serverTimestamp(),
+          archivedByUid: req.user?.uid
+        });
+      });
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'ACCOUNT_ARCHIVE_FAILED' });
+    }
+  });
 
   /**
    * 1. POST /api/finance/receipt
@@ -84,12 +301,12 @@ export function createFinanceRouter(db: Firestore | null): Router {
         }
 
         const fundData = fundDoc.data()!;
-        if (fundData.active === false || fundData.isArchived) {
+        if (fundData.isActive === false || fundData.active === false || fundData.isArchived) {
           throw new Error('FUND_INACTIVE: Quỹ tiền này đang bị khóa hoặc ngưng hoạt động.');
         }
 
         // Branch Isolation Check on Authoritative Fund Document
-        const fundBranchId = fundData.branchId || req.user?.branchId;
+        const fundBranchId = requiredBranchId(fundData.branchId);
         if (!canAccessBranch(req.user, fundBranchId)) {
           throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên quỹ thuộc chi nhánh "${fundBranchId}".`);
         }
@@ -210,12 +427,12 @@ export function createFinanceRouter(db: Firestore | null): Router {
         }
 
         const fundData = fundDoc.data()!;
-        if (fundData.active === false || fundData.isArchived) {
+        if (fundData.isActive === false || fundData.active === false || fundData.isArchived) {
           throw new Error('FUND_INACTIVE: Quỹ tiền này đang bị khóa hoặc ngưng hoạt động.');
         }
 
         // Branch Isolation Check
-        const fundBranchId = fundData.branchId || req.user?.branchId;
+        const fundBranchId = requiredBranchId(fundData.branchId);
         if (!canAccessBranch(req.user, fundBranchId)) {
           throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên quỹ thuộc chi nhánh "${fundBranchId}".`);
         }
@@ -347,12 +564,14 @@ export function createFinanceRouter(db: Firestore | null): Router {
         const fromData = fromDoc.data()!;
         const toData = toDoc.data()!;
 
-        if (fromData.active === false || toData.active === false) {
+        if (fromData.isActive === false || toData.isActive === false || fromData.active === false || toData.active === false || fromData.isArchived || toData.isArchived) {
           throw new Error('FUND_INACTIVE: Quỹ chuyển hoặc nhận đang bị khóa.');
         }
 
         // Branch Isolation Check on both funds
-        if (!canAccessBranch(req.user, fromData.branchId) || !canAccessBranch(req.user, toData.branchId)) {
+        const fromBranchId = requiredBranchId(fromData.branchId);
+        const toBranchId = requiredBranchId(toData.branchId);
+        if (!canAccessBranch(req.user, fromBranchId) || !canAccessBranch(req.user, toBranchId)) {
           throw new Error('BRANCH_FORBIDDEN: Bạn không có đủ thẩm quyền trên cả hai chi nhánh của quỹ chuyển và quỹ nhận.');
         }
 
@@ -392,7 +611,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
           date: now,
           creator: req.user?.name || req.user?.email || 'Quản trị viên',
           creatorUid: req.user?.uid,
-          branchId: fromData.branchId || req.user?.branchId,
+          branchId: fromBranchId,
+          transferGroupId: idempotencyKey || txOutId,
+          counterpartyBranchId: toBranchId,
           notes: notes || `Chuyển quỹ sang ${toData.name}`,
           isPLAccounted: false,
           status: 'COMPLETED'
@@ -414,7 +635,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
           date: now,
           creator: req.user?.name || req.user?.email || 'Quản trị viên',
           creatorUid: req.user?.uid,
-          branchId: toData.branchId || req.user?.branchId,
+          branchId: toBranchId,
+          transferGroupId: idempotencyKey || txOutId,
+          counterpartyBranchId: fromBranchId,
           notes: notes || `Nhận chuyển quỹ từ ${fromData.name}`,
           isPLAccounted: false,
           status: 'COMPLETED'
@@ -501,8 +724,12 @@ export function createFinanceRouter(db: Firestore | null): Router {
         }
 
         const fundData = fundDoc.data()!;
-        if (!canAccessBranch(req.user, fundData.branchId)) {
-          throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền đối soát quỹ thuộc chi nhánh "${fundData.branchId}".`);
+        if (fundData.isActive === false || fundData.active === false || fundData.isArchived) {
+          throw new Error('FUND_INACTIVE');
+        }
+        const fundBranchId = requiredBranchId(fundData.branchId);
+        if (!canAccessBranch(req.user, fundBranchId)) {
+          throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền đối soát quỹ thuộc chi nhánh "${fundBranchId}".`);
         }
 
         const currentBalance = fundData.currentBalance || 0;
@@ -536,7 +763,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
             date: now,
             creator: req.user?.name || req.user?.email || 'Kiểm soát viên',
             creatorUid: req.user?.uid,
-            branchId: fundData.branchId || req.user?.branchId,
+            branchId: fundBranchId,
             notes: notes || `Điều chỉnh đối soát số dư ca: ${diff > 0 ? '+' : ''}${diff.toLocaleString('vi-VN')} đ`,
             isPLAccounted: true,
             status: 'COMPLETED'

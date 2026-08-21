@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Firestore } from 'firebase-admin/firestore';
 import { validateCheckoutPayload } from '../validation/checkoutSchema';
-import { executeAtomicCheckout } from '../services/checkoutService';
+import { executeAtomicCheckout, executeAtomicInvoiceRefund } from '../services/checkoutService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
@@ -33,6 +33,26 @@ export function createPOSCheckoutRouter(db: Firestore): Router {
         return res.status(statusCode).json({
           success: false,
           error: error?.message || 'Lỗi xử lý giao dịch thanh toán.'
+        });
+      }
+    }
+  );
+
+  router.post(
+    '/refund',
+    authenticateFirebase,
+    requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'),
+    requireBranchAccess(),
+    async (req: Request, res: Response) => {
+      try {
+        const result = await executeAtomicInvoiceRefund(db, req.body, req.user);
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        console.error('[POS Refund Error]:', error);
+        const conflict = String(error?.message || '').includes('ALREADY_CANCELLED');
+        return res.status(conflict ? 409 : 400).json({
+          success: false,
+          error: error?.message || 'Lỗi xử lý hủy hóa đơn và hoàn tiền.'
         });
       }
     }

@@ -60,8 +60,8 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const [isCreateCustomerModalOpen, setIsCreateCustomerModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'Tiền mặt' | 'Chuyển khoản QR' | 'Quẹt thẻ POS' | 'Trả góp qua Cty Tài Chính (HD/Home/Mpos)'>('Tiền mặt');
   const [selectedFundId, setSelectedFundId] = useState<string>(() => {
-    const defaultFund = funds.find(f => !f.branchId || f.branchId === currentBranch.id || f.branchId === 'ALL');
-    return defaultFund?.id || funds[0]?.id || '';
+    const branchFunds = funds.filter(f => f.branchId === currentBranch.id && f.isArchived !== true && f.isActive !== false);
+    return branchFunds.find(f => f.isDefault)?.id || branchFunds[0]?.id || '';
   });
   const [downPaymentAmount, setDownPaymentAmount] = useState(0);
 

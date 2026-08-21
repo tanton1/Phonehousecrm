@@ -9,7 +9,6 @@ import {
   CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch 
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
-import { transferFundsInFirestore } from '../services/firestoreService';
 
 // format helpers
 const formatCurrency = (amount: number) => {
@@ -27,7 +26,7 @@ interface CashbookViewProps {
   funds: FundAccount[];
   partners: Partner[];
   onAddTransaction: (transaction: CashTransaction) => void;
-  onUpdateFunds?: (funds: FundAccount[]) => void;
+  onSaveFund?: (fund: FundAccount, isNew: boolean) => Promise<void> | void;
   onTransferFunds?: (fromFundId: string, toFundId: string, amount: number, notes: string, creator?: string) => Promise<void> | void;
   onAddPartner?: (partner: Partner) => void | Promise<void>;
 }
@@ -40,7 +39,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   funds = [], 
   partners = [], 
   onAddTransaction, 
-  onUpdateFunds, 
+  onSaveFund,
   onTransferFunds, 
   onAddPartner 
 }) => {
@@ -58,7 +57,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   // Dynamic Branch-scoped Funds
   const displayFunds = useMemo(() => {
     if (!selectedBranchId || selectedBranchId === 'ALL') return funds;
-    return funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === selectedBranchId);
+    return funds.filter(f => f.branchId === selectedBranchId && f.isArchived !== true);
   }, [funds, selectedBranchId]);
 
   // Filtered Transactions
@@ -173,8 +172,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   const [editingFund, setEditingFund] = useState<FundAccount | null>(null);
 
   const [transferData, setTransferData] = useState({
-    fromFundName: funds.find(f => f.type === 'CASH')?.name || '',
-    toFundName: funds.find(f => f.type === 'BANK')?.name || '',
+    fromFundName: funds.find(f => f.type === 'CASH' && f.isActive !== false && f.isArchived !== true)?.id || '',
+    toFundName: funds.find(f => f.type === 'BANK' && f.isActive !== false && f.isArchived !== true)?.id || '',
     amount: '',
     notes: 'Chuyển quỹ nội bộ'
   });
@@ -197,7 +196,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   // Funds filtered for the ACCOUNTS tab
   const displayedFundsForAccountsTab = useMemo(() => {
     if (!accountsBranchFilter || accountsBranchFilter === 'ALL') return funds;
-    return funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === accountsBranchFilter);
+    return funds.filter(f => f.branchId === accountsBranchFilter && f.isArchived !== true);
   }, [funds, accountsBranchFilter]);
 
   const [fundFormData, setFundFormData] = useState({
@@ -205,8 +204,10 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     type: 'CASH' as PaymentFundType,
     bankName: '',
     accountNumber: '',
+    accountHolder: '',
     initialBalance: '',
-    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : 'ALL'
+    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || branches[0]?.id || ''),
+    isDefault: false
   });
   const [formData, setFormData] = useState({
     type: 'RECEIPT' as CashTransactionType,
@@ -229,7 +230,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   // Funds filtered for transaction create modal according to chosen branch
   const availableFundsForForm = useMemo(() => {
     const currentBranchId = formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id) || 'CN01';
-    return funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === currentBranchId);
+    return funds.filter(f => f.branchId === currentBranchId && f.isActive !== false && f.isArchived !== true);
   }, [funds, formData.branchId, selectedBranchId, branches]);
 
   React.useEffect(() => {
@@ -302,8 +303,10 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         type: fund.type,
         bankName: fund.bankName || '',
         accountNumber: fund.accountNumber || '',
+        accountHolder: fund.accountHolder || '',
         initialBalance: fund.openingBalance ? fund.openingBalance.toString() : fund.currentBalance.toString(),
-        branchId: fund.branchId || 'ALL'
+        branchId: fund.branchId,
+        isDefault: fund.isDefault === true
       });
     } else {
       setFundFormData({
@@ -311,51 +314,53 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         type: 'CASH',
         bankName: '',
         accountNumber: '',
+        accountHolder: '',
         initialBalance: '',
-        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : 'ALL'
+        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || branches[0]?.id || ''),
+        isDefault: false
       });
     }
     setIsFundModalOpen(true);
   };
 
-  const handleSubmitFund = (e: React.FormEvent) => {
+  const handleSubmitFund = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onUpdateFunds) return;
+    if (!onSaveFund) return;
+    if (!fundFormData.branchId || fundFormData.branchId === 'ALL') {
+      alert('Vui lòng chọn chi nhánh sở hữu tài khoản.');
+      return;
+    }
+    if (fundFormData.type === 'BANK' && (!fundFormData.bankName.trim() || !fundFormData.accountNumber.trim() || !fundFormData.accountHolder.trim())) {
+      alert('Tài khoản ngân hàng cần đủ tên ngân hàng, số tài khoản và chủ tài khoản.');
+      return;
+    }
 
     const initialBalNum = parseFloat(fundFormData.initialBalance.replace(/[^0-9]/g, '')) || 0;
     const assignedBranch = branches.find(b => b.id === fundFormData.branchId);
-    const assignedBranchName = fundFormData.branchId === 'ALL' ? 'Toàn hệ thống' : (assignedBranch?.name || 'Chi nhánh');
-    
-    if (editingFund) {
-      const updated = funds.map(f => f.id === editingFund.id ? {
-        ...f,
-        name: fundFormData.name,
-        type: fundFormData.type,
-        bankName: fundFormData.bankName,
-        accountNumber: fundFormData.accountNumber,
-        branchId: fundFormData.branchId,
-        branch: assignedBranchName
-      } : f);
-      onUpdateFunds(updated);
-    } else {
-      const newFund: FundAccount = {
-        id: `FUND-${Date.now()}`,
-        name: fundFormData.name,
-        type: fundFormData.type,
-        bankName: fundFormData.bankName,
-        accountNumber: fundFormData.accountNumber,
-        branchId: fundFormData.branchId,
-        branch: assignedBranchName,
-        currentBalance: initialBalNum,
-        openingBalance: initialBalNum,
-        totalIncome: 0,
-        totalExpense: 0,
-        isActive: true,
-        color: fundFormData.type === 'CASH' ? 'orange' : 'orange'
-      };
-      onUpdateFunds([...funds, newFund]);
+    const draft: FundAccount = {
+      ...(editingFund || {} as FundAccount),
+      id: editingFund?.id || `FUND-DRAFT-${Date.now()}`,
+      name: fundFormData.name.trim(),
+      type: fundFormData.type,
+      bankName: fundFormData.bankName.trim(),
+      accountNumber: fundFormData.accountNumber.replace(/\s+/g, ''),
+      accountHolder: fundFormData.accountHolder.trim(),
+      branchId: fundFormData.branchId,
+      branch: assignedBranch?.name || 'Chi nhánh',
+      currentBalance: editingFund?.currentBalance ?? initialBalNum,
+      openingBalance: editingFund?.openingBalance ?? initialBalNum,
+      totalIncome: editingFund?.totalIncome ?? 0,
+      totalExpense: editingFund?.totalExpense ?? 0,
+      isDefault: fundFormData.isDefault,
+      isActive: editingFund?.isActive ?? true,
+      color: fundFormData.type === 'CASH' ? 'orange' : 'blue'
+    };
+    try {
+      await onSaveFund(draft, !editingFund);
+      setIsFundModalOpen(false);
+    } catch (error: any) {
+      alert(error?.message || 'Không thể lưu tài khoản tài chính.');
     }
-    setIsFundModalOpen(false);
   };
 
   const handleSubmitTransfer = async (e: React.FormEvent) => {
@@ -369,31 +374,19 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     if (!fromFund || !toFund) return;
 
     if (fromFund.currentBalance < amountNum) {
-      if (!confirm(`Số dư của ${fromFund.name} (${formatCurrency(fromFund.currentBalance)}) thấp hơn số tiền chuyển (${formatCurrency(amountNum)}). Bạn có chắc chắn muốn tiếp tục?`)) {
-        return;
-      }
+      alert(`Số dư của ${fromFund.name} (${formatCurrency(fromFund.currentBalance)}) không đủ để chuyển ${formatCurrency(amountNum)}.`);
+      return;
     }
 
-    if (onTransferFunds) {
-      await onTransferFunds(fromFund.id, toFund.id, amountNum, transferData.notes || 'Chuyển quỹ nội bộ', currentUser?.displayName || 'Admin');
-    } else {
-      await transferFundsInFirestore({
-        fromFundId: fromFund.id,
-        toFundId: toFund.id,
-        fromFundName: fromFund.name,
-        toFundName: toFund.name,
-        amount: amountNum,
-        note: transferData.notes || 'Chuyển quỹ nội bộ',
-        transferredBy: currentUser?.displayName || 'Admin',
-        branchId: currentUser?.branchId || 'ALL',
-        branchName: 'Toàn hệ thống'
-      });
+    if (!onTransferFunds) {
+      throw new Error('Chức năng chuyển quỹ chưa được kết nối với máy chủ.');
     }
+    await onTransferFunds(fromFund.id, toFund.id, amountNum, transferData.notes || 'Chuyển quỹ nội bộ', currentUser?.displayName || 'Admin');
 
     setIsTransferModalOpen(false);
     setTransferData({
-      fromFundName: funds.find(f => f.type === 'CASH')?.name || '',
-      toFundName: funds.find(f => f.type === 'BANK')?.name || '',
+      fromFundName: funds.find(f => f.type === 'CASH' && f.isActive !== false && f.isArchived !== true)?.id || '',
+      toFundName: funds.find(f => f.type === 'BANK' && f.isActive !== false && f.isArchived !== true)?.id || '',
       amount: '',
       notes: 'Chuyển quỹ nội bộ'
     });
@@ -423,6 +416,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       categoryName: 'Điều chỉnh đối soát',
       amount: Math.abs(diff),
       fundId: fund.id,
+      branchId: fund.branchId,
       fundType: fund.type,
       fundName: fund.name,
       date: dateStr,
@@ -443,13 +437,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       return;
     }
 
-    const selectedFund = funds.find(f => f.name === formData.fundName) || funds.find(f => f.type === formData.fundType) || funds[0] || null;
+    const selectedFund = availableFundsForForm.find(f => f.name === formData.fundName) || null;
+    if (!selectedFund || selectedFund.branchId !== formData.branchId) {
+      alert('Vui lòng chọn tài khoản thuộc đúng chi nhánh phát sinh.');
+      return;
+    }
 
     if (formData.type === 'PAYMENT' && selectedFund && selectedFund.currentBalance < amountNum) {
-      const confirmed = window.confirm(
-        `⚠️ Cảnh báo số dư:\nSố dư hiện tại của quỹ "${selectedFund.name}" là ${formatCurrency(selectedFund.currentBalance)}, nhỏ hơn số tiền muốn chi (${formatCurrency(amountNum)}).\n\nBạn có chắc chắn muốn xuất chi (ghi âm quỹ) không?`
-      );
-      if (!confirmed) return;
+      alert(`Số dư quỹ "${selectedFund.name}" không đủ để chi ${formatCurrency(amountNum)}.`);
+      return;
     }
 
     const now = new Date();
@@ -463,9 +459,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       category: formData.category,
       categoryName: formData.categoryName,
       amount: amountNum,
-      fundId: selectedFund?.id || 'FUND-01',
-      fundType: selectedFund?.type || formData.fundType,
-      fundName: selectedFund?.name || formData.fundName,
+      fundId: selectedFund.id,
+      fundType: selectedFund.type,
+      fundName: selectedFund.name,
       date: dateStr,
       partnerId: formData.partnerId || undefined,
       partnerName: formData.partnerName || (formData.type === 'RECEIPT' ? 'Khách lẻ vãng lai' : 'Nhà cung cấp / Đối tác'),
@@ -473,7 +469,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       partnerPhone: formData.partnerPhone || undefined,
       referenceCode: formData.referenceCode || undefined,
       creator: currentUser?.displayName || formData.creator || 'Nhân viên kế toán',
-      branchId: formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : currentUser?.branchId) || branches[0]?.id || 'CN01',
+      branchId: selectedFund.branchId,
       notes: formData.notes || (formData.type === 'RECEIPT' ? 'Thu tiền theo chứng từ' : 'Chi tiền theo hóa đơn'),
       isPLAccounted: formData.isPLAccounted !== false,
       status: 'COMPLETED'
@@ -733,7 +729,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   const isSelected = selectedFundFilter === fund.id;
                   const balance = fund.currentBalance ?? (fund as any).balance ?? 0;
                   const assignedBranch = branches.find(b => b.id === fund.branchId);
-                  const branchTag = fund.branchId && fund.branchId !== 'ALL' ? (assignedBranch?.name || fund.branch || 'Chi nhánh') : 'Toàn HT';
+                  const branchTag = assignedBranch?.name || fund.branch || 'Chi nhánh không hợp lệ';
 
                   return (
                     <div
@@ -883,7 +879,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     ) : (
                       filteredTransactions.map((tx) => {
                         const assignedBranch = branches.find(b => b.id === tx.branchId);
-                        const branchLabel = tx.branchId && tx.branchId !== 'ALL' ? (assignedBranch?.name || 'Chi nhánh') : 'Toàn HT';
+                        const branchLabel = assignedBranch?.name || 'Chi nhánh không hợp lệ';
 
                         return (
                           <tr 
@@ -1117,8 +1113,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {displayedFundsForAccountsTab.map((fund) => {
                 const assignedBranch = branches.find(b => b.id === fund.branchId);
-                const branchLabel = fund.branchId && fund.branchId !== 'ALL' ? (assignedBranch?.name || fund.branch || 'Chi nhánh') : 'Toàn hệ thống';
-                const isAllBranch = !fund.branchId || fund.branchId === 'ALL';
+                const branchLabel = assignedBranch?.name || fund.branch || 'Chưa xác định chi nhánh';
+                const isAllBranch = !assignedBranch;
 
                 return (
                 <div key={fund.id} className="bg-white border border-[#EAECF0] rounded-3xl p-5 flex flex-col justify-between hover:shadow-lg transition-all">
@@ -1177,7 +1173,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center gap-2">
                     <button
                       onClick={() => {
-                        setTransferData(prev => ({ ...prev, fromFundName: fund.name }));
+                        setTransferData(prev => ({ ...prev, fromFundName: fund.id }));
                         setIsTransferModalOpen(true);
                       }}
                       className="flex-1 py-2 bg-orange-50 hover:bg-orange-100 text-orange-700 rounded-xl text-xs font-bold flex items-center justify-center space-x-1 transition-colors cursor-pointer"
@@ -1469,7 +1465,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       value={formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'CN01')}
                       onChange={(e) => {
                         const newBranchId = e.target.value;
-                        const matchingFunds = funds.filter(f => !f.branchId || f.branchId === 'ALL' || f.branchId === newBranchId);
+                        const matchingFunds = funds.filter(f => f.branchId === newBranchId && f.isActive !== false && f.isArchived !== true);
                         const currentFundValid = matchingFunds.some(f => f.name === formData.fundName);
                         const nextFund = currentFundValid ? formData.fundName : (matchingFunds[0]?.name || funds[0]?.name || '');
                         const nextFundObj = funds.find(f => f.name === nextFund);
@@ -1503,9 +1499,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     >
                       {availableFundsForForm.map((f, i) => {
                         const assignedBranch = branches.find(b => b.id === f.branchId);
-                        const branchTag = f.branchId && f.branchId !== 'ALL' 
-                          ? `[${assignedBranch?.name || f.branch || 'Chi nhánh'}]` 
-                          : '[Toàn HT]';
+                        const branchTag = `[${assignedBranch?.name || f.branch || 'Chi nhánh'}]`;
                         return (
                           <option key={i} value={f.name}>{f.name} {branchTag} (Dư: {formatCurrency(f.currentBalance)})</option>
                         );
@@ -1667,11 +1661,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       onChange={e => setTransferData({...transferData, fromFundName: e.target.value})} 
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500"
                     >
-                      {funds.map(f => {
+                      {funds.filter(f => f.isActive !== false && f.isArchived !== true).map(f => {
                         const assignedBranch = branches.find(b => b.id === f.branchId);
-                        const branchTag = f.branchId && f.branchId !== 'ALL' ? `[${assignedBranch?.name || f.branch || 'Chi nhánh'}]` : '[Toàn HT]';
+                        const branchTag = `[${assignedBranch?.name || f.branch || 'Chi nhánh không hợp lệ'}]`;
                         return (
-                          <option key={f.id} value={f.name}>
+                          <option key={f.id} value={f.id}>
                             {(f.name || 'Quỹ').split('-')[0]} {branchTag} (Dư: {formatCompact(f.currentBalance)})
                           </option>
                         );
@@ -1692,11 +1686,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       onChange={e => setTransferData({...transferData, toFundName: e.target.value})} 
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500"
                     >
-                      {funds.map(f => {
+                      {funds.filter(f => f.isActive !== false && f.isArchived !== true).map(f => {
                         const assignedBranch = branches.find(b => b.id === f.branchId);
-                        const branchTag = f.branchId && f.branchId !== 'ALL' ? `[${assignedBranch?.name || f.branch || 'Chi nhánh'}]` : '[Toàn HT]';
+                        const branchTag = `[${assignedBranch?.name || f.branch || 'Chi nhánh không hợp lệ'}]`;
                         return (
-                          <option key={f.id} value={f.name}>
+                          <option key={f.id} value={f.id}>
                             {(f.name || 'Quỹ').split('-')[0]} {branchTag} (Dư: {formatCompact(f.currentBalance)})
                           </option>
                         );
@@ -1861,19 +1855,19 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         <div>
           <label className="block text-xs font-bold text-zinc-500 mb-1">Chi nhánh áp dụng quỹ</label>
           <select 
+            required
+            disabled={!!editingFund}
             value={fundFormData.branchId} 
             onChange={e => setFundFormData({...fundFormData, branchId: e.target.value})} 
             className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:ring-2 focus:ring-orange-500"
           >
-            <option value="ALL">🌐 Toàn hệ thống (Dùng chung)</option>
+            <option value="">-- Chọn chi nhánh sở hữu --</option>
             {branches.map(b => (
               <option key={b.id} value={b.id}>🏢 {b.name}</option>
             ))}
           </select>
           <p className="text-[10px] text-zinc-400 mt-1">
-            {fundFormData.branchId === 'ALL' 
-              ? 'Quỹ dùng chung cho toàn bộ cửa hàng & báo cáo tổng.' 
-              : 'Quỹ thuộc riêng két tiền hoặc tài khoản thu của chi nhánh đã chọn.'}
+            Tài khoản luôn thuộc riêng chi nhánh đã chọn và không thể chuyển chi nhánh sau khi tạo.
           </p>
         </div>
         <div>
@@ -1881,17 +1875,25 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
           <input required type="text" value={fundFormData.name} onChange={e => setFundFormData({...fundFormData, name: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
         </div>
         {fundFormData.type !== 'CASH' && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-zinc-500 mb-1">Tên Ngân Hàng</label>
-              <input type="text" value={fundFormData.bankName} onChange={e => setFundFormData({...fundFormData, bankName: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
+              <input required type="text" value={fundFormData.bankName} onChange={e => setFundFormData({...fundFormData, bankName: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
             </div>
             <div>
               <label className="block text-xs font-bold text-zinc-500 mb-1">Số Tài Khoản</label>
-              <input type="text" value={fundFormData.accountNumber} onChange={e => setFundFormData({...fundFormData, accountNumber: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
+              <input required type="text" value={fundFormData.accountNumber} onChange={e => setFundFormData({...fundFormData, accountNumber: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-bold text-zinc-500 mb-1">Chủ Tài Khoản</label>
+              <input required type="text" value={fundFormData.accountHolder} onChange={e => setFundFormData({...fundFormData, accountHolder: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm uppercase" />
             </div>
           </div>
         )}
+        <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs font-bold text-zinc-700">
+          <input type="checkbox" checked={fundFormData.isDefault} onChange={e => setFundFormData({...fundFormData, isDefault: e.target.checked})} />
+          Đặt làm tài khoản mặc định cho loại thanh toán này tại chi nhánh
+        </label>
         {!editingFund && (
           <div>
             <label className="block text-xs font-bold text-zinc-500 mb-1">Số dư khởi tạo</label>

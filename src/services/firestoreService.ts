@@ -14,6 +14,7 @@ import {
   where
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
+import { apiJson } from './apiClient';
 import { 
   DeviceItem, 
   Lead, 
@@ -35,7 +36,6 @@ import {
   ChatMessage,
   PurchaseOrder,
   MasterCatalogItem,
-  PartnerDebtTransaction,
   AttendanceRecord,
   ShiftHandoverReport,
   SOPTemplateItem,
@@ -447,33 +447,25 @@ export function subscribeToFunds(onData: (funds: FundAccount[]) => void) {
 }
 
 export async function addFundToFirestore(fund: FundAccount) {
-  const path = `${FUNDS_COL}/${fund.id}`;
-  try {
-    const docRef = doc(db, FUNDS_COL, fund.id);
-    await setDoc(docRef, cleanDataForFirestore(fund));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  const response = await apiJson<{ success: boolean; account: FundAccount }>('/api/finance/accounts', {
+    method: 'POST',
+    body: JSON.stringify(fund)
+  });
+  return response.account;
 }
 
 export async function updateFundInFirestore(fund: FundAccount) {
-  const path = `${FUNDS_COL}/${fund.id}`;
-  try {
-    const docRef = doc(db, FUNDS_COL, fund.id);
-    await setDoc(docRef, cleanDataForFirestore(fund), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  const response = await apiJson<{ success: boolean; account: FundAccount }>(`/api/finance/accounts/${encodeURIComponent(fund.id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(fund)
+  });
+  return response.account;
 }
 
 export async function deleteFundFromFirestore(id: string) {
-  const path = `${FUNDS_COL}/${id}`;
-  try {
-    const docRef = doc(db, FUNDS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+  return apiJson<{ success: boolean }>(`/api/finance/accounts/${encodeURIComponent(id)}/archive`, {
+    method: 'POST'
+  });
 }
 
 export function subscribeToCashTransactions(onData: (txs: CashTransaction[]) => void) {
@@ -485,71 +477,30 @@ export function subscribeToCashTransactions(onData: (txs: CashTransaction[]) => 
 }
 
 export async function addCashTransactionToFirestore(tx: CashTransaction) {
-  try {
-    const idToken = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (idToken) {
-      headers['Authorization'] = `Bearer ${idToken}`;
-    }
-    headers['x-staff-uid'] = auth.currentUser?.uid || 'staff-finance';
-    headers['x-staff-role'] = 'ACCOUNTANT';
-    headers['x-staff-branch-id'] = tx.branchId || 'CN01';
-
-    const endpoint = tx.type === 'RECEIPT' ? '/api/finance/receipt' : '/api/finance/payment';
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        fundId: tx.fundId,
-        amount: tx.amount,
-        partnerId: tx.partnerId,
-        partnerName: tx.partnerName,
-        partnerType: tx.partnerType,
-        category: tx.category,
-        categoryName: tx.categoryName,
-        notes: tx.notes,
-        branchId: tx.branchId,
-        isPLAccounted: tx.isPLAccounted
-      })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.success && data.transaction) {
-        return data.transaction;
-      }
-    }
-  } catch (apiErr) {
-    console.warn('[Finance API Offline/Fallback]:', apiErr);
+  if (!tx.branchId || tx.branchId === 'ALL' || !tx.fundId) {
+    throw new Error('Giao dịch phải có tài khoản và chi nhánh hợp lệ.');
   }
-
-  const path = `${CASH_TRANSACTIONS_COL}/${tx.id}`;
-  try {
-    const docRef = doc(db, CASH_TRANSACTIONS_COL, tx.id);
-    await setDoc(docRef, cleanDataForFirestore(tx));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
+  const endpoint = tx.type === 'RECEIPT' ? '/api/finance/receipt' : '/api/finance/payment';
+  const response = await apiJson<{ success: boolean; transaction: CashTransaction }>(endpoint, {
+    method: 'POST',
+    body: JSON.stringify({
+      fundId: tx.fundId,
+      amount: tx.amount,
+      partnerId: tx.partnerId,
+      partnerName: tx.partnerName,
+      partnerType: tx.partnerType,
+      category: tx.category,
+      categoryName: tx.categoryName,
+      notes: tx.notes,
+      branchId: tx.branchId,
+      isPLAccounted: tx.isPLAccounted,
+      idempotencyKey: tx.id
+    })
+  });
+  if (!response.success || !response.transaction) {
+    throw new Error('Máy chủ không trả về chứng từ thu/chi.');
   }
-}
-
-export async function updateCashTransactionInFirestore(tx: CashTransaction) {
-  const path = `${CASH_TRANSACTIONS_COL}/${tx.id}`;
-  try {
-    const docRef = doc(db, CASH_TRANSACTIONS_COL, tx.id);
-    await setDoc(docRef, cleanDataForFirestore(tx), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteCashTransactionFromFirestore(id: string) {
-  const path = `${CASH_TRANSACTIONS_COL}/${id}`;
-  try {
-    const docRef = doc(db, CASH_TRANSACTIONS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+  return response.transaction;
 }
 
 // ----------------- TRANSFERS -----------------
@@ -608,98 +559,25 @@ export async function executeFundTransferInFirestore(
   notes: string,
   creator: string = 'Nhật Tân (Admin)'
 ): Promise<{ txOut: CashTransaction; txIn: CashTransaction }> {
-  try {
-    const idToken = await auth.currentUser?.getIdToken().catch(() => null);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (idToken) {
-      headers['Authorization'] = `Bearer ${idToken}`;
-    }
-    headers['x-staff-uid'] = auth.currentUser?.uid || 'admin-finance';
-    headers['x-staff-role'] = 'ADMIN';
-    headers['x-staff-branch-id'] = fromFund.branchId || 'CN01';
-
-    const response = await fetch('/api/finance/transfer', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        fromFundId: fromFund.id,
-        toFundId: toFund.id,
-        amount,
-        notes,
-        branchId: fromFund.branchId
-      })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.success && data.txOut && data.txIn) {
-        return { txOut: data.txOut, txIn: data.txIn };
-      }
-    }
-  } catch (apiErr) {
-    console.warn('[Finance Transfer API Offline/Fallback]:', apiErr);
+  if (!fromFund.branchId || fromFund.branchId === 'ALL' || !toFund.branchId || toFund.branchId === 'ALL') {
+    throw new Error('Hai tài khoản chuyển quỹ phải được định danh theo chi nhánh.');
   }
 
-  const batch = writeBatch(db);
-  const now = new Date();
-  const dateStr = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-  const transferRefCode = `TRF-${Date.now().toString().slice(-6)}`;
+  const data = await apiJson<{ success: boolean; txOut: CashTransaction; txIn: CashTransaction }>('/api/finance/transfer', {
+    method: 'POST',
+    body: JSON.stringify({
+      fromFundId: fromFund.id,
+      toFundId: toFund.id,
+      amount,
+      notes,
+      idempotencyKey: `fund-transfer-${Date.now()}-${fromFund.id}-${toFund.id}`
+    })
+  });
 
-  const updatedFromFund: FundAccount = {
-    ...fromFund,
-    currentBalance: fromFund.currentBalance - amount,
-    totalExpense: (fromFund.totalExpense || 0) + amount
-  };
-
-  const updatedToFund: FundAccount = {
-    ...toFund,
-    currentBalance: toFund.currentBalance + amount,
-    totalIncome: (toFund.totalIncome || 0) + amount
-  };
-
-  const txOut: CashTransaction = {
-    id: `TX-${Date.now()}-OUT`,
-    code: `PC-${transferRefCode}-OUT`,
-    type: 'PAYMENT',
-    category: 'OTHER_EXPENSE',
-    categoryName: 'Chuyển quỹ nội bộ (Chi)',
-    amount,
-    fundType: fromFund.type,
-    fundName: fromFund.name,
-    date: dateStr,
-    creator,
-    referenceCode: transferRefCode,
-    notes: notes || `Chuyển ${amount.toLocaleString('vi-VN')}đ sang ${toFund.name}`,
-    status: 'COMPLETED'
-  };
-
-  const txIn: CashTransaction = {
-    id: `TX-${Date.now() + 1}-IN`,
-    code: `PT-${transferRefCode}-IN`,
-    type: 'RECEIPT',
-    category: 'OTHER_INCOME',
-    categoryName: 'Chuyển quỹ nội bộ (Thu)',
-    amount,
-    fundType: toFund.type,
-    fundName: toFund.name,
-    date: dateStr,
-    creator,
-    referenceCode: transferRefCode,
-    notes: notes || `Nhận ${amount.toLocaleString('vi-VN')}đ từ ${fromFund.name}`,
-    status: 'COMPLETED'
-  };
-
-  try {
-    batch.set(doc(db, FUNDS_COL, updatedFromFund.id), cleanDataForFirestore(updatedFromFund), { merge: true });
-    batch.set(doc(db, FUNDS_COL, updatedToFund.id), cleanDataForFirestore(updatedToFund), { merge: true });
-    batch.set(doc(db, CASH_TRANSACTIONS_COL, txOut.id), cleanDataForFirestore(txOut), { merge: true });
-    batch.set(doc(db, CASH_TRANSACTIONS_COL, txIn.id), cleanDataForFirestore(txIn), { merge: true });
-    await batch.commit();
-  } catch (err) {
-    console.warn('[Client Batch Fallback skipped on rule denial]:', err);
+  if (!data.success || !data.txOut || !data.txIn) {
+    throw new Error('Máy chủ không trả về đầy đủ chứng từ chuyển quỹ.');
   }
-
-  return { txOut, txIn };
+  return { txOut: data.txOut, txIn: data.txIn };
 }
 
 // ----------------- BRANCHES (CỬA HÀNG / CHI NHÁNH) -----------------
@@ -749,31 +627,25 @@ export function subscribeToWarehouses(onData: (warehouses: WarehouseInfo[]) => v
 }
 
 export async function addWarehouseToFirestore(warehouse: WarehouseInfo) {
-  const path = `${WAREHOUSES_COL}/${warehouse.id}`;
-  try {
-    await setDoc(doc(db, WAREHOUSES_COL, warehouse.id), cleanDataForFirestore(warehouse));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  const response = await apiJson<{ success: boolean; warehouse: WarehouseInfo }>('/api/configuration/warehouses', {
+    method: 'POST',
+    body: JSON.stringify(warehouse)
+  });
+  return response.warehouse;
 }
 
 export async function updateWarehouseInFirestore(warehouse: WarehouseInfo) {
-  const path = `${WAREHOUSES_COL}/${warehouse.id}`;
-  try {
-    const docRef = doc(db, WAREHOUSES_COL, warehouse.id);
-    await setDoc(docRef, cleanDataForFirestore(warehouse), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  const response = await apiJson<{ success: boolean; warehouse: WarehouseInfo }>(`/api/configuration/warehouses/${encodeURIComponent(String(warehouse.id))}`, {
+    method: 'PATCH',
+    body: JSON.stringify(warehouse)
+  });
+  return response.warehouse;
 }
 
 export async function deleteWarehouseFromFirestore(id: string) {
-  const path = `${WAREHOUSES_COL}/${id}`;
-  try {
-    await deleteDoc(doc(db, WAREHOUSES_COL, id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+  return apiJson<{ success: boolean }>(`/api/configuration/warehouses/${encodeURIComponent(id)}/archive`, {
+    method: 'POST'
+  });
 }
 
 // ----------------- STORE SETTINGS (CÀI ĐẶT DOANH NGHIỆP) -----------------
@@ -1046,6 +918,7 @@ export async function processCheckoutTransaction(params: {
 // ----------------- INVOICE CANCELLATION & REFUND ATOMIC REVERSAL -----------------
 export async function cancelInvoiceInFirestore(params: {
   invoiceId: string;
+  branchId: string;
   cancelledBy: string;
   reason: string;
   devicesToRestore: DeviceItem[];
@@ -1054,67 +927,16 @@ export async function cancelInvoiceInFirestore(params: {
   fundToDeduct: FundAccount | null;
   customerPartner: Partner | null;
 }) {
-  const batch = writeBatch(db);
-  const path = `${INVOICES_COL}/${params.invoiceId}`;
-
-  try {
-    // 1. Mark Invoice as CANCELLED with audit trail
-    const invRef = doc(db, INVOICES_COL, params.invoiceId);
-    batch.update(invRef, {
-      status: 'CANCELLED',
-      cancellationReason: params.reason,
-      cancelledBy: params.cancelledBy,
-      cancelledAt: new Date().toISOString()
-    });
-
-    // 2. Restore Devices status back to 'in_stock'
-    for (const d of params.devicesToRestore) {
-      const devRef = doc(db, DEVICES_COL, d.id);
-      batch.update(devRef, {
-        status: 'in_stock',
-        soldDate: null,
-        customerName: null,
-        customerPhone: null
-      });
-    }
-
-    // 3. Restore Accessory Stock Quantity
-    for (const acc of params.accessoriesToRestore) {
-      const prodRef = doc(db, PRODUCTS_COL, acc.product.id);
-      batch.update(prodRef, {
-        stockQuantity: increment(acc.quantity)
-      });
-    }
-
-    // 4. Create Refund Cash Transaction (PAYMENT)
-    if (params.refundTx) {
-      const txRef = doc(db, CASH_TRANSACTIONS_COL, params.refundTx.id);
-      batch.set(txRef, cleanDataForFirestore(params.refundTx));
-    }
-
-    // 5. Deduct Fund Balance using atomic increment
-    if (params.fundToDeduct && params.refundTx && params.refundTx.amount > 0) {
-      const fundRef = doc(db, FUNDS_COL, params.fundToDeduct.id);
-      batch.update(fundRef, {
-        currentBalance: increment(-params.refundTx.amount),
-        totalExpense: increment(params.refundTx.amount)
-      });
-    }
-
-    // 6. Reverse customer totalSpent if applicable
-    if (params.customerPartner && params.refundTx && params.refundTx.amount > 0) {
-      const custRef = doc(db, PARTNERS_COL, params.customerPartner.id);
-      batch.update(custRef, {
-        totalSpent: increment(-params.refundTx.amount)
-      });
-    }
-
-    await batch.commit();
-    return true;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
-  }
+  return apiJson<{ success: boolean; data: { invoiceId: string; refundTransaction: CashTransaction | null; restoredDeviceIds: string[] } }>('/api/pos/refund', {
+    method: 'POST',
+    body: JSON.stringify({
+      invoiceId: params.invoiceId,
+      branchId: params.branchId,
+      fundId: params.fundToDeduct?.id || '',
+      reason: params.reason,
+      idempotencyKey: `refund-${params.invoiceId}`
+    })
+  });
 }
 
 // ----------------- ATOMIC FUND TRANSFER & LEDGER ENTRY -----------------
@@ -1129,114 +951,20 @@ export async function transferFundsInFirestore(params: {
   branchId?: string;
   branchName?: string;
 }) {
-  const batch = writeBatch(db);
-  const now = new Date().toISOString();
-  const txOutId = `TX-OUT-${Date.now()}`;
-  const txInId = `TX-IN-${Date.now() + 1}`;
-
-  try {
-    // 1. Deduct from source fund
-    const fromRef = doc(db, FUNDS_COL, params.fromFundId);
-    batch.update(fromRef, {
-      currentBalance: increment(-params.amount),
-      totalExpense: increment(params.amount)
-    });
-
-    // 2. Add to destination fund
-    const toRef = doc(db, FUNDS_COL, params.toFundId);
-    batch.update(toRef, {
-      currentBalance: increment(params.amount),
-      totalIncome: increment(params.amount)
-    });
-
-    // 3. Create debit entry (chi chuyển quỹ)
-    const txOutRef = doc(db, CASH_TRANSACTIONS_COL, txOutId);
-    const txOutData: CashTransaction = {
-      id: txOutId,
-      code: `PC-${Date.now().toString().slice(-6)}`,
-      type: 'PAYMENT',
-      category: 'OTHER_EXPENSE',
-      categoryName: 'Chuyển quỹ nội bộ (Chi)',
+  const data = await apiJson<{ success: boolean; txOut: CashTransaction; txIn: CashTransaction }>('/api/finance/transfer', {
+    method: 'POST',
+    body: JSON.stringify({
+      fromFundId: params.fromFundId,
+      toFundId: params.toFundId,
       amount: params.amount,
-      fundType: 'CASH',
-      fundName: params.fromFundName,
-      fundId: params.fromFundId,
-      date: now.split('T')[0],
-      notes: `Chuyển quỹ sang [${params.toFundName}]: ${params.note}`,
-      branchId: params.branchId || 'ALL',
-      creator: params.transferredBy,
-      status: 'COMPLETED'
-    };
-    batch.set(txOutRef, cleanDataForFirestore(txOutData));
-
-    // 4. Create credit entry (thu nhận chuyển quỹ)
-    const txInRef = doc(db, CASH_TRANSACTIONS_COL, txInId);
-    const txInData: CashTransaction = {
-      id: txInId,
-      code: `PT-${Date.now().toString().slice(-6)}`,
-      type: 'RECEIPT',
-      category: 'OTHER_INCOME',
-      categoryName: 'Chuyển quỹ nội bộ (Thu)',
-      amount: params.amount,
-      fundType: 'CASH',
-      fundName: params.toFundName,
-      fundId: params.toFundId,
-      date: now.split('T')[0],
-      notes: `Nhận chuyển quỹ từ [${params.fromFundName}]: ${params.note}`,
-      branchId: params.branchId || 'ALL',
-      creator: params.transferredBy,
-      status: 'COMPLETED'
-    };
-    batch.set(txInRef, cleanDataForFirestore(txInData));
-
-    await batch.commit();
-    return true;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `${FUNDS_COL}/transfer`);
-    throw error;
+      notes: params.note,
+      idempotencyKey: `fund-transfer-${Date.now()}-${params.fromFundId}-${params.toFundId}`
+    })
+  });
+  if (!data.success || !data.txOut || !data.txIn) {
+    throw new Error('Máy chủ không trả về đầy đủ chứng từ chuyển quỹ.');
   }
-}
-
-// ----------------- DEBT SETTLEMENT ATOMIC BATCH -----------------
-export async function executeDebtSettlementInFirestore(params: {
-  partner: Partner;
-  newDebtAmount: number;
-  newDebtTransaction: PartnerDebtTransaction;
-  cashTx: CashTransaction;
-  fund: FundAccount;
-}) {
-  const batch = writeBatch(db);
-  try {
-    // 1. Update Partner
-    const partnerRef = doc(db, PARTNERS_COL, params.partner.id);
-    const updatedPartner: Partner = {
-      ...params.partner,
-      outstandingDebt: params.newDebtAmount,
-      debtTransactions: [params.newDebtTransaction, ...(params.partner.debtTransactions || [])]
-    };
-    batch.set(partnerRef, cleanDataForFirestore(updatedPartner), { merge: true });
-
-    // 2. Add CashTransaction
-    const txRef = doc(db, CASH_TRANSACTIONS_COL, params.cashTx.id);
-    batch.set(txRef, cleanDataForFirestore(params.cashTx));
-
-    // 3. Update Fund
-    const fundRef = doc(db, FUNDS_COL, params.fund.id);
-    const delta = params.cashTx.type === 'RECEIPT' ? params.cashTx.amount : -params.cashTx.amount;
-    const updatedFund: FundAccount = {
-      ...params.fund,
-      currentBalance: params.fund.currentBalance + delta,
-      totalIncome: params.cashTx.type === 'RECEIPT' ? (params.fund.totalIncome || 0) + params.cashTx.amount : params.fund.totalIncome,
-      totalExpense: params.cashTx.type === 'PAYMENT' ? (params.fund.totalExpense || 0) + params.cashTx.amount : params.fund.totalExpense
-    };
-    batch.set(fundRef, cleanDataForFirestore(updatedFund), { merge: true });
-
-    await batch.commit();
-    return { updatedPartner, cashTx: params.cashTx, updatedFund };
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, 'debt_settlement');
-    throw error;
-  }
+  return { txOut: data.txOut, txIn: data.txIn };
 }
 
 // ----------------- PURCHASE ORDERS -----------------

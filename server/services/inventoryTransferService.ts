@@ -220,19 +220,22 @@ export async function processCreateTechnicalTransfer(
     if (!destinationLocationSnap.exists) throw new Error(`TECH_LOCATION_NOT_FOUND: Không tìm thấy kho KTV "${input.destinationLocationId}".`);
     const sourceLocation = sourceLocationSnap.data()!;
     const destinationLocation = destinationLocationSnap.data()!;
-    if (locationBranchId(sourceLocation) && locationBranchId(sourceLocation) !== input.sourceBranchId) {
+    if (locationBranchId(sourceLocation) !== input.sourceBranchId) {
       throw new Error('SOURCE_LOCATION_BRANCH_MISMATCH');
+    }
+    if (sourceLocation.isActive === false || sourceLocation.isMain !== true) {
+      throw new Error('SOURCE_LOCATION_MUST_BE_ACTIVE_MAIN_WAREHOUSE');
     }
     if (destinationLocation.type !== 'TECHNICIAN_SUB' || destinationLocation.isActive === false) {
       throw new Error('INVALID_TECH_LOCATION: Kho nhận phải là kho KTV đang hoạt động.');
     }
-    if (locationBranchId(destinationLocation) && locationBranchId(destinationLocation) !== input.sourceBranchId) {
+    if (locationBranchId(destinationLocation) !== input.sourceBranchId) {
       throw new Error('TECH_LOCATION_BRANCH_MISMATCH: Kho KTV phải thuộc cùng Chi nhánh Tổng.');
     }
-    if (destinationLocation.parentWarehouseId && destinationLocation.parentWarehouseId !== input.sourceLocationId) {
+    if (destinationLocation.parentWarehouseId !== input.sourceLocationId) {
       throw new Error('TECH_LOCATION_PARENT_MISMATCH');
     }
-    const technicianUid = String(destinationLocation.technicianId || destinationLocation.technicianUid || '');
+    const technicianUid = String(destinationLocation.custodianUid || destinationLocation.technicianUid || destinationLocation.technicianId || '');
     if (!technicianUid) throw new Error('TECH_LOCATION_ASSIGNEE_REQUIRED: Kho KTV chưa gắn với tài khoản kỹ thuật viên.');
     const technicianName = String(destinationLocation.technicianName || destinationLocation.manager || 'Kỹ thuật viên');
 
@@ -488,7 +491,8 @@ export async function processAcceptTechnicalTransfer(
     if (!destinationSnap.exists || destinationSnap.data()?.isActive === false) throw new Error('TECH_LOCATION_INACTIVE');
     const destination = destinationSnap.data()!;
     const actorRole = String(actor.role || '').toUpperCase();
-    if (destination.technicianId && destination.technicianId !== actor.uid && !['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(actorRole)) {
+    const destinationCustodianUid = String(destination.custodianUid || destination.technicianUid || destination.technicianId || '');
+    if (destinationCustodianUid && destinationCustodianUid !== actor.uid && !['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(actorRole)) {
       throw new Error('TECHNICIAN_NOT_ASSIGNED');
     }
 
@@ -654,11 +658,13 @@ export async function processCreateInterBranchTransfer(
     const destinationBranchSnap = await transaction.get(db.collection('branches').doc(input.destinationBranchId));
     const sourceLocationSnap = await transaction.get(db.collection('warehouses').doc(input.sourceLocationId));
     const destinationLocationSnap = await transaction.get(db.collection('warehouses').doc(input.destinationLocationId));
+    if (!sourceBranchSnap.exists || sourceBranchSnap.data()?.isActive === false) throw new Error('SOURCE_BRANCH_NOT_ACTIVE');
+    if (!destinationBranchSnap.exists || destinationBranchSnap.data()?.isActive === false) throw new Error('DESTINATION_BRANCH_NOT_ACTIVE');
     if (!sourceLocationSnap.exists || !destinationLocationSnap.exists) throw new Error('LOCATION_NOT_FOUND');
     const sourceLocation = sourceLocationSnap.data()!;
     const destinationLocation = destinationLocationSnap.data()!;
-    if (locationBranchId(sourceLocation) && locationBranchId(sourceLocation) !== input.sourceBranchId) throw new Error('SOURCE_LOCATION_BRANCH_MISMATCH');
-    if (locationBranchId(destinationLocation) && locationBranchId(destinationLocation) !== input.destinationBranchId) throw new Error('DESTINATION_LOCATION_BRANCH_MISMATCH');
+    if (locationBranchId(sourceLocation) !== input.sourceBranchId) throw new Error('SOURCE_LOCATION_BRANCH_MISMATCH');
+    if (locationBranchId(destinationLocation) !== input.destinationBranchId) throw new Error('DESTINATION_LOCATION_BRANCH_MISMATCH');
     if (sourceLocation.isActive === false || destinationLocation.isActive === false) throw new Error('LOCATION_INACTIVE');
 
     const deviceSnapshots: any[] = [];

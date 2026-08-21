@@ -11,6 +11,12 @@ export interface CheckoutResult {
   idempotencyKey?: string;
 }
 
+export interface InvoiceRefundResult {
+  invoiceId: string;
+  refundTransaction: any | null;
+  restoredDeviceIds: string[];
+}
+
 const ALLOWED_FUND_TYPES_BY_METHOD: Record<string, string[]> = {
   CASH: ['CASH', 'TIỀN MẶT', 'KÉT TIỀN', 'TIEN_MAT'],
   BANK: ['BANK', 'VIETQR', 'NGÂN HÀNG', 'TÀI KHOẢN NGÂN HÀNG', 'NGAN_HANG'],
@@ -107,10 +113,10 @@ export async function executeAtomicCheckout(
         throw new Error(`INVALID_FUND: Quỹ tiền ID "${fId}" không tồn tại trên hệ thống.`);
       }
       const fData = fSnap.data()!;
-      if (fData.status === 'INACTIVE' || fData.active === false) {
+      if (fData.status === 'INACTIVE' || fData.active === false || fData.isActive === false || fData.isArchived === true) {
         throw new Error(`INACTIVE_FUND: Quỹ tiền "${fData.name}" đang bị khóa, không thể thực hiện thanh toán.`);
       }
-      if (fData.branchId && fData.branchId !== 'ALL' && fData.branchId !== branchId) {
+      if (!fData.branchId || fData.branchId === 'ALL' || fData.branchId !== branchId) {
         throw new Error(`FUND_BRANCH_MISMATCH: Quỹ tiền "${fData.name}" thuộc chi nhánh "${fData.branchId}", không khớp chi nhánh bán "${branchId}".`);
       }
       fundMap.set(fId, { ref: fRef, data: fData });
@@ -829,5 +835,137 @@ export async function executeAtomicCheckout(
       finalAmount,
       idempotencyKey
     };
+  });
+}
+
+export async function executeAtomicInvoiceRefund(
+  db: Firestore,
+  payload: { invoiceId: string; branchId: string; fundId?: string; reason: string; idempotencyKey: string },
+  authenticatedStaff?: { uid: string; role?: string; name?: string; branchId?: string }
+): Promise<InvoiceRefundResult> {
+  const invoiceId = String(payload.invoiceId || '').trim();
+  const branchId = String(payload.branchId || '').trim();
+  const fundId = String(payload.fundId || '').trim();
+  const reason = String(payload.reason || '').trim();
+  const idempotencyKey = String(payload.idempotencyKey || '').trim();
+  if (!invoiceId || !branchId || branchId === 'ALL' || !reason || !idempotencyKey) {
+    throw new Error('REFUND_REQUIRED_FIELDS');
+  }
+
+  return db.runTransaction(async transaction => {
+    const idemRef = db.collection('invoiceRefundRequests').doc(idempotencyKey);
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
+      return idemSnap.data()!.result as InvoiceRefundResult;
+    }
+
+    const invoiceRef = db.collection('invoices').doc(invoiceId);
+    const invoiceSnap = await transaction.get(invoiceRef);
+    if (!invoiceSnap.exists) throw new Error('INVOICE_NOT_FOUND');
+    const invoice = invoiceSnap.data()!;
+    if (String(invoice.branchId || '') !== branchId) throw new Error('INVOICE_BRANCH_MISMATCH');
+    if (String(invoice.status || '').toLowerCase() === 'cancelled') throw new Error('INVOICE_ALREADY_CANCELLED');
+
+    const refundAmount = Number(invoice.paidAmount ?? invoice.finalAmount ?? 0);
+    const splitPayments = Array.isArray(invoice.splitPayments) ? invoice.splitPayments.filter((line: any) => Number(line.amount || 0) > 0) : [];
+    if (splitPayments.length > 1) throw new Error('MULTI_FUND_REFUND_REQUIRES_ALLOCATION');
+    const originalFundId = String(invoice.paymentFundId || splitPayments[0]?.fundId || '').trim();
+    if (originalFundId && fundId !== originalFundId) throw new Error('REFUND_MUST_USE_ORIGINAL_FUND');
+    if (refundAmount > 0 && !fundId) throw new Error('REFUND_FUND_REQUIRED');
+
+    let fundRef: DocumentReference | null = null;
+    let fund: any = null;
+    if (refundAmount > 0) {
+      fundRef = db.collection('funds').doc(fundId);
+      const fundSnap = await transaction.get(fundRef);
+      if (!fundSnap.exists) throw new Error('REFUND_FUND_NOT_FOUND');
+      fund = fundSnap.data()!;
+      if (!fund.branchId || fund.branchId === 'ALL' || fund.branchId !== branchId) throw new Error('REFUND_FUND_BRANCH_MISMATCH');
+      if (fund.isArchived === true || fund.isActive === false || fund.active === false) throw new Error('REFUND_FUND_INACTIVE');
+      if (Number(fund.currentBalance || 0) < refundAmount) throw new Error('REFUND_FUND_INSUFFICIENT_BALANCE');
+    }
+
+    const deviceSnapshots = new Map<string, any>();
+    const soldDevices = await transaction.get(db.collection('devices').where('soldInvoiceId', '==', invoiceId));
+    soldDevices.docs.forEach(item => deviceSnapshots.set(item.id, item));
+    if (deviceSnapshots.size === 0) {
+      const imeis = [...new Set([
+        ...(Array.isArray(invoice.imeiList) ? invoice.imeiList : []),
+        ...(Array.isArray(invoice.devices) ? invoice.devices.map((item: any) => item.imei) : []),
+        ...(Array.isArray(invoice.items) ? invoice.items.map((item: any) => item.imei) : [])
+      ].filter(Boolean))];
+      for (const imei of imeis) {
+        const matches = await transaction.get(db.collection('devices').where('imei', '==', imei).limit(1));
+        matches.docs.forEach(item => deviceSnapshots.set(item.id, item));
+      }
+    }
+
+    const accessoryRestores: Array<{ ref: DocumentReference; quantity: number }> = [];
+    for (const line of Array.isArray(invoice.accessories) ? invoice.accessories : []) {
+      const quantity = Math.max(0, Number(line.quantity || 1));
+      if (!line.name || quantity <= 0) continue;
+      const matches = await transaction.get(db.collection('products').where('name', '==', line.name).limit(1));
+      if (!matches.empty) accessoryRestores.push({ ref: matches.docs[0].ref, quantity });
+    }
+
+    let customerRef: DocumentReference | null = null;
+    if (invoice.customerId) {
+      const candidate = db.collection('partners').doc(String(invoice.customerId));
+      const candidateSnap = await transaction.get(candidate);
+      if (candidateSnap.exists) customerRef = candidate;
+    } else if (invoice.customerPhone || invoice.phone) {
+      const matches = await transaction.get(db.collection('partners').where('phone', '==', invoice.customerPhone || invoice.phone).limit(1));
+      if (!matches.empty) customerRef = matches.docs[0].ref;
+    }
+
+    const now = new Date().toISOString();
+    const refundTxId = refundAmount > 0 ? `TX_REFUND_${Date.now()}` : '';
+    const refundTransaction = refundAmount > 0 ? {
+      id: refundTxId,
+      code: `PC-REFUND-${Date.now().toString().slice(-6)}`,
+      type: 'PAYMENT',
+      category: 'CUSTOMER_REFUND',
+      categoryName: 'Chi hoàn tiền đổi trả cho khách',
+      amount: refundAmount,
+      branchId,
+      fundId,
+      fundType: fund.type,
+      fundName: fund.name,
+      date: now,
+      partnerName: invoice.customerName || '',
+      partnerPhone: invoice.customerPhone || invoice.phone || '',
+      creator: authenticatedStaff?.name || authenticatedStaff?.uid || 'Nhân viên',
+      creatorUid: authenticatedStaff?.uid,
+      notes: `Hoàn tiền hủy hóa đơn ${invoice.invoiceCode || invoiceId}: ${reason}`,
+      referenceCode: invoice.invoiceCode || invoiceId,
+      isPLAccounted: false,
+      status: 'COMPLETED'
+    } : null;
+
+    transaction.update(invoiceRef, {
+      status: 'cancelled', cancellationReason: reason,
+      cancelledBy: authenticatedStaff?.name || authenticatedStaff?.uid || '',
+      cancelledByUid: authenticatedStaff?.uid || '', cancelledAt: now
+    });
+    deviceSnapshots.forEach(item => transaction.update(item.ref, {
+      status: 'in_stock', soldDate: FieldValue.delete(), soldInvoiceId: FieldValue.delete(),
+      customerName: FieldValue.delete(), customerPhone: FieldValue.delete(), updatedAt: now
+    }));
+    accessoryRestores.forEach(item => transaction.update(item.ref, { stockQuantity: FieldValue.increment(item.quantity), updatedAt: now }));
+    if (fundRef && refundTransaction) {
+      transaction.update(fundRef, {
+        currentBalance: Number(fund.currentBalance || 0) - refundAmount,
+        totalExpense: Number(fund.totalExpense || 0) + refundAmount,
+        updatedAt: now
+      });
+      transaction.set(db.collection('cashTransactions').doc(refundTxId), refundTransaction);
+    }
+    if (customerRef && refundAmount > 0) {
+      transaction.update(customerRef, { totalSpent: FieldValue.increment(-refundAmount), updatedAt: now });
+    }
+
+    const result = { invoiceId, refundTransaction, restoredDeviceIds: [...deviceSnapshots.keys()] };
+    transaction.set(idemRef, { status: 'COMPLETED', result, invoiceId, createdAt: now, actorUid: authenticatedStaff?.uid || '' });
+    return result;
   });
 }

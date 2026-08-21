@@ -18,7 +18,8 @@ export function requireBranchAccess() {
     }
 
     const targetBranchId = req.body?.branchId || req.query?.branchId || req.params?.branchId;
-    if (targetBranchId && user.branchId && user.branchId !== targetBranchId) {
+    const assignedBranchIds = Array.isArray(user.assignedBranchIds) ? user.assignedBranchIds : [];
+    if (targetBranchId && user.branchId !== targetBranchId && !assignedBranchIds.includes(targetBranchId)) {
       return res.status(403).json({
         success: false,
         error: 'BRANCH_ACCESS_DENIED',

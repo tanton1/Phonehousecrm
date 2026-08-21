@@ -27,7 +27,8 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
     setSelectedInvoice(inv);
     setActualAmount(inv.installmentExpectedAmount?.toString() || '0');
     setFeeAmount('0');
-    setSelectedFund(funds.find(f => f.type === 'BANK')?.name || funds[0]?.name || '');
+    const eligibleFunds = funds.filter(f => f.branchId === inv.branchId && f.isActive !== false && f.isArchived !== true);
+    setSelectedFund(eligibleFunds.find(f => f.type === 'BANK' && f.isDefault)?.id || eligibleFunds.find(f => f.type === 'BANK')?.id || '');
   };
 
   const handleConfirmDisbursement = (e: React.FormEvent) => {
@@ -41,7 +42,7 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
       return;
     }
 
-    const fund = funds.find(f => f.name === selectedFund);
+    const fund = funds.find(f => f.id === selectedFund && f.branchId === selectedInvoice.branchId && f.isActive !== false && f.isArchived !== true);
     if (!fund) return;
 
     const now = new Date();
@@ -55,8 +56,10 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
       category: 'OTHER_INCOME',
       categoryName: 'Giải ngân trả góp/MPOS',
       amount: amountNum,
+      fundId: fund.id,
       fundType: fund.type,
       fundName: fund.name,
+      branchId: fund.branchId,
       date: dateStr,
       creator: 'Nhật Tân (Admin)',
       notes: `Giải ngân HĐ ${selectedInvoice.installmentContractCode || selectedInvoice.invoiceCode} (${selectedInvoice.installmentDetails?.financeCompany || selectedInvoice.installmentCompany || 'Tài chính'})`,
@@ -73,8 +76,10 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
         category: 'OTHER_EXPENSE',
         categoryName: 'Phí trả góp/MPOS',
         amount: feeNum,
+        fundId: fund.id,
         fundType: fund.type,
         fundName: fund.name,
+        branchId: fund.branchId,
         date: dateStr,
         creator: 'Nhật Tân (Admin)',
         notes: `Phí dịch vụ giải ngân HĐ ${selectedInvoice.installmentContractCode || selectedInvoice.invoiceCode}`,
@@ -233,7 +238,9 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                   onChange={e => setSelectedFund(e.target.value)}
                   className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-semibold"
                 >
-                  {funds.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                  {funds
+                    .filter(f => f.branchId === selectedInvoice?.branchId && f.isActive !== false && f.isArchived !== true)
+                    .map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               </div>
               <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">

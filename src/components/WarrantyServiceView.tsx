@@ -472,28 +472,8 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       solutionNotes: (activeTicketDetails.solutionNotes || '') + '\n' + newNote
     };
     
-    // Auto deduct via ledger
-    if (onAddTransaction && staffPenalty > 0) {
-      const penaltyTx: CashTransaction = {
-        id: `TX-${Date.now()}`,
-        code: `PHAT-${Date.now().toString().slice(-6)}`,
-        type: 'PAYMENT',
-        category: 'INTERNAL',
-        categoryName: 'Phạt kỹ thuật làm lỗi máy',
-        amount: staffPenalty,
-        fundType: 'CASH',
-        fundName: 'Lương KTV',
-        date: new Date().toISOString(),
-        partnerName: activeTicketDetails.technician || 'KTV',
-        partnerPhone: '',
-        partnerType: 'STAFF',
-        referenceCode: activeTicketDetails.ticketNumber,
-        creator: 'Hệ thống',
-        notes: newNote,
-        status: 'COMPLETED'
-      };
-      // onAddTransaction(penaltyTx); // Need to make sure ledger is passed properly. We'll just update notes for now, or trigger an event if possible. 
-    }
+    // Khoản trách nhiệm chỉ được ghi chú; không tự động trừ quỹ khi chưa có tài khoản
+    // lương được định danh theo chi nhánh và quy trình duyệt bảng lương.
 
     onUpdateTicket(updated);
     setActiveTicketDetails(updated);
@@ -537,6 +517,16 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       if (!ticket.isWarrantyFree && ticket.finalCost > 0 && onAddTransaction) {
         const createReceipt = confirm(`Giao máy thành công! Tạo phiếu thu ${ticket.finalCost.toLocaleString('vi-VN')}đ dịch vụ sửa chữa vào Quỹ Tiền Mặt?`);
         if (createReceipt) {
+          const receiptFund = funds.find(f =>
+            f.branchId === ticket.branchId &&
+            f.type === 'CASH' &&
+            f.isActive !== false &&
+            f.isArchived !== true
+          );
+          if (!ticket.branchId || !receiptFund) {
+            alert('Không tìm thấy quỹ tiền mặt đang hoạt động của đúng chi nhánh phiếu sửa chữa.');
+            return;
+          }
           const newTx: CashTransaction = {
             id: `TX-${Date.now()}`,
             code: `PT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`,
@@ -544,8 +534,10 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
             category: 'REPAIR_SERVICE',
             categoryName: `Thu tiền dịch vụ sửa chữa ${ticket.model} (${ticket.issueType})`,
             amount: ticket.finalCost,
-            fundType: 'CASH',
-            fundName: 'Quỹ Tiền Mặt Tại Két Cửa Hàng',
+            branchId: receiptFund.branchId,
+            fundId: receiptFund.id,
+            fundType: receiptFund.type,
+            fundName: receiptFund.name,
             date: now,
             partnerName: ticket.customerName,
             partnerPhone: ticket.phone,

@@ -323,6 +323,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         category: isReceipt ? 'CUSTOMER_DEBT_COLLECT' : 'SUPPLIER_DEBT_PAY',
         categoryName: isReceipt ? 'Thu nợ khách hàng' : 'Chi trả nợ NCC',
         amount: settleAmount,
+        branchId: fund.branchId,
         fundId: fund.id,
         fundType: fund.type,
         fundName: fund.name,
