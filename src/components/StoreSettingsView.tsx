@@ -428,7 +428,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     }
   };
 
-  const filteredWarehouses = warehouses.filter(w => {
+  const activeWarehouses = warehouses.filter(w => w.isActive !== false);
+  const filteredWarehouses = activeWarehouses.filter(w => {
     if (warehouseBranchFilter === 'ALL') return true;
     return w.branchId === warehouseBranchFilter;
   });
@@ -749,7 +750,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
               }`}
             >
-              Tất cả chi nhánh ({warehouses.length})
+              Tất cả chi nhánh ({activeWarehouses.length})
             </button>
             {branches.filter(branch => branch.isActive !== false).map(branch => (
               <button
@@ -762,7 +763,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 }`}
               >
                 <span className="w-2 h-2 rounded-full bg-current opacity-70"></span>
-                <span>{branch.name} ({warehouses.filter(w => w.branchId === branch.id).length})</span>
+                <span>{branch.name} ({activeWarehouses.filter(w => w.branchId === branch.id).length})</span>
               </button>
             ))}
           </div>
@@ -819,19 +820,26 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                         >
                           <Edit3 className="w-4 h-4" />
                         </button>
-                        {warehouses.length > 1 && (
-                          <button
-                            onClick={() => {
-                              if (confirm(`Bạn có chắc muốn xóa kho "${wh.name}"?`)) {
-                                onDeleteWarehouse(wh.id);
-                              }
-                            }}
-                            className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                            title="Xóa kho"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Bạn có chắc muốn xóa kho "${wh.name}"? Kho có máy, kho con hoặc phiếu chuyển đang mở sẽ không thể xóa.`)) return;
+                            try {
+                              await onDeleteWarehouse(wh.id);
+                              showToast('Đã xóa kho khỏi danh sách hoạt động', 'success');
+                            } catch (error: any) {
+                              const messages: Record<string, string> = {
+                                WAREHOUSE_HAS_DEVICES: 'Kho vẫn còn máy/IMEI. Hãy chuyển hết tồn kho trước khi xóa.',
+                                WAREHOUSE_HAS_CHILDREN: 'Kho đang có kho con. Hãy chuyển hoặc xóa các kho con trước.',
+                                WAREHOUSE_HAS_OPEN_TRANSFERS: 'Kho còn phiếu chuyển hàng đang mở. Hãy hoàn tất hoặc hủy phiếu trước.'
+                              };
+                              showToast(messages[error?.message] || error?.message || 'Không thể xóa kho', 'error');
+                            }
+                          }}
+                          className="p-2 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title="Xóa kho"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 
@@ -1624,7 +1632,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </label>
                 <select
                   required
-                  disabled={Boolean(editingWarehouse)}
                   value={warehouseForm.branchId || ''}
                   onChange={(e) => setWarehouseForm({
                     ...warehouseForm,
@@ -1635,7 +1642,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     technicianId: '',
                     technicianName: ''
                   })}
-                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900 disabled:opacity-70"
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900"
                 >
                   <option value="">Bắt buộc chọn cửa hàng trước</option>
                   {branches.filter(branch => branch.isActive !== false).map(branch => (
@@ -1643,7 +1650,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   ))}
                 </select>
                 {editingWarehouse && (
-                  <p className="mt-1 text-[10px] text-zinc-500">Không thể đổi chi nhánh của kho đã tạo.</p>
+                  <p className="mt-1 text-[10px] text-zinc-500">Có thể đổi cửa hàng khi kho không còn máy, kho con hoặc phiếu chuyển đang mở.</p>
                 )}
               </div>
 

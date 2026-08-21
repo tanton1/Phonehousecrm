@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Wallet, ArrowUpRight, ArrowDownLeft, Search, Filter, Plus, Minus, Calendar,
   CreditCard, Building2, Users, Smartphone, FileText, ChevronDown, ChevronRight, RefreshCw, X, Share2, 
@@ -170,6 +170,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   const [isReconcileModalOpen, setIsReconcileModalOpen] = useState(false);
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
   const [editingFund, setEditingFund] = useState<FundAccount | null>(null);
+  const [fundCreationId, setFundCreationId] = useState(() => `FUND-DRAFT-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+  const [isSavingFund, setIsSavingFund] = useState(false);
+  const fundSaveInFlightRef = useRef(false);
 
   const [transferData, setTransferData] = useState({
     fromFundName: funds.find(f => f.type === 'CASH' && f.isActive !== false && f.isArchived !== true)?.id || '',
@@ -297,6 +300,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
   const handleOpenFundModal = (fund: FundAccount | null = null) => {
     setEditingFund(fund);
+    setFundCreationId(fund?.id || `FUND-DRAFT-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
     if (fund) {
       setFundFormData({
         name: fund.name,
@@ -334,12 +338,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       alert('Tài khoản ngân hàng cần đủ tên ngân hàng, số tài khoản và chủ tài khoản.');
       return;
     }
+    if (fundSaveInFlightRef.current) return;
+    fundSaveInFlightRef.current = true;
+    setIsSavingFund(true);
 
     const initialBalNum = parseFloat(fundFormData.initialBalance.replace(/[^0-9]/g, '')) || 0;
     const assignedBranch = branches.find(b => b.id === fundFormData.branchId);
     const draft: FundAccount = {
       ...(editingFund || {} as FundAccount),
-      id: editingFund?.id || `FUND-DRAFT-${Date.now()}`,
+      id: editingFund?.id || fundCreationId,
       name: fundFormData.name.trim(),
       type: fundFormData.type,
       bankName: fundFormData.bankName.trim(),
@@ -360,6 +367,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       setIsFundModalOpen(false);
     } catch (error: any) {
       alert(error?.message || 'Không thể lưu tài khoản tài chính.');
+    } finally {
+      fundSaveInFlightRef.current = false;
+      setIsSavingFund(false);
     }
   };
 
@@ -1903,7 +1913,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             }} className="w-full px-4 py-3 bg-white border border-zinc-200 rounded-xl text-lg font-black focus:outline-none focus:ring-2 focus:ring-[#EA580C]" />
           </div>
         )}
-        <button type="submit" className="w-full py-3.5 bg-[#171717] hover:bg-black text-white font-bold rounded-xl shadow-lg cursor-pointer">{editingFund ? 'Cập nhật' : 'Tạo tài khoản'}</button>
+        <button type="submit" disabled={isSavingFund} className="w-full py-3.5 bg-[#171717] hover:bg-black disabled:cursor-not-allowed disabled:opacity-60 text-white font-bold rounded-xl shadow-lg cursor-pointer">{isSavingFund ? 'Đang lưu...' : editingFund ? 'Cập nhật' : 'Tạo tài khoản'}</button>
       </form>
     </div>
   </div>

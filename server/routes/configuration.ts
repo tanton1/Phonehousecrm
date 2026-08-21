@@ -47,6 +47,10 @@ export function validateWarehouseDraft(input: any) {
   };
 }
 
+export function warehouseHasBlockingDevices(devices: any[]): boolean {
+  return devices.some(item => String(item?.status || '').toLowerCase() !== 'sold');
+}
+
 const OPERATIONAL_CONFIG_KEYS = new Set(['sales', 'customerCare']);
 
 export function validateOperationalConfig(configKey: string, input: any) {
@@ -56,14 +60,36 @@ export function validateOperationalConfig(configKey: string, input: any) {
   const policyId = String(input?.policyId || '').trim().toUpperCase();
   const effectiveFrom = String(input?.effectiveFrom || '').trim();
   const effectiveTo = String(input?.effectiveTo || '').trim();
-  if (!name || !version) throw new Error('CONFIG_NAME_VERSION_REQUIRED');
+  const isActive = input?.isActive === true;
   if (!/^[A-Z0-9_]{2,60}$/.test(policyId)) throw new Error('POLICY_ID_INVALID');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) || (effectiveTo && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) || (effectiveTo && effectiveTo < effectiveFrom)) {
+  if (isActive && (!name || !version)) throw new Error('CONFIG_NAME_VERSION_REQUIRED');
+  if (isActive && (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) || (effectiveTo && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) || (effectiveTo && effectiveTo < effectiveFrom))) {
     throw new Error('POLICY_EFFECTIVE_PERIOD_INVALID');
   }
-  const policyIdentity = { policyId, name, version, effectiveFrom, effectiveTo, isActive: input?.isActive === true };
+  const policyIdentity = { policyId, name, version, effectiveFrom, effectiveTo, isActive };
 
   if (configKey === 'sales') {
+    const draftTags = Array.isArray(input?.commissionTags) ? input.commissionTags.map((tag: any) => ({
+      id: String(tag?.id || '').trim().toUpperCase(),
+      name: String(tag?.name || '').trim(),
+      appliesTo: String(tag?.appliesTo || 'DEVICE').trim().toUpperCase(),
+      calculationType: String(tag?.calculationType || 'FLAT').trim().toUpperCase(),
+      value: typeof tag?.value === 'number' && Number.isFinite(tag.value) ? Number(tag.value) : null,
+      description: String(tag?.description || '').trim(),
+      isActive: tag?.isActive === true
+    })) : [];
+    if (!isActive) {
+      const optionalNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Number(value) : null;
+      return {
+        id: configKey, ...policyIdentity,
+        deviceProfitPercent: optionalNumber(input?.deviceProfitPercent),
+        accessoryProfitPercent: optionalNumber(input?.accessoryProfitPercent),
+        onlineSaleSplitPercent: optionalNumber(input?.onlineSaleSplitPercent),
+        maxDiscountPercent: optionalNumber(input?.maxDiscountPercent),
+        defaultMonthlyTarget: optionalNumber(input?.defaultMonthlyTarget),
+        commissionTags: draftTags
+      };
+    }
     const requiredKeys = ['deviceProfitPercent', 'accessoryProfitPercent', 'onlineSaleSplitPercent', 'maxDiscountPercent', 'defaultMonthlyTarget'];
     if (requiredKeys.some(key => typeof input?.[key] !== 'number')) throw new Error('SALES_CONFIG_INVALID');
     const deviceProfitPercent = Number(input?.deviceProfitPercent);
@@ -75,14 +101,11 @@ export function validateOperationalConfig(configKey: string, input: any) {
     if (numbers.some(value => !Number.isFinite(value) || value < 0) || deviceProfitPercent > 100 || accessoryProfitPercent > 100 || onlineSaleSplitPercent > 100 || maxDiscountPercent > 100) {
       throw new Error('SALES_CONFIG_INVALID');
     }
-    if (!Array.isArray(input?.commissionTags) || input.commissionTags.length === 0) throw new Error('SALES_COMMISSION_TAG_REQUIRED');
+    if (draftTags.length === 0) throw new Error('SALES_COMMISSION_TAG_REQUIRED');
     const tagIds = new Set<string>();
-    const commissionTags = input.commissionTags.map((tag: any) => {
-      const id = String(tag?.id || '').trim().toUpperCase();
-      const tagName = String(tag?.name || '').trim();
-      const appliesTo = String(tag?.appliesTo || '').trim().toUpperCase();
-      const calculationType = String(tag?.calculationType || '').trim().toUpperCase();
-      const value = Number(tag?.value);
+    const commissionTags = draftTags.map((tag: any) => {
+      const { id, name: tagName, appliesTo, calculationType, value } = tag;
+      if (!tag.isActive) return tag;
       if (!/^[A-Z0-9_]{2,50}$/.test(id) || !tagName || !['DEVICE', 'ACCESSORY'].includes(appliesTo) || !['FLAT', 'PERCENT'].includes(calculationType)) {
         throw new Error('SALES_COMMISSION_TAG_INVALID');
       }
@@ -90,12 +113,25 @@ export function validateOperationalConfig(configKey: string, input: any) {
         throw new Error('SALES_COMMISSION_TAG_INVALID');
       }
       tagIds.add(id);
-      return { id, name: tagName, appliesTo, calculationType, value, description: String(tag?.description || '').trim(), isActive: tag?.isActive === true };
+      return tag;
     });
-    if (input?.isActive === true && !commissionTags.some((tag: any) => tag.isActive)) throw new Error('SALES_ACTIVE_COMMISSION_TAG_REQUIRED');
+    if (!commissionTags.some((tag: any) => tag.isActive)) throw new Error('SALES_ACTIVE_COMMISSION_TAG_REQUIRED');
     return { id: configKey, ...policyIdentity, deviceProfitPercent, accessoryProfitPercent, onlineSaleSplitPercent, maxDiscountPercent, defaultMonthlyTarget, commissionTags };
   }
 
+  if (!isActive) {
+    const optionalNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Number(value) : null;
+    const followUpDays = Array.isArray(input?.followUpDays) ? input.followUpDays.map(Number).filter(Number.isFinite) : [];
+    return {
+      id: configKey, ...policyIdentity,
+      firstResponseMinutes: optionalNumber(input?.firstResponseMinutes),
+      followUpAttempts: optionalNumber(input?.followUpAttempts),
+      completedFollowUpCommission: optionalNumber(input?.completedFollowUpCommission),
+      followUpDays: [...new Set(followUpDays)].sort((a: number, b: number) => a - b),
+      requireEvidence: input?.requireEvidence === true,
+      requireQaApproval: input?.requireQaApproval === true
+    };
+  }
   if (typeof input?.firstResponseMinutes !== 'number' || typeof input?.followUpAttempts !== 'number' || typeof input?.completedFollowUpCommission !== 'number') throw new Error('CUSTOMER_CARE_CONFIG_INVALID');
   const firstResponseMinutes = Number(input.firstResponseMinutes);
   const followUpAttempts = Number(input.followUpAttempts);
@@ -275,12 +311,31 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         if (!currentSnap.exists) throw new Error('WAREHOUSE_NOT_FOUND');
         const current = currentSnap.data()!;
         const draft = validateWarehouseDraft({ ...current, ...req.body, id: req.params.warehouseId });
-        if (draft.branchId !== current.branchId) throw new Error('WAREHOUSE_BRANCH_IMMUTABLE');
         await assertBranchActive(transaction, db, draft.branchId);
 
         const children = await transaction.get(db.collection('warehouses').where('parentWarehouseId', '==', req.params.warehouseId));
-        if (current.isMain === true && draft.isMain === false && !children.empty) {
+        const activeChildren = children.docs.filter(item => item.data().isActive !== false);
+        if (current.isMain === true && draft.isMain === false && activeChildren.length > 0) {
           throw new Error('WAREHOUSE_HAS_CHILDREN');
+        }
+
+        const sameBranch = await transaction.get(db.collection('warehouses').where('branchId', '==', draft.branchId));
+        if (sameBranch.docs.some(item => item.id !== req.params.warehouseId && item.data().code === draft.code && item.data().isActive !== false)) {
+          throw new Error('WAREHOUSE_CODE_DUPLICATE');
+        }
+
+        if (draft.branchId !== current.branchId) {
+          const [devices, sourceTransfers, destinationTransfers] = await Promise.all([
+            transaction.get(db.collection('devices').where('currentLocationId', '==', req.params.warehouseId)),
+            transaction.get(db.collection('transfers').where('sourceLocationId', '==', req.params.warehouseId)),
+            transaction.get(db.collection('transfers').where('destinationLocationId', '==', req.params.warehouseId))
+          ]);
+          if (warehouseHasBlockingDevices(devices.docs.map(item => item.data()))) throw new Error('WAREHOUSE_HAS_DEVICES');
+          if (activeChildren.length > 0) throw new Error('WAREHOUSE_HAS_CHILDREN');
+          const openStatuses = new Set(['PENDING', 'WAITING_KTV_ACCEPT', 'IN_PROGRESS', 'IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED']);
+          if ([...sourceTransfers.docs, ...destinationTransfers.docs].some(item => openStatuses.has(item.data().status))) {
+            throw new Error('WAREHOUSE_HAS_OPEN_TRANSFERS');
+          }
         }
 
         let custodianName = '';
@@ -315,10 +370,10 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       await db.runTransaction(async (transaction) => {
         const currentSnap = await transaction.get(warehouseRef);
         if (!currentSnap.exists) throw new Error('WAREHOUSE_NOT_FOUND');
-        const devices = await transaction.get(db.collection('devices').where('currentLocationId', '==', req.params.warehouseId).limit(1));
-        if (!devices.empty) throw new Error('WAREHOUSE_HAS_DEVICES');
-        const children = await transaction.get(db.collection('warehouses').where('parentWarehouseId', '==', req.params.warehouseId).limit(1));
-        if (!children.empty) throw new Error('WAREHOUSE_HAS_CHILDREN');
+        const devices = await transaction.get(db.collection('devices').where('currentLocationId', '==', req.params.warehouseId));
+        if (warehouseHasBlockingDevices(devices.docs.map(item => item.data()))) throw new Error('WAREHOUSE_HAS_DEVICES');
+        const children = await transaction.get(db.collection('warehouses').where('parentWarehouseId', '==', req.params.warehouseId));
+        if (children.docs.some(item => item.data().isActive !== false)) throw new Error('WAREHOUSE_HAS_CHILDREN');
         const sourceTransfers = await transaction.get(db.collection('transfers').where('sourceLocationId', '==', req.params.warehouseId));
         const destinationTransfers = await transaction.get(db.collection('transfers').where('destinationLocationId', '==', req.params.warehouseId));
         const openStatuses = new Set(['PENDING', 'WAITING_KTV_ACCEPT', 'IN_PROGRESS', 'IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED']);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { validateFinanceAccountDraft } from '../server/routes/finance';
-import { validateOperationalConfig, validateWarehouseDraft } from '../server/routes/configuration';
+import { financeAccountIdFromDraft, validateFinanceAccountDraft } from '../server/routes/finance';
+import { validateOperationalConfig, validateWarehouseDraft, warehouseHasBlockingDevices } from '../server/routes/configuration';
 import { normalizeOperationalPolicyVersions, operationalPolicyPeriodsOverlap, selectEffectiveOperationalPolicy } from '../server/services/operationalPolicyService';
 
 describe('Branch-scoped finance accounts', () => {
@@ -24,6 +24,12 @@ describe('Branch-scoped finance accounts', () => {
     expect(first.branchId).toBe('CN01');
     expect(first.accountNumber).toBe('0012345678');
     expect(second.accountNumber).toBe('1903666888999');
+  });
+
+  it('derives a stable finance account id from one client creation request', () => {
+    const requestId = 'FUND-DRAFT-1787300000000-abcd1234';
+    expect(financeAccountIdFromDraft('CN01', 'CASH', requestId, 1)).toBe(financeAccountIdFromDraft('CN01', 'CASH', requestId, 2));
+    expect(financeAccountIdFromDraft('CN01', 'CASH', requestId, 1)).toContain('1787300000000-abcd1234');
   });
 });
 
@@ -66,11 +72,16 @@ describe('Branch-scoped warehouse hierarchy', () => {
       id: 'RETAIL', branchId: 'CN01', code: 'RETAIL', name: 'Kho bán lẻ', type: 'RETAIL_STORE', isMain: true
     })).toMatchObject({ type: 'RETAIL_STORE', isMain: false, isChild: false });
   });
+
+  it('allows an empty warehouse with sold-device history to be archived or reassigned', () => {
+    expect(warehouseHasBlockingDevices([{ status: 'sold' }, { status: 'SOLD' }])).toBe(false);
+    expect(warehouseHasBlockingDevices([{ status: 'sold' }, { status: 'in_stock' }])).toBe(true);
+  });
 });
 
 describe('Mandatory operational setup', () => {
   it('validates Sales configuration without injecting business defaults', () => {
-    expect(() => validateOperationalConfig('sales', { policyId: 'SALE_V1', effectiveFrom: '2026-01-01', name: 'Sales 2026', version: 'v1' })).toThrow(/SALES_CONFIG_INVALID/);
+    expect(() => validateOperationalConfig('sales', { policyId: 'SALE_V1', effectiveFrom: '2026-01-01', name: 'Sales 2026', version: 'v1', isActive: true })).toThrow(/SALES_CONFIG_INVALID/);
     expect(validateOperationalConfig('sales', {
       policyId: 'SALE_V1', effectiveFrom: '2026-01-01', name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
       onlineSaleSplitPercent: 50, maxDiscountPercent: 3, defaultMonthlyTarget: 800000000, isActive: true,
@@ -100,7 +111,7 @@ describe('Mandatory operational setup', () => {
 
   it('requires an explicit CSKH schedule', () => {
     expect(() => validateOperationalConfig('customerCare', {
-      policyId: 'CSKH_V1', effectiveFrom: '2026-01-01', name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3, followUpDays: []
+      policyId: 'CSKH_V1', effectiveFrom: '2026-01-01', name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3, followUpDays: [], isActive: true
     })).toThrow(/CUSTOMER_CARE_CONFIG_INVALID/);
     expect(validateOperationalConfig('customerCare', {
       policyId: 'CSKH_V1', effectiveFrom: '2026-01-01', name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3,
@@ -122,9 +133,17 @@ describe('Mandatory operational setup', () => {
     const sales = {
       policyId: 'SALE_V1', name: 'Sales 2026', version: 'v1', effectiveFrom: '2026-12-31', effectiveTo: '2026-01-01',
       deviceProfitPercent: 10, accessoryProfitPercent: 15, onlineSaleSplitPercent: 50,
-      maxDiscountPercent: 5, defaultMonthlyTarget: 500000000, isActive: false, commissionTags: []
+      maxDiscountPercent: 5, defaultMonthlyTarget: 500000000, isActive: true,
+      commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }]
     };
     expect(() => validateOperationalConfig('sales', sales)).toThrow(/POLICY_EFFECTIVE_PERIOD_INVALID/);
     expect(() => validateOperationalConfig('sales', { ...sales, effectiveFrom: '' })).toThrow(/POLICY_EFFECTIVE_PERIOD_INVALID/);
+  });
+
+  it('allows an incomplete disabled policy and tag to be saved as a draft', () => {
+    expect(validateOperationalConfig('sales', {
+      policyId: 'SALE_DRAFT_1', isActive: false,
+      commissionTags: [{ id: 'M', name: '', appliesTo: 'DEVICE', calculationType: 'FLAT', value: null, isActive: true }]
+    })).toMatchObject({ policyId: 'SALE_DRAFT_1', isActive: false, commissionTags: [{ id: 'M', value: null }] });
   });
 });

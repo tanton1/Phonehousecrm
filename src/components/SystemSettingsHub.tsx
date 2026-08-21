@@ -66,13 +66,13 @@ const tabs: Array<{ id: SetupTab; label: string; icon: React.ElementType }> = [
 const emptySales = (): SalesSetupConfig => ({
   id: 'sales', policyId: '', name: '', version: '', effectiveFrom: '', effectiveTo: '', deviceProfitPercent: Number.NaN,
   accessoryProfitPercent: Number.NaN, onlineSaleSplitPercent: Number.NaN,
-  maxDiscountPercent: Number.NaN, defaultMonthlyTarget: Number.NaN, commissionTags: [], isActive: true
+  maxDiscountPercent: Number.NaN, defaultMonthlyTarget: Number.NaN, commissionTags: [], isActive: false
 });
 
 const emptyCare = (): CustomerCareSetupConfig => ({
   id: 'customerCare', policyId: '', name: '', version: '', effectiveFrom: '', effectiveTo: '', firstResponseMinutes: Number.NaN,
   followUpAttempts: Number.NaN, followUpDays: [], completedFollowUpCommission: Number.NaN, requireEvidence: false,
-  requireQaApproval: false, isActive: true
+  requireQaApproval: false, isActive: false
 });
 
 function NumberField({ label, value, onChange, suffix }: { label: string; value: number; onChange: (value: number) => void; suffix?: string }) {
@@ -111,9 +111,14 @@ function OperationalPolicyPanel({ kind, policies, onSaved }: {
     setSaving(true);
     setMessage('');
     try {
-      await saveOperationalConfig(kind, draft);
+      const policyToSave = draft.policyId ? draft : {
+        ...draft,
+        policyId: `${kind === 'sales' ? 'SALE' : 'CSKH'}_DRAFT_${Date.now()}`
+      };
+      setDraft(policyToSave);
+      await saveOperationalConfig(kind, policyToSave);
       await onSaved();
-      setMessage('Đã lưu phiên bản chính sách.');
+      setMessage(policyToSave.isActive ? 'Đã lưu và bật chính sách.' : 'Đã lưu bản nháp.');
     } catch (error: any) {
       setMessage(error?.message || 'Không thể lưu cấu hình.');
     } finally {
@@ -125,7 +130,7 @@ function OperationalPolicyPanel({ kind, policies, onSaved }: {
   const care = kind === 'customerCare' ? draft as CustomerCareSetupConfig : null;
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
   const statusOf = (policy: SalesSetupConfig | CustomerCareSetupConfig) => {
-    if (!policy.isActive) return { label: 'Đã tắt', className: 'bg-zinc-100 text-zinc-500' };
+    if (!policy.isActive) return { label: 'Bản nháp / Đã tắt', className: 'bg-zinc-100 text-zinc-500' };
     if (policy.effectiveFrom > today) return { label: 'Sắp hiệu lực', className: 'bg-blue-50 text-blue-700' };
     if (policy.effectiveTo && policy.effectiveTo < today) return { label: 'Hết hiệu lực', className: 'bg-zinc-100 text-zinc-500' };
     return { label: 'Đang áp dụng', className: 'bg-emerald-50 text-emerald-700' };
@@ -143,8 +148,8 @@ function OperationalPolicyPanel({ kind, policies, onSaved }: {
       <div className="space-y-2">
         {policies.length === 0 && <div className="rounded-xl border border-dashed p-4 text-sm text-zinc-500">Chưa có phiên bản nào.</div>}
         {policies.map(policy => { const status = statusOf(policy); return <button key={policy.policyId} type="button" onClick={() => { setDraft(policy); setMessage(''); }} className={`w-full rounded-xl border p-3 text-left ${draft.policyId === policy.policyId ? 'border-orange-500 bg-orange-50' : 'border-zinc-200 hover:border-orange-300'}`}>
-          <div className="flex items-start justify-between gap-2"><div><p className="font-black text-zinc-900">{policy.name}</p><p className="text-xs text-zinc-500">{policy.policyId} · {policy.version}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${status.className}`}>{status.label}</span></div>
-          <p className="mt-2 text-xs text-zinc-600">{policy.effectiveFrom} → {policy.effectiveTo || 'Không giới hạn'}</p>
+          <div className="flex items-start justify-between gap-2"><div><p className="font-black text-zinc-900">{policy.name || 'Chính sách chưa đặt tên'}</p><p className="text-xs text-zinc-500">{policy.policyId} · {policy.version || 'Chưa có phiên bản'}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${status.className}`}>{status.label}</span></div>
+          <p className="mt-2 text-xs text-zinc-600">{policy.effectiveFrom || 'Chưa đặt ngày'} → {policy.effectiveTo || 'Không giới hạn'}</p>
         </button>; })}
       </div>
     </section>
@@ -194,7 +199,7 @@ function OperationalPolicyPanel({ kind, policies, onSaved }: {
           {(sales.commissionTags || []).map((tag, index) => {
             const tags = sales.commissionTags || [];
             const updateTag = (value: typeof tag) => setDraft({ ...sales, commissionTags: tags.map((item, itemIndex) => itemIndex === index ? value : item) });
-            return <div key={`${tag.id}-${index}`} className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 md:grid-cols-2 xl:grid-cols-6">
+            return <div key={`commission-tag-${index}`} className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 md:grid-cols-2 xl:grid-cols-6">
               <label className="space-y-1 text-xs font-bold"><span>Mã tag</span><input value={tag.id} onChange={e => updateTag({ ...tag, id: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })} placeholder="MAY_FULL_BH" className="w-full rounded-lg border px-2.5 py-2" /></label>
               <label className="space-y-1 text-xs font-bold"><span>Tên hiển thị</span><input value={tag.name} onChange={e => updateTag({ ...tag, name: e.target.value })} placeholder="Máy full BH" className="w-full rounded-lg border px-2.5 py-2" /></label>
               <label className="space-y-1 text-xs font-bold"><span>Áp dụng</span><select value={tag.appliesTo} onChange={e => updateTag({ ...tag, appliesTo: e.target.value as typeof tag.appliesTo })} className="w-full rounded-lg border px-2.5 py-2"><option value="DEVICE">Máy</option><option value="ACCESSORY">Phụ kiện</option></select></label>
@@ -207,6 +212,7 @@ function OperationalPolicyPanel({ kind, policies, onSaved }: {
         </div>
       </div>}
       <label className="mt-4 flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} /> Bật phiên bản này để hệ thống xét áp dụng</label>
+      <p className="mt-1 text-xs text-zinc-500">Có thể lưu bản nháp khi chưa nhập đủ. Chỉ khi bật áp dụng, hệ thống mới yêu cầu đầy đủ tên, thời gian, thông số và ít nhất một Tag đang dùng.</p>
       <div className="mt-5 flex items-center gap-3">
         <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu phiên bản

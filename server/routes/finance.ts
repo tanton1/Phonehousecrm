@@ -53,6 +53,16 @@ export function validateFinanceAccountDraft(input: any) {
   };
 }
 
+export function financeAccountIdFromDraft(branchId: string, type: string, requestId: unknown, now = Date.now()): string {
+  const safeBranch = branchId.replace(/[^A-Z0-9_-]/gi, '_').slice(0, 60);
+  const safeType = type.replace(/[^A-Z0-9_-]/gi, '_').slice(0, 30);
+  const normalizedRequestId = String(requestId || '').trim();
+  if (/^FUND-DRAFT-[A-Z0-9-]{8,100}$/i.test(normalizedRequestId)) {
+    return `FUND_${safeBranch}_${safeType}_${normalizedRequestId.slice('FUND-DRAFT-'.length)}`;
+  }
+  return `FUND_${safeBranch}_${safeType}_${now}`;
+}
+
 export function createFinanceRouter(db: Firestore | null): Router {
   const router = Router();
 
@@ -95,11 +105,19 @@ export function createFinanceRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const draft = validateFinanceAccountDraft(req.body);
-      const accountId = `FUND_${draft.branchId}_${draft.type}_${Date.now()}`;
+      const accountId = financeAccountIdFromDraft(draft.branchId, draft.type, req.body?.id);
       const now = getVietnamDateTime();
       let result: any;
 
       await db.runTransaction(async (transaction) => {
+        const accountRef = db.collection('funds').doc(accountId);
+        const existingAccount = await transaction.get(accountRef);
+        if (existingAccount.exists) {
+          const existing = existingAccount.data()!;
+          if (existing.branchId !== draft.branchId || existing.type !== draft.type) throw new Error('ACCOUNT_CREATE_ID_CONFLICT');
+          result = { id: existingAccount.id, ...existing };
+          return;
+        }
         const branchRef = db.collection('branches').doc(draft.branchId);
         const branchSnap = await transaction.get(branchRef);
         if (!branchSnap.exists || branchSnap.data()?.isActive === false) {
@@ -145,7 +163,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: now
         };
-        transaction.set(db.collection('funds').doc(accountId), result);
+        transaction.set(accountRef, result);
 
         if (draft.openingBalance > 0) {
           const txId = `OPENING_${accountId}`;
