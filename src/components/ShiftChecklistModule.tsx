@@ -41,11 +41,11 @@ import {
   SOPCategory, 
   StaffRole 
 } from '../types';
-import { INITIAL_SOP_TEMPLATES } from '../data/sopTemplatesData';
 import { 
   addShiftHandoverToFirestore, 
   addDailyChecklistItemToFirestore, 
-  updateDailyChecklistItemInFirestore 
+  updateDailyChecklistItemInFirestore,
+  subscribeToSOPTemplates
 } from '../services/firestoreService';
 
 interface ShiftChecklistModuleProps {
@@ -68,9 +68,13 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
   onHandoverSubmit
 }) => {
   // Load relevant SOP templates based on role
+  const [sopTemplates, setSopTemplates] = useState<SOPTemplateItem[]>([]);
+
+  React.useEffect(() => subscribeToSOPTemplates((items) => setSopTemplates(items || [])), []);
+
   const initialChecklist = useMemo<DailyShiftChecklistItem[]>(() => {
     const roleKey = staffRole === 'SALES' ? 'SALES' : (staffRole === 'TECHNICIAN' ? 'TECHNICIAN' : 'CASHIER');
-    const matchedSOPs = INITIAL_SOP_TEMPLATES.filter(
+    const matchedSOPs = sopTemplates.filter(
       t => t.isActive && (t.targetRole === roleKey || t.targetRole === 'ALL')
     );
 
@@ -87,14 +91,12 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       categoryName: sop.categoryName,
       timeHint: sop.timeHint,
       priority: sop.priority,
-      isCompleted: idx < 3, // mock first 3 tasks completed
-      completedAt: idx < 3 ? `08:${15 + idx * 7}` : undefined,
-      completedBy: idx < 3 ? staffName : undefined,
-      note: sop.code === 'SOP-SALES-03' ? 'Đã nhận đủ 5.000.000đ tiền lẻ két' : undefined
+      isCompleted: false
     }));
-  }, [staffId, staffName, staffRole, branchName]);
+  }, [staffId, staffName, staffRole, branchName, sopTemplates]);
 
   const [checklistItems, setChecklistItems] = useState<DailyShiftChecklistItem[]>(initialChecklist);
+  React.useEffect(() => setChecklistItems(initialChecklist), [initialChecklist]);
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<'ALL' | SOPCategory>('ALL');
   const [expandedGuidelines, setExpandedGuidelines] = useState<Record<string, boolean>>({});
 
@@ -433,7 +435,7 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       {/* 4. INTERACTIVE CHECKLIST ITEMS */}
       <div className="bg-white rounded-3xl border border-zinc-200 shadow-2xs overflow-hidden divide-y divide-zinc-100">
         {filteredTasks.map((item) => {
-          const matchedTemplate = INITIAL_SOP_TEMPLATES.find(t => t.id === item.templateId);
+          const matchedTemplate = sopTemplates.find(t => t.id === item.templateId);
           const isExpanded = expandedGuidelines[item.id];
 
           return (

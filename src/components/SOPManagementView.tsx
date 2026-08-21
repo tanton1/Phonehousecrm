@@ -45,12 +45,6 @@ import {
   StoreBranch,
   StaffMember
 } from '../types';
-import { 
-  INITIAL_SOP_TEMPLATES, 
-  INITIAL_TODAY_SHIFT_CHECKLISTS, 
-  INITIAL_HANDOVER_REPORTS 
-} from '../data/sopTemplatesData';
-import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import {
   subscribeToSOPTemplates,
   addSOPTemplateToFirestore,
@@ -71,34 +65,34 @@ interface SOPManagementViewProps {
 
 export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   branches = [],
-  staffMembers = INITIAL_STAFF_MEMBERS,
+  staffMembers = [],
   onNotify
 }) => {
   // Main Sub-tabs for Leadership
   const [activeTab, setActiveTab] = useState<'TEMPLATES' | 'MONITOR' | 'HANDOVER'>('TEMPLATES');
 
   // State for SOP Templates (Admin can Create, Edit, Toggle, Delete)
-  const [sopTemplates, setSopTemplates] = useState<SOPTemplateItem[]>(INITIAL_SOP_TEMPLATES);
+  const [sopTemplates, setSopTemplates] = useState<SOPTemplateItem[]>([]);
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('ALL');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // State for Daily Live Checklist instances
-  const [dailyChecklists, setDailyChecklists] = useState<DailyShiftChecklistItem[]>(INITIAL_TODAY_SHIFT_CHECKLISTS);
+  const [dailyChecklists, setDailyChecklists] = useState<DailyShiftChecklistItem[]>([]);
 
   // State for Handover Reports
-  const [handoverReports, setHandoverReports] = useState<ShiftHandoverReport[]>(INITIAL_HANDOVER_REPORTS);
+  const [handoverReports, setHandoverReports] = useState<ShiftHandoverReport[]>([]);
 
   // Real-time Firestore Subscriptions
   React.useEffect(() => {
     const unsubTemplates = subscribeToSOPTemplates((data) => {
-      if (data && data.length > 0) setSopTemplates(data);
+      setSopTemplates(data || []);
     });
     const unsubChecklists = subscribeToDailyChecklists((data) => {
-      if (data && data.length > 0) setDailyChecklists(data);
+      setDailyChecklists(data || []);
     });
     const unsubHandovers = subscribeToShiftHandovers((data) => {
-      if (data && data.length > 0) setHandoverReports(data);
+      setHandoverReports(data || []);
     });
     return () => {
       unsubTemplates();
@@ -116,22 +110,22 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   const [formTitle, setFormTitle] = useState('');
   const [formTargetRole, setFormTargetRole] = useState<SOPTargetRole>('SALES');
   const [formCategory, setFormCategory] = useState<SOPCategory>('OPENING');
-  const [formTimeHint, setFormTimeHint] = useState('08:00 - 08:30');
+  const [formTimeHint, setFormTimeHint] = useState('');
   const [formPriority, setFormPriority] = useState<TaskPriority>('HIGH');
   const [formDescription, setFormDescription] = useState('');
   const [formGuidelines, setFormGuidelines] = useState<string>('');
   const [formRequiresPhoto, setFormRequiresPhoto] = useState(false);
   const [formRequiresNote, setFormRequiresNote] = useState(false);
-  const [formPenaltyPoints, setFormPenaltyPoints] = useState<number>(10);
-  const [formBonusPoints, setFormBonusPoints] = useState<number>(5);
+  const [formPenaltyPoints, setFormPenaltyPoints] = useState<number>(0);
+  const [formBonusPoints, setFormBonusPoints] = useState<number>(0);
 
   // Quick Dispatch Task Modal (Manager assign task on the fly)
   const [isDispatchModalOpen, setIsDispatchModalOpen] = useState(false);
-  const [dispatchStaffId, setDispatchStaffId] = useState(staffMembers[0]?.id || 'STAFF_001');
+  const [dispatchStaffId, setDispatchStaffId] = useState(staffMembers[0]?.id || '');
   const [dispatchTaskTitle, setDispatchTaskTitle] = useState('');
   const [dispatchCategory, setDispatchCategory] = useState<SOPCategory>('MID_SHIFT');
   const [dispatchPriority, setDispatchPriority] = useState<TaskPriority>('HIGH');
-  const [dispatchTimeHint, setDispatchTimeHint] = useState('Trong vòng 30 phút');
+  const [dispatchTimeHint, setDispatchTimeHint] = useState('');
 
   // Selected Handover for Detail View
   const [viewingHandover, setViewingHandover] = useState<ShiftHandoverReport | null>(null);
@@ -161,14 +155,14 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
     setFormTitle('');
     setFormTargetRole('SALES');
     setFormCategory('OPENING');
-    setFormTimeHint('08:00 - 08:30');
+    setFormTimeHint('');
     setFormPriority('HIGH');
     setFormDescription('');
     setFormGuidelines('');
     setFormRequiresPhoto(false);
     setFormRequiresNote(false);
-    setFormPenaltyPoints(15);
-    setFormBonusPoints(10);
+    setFormPenaltyPoints(0);
+    setFormBonusPoints(0);
     setIsModalOpen(true);
   };
 
@@ -237,7 +231,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
         updatedAt: new Date().toLocaleDateString('vi-VN')
       };
       setSopTemplates(prev => prev.map(t => t.id === editingTemplate.id ? updatedTemplate : t));
-      updateSOPTemplateInFirestore(updatedTemplate);
+      updateSOPTemplateInFirestore(updatedTemplate).then(() => onNotify?.('Đã cập nhật SOP'));
     } else {
       // Create new
       const newTemplate: SOPTemplateItem = {
@@ -262,7 +256,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
         version: '1.0'
       };
       setSopTemplates([newTemplate, ...sopTemplates]);
-      addSOPTemplateToFirestore(newTemplate);
+      addSOPTemplateToFirestore(newTemplate).then(() => onNotify?.('Đã tạo SOP'));
     }
 
     setIsModalOpen(false);
@@ -273,7 +267,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
     setSopTemplates(prev => prev.map(t => {
       if (t.id === id) {
         const updated = { ...t, isActive: !t.isActive };
-        updateSOPTemplateInFirestore(updated);
+        updateSOPTemplateInFirestore(updated).then(() => onNotify?.('Đã cập nhật trạng thái SOP'));
         return updated;
       }
       return t;
@@ -284,7 +278,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   const handleDeleteTemplate = (id: string) => {
     if (window.confirm('Bạn có chắc chắn muốn xóa tiêu chuẩn SOP này?')) {
       setSopTemplates(prev => prev.filter(t => t.id !== id));
-      deleteSOPTemplateFromFirestore(id);
+      deleteSOPTemplateFromFirestore(id).then(() => onNotify?.('Đã xóa SOP'));
     }
   };
 
@@ -294,6 +288,10 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
     if (!dispatchTaskTitle.trim()) return;
 
     const targetStaff = staffMembers.find(s => s.id === dispatchStaffId) || staffMembers[0];
+    if (!targetStaff) {
+      onNotify?.('Chưa có nhân viên để giao task');
+      return;
+    }
 
     const newTask: DailyShiftChecklistItem = {
       id: `DISPATCH-${Date.now()}`,

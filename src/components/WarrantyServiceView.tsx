@@ -10,18 +10,14 @@ import {
   FundAccount, 
   CashTransaction,
   UserAccount,
-  SparePart
+  SparePart,
+  TechnicalTaskTypeConfig
 } from '../types';
 import { 
   REPAIR_SERVICES_PRICELIST, 
   RepairServiceItem 
 } from '../data/initialData';
-import { 
-  TECH_COMMISSION_MATRIX, 
-  getLiveTechCommissionMatrix, 
-  getDeviceGroupForModel, 
-  saveLiveTechCommissionMatrix 
-} from '../data/techCommissionMatrix';
+import { fetchTechnicalTaskSettings } from '../services/configurationApiClient';
 import { ActivityLog } from './ActivityLog';
 import { TechKanbanBoard } from './TechKanbanBoard';
 import { TechKPIReport } from './TechKPIReport';
@@ -112,27 +108,20 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   const [printTicket, setPrintTicket] = useState<WarrantyTicket | null>(null);
 
   // Price list state with Firestore & localStorage sync
-  const [priceList, setPriceList] = useState<RepairServiceItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('phonehouse_repair_pricelist');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.error(e);
-    }
-    return REPAIR_SERVICES_PRICELIST;
-  });
+  const [priceList, setPriceList] = useState<RepairServiceItem[]>(REPAIR_SERVICES_PRICELIST);
+  const [technicalTaskTypes, setTechnicalTaskTypes] = useState<TechnicalTaskTypeConfig[]>([]);
+  const technicalMatrix = useMemo(() => ({
+    models: [{ id: 'ALL', name: 'Tất cả dòng máy', keywords: [] as string[] }],
+    tasks: technicalTaskTypes.filter(task => task.isActive).map(task => ({
+      id: task.taskType, name: task.name, rates: { ALL: task.baseCommission }
+    }))
+  }), [technicalTaskTypes]);
 
   useEffect(() => {
     const unsubscribe = subscribeToRepairServices((items) => {
-      if (items && items.length > 0) {
-        setPriceList(items);
-        try {
-          localStorage.setItem('phonehouse_repair_pricelist', JSON.stringify(items));
-        } catch (e) {
-          console.error(e);
-        }
-      }
+      setPriceList(items || []);
     });
+    fetchTechnicalTaskSettings().then(setTechnicalTaskTypes).catch(error => console.warn('[Technical task settings]', error));
     return () => unsubscribe();
   }, []);
 
@@ -143,14 +132,14 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   // Form State for New Price List Item
   const [newPriceFormData, setNewPriceFormData] = useState({
     name: '',
-    category: 'THAY_MAN_HINH',
-    categoryName: 'Thay Màn Hình iPhone',
-    compatibleModels: 'iPhone 13 - 15 Series',
-    costPrice: 500000,
-    sellPrice: 950000,
-    techCommission: 100000,
-    warrantyPeriodMonths: 6,
-    durationMinutes: 30,
+    category: '',
+    categoryName: '',
+    compatibleModels: '',
+    costPrice: 0,
+    sellPrice: 0,
+    techCommission: 0,
+    warrantyPeriodMonths: 0,
+    durationMinutes: 0,
     notes: ''
   });
 
@@ -158,14 +147,14 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   const [newTaskFormData, setNewTaskFormData] = useState({
     taskName: '',
     taskType: 'RETAIL_REPAIR' as 'RETAIL_REPAIR' | 'INBOUND_QC' | 'WARRANTY' | 'SPECIAL_COMPONENT',
-    technician: 'KTV Trọng (Chuyên Màn & Ép Kính)',
-    commissionAmount: 100000,
-    customerName: 'Khách Lẻ / Nội Bộ',
-    phone: '0900000000',
-    model: 'iPhone 13 Pro Max',
+    technician: '',
+    commissionAmount: 0,
+    customerName: '',
+    phone: '',
+    model: '',
     imei: '',
-    estimatedCost: 650000,
-    expectedReturnDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+    estimatedCost: 0,
+    expectedReturnDate: '',
     notes: ''
   });
 
@@ -195,46 +184,20 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       costPrice: Number(newPriceFormData.costPrice) || 0,
       sellPrice: Number(newPriceFormData.sellPrice) || 0,
       techCommission: Number(newPriceFormData.techCommission) || 0,
-      warrantyPeriodMonths: Number(newPriceFormData.warrantyPeriodMonths) || 6,
-      durationMinutes: Number(newPriceFormData.durationMinutes) || 30,
+      warrantyPeriodMonths: Number(newPriceFormData.warrantyPeriodMonths) || 0,
+      durationMinutes: Number(newPriceFormData.durationMinutes) || 0,
       notes: newPriceFormData.notes
     };
 
     const updated = [newItem, ...priceList];
     setPriceList(updated);
     addRepairServiceToFirestore(newItem);
-    try {
-      localStorage.setItem('phonehouse_repair_pricelist', JSON.stringify(updated));
-
-      // Also sync to Tech Matrix
-      const matrix = getLiveTechCommissionMatrix();
-      const existingTask = matrix.tasks.find(t => t.name.toLowerCase() === newItem.name.toLowerCase());
-      if (!existingTask) {
-        const rates: Record<string, number> = {};
-        matrix.models.forEach(m => {
-          rates[m.id] = newItem.techCommission || 50000;
-        });
-        const updatedMatrix = {
-          ...matrix,
-          tasks: [...matrix.tasks, { id: `t_${Date.now()}`, name: newItem.name, rates }]
-        };
-        saveLiveTechCommissionMatrix(updatedMatrix);
-      }
-    } catch (err) {
-      console.error(err);
-    }
 
     setIsAddPriceModalOpen(false);
     setNewPriceFormData({
       name: '',
-      category: 'THAY_MAN_HINH',
-      categoryName: 'Thay Màn Hình iPhone',
-      compatibleModels: 'iPhone 13 - 15 Series',
-      costPrice: 500000,
-      sellPrice: 950000,
-      techCommission: 100000,
-      warrantyPeriodMonths: 6,
-      durationMinutes: 30,
+      category: '', categoryName: '', compatibleModels: '', costPrice: 0, sellPrice: 0,
+      techCommission: 0, warrantyPeriodMonths: 0, durationMinutes: 0,
       notes: ''
     });
   };
@@ -242,13 +205,16 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   // Handle Save New Tech Task
   const handleSaveNewTask = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTaskFormData.taskName.trim()) return;
+    if (!newTaskFormData.taskName.trim() || !technicalTaskTypes.some(task => task.isActive && newTaskFormData.taskName.includes(task.name))) {
+      alert('Hãy chọn task đã cấu hình trong Cài đặt hệ thống.');
+      return;
+    }
 
     const matchedUser = users.find(u => 
       u.displayName.toLowerCase().includes(newTaskFormData.technician.toLowerCase()) || 
       newTaskFormData.technician.toLowerCase().includes(u.displayName.toLowerCase())
     );
-    const assigneeId = matchedUser ? matchedUser.email : 'tech@phonehouse.vn';
+    const assigneeId = matchedUser ? matchedUser.email : '';
 
     const ticketNumber = `TASK-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
 
@@ -259,10 +225,10 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       assigneeId,
       technician: newTaskFormData.technician,
       commissionAmount: Number(newTaskFormData.commissionAmount) || 0,
-      customerName: newTaskFormData.customerName || 'Khách Lẻ / Nội Bộ',
-      phone: newTaskFormData.phone || '0900000000',
-      model: newTaskFormData.model || 'iPhone 13 Pro Max',
-      imei: newTaskFormData.imei || `IMEI-${Math.floor(100000000000000 + Math.random() * 900000000000000)}`,
+      customerName: newTaskFormData.customerName,
+      phone: newTaskFormData.phone,
+      model: newTaskFormData.model,
+      imei: newTaskFormData.imei,
       issueType: 'Khác',
       faultDescription: `${newTaskFormData.taskName}${newTaskFormData.notes ? ` - ${newTaskFormData.notes}` : ''}`,
       status: 'received',
@@ -285,14 +251,14 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
     setNewTaskFormData({
       taskName: '',
       taskType: 'RETAIL_REPAIR',
-      technician: 'KTV Trọng (Chuyên Màn & Ép Kính)',
-      commissionAmount: 100000,
-      customerName: 'Khách Lẻ / Nội Bộ',
-      phone: '0900000000',
-      model: 'iPhone 13 Pro Max',
+      technician: '',
+      commissionAmount: 0,
+      customerName: '',
+      phone: '',
+      model: '',
       imei: '',
-      estimatedCost: 650000,
-      expectedReturnDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+      estimatedCost: 0,
+      expectedReturnDate: '',
       notes: ''
     });
   };
@@ -1643,7 +1609,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                 
                 {/* Tech Tasks Grid */}
                 <div className="grid grid-cols-2 gap-2 mb-4">
-                  {TECH_COMMISSION_MATRIX.tasks.map(task => {
+                  {technicalMatrix.tasks.map(task => {
                     const isSelected = (activeTicketDetails.techTasks || []).includes(task.id);
                     return (
                       <button
@@ -2023,10 +1989,10 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   <div>
                     <label className="block text-[11px] font-bold text-orange-900 mb-1">Dòng Máy Tiếp Nhận:</label>
                     <select
-                      value={getDeviceGroupForModel(newTaskFormData.model || 'iPhone 13 Pro Max')}
+                      value="ALL"
                       onChange={(e) => {
                         const groupId = e.target.value;
-                        const matrix = getLiveTechCommissionMatrix();
+                        const matrix = technicalMatrix;
                         const group = matrix.models.find(m => m.id === groupId);
                         if (group) {
                           setNewTaskFormData(prev => ({
@@ -2037,7 +2003,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                       }}
                       className="w-full bg-white border border-orange-300 rounded-xl px-2.5 py-1.5 font-bold text-xs text-orange-950 focus:border-orange-500"
                     >
-                      {getLiveTechCommissionMatrix().models.map(m => (
+                      {technicalMatrix.models.map(m => (
                         <option key={m.id} value={m.id}>📱 {m.name}</option>
                       ))}
                     </select>
@@ -2062,8 +2028,8 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   </label>
                   <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-2 bg-white/90 rounded-xl border border-orange-200">
                     {(() => {
-                      const matrix = getLiveTechCommissionMatrix();
-                      const currentGroupId = getDeviceGroupForModel(newTaskFormData.model);
+                      const matrix = technicalMatrix;
+                      const currentGroupId = 'ALL';
                       return matrix.tasks.map(t => {
                         const rate = t.rates[currentGroupId] || 0;
                         const isAlreadySelected = newTaskFormData.taskName.includes(t.name);
@@ -2157,13 +2123,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                           {u.displayName} ({u.role})
                         </option>
                       ))
-                    ) : (
-                      <>
-                        <option value="KTV Trọng (Chuyên Màn & Ép Kính)">KTV Trọng (Chuyên Màn & Ép Kính)</option>
-                        <option value="KTV Nam (Chuyên Mainboard & IC)">KTV Nam (Chuyên Mainboard & IC)</option>
-                        <option value="KTV Dương (Chuyên Pin & KCS)">KTV Dương (Chuyên Pin & KCS)</option>
-                      </>
-                    )}
+                    ) : <option value="">Chưa có KTV được cấu hình</option>}
                   </select>
                 </div>
               </div>
@@ -2176,10 +2136,10 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                     step={10000}
                     required
                     value={newTaskFormData.commissionAmount}
-                    onChange={(e) => setNewTaskFormData({ ...newTaskFormData, commissionAmount: Number(e.target.value) })}
+                    readOnly
                     className="w-full bg-white border border-orange-300 rounded-xl px-3 py-2 font-mono font-black text-orange-900 text-sm focus:border-orange-500"
                   />
-                  <span className="text-[10px] text-orange-700 mt-0.5 block">Sẽ được tự động tính vào lương KTV khi hoàn thành</span>
+                  <span className="text-[10px] text-orange-700 mt-0.5 block">Lấy tự động từ task đã cấu hình</span>
                 </div>
 
                 <div className="p-3 bg-orange-50/80 rounded-2xl border border-orange-200">

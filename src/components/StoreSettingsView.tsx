@@ -47,7 +47,7 @@ import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
 import { apiJson } from '../services/apiClient';
 
-interface StoreSettingsViewProps {
+export interface StoreSettingsViewProps {
   branches: StoreBranch[];
   warehouses: WarehouseInfo[];
   settings: StoreSettings;
@@ -105,15 +105,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     setTimeout(() => setToastMsg(null), 3000);
   };
   
-  const [teleGroups, setTeleGroups] = useState([
-    { id: '1', name: 'Ban Giám Đốc', chatIds: '1451935454' },
-    { id: '2', name: 'Quản lý kho', chatIds: '@kho_nhanvien' }
-  ]);
+  const [teleGroups, setTeleGroups] = useState<Array<{ id: string; name: string; chatIds: string }>>([]);
   
-  const [teleTemplates, setTeleTemplates] = useState([
-    { id: '1', title: 'Báo cáo chốt ca', content: '📊 Báo cáo ca {ca_lam}\nNhân viên: {nhan_vien}\nDoanh thu: {doanh_thu}\nTiền mặt: {tien_mat}' },
-    { id: '2', title: 'Cảnh báo rời chi nhánh', content: '🚨 CẢNH BÁO: Nhân viên {nhan_vien} đã di chuyển cách xa chi nhánh {chi_nhanh} quá 100m trong giờ làm việc!' }
-  ]);
+  const [teleTemplates, setTeleTemplates] = useState<Array<{ id: string; title: string; content: string }>>([]);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<StoreBranch | null>(null);
   const [branchForm, setBranchForm] = useState<Partial<StoreBranch>>({
@@ -123,16 +117,13 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     phone: '',
     email: '',
     manager: '',
-    openingHours: '08:30 - 21:30',
-    warehouseId: 'KHO_PHONEHOUSE',
-    systemType: 'PHONEHOUSE',
+    openingHours: '',
+    warehouseId: '',
     isActive: true,
     isHeadquarter: false,
     taxCode: '',
-    allowedWifiSSID: 'PH_HAICHAU_5G',
-    gpsLatitude: 16.0612,
-    gpsLongitude: 108.2170,
-    allowedGpsRadiusMeters: 50,
+    allowedWifiSSID: '',
+    allowedGpsRadiusMeters: 0,
     notes: ''
   });
 
@@ -261,19 +252,16 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       phone: '',
       email: '',
       manager: '',
-      openingHours: '08:30 - 21:30',
-      warehouseId: warehouses[0]?.id || 'KHO_PHONEHOUSE',
-      systemType: 'PHONEHOUSE',
+      openingHours: '',
+      warehouseId: warehouses[0]?.id || '',
       isActive: true,
       isHeadquarter: false,
       taxCode: '',
-      allowedWifiSSID: 'PH_HAICHAU_5G',
+      allowedWifiSSID: '',
       storePublicIp: '',
       allowedPublicIps: [],
-      gpsLatitude: 16.0612,
-      gpsLongitude: 108.2170,
-      attendanceRadius: 50,
-      allowedGpsRadiusMeters: 50,
+      attendanceRadius: 0,
+      allowedGpsRadiusMeters: 0,
       notes: ''
     });
     setIsBranchModalOpen(true);
@@ -285,7 +273,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       ...branch,
       storePublicIp: branch.storePublicIp || (Array.isArray(branch.allowedPublicIps) ? branch.allowedPublicIps.join(', ') : ''),
       allowedPublicIps: Array.isArray(branch.allowedPublicIps) ? branch.allowedPublicIps : (branch.storePublicIp ? branch.storePublicIp.split(',').map(s => s.trim()).filter(Boolean) : []),
-      attendanceRadius: branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50
+      attendanceRadius: branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 0
     });
     setIsBranchModalOpen(true);
   };
@@ -300,7 +288,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     const ips = Array.isArray(branchForm.allowedPublicIps) && branchForm.allowedPublicIps.length > 0
       ? branchForm.allowedPublicIps
       : (branchForm.storePublicIp ? branchForm.storePublicIp.split(',').map(s => s.trim()).filter(Boolean) : []);
-    const radius = Number(branchForm.attendanceRadius ?? branchForm.allowedGpsRadiusMeters ?? 50);
+    const radius = Number(branchForm.attendanceRadius ?? branchForm.allowedGpsRadiusMeters ?? 0);
 
     if (editingBranch) {
       const updated: StoreBranch = {
@@ -321,17 +309,17 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         phone: branchForm.phone || '',
         email: branchForm.email || '',
         manager: branchForm.manager || '',
-        openingHours: branchForm.openingHours || '08:30 - 21:30',
-        warehouseId: branchForm.warehouseId || 'KHO_PHONEHOUSE',
-        systemType: branchForm.systemType || 'PHONEHOUSE',
+        openingHours: branchForm.openingHours || '',
+        warehouseId: branchForm.warehouseId || '',
+        systemType: branchForm.systemType,
         isActive: branchForm.isActive ?? true,
         isHeadquarter: branchForm.isHeadquarter ?? false,
         taxCode: branchForm.taxCode || '',
-        allowedWifiSSID: branchForm.allowedWifiSSID || 'PH_HAICHAU_5G',
+        allowedWifiSSID: branchForm.allowedWifiSSID || '',
         allowedPublicIps: ips,
         storePublicIp: ips.join(', '),
-        gpsLatitude: branchForm.gpsLatitude ?? 16.0612,
-        gpsLongitude: branchForm.gpsLongitude ?? 108.2170,
+        gpsLatitude: branchForm.gpsLatitude,
+        gpsLongitude: branchForm.gpsLongitude,
         attendanceRadius: radius,
         allowedGpsRadiusMeters: radius,
         notes: branchForm.notes || ''
@@ -702,10 +690,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       <div className="flex items-center justify-between flex-wrap gap-1">
                         <div className="flex items-center space-x-2">
                           <MapPin className="w-4 h-4 text-[#FF4B16]" />
-                          <span>GPS: <strong className="font-mono">{branch.gpsLatitude || 16.0612}, {branch.gpsLongitude || 108.2170}</strong> ({branch.allowedGpsRadiusMeters || 50}m)</span>
+                          <span>GPS: <strong className="font-mono">{branch.gpsLatitude ?? 'Chưa cài'}, {branch.gpsLongitude ?? 'Chưa cài'}</strong> ({branch.allowedGpsRadiusMeters ?? 0}m)</span>
                         </div>
                         <span className="text-[10px] bg-white border border-orange-200 text-[#FF4B16] font-extrabold px-2 py-0.5 rounded-md">
-                          SSID: {branch.allowedWifiSSID || 'PH_HAICHAU_5G'}
+                          SSID: {branch.allowedWifiSSID || 'Chưa cài'}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-orange-200/60">
@@ -1579,8 +1567,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     <input
                       type="number"
                       placeholder="50"
-                      value={branchForm.allowedGpsRadiusMeters ?? 50}
-                      onChange={(e) => setBranchForm({ ...branchForm, allowedGpsRadiusMeters: parseInt(e.target.value) || 50 })}
+                      value={branchForm.allowedGpsRadiusMeters ?? ''}
+                      onChange={(e) => setBranchForm({ ...branchForm, allowedGpsRadiusMeters: e.target.value === '' ? undefined : Number(e.target.value) })}
                       className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-bold text-zinc-900"
                     />
                   </div>

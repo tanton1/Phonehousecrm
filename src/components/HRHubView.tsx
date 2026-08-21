@@ -9,7 +9,6 @@ import {
   INITIAL_MONTHLY_PAYROLL_SLIPS,
   INITIAL_POLICIES
 } from '../data/attendanceData';
-import { INITIAL_BRANCHES } from '../data/initialData';
 
 import { AttendanceAdminView } from './AttendanceAdminView';
 import { 

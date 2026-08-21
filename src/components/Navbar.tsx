@@ -192,7 +192,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         { id: 'hr-attendance', label: 'Chấm Công & Lương', icon: Clock },
         { id: 'sop-management', label: 'Quy Trình SOP & Ca', icon: ClipboardCheck },
         { id: 'users', label: 'Phân Quyền User', icon: ShieldCheck, badge: userCount },
-        { id: 'store-settings', label: 'Cài Đặt Chi Nhánh', icon: Settings }
+        { id: 'store-settings', label: 'Cài Đặt & Khởi Tạo', icon: Settings }
       ]
     }
   ];

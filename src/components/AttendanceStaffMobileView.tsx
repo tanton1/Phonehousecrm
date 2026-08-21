@@ -9,7 +9,6 @@ import {
   PayrollLedgerItem,
   StoreBranch
 } from '../types';
-import { INITIAL_BRANCHES } from '../data/initialData';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
 import { compareFaceVectors, extractFaceFeatureVectorFromCanvas, detectFacePresenceInCanvas } from '../utils/faceMatchingEngine';
 import { submitServerCheckIn, submitServerCheckOut } from '../features/attendance/api/attendanceApi';

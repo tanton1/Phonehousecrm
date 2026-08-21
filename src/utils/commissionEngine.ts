@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { getLiveTechCommissionMatrix, getDeviceGroupForModel } from '../data/techCommissionMatrix';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
+import { getCachedOperationalConfigs } from '../services/configurationApiClient';
 
 /**
  * Helper tìm thông tin nhân viên theo tên hoặc ID hoặc alias
@@ -62,7 +63,7 @@ export function calculateWarrantyTicketCommissions(
 
   // 1. Kiểm định KCS nhập kho (INBOUND_QC)
   if (ticket.taskType === 'INBOUND_QC' || ticket.ticketNumber?.startsWith('KCS') || (ticket.issueType === 'Khác' && ticket.faultDescription?.includes('KCS'))) {
-    const kcsCommission = ticket.commissionAmount || 35000;
+    const kcsCommission = ticket.commissionAmount || 0;
     transactions.push({
       id: `COMM-QC-${ticket.id}`,
       employeeId: staff.id,
@@ -137,7 +138,7 @@ export function calculateWarrantyTicketCommissions(
 
   // 3. Fallback cho các Phiếu Bảo Hành Miễn Phí (WARRANTY_FREE) cũ (nếu không check techTasks)
   if (ticket.isWarrantyFree || ticket.repairCategory === 'WARRANTY_FREE' || ticket.taskType === 'WARRANTY') {
-    const warrantyBonus = ticket.commissionAmount || 50000;
+    const warrantyBonus = ticket.commissionAmount || 0;
     transactions.push({
       id: `COMM-WR-${ticket.id}`,
       employeeId: staff.id,
@@ -166,20 +167,9 @@ export function calculateWarrantyTicketCommissions(
     return transactions;
   }
 
-  // 4. Fallback Sửa chữa dịch vụ cũ
-  let repairCommission = ticket.commissionAmount;
-  if (!repairCommission || repairCommission <= 0) {
-    const issue = ticket.issueType || '';
-    if (issue.includes('Pin')) {
-      repairCommission = 80000;
-    } else if (issue.includes('Màn Hình') || issue.includes('Ép Kính')) {
-      repairCommission = 150000;
-    } else if (issue.includes('Mainboard') || issue.includes('Face ID')) {
-      repairCommission = 200000;
-    } else {
-      repairCommission = 100000; // Default
-    }
-  }
+  // Không suy đoán hoa hồng từ loại lỗi. Task phải mang snapshot đơn giá đã cấu hình.
+  const repairCommission = ticket.commissionAmount || 0;
+  if (repairCommission <= 0) return transactions;
 
   transactions.push({
     id: `COMM-REP-${ticket.id}`,
@@ -235,6 +225,11 @@ export function calculateInvoiceCommissions(
   const isCancelled = invoice.status === 'cancelled';
   const txStatus: CommissionTransaction['status'] = isCancelled ? 'REVERSED' : 'CONFIRMED';
   const orderCode = invoice.invoiceCode || `HD-${invoice.id.slice(-6)}`;
+  const salesConfig = getCachedOperationalConfigs().sales;
+  if (!salesConfig?.isActive) return transactions;
+  const onlineFactor = String(invoice.salesChannel || '').toLowerCase().includes('online')
+    ? salesConfig.onlineSaleSplitPercent / 100
+    : 1;
 
   const items = invoice.detailedItems || [];
   
@@ -242,36 +237,20 @@ export function calculateInvoiceCommissions(
     items.forEach((item, idx) => {
       let comm = 0;
       let notes = '';
-      const name = (item.name || '').toLowerCase();
       let type: CommissionTransaction['type'] = 'OTHER_BONUS';
+      const baseAmount = Math.max(0, item.totalPrice || item.unitPrice || 0);
+      let rate = 0;
 
       if (item.type === 'phone' || item.type === 'device') {
         type = 'DEVICE_SALE';
-        if (name.includes('xả') || name.includes('giảm') || name.includes('clearance')) {
-          comm = 30000; notes = `Máy giảm/xả: ${item.name}`;
-        } else if (name.includes('mới') || name.includes('new') || name.includes('seal') || name.includes('fullbox')) {
-          comm = 50000; notes = `Máy nguyên seal/mới: ${item.name}`;
-        } else {
-          comm = 100000; notes = `Máy 99%/lướt: ${item.name}`;
-        }
+        rate = salesConfig.deviceProfitPercent;
+        notes = `Hoa hồng máy theo cấu hình ${salesConfig.name}`;
       } else if (item.type === 'accessory') {
         type = 'ACCESSORY_SALE';
-        if (name.includes('tai nghe') || name.includes('airpods') || name.includes('sạc dự phòng') || name.includes('loa') || name.includes('watch') || name.includes('bộ sạc')) {
-          comm = 50000; notes = `Phụ kiện cao cấp: ${item.name}`;
-        } else if (name.includes('cường lực') || name.includes('ppf') || name.includes('magsafe') || name.includes('cluc') || name.includes('clcnt') || name.includes('dán')) {
-          comm = 20000; notes = `Dịch vụ dán/Bảo vệ: ${item.name}`;
-        } else {
-          comm = 10000; notes = `Phụ kiện cơ bản: ${item.name}`;
-        }
-      } else if (item.type === 'tradein' || (item.unitPrice !== undefined && item.unitPrice < 0)) {
-        type = 'OTHER_BONUS';
-        comm = 50000; notes = `Thưởng thu máy cũ: ${item.name}`;
-      } else if (item.type === 'repair' || item.type === 'service') {
-        type = 'OTHER_BONUS';
-        if ((item.totalPrice || item.unitPrice || 0) >= 300000) {
-          comm = 30000; notes = `Nhận sửa chữa >= 300k: ${item.name}`;
-        }
+        rate = salesConfig.accessoryProfitPercent;
+        notes = `Hoa hồng phụ kiện theo cấu hình ${salesConfig.name}`;
       }
+      comm = Math.round(baseAmount * (rate / 100) * onlineFactor);
 
       if (comm > 0) {
         transactions.push({
@@ -287,13 +266,13 @@ export function calculateInvoiceCommissions(
           imei: item.imei,
           branchId: invoice.branchId || invoice.branch || staff.branchId || 'BRANCH_1',
           type: type,
-          baseAmount: item.totalPrice || item.unitPrice || 0,
-          profitAmount: comm * 2, // Arbitrary markup for estimation
-          commissionRate: 0, // Flat rate
+          baseAmount,
+          profitAmount: baseAmount,
+          commissionRate: rate * onlineFactor,
           commissionAmount: comm,
           status: txStatus,
-          policyId: 'POL_SALES_FLAT_2026',
-          policyVersion: 'v3.0',
+          policyId: salesConfig.id,
+          policyVersion: salesConfig.version,
           occurredAt: nowStr,
           approvedAt: nowStr,
           notes: notes,
@@ -321,15 +300,15 @@ export function calculateInvoiceCommissions(
           branchId: invoice.branchId || invoice.branch || staff.branchId || 'BRANCH_1',
           type: 'DEVICE_SALE',
           baseAmount: dev.price || invoice.finalAmount,
-          profitAmount: 200000,
-          commissionRate: 0,
-          commissionAmount: 100000, // Default 100k for legacy devices
+          profitAmount: dev.price || invoice.finalAmount,
+          commissionRate: salesConfig.deviceProfitPercent * onlineFactor,
+          commissionAmount: Math.round((dev.price || invoice.finalAmount) * (salesConfig.deviceProfitPercent / 100) * onlineFactor),
           status: txStatus,
-          policyId: 'POL_SALES_FLAT_2026',
-          policyVersion: 'v3.0',
+          policyId: salesConfig.id,
+          policyVersion: salesConfig.version,
           occurredAt: nowStr,
           approvedAt: nowStr,
-          notes: `Máy bốc/99% (Legacy): ${dev.model}`,
+          notes: `Hoa hồng máy theo cấu hình ${salesConfig.name}`,
           sourceType: 'INVOICE',
           sourceId: invoice.id
         });

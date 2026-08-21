@@ -3,7 +3,6 @@ import {
   calculateTechnicalTaskQuote,
   deriveInterBranchStatus,
   getCanonicalDeviceLocation,
-  getDefaultTechnicalTaskTypes,
   getDeviceCostSnapshot,
   processAcceptTechnicalTransfer,
   processCreateInterBranchTransfer,
@@ -56,7 +55,11 @@ describe('Inventory transfer domain helpers', () => {
   });
 
   it('calculates commission and deadline from versioned server task configuration', () => {
-    const config = getDefaultTechnicalTaskTypes().find(item => item.taskType === 'BATTERY_REPLACE')!;
+    const config = {
+      id: 'BATTERY_REPLACE', taskType: 'BATTERY_REPLACE', name: 'Thay pin', taskCode: 'TP',
+      baseCommission: 80_000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6,
+      priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: 'V1'
+    };
     const quote = calculateTechnicalTaskQuote(config, 'URGENT', '2026-08-21T00:00:00.000Z');
     expect(quote.commissionAmount).toBe(Math.round(config.baseCommission * config.priorityMultiplier.URGENT));
     expect(quote.slaHours).toBe(config.urgentSlaHours);
@@ -73,6 +76,9 @@ describe('Inventory transfer domain helpers', () => {
 describe('Technical custody transfer transaction', () => {
   it('reserves an IMEI without changing branch or physical location until KTV accepts', async () => {
     const store = createFirestoreMock({
+      technicalTaskTypes: {
+        GENERAL_CHECK: { id: 'GENERAL_CHECK', taskType: 'GENERAL_CHECK', name: 'Kiểm tra tổng thể', taskCode: 'KCS', baseCommission: 50_000, normalSlaHours: 12, prioritySlaHours: 8, urgentSlaHours: 4, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: 'V1' }
+      },
       warehouses: {
         KHO_TONG: { id: 'KHO_TONG', branchId: 'CN_TONG', type: 'CENTRAL', isMain: true, isActive: true, name: 'Kho Tổng' },
         KHO_KTV_TRONG: { id: 'KHO_KTV_TRONG', branchId: 'CN_TONG', type: 'TECHNICIAN_SUB', parentWarehouseId: 'KHO_TONG', custodianUid: 'STAFF_004', custodianName: 'KTV Trọng', isActive: true, name: 'Kho KTV Trọng' }

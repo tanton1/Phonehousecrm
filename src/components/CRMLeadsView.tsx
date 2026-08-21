@@ -29,6 +29,7 @@ import {
   requestDeviceReservation, 
   requestConvertQuoteToPOS 
 } from '../services/crmApiClient';
+import { getCachedOperationalConfigs } from '../services/configurationApiClient';
 
 import { LeadKanbanBoard } from '../features/crm/components/LeadKanbanBoard';
 import { CompleteCareActivityModal } from '../features/crm/components/CompleteCareActivityModal';
@@ -93,6 +94,13 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
   onConvertLeadToSale,
   onNavigateToOmnichannelChat
 }) => {
+  const careConfig = getCachedOperationalConfigs().customerCare;
+  const configuredFollowUpDate = () => {
+    if (!careConfig?.isActive || !careConfig.followUpDays.length) return '';
+    const date = new Date();
+    date.setDate(date.getDate() + careConfig.followUpDays[0]);
+    return date.toISOString().slice(0, 10);
+  };
   // Navigation View Mode
   const [viewMode, setViewMode] = useState<CRMViewMode>('MY_WORK');
   const [searchTerm, setSearchTerm] = useState('');
@@ -136,14 +144,14 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     name: '',
     phone: '',
     zalo: '',
-    source: 'Facebook Ads',
-    interestedModel: 'iPhone 16 Pro Max 256GB Desert',
-    budget: 34000000,
+    source: '' as any,
+    interestedModel: '',
+    budget: 0,
     tradeInRequirose: false,
     tradeInModel: '',
     status: 'new',
-    assignedStaff: currentUser?.displayName || 'Tuấn Bán Hàng',
-    followUpDate: getVietnamDateString(),
+    assignedStaff: currentUser?.displayName || '',
+    followUpDate: configuredFollowUpDate(),
     notes: '',
     branchId: currentUser?.branchId || branches[0]?.id || ''
   });
@@ -183,19 +191,19 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       phone: formData.phone,
       phoneNormalized: cleanPhone,
       zalo: formData.zalo || formData.phone,
-      source: (formData.source as any) || 'Facebook Ads',
-      interestedModel: formData.interestedModel || 'iPhone 16 Pro Max',
-      budget: Number(formData.budget) || 20000000,
+      source: (formData.source as any) || '',
+      interestedModel: formData.interestedModel || '',
+      budget: Number(formData.budget) || 0,
       tradeInRequirose: Boolean(formData.tradeInRequirose),
       tradeInModel: formData.tradeInModel || '',
       status: (formData.status as any) || 'new',
       careStatus: 'CARE_1_PENDING',
       careAttempts: 0,
       meaningfulCareCount: 0,
-      careQualityScore: 50,
-      assignedStaff: formData.assignedStaff || currentUser?.displayName || 'Chuyên viên bán hàng',
-      assignedStaffId: currentUser?.id || 'STAFF',
-      followUpDate: formData.followUpDate || getVietnamDateString(),
+      careQualityScore: 0,
+      assignedStaff: formData.assignedStaff || currentUser?.displayName || '',
+      assignedStaffId: currentUser?.id || '',
+      followUpDate: formData.followUpDate || configuredFollowUpDate(),
       createdAt: getVietnamDateString(),
       notes: formData.notes || '',
       branchId: formData.branchId || currentUser?.branchId || branches[0]?.id || ''
@@ -207,14 +215,14 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       name: '',
       phone: '',
       zalo: '',
-      source: 'Facebook Ads',
-      interestedModel: 'iPhone 16 Pro Max 256GB Desert',
-      budget: 34000000,
+      source: '' as any,
+      interestedModel: '',
+      budget: 0,
       tradeInRequirose: false,
       tradeInModel: '',
       status: 'new',
-      assignedStaff: currentUser?.displayName || 'Tuấn Bán Hàng',
-      followUpDate: getVietnamDateString(),
+      assignedStaff: currentUser?.displayName || '',
+      followUpDate: configuredFollowUpDate(),
       notes: ''
     });
   };

@@ -75,131 +75,6 @@ export interface StoreSettings {
   warehouses: WarehouseInfo[];
 }
 
-export const WAREHOUSE_LIST: WarehouseInfo[] = [
-  // 1. HỆ THỐNG TỔNG (CENTRAL HEADQUARTERS)
-  {
-    id: 'KHO_TONG',
-    branchId: 'CN_TONG',
-    name: 'Tổng Kho Trung Tâm (Central Hub)',
-    shortName: 'Kho Tổng',
-    code: 'KT-01',
-    address: 'Khu Công Nghệ Cao / Kho Phân Phối Trung Tâm, Hà Nội',
-    manager: 'Nhật Tân (Giám Đốc Kho)',
-    phone: '0988.999.888',
-    color: 'from-rose-600 to-rose-600',
-    systemType: 'TONG',
-    systemName: 'Tổng Hệ Thống (Central)',
-    type: 'CENTRAL',
-    isMain: true,
-    capacityNotes: 'Sức chứa 2.000 thiết bị & linh kiện phân phối'
-  },
-  {
-    id: 'KHO_KT_TONG',
-    branchId: 'CN_TONG',
-    name: 'Kho Kỹ Thuật Tổng (Lab & KCS)',
-    shortName: 'Kho KT Tổng',
-    code: 'KT-LAB-01',
-    address: 'Tầng 2 - Trung Tâm Kỹ Thuật & Thẩm Định Tổng Kho',
-    manager: 'Trưởng Phòng Kỹ Thuật',
-    phone: '0988.777.666',
-    color: 'from-rose-500 to-orange-600',
-    systemType: 'TONG',
-    systemName: 'Tổng Hệ Thống (Central)',
-    type: 'TECHNICIAN_SUB',
-    parentWarehouseId: 'KHO_TONG',
-    technicianName: 'Bộ Phận Kỹ Thuật & KCS',
-    capacityNotes: 'Kho thẩm định, test chức năng & chạy phần mềm'
-  },
-  {
-    id: 'KHO_KTV_NAM',
-    branchId: 'CN_TONG',
-    name: 'Kho KTV Nam (Kỹ Thuật Phần Cứng)',
-    shortName: 'Kho KTV Nam',
-    code: 'KTV-NAM',
-    address: 'Bàn Kỹ Thuật 01 - Trạm Kỹ Thuật Tổng',
-    manager: 'KTV Nam (Main & Phần Cứng)',
-    phone: '0912.345.678',
-    color: 'from-rose-600 to-orange-500',
-    systemType: 'TONG',
-    systemName: 'Tổng Hệ Thống (Central)',
-    type: 'TECHNICIAN_SUB',
-    parentWarehouseId: 'KHO_TONG',
-    technicianId: 'STAFF_003',
-    technicianName: 'Lê Hoàng Nam (KTV Phần Cứng)',
-    capacityNotes: 'Kho nhận máy chờ xử lý phần cứng, mainboard'
-  },
-  {
-    id: 'KHO_KTV_TRONG',
-    branchId: 'CN_TONG',
-    name: 'Kho KTV Trọng (Ép Kính & Màn Hình)',
-    shortName: 'Kho KTV Trọng',
-    code: 'KTV-TRONG',
-    address: 'Bàn Kỹ Thuật 02 - Trạm Kỹ Thuật Tổng',
-    manager: 'KTV Trọng (Ép Kính)',
-    phone: '0912.888.999',
-    color: 'from-orange-500 to-orange-500',
-    systemType: 'TONG',
-    systemName: 'Tổng Hệ Thống (Central)',
-    type: 'TECHNICIAN_SUB',
-    parentWarehouseId: 'KHO_TONG',
-    technicianId: 'STAFF_004',
-    technicianName: 'Phạm Văn Trọng (KTV Ép Kính)',
-    capacityNotes: 'Kho máy đang bóc tách & thay kính/màn hình'
-  },
-  {
-    id: 'KHO_KTV_DUONG',
-    branchId: 'CN_TONG',
-    name: 'Kho KTV Dương (Thay Pin & Test KCS)',
-    shortName: 'Kho KTV Dương',
-    code: 'KTV-DUONG',
-    address: 'Bàn Kỹ Thuật 03 - Trạm Kỹ Thuật Tổng',
-    manager: 'KTV Dương (KCS & Linh Kiện)',
-    phone: '0912.555.444',
-    color: 'from-orange-500 to-orange-500',
-    systemType: 'TONG',
-    systemName: 'Tổng Hệ Thống (Central)',
-    type: 'TECHNICIAN_SUB',
-    parentWarehouseId: 'KHO_TONG',
-    technicianId: 'STAFF_005',
-    technicianName: 'Hoàng Minh Dương (KTV Linh Kiện)',
-    capacityNotes: 'Kho máy kiểm tra KCS cuối trước khi bàn giao chi nhánh'
-  },
-
-  // 2. HỆ THỐNG PHONEHOUSE (RETAIL CHAIN)
-  {
-    id: 'KHO_PHONEHOUSE',
-    branchId: 'CN_PHONEHOUSE',
-    name: 'Kho PhoneHouse (Cầu Giấy)',
-    shortName: 'Kho PhoneHouse CG',
-    code: 'KPH-02',
-    address: '136 Cầu Giấy, P. Quan Hoa, Q. Cầu Giấy, Hà Nội',
-    manager: 'Tuấn Cửa Hàng Trưởng',
-    phone: '0977.111.222',
-    color: 'from-orange-500 to-orange-500',
-    systemType: 'PHONEHOUSE',
-    systemName: 'PhoneHouse Retail',
-    type: 'RETAIL_STORE',
-    capacityNotes: 'Sức chứa 500 máy phục vụ bán lẻ & trải nghiệm'
-  },
-
-  // 3. HỆ THỐNG XSTORE (PREMIUM STORE)
-  {
-    id: 'KHO_XSTORE',
-    branchId: 'CN_XSTORE',
-    name: 'Kho Xstore (Trần Duy Hưng)',
-    shortName: 'Kho Xstore TDH',
-    code: 'KXS-03',
-    address: '88 Trần Duy Hưng, P. Trung Hòa, Q. Cầu Giấy, Hà Nội',
-    manager: 'Hoàng Quản Lý Chi Nhánh',
-    phone: '0966.333.444',
-    color: 'from-orange-600 to-orange-500',
-    systemType: 'XSTORE',
-    systemName: 'Xstore Apple Premium',
-    type: 'RETAIL_STORE',
-    capacityNotes: 'Sức chứa 600 máy cao cấp & phụ kiện chính hãng'
-  }
-];
-
 export interface StockTransferItem {
   type: 'device' | 'product';
   id: string; // Device ID or Product ID
@@ -226,6 +101,42 @@ export interface StockTransferItem {
   acceptedAt?: string;
   returnedAt?: string;
   tasks?: TechnicalTransferTaskSnapshot[];
+}
+
+export interface SalesSetupConfig {
+  id: 'sales';
+  name: string;
+  version: string;
+  deviceProfitPercent: number;
+  accessoryProfitPercent: number;
+  onlineSaleSplitPercent: number;
+  maxDiscountPercent: number;
+  defaultMonthlyTarget: number;
+  isActive: boolean;
+}
+
+export interface CustomerCareSetupConfig {
+  id: 'customerCare';
+  name: string;
+  version: string;
+  firstResponseMinutes: number;
+  followUpAttempts: number;
+  followUpDays: number[];
+  requireEvidence: boolean;
+  requireQaApproval: boolean;
+  isActive: boolean;
+}
+
+export interface SystemSetupCheck {
+  id: 'company' | 'branches' | 'warehouses' | 'funds' | 'sop' | 'technicalTasks' | 'sales' | 'customerCare';
+  label: string;
+  complete: boolean;
+  detail: string;
+}
+
+export interface SystemSetupStatus {
+  complete: boolean;
+  checks: SystemSetupCheck[];
 }
 
 export type StockTransferType = 'TECHNICAL' | 'INTER_BRANCH';

@@ -4,7 +4,6 @@ import {
   DeviceItem, 
   StoreBranch, 
   WarehouseInfo, 
-  WAREHOUSE_LIST, 
   Partner, 
   FundAccount, 
   CashTransaction, 
@@ -174,7 +173,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Active warehouse options
   const activeWarehouses = useMemo(() => {
     if (warehouses && warehouses.length > 0) return warehouses;
-    return WAREHOUSE_LIST;
+    return [];
   }, [warehouses]);
 
   // Real Branch In-Stock Counts for Branch Bar

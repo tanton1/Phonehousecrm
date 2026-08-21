@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { validateFinanceAccountDraft } from '../server/routes/finance';
-import { validateWarehouseDraft } from '../server/routes/configuration';
+import { validateOperationalConfig, validateWarehouseDraft } from '../server/routes/configuration';
 
 describe('Branch-scoped finance accounts', () => {
   it('rejects missing and global branch identifiers', () => {
@@ -53,5 +53,25 @@ describe('Branch-scoped warehouse hierarchy', () => {
     expect(() => validateWarehouseDraft({
       id: 'W1', branchId: 'CN01', code: 'W1', name: 'Kho', isMain: true, parentWarehouseId: 'MAIN', custodianUid: 'USER_01'
     })).toThrow(/MAIN_WAREHOUSE_CANNOT_HAVE_PARENT/);
+  });
+});
+
+describe('Mandatory operational setup', () => {
+  it('validates Sales configuration without injecting business defaults', () => {
+    expect(() => validateOperationalConfig('sales', { name: 'Sales 2026', version: 'v1' })).toThrow(/SALES_CONFIG_INVALID/);
+    expect(validateOperationalConfig('sales', {
+      name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
+      onlineSaleSplitPercent: 50, maxDiscountPercent: 3, defaultMonthlyTarget: 800000000, isActive: true
+    })).toMatchObject({ id: 'sales', deviceProfitPercent: 4, isActive: true });
+  });
+
+  it('requires an explicit CSKH schedule', () => {
+    expect(() => validateOperationalConfig('customerCare', {
+      name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3, followUpDays: []
+    })).toThrow(/CUSTOMER_CARE_CONFIG_INVALID/);
+    expect(validateOperationalConfig('customerCare', {
+      name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3,
+      followUpDays: [7, 1, 7, 30], requireEvidence: true, requireQaApproval: true, isActive: true
+    })).toMatchObject({ id: 'customerCare', followUpDays: [1, 7, 30], isActive: true });
   });
 });

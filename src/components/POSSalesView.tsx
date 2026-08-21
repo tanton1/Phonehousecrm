@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, WAREHOUSE_LIST, TradeInAppraisal, ProductItem, Partner, UserAccount } from '../types';
+import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, TradeInAppraisal, ProductItem, Partner, UserAccount } from '../types';
 import { processCheckoutTransaction } from '../services/firestoreService';
 import { TradeInAssessmentModal } from './TradeInAssessmentModal';
 import { 
@@ -117,7 +117,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
   // Warehouses list
   const activeWarehouses = useMemo(() => {
-    return warehouses && warehouses.length > 0 ? warehouses : WAREHOUSE_LIST;
+    return warehouses || [];
   }, [warehouses]);
 
   // Selected Branch & Warehouse state

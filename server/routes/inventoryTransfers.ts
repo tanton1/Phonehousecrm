@@ -39,7 +39,11 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
       const taskType = String(req.params.taskType || '').trim().toUpperCase();
       const body = req.body || {};
       const multipliers = body.priorityMultiplier || {};
-      const numbers = [body.baseCommission, body.normalSlaHours, body.urgentSlaHours, multipliers.NORMAL, multipliers.PRIORITY, multipliers.URGENT].map(Number);
+      const numericValues = [body.baseCommission, body.normalSlaHours, body.prioritySlaHours, body.urgentSlaHours, multipliers.NORMAL, multipliers.PRIORITY, multipliers.URGENT];
+      if (numericValues.some(value => typeof value !== 'number')) {
+        return res.status(400).json({ success: false, error: 'TASK_TYPE_CONFIG_INVALID' });
+      }
+      const numbers = [body.baseCommission, body.normalSlaHours, body.prioritySlaHours, body.urgentSlaHours, multipliers.NORMAL, multipliers.PRIORITY, multipliers.URGENT].map(Number);
       if (!/^[A-Z0-9_]{2,50}$/.test(taskType) || !body.name || !body.taskCode || numbers.some(value => !Number.isFinite(value) || value < 0) || !body.version) {
         return res.status(400).json({ success: false, error: 'TASK_TYPE_CONFIG_INVALID' });
       }
@@ -51,7 +55,7 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
         taskCode: String(body.taskCode),
         baseCommission: Number(body.baseCommission),
         normalSlaHours: Number(body.normalSlaHours),
-        prioritySlaHours: Number(body.prioritySlaHours || body.normalSlaHours),
+        prioritySlaHours: Number(body.prioritySlaHours),
         urgentSlaHours: Number(body.urgentSlaHours),
         priorityMultiplier: { NORMAL: Number(multipliers.NORMAL), PRIORITY: Number(multipliers.PRIORITY), URGENT: Number(multipliers.URGENT) },
         requiresQc: body.requiresQc !== false,

@@ -62,21 +62,6 @@ export interface InterBranchReceiptInput {
   idempotencyKey: string;
 }
 
-const DEFAULT_TASK_TYPES: TechnicalTaskTypeRecord[] = [
-  { id: 'GENERAL_CHECK', taskType: 'GENERAL_CHECK', name: 'Kiểm tra tổng thể', taskCode: 'KCS', baseCommission: 50000, normalSlaHours: 12, prioritySlaHours: 8, urgentSlaHours: 4, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
-  { id: 'BATTERY_REPLACE', taskType: 'BATTERY_REPLACE', name: 'Thay pin', taskCode: 'TP', baseCommission: 80000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
-  { id: 'SCREEN_REPLACE', taskType: 'SCREEN_REPLACE', name: 'Thay màn hình', taskCode: 'EK', baseCommission: 120000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
-  { id: 'STORAGE_UPGRADE', taskType: 'STORAGE_UPGRADE', name: 'Nâng cấp dung lượng', taskCode: 'RC2.5', baseCommission: 250000, normalSlaHours: 48, prioritySlaHours: 24, urgentSlaHours: 12, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
-  { id: 'CLEANING', taskType: 'CLEANING', name: 'Vệ sinh máy', taskCode: 'OTHER', baseCommission: 30000, normalSlaHours: 8, prioritySlaHours: 4, urgentSlaHours: 2, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
-  { id: 'FACE_ID_REPAIR', taskType: 'FACE_ID_REPAIR', name: 'Sửa Face ID', taskCode: 'FIX_FACE', baseCommission: 180000, normalSlaHours: 36, prioritySlaHours: 18, urgentSlaHours: 8, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
-  { id: 'COSMETIC_REPAIR', taskType: 'COSMETIC_REPAIR', name: 'Xử lý ngoại hình', taskCode: 'LV', baseCommission: 100000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' },
-  { id: 'WARRANTY_DIAGNOSIS', taskType: 'WARRANTY_DIAGNOSIS', name: 'Kiểm tra lỗi bảo hành', taskCode: 'MAIN', baseCommission: 100000, normalSlaHours: 24, prioritySlaHours: 12, urgentSlaHours: 6, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.25, URGENT: 1.5 }, requiresQc: true, isActive: true, version: '2026.1' }
-];
-
-export function getDefaultTechnicalTaskTypes(): TechnicalTaskTypeRecord[] {
-  return DEFAULT_TASK_TYPES.map(item => ({ ...item, priorityMultiplier: { ...item.priorityMultiplier } }));
-}
-
 export function getCanonicalDeviceLocation(device: any): string {
   return device?.currentLocationId || device?.warehouseId || device?.warehouse || '';
 }
@@ -167,12 +152,9 @@ function publicTransferRecord(data: any): any {
 
 export async function listTechnicalTaskTypes(db: Firestore): Promise<TechnicalTaskTypeRecord[]> {
   const snap = await db.collection('technicalTaskTypes').get();
-  const merged = new Map(getDefaultTechnicalTaskTypes().map(item => [item.taskType, item]));
-  snap.docs.forEach(doc => {
-    const record = { id: doc.id, ...doc.data() } as TechnicalTaskTypeRecord;
-    merged.set(record.taskType || doc.id, record);
-  });
-  return [...merged.values()].filter(item => item.isActive !== false);
+  return snap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() } as TechnicalTaskTypeRecord))
+    .sort((left, right) => left.name.localeCompare(right.name, 'vi'));
 }
 
 export async function processCreateTechnicalTransfer(
@@ -240,10 +222,13 @@ export async function processCreateTechnicalTransfer(
     const technicianName = String(destinationLocation.technicianName || destinationLocation.manager || 'Kỹ thuật viên');
 
     const requestedTaskTypes = [...new Set(input.items.flatMap(item => item.tasks.map(task => task.taskType)))];
-    const taskConfigMap = new Map(DEFAULT_TASK_TYPES.map(item => [item.taskType, item]));
+    const taskConfigMap = new Map<string, TechnicalTaskTypeRecord>();
     for (const taskType of requestedTaskTypes) {
       const configSnap = await transaction.get(db.collection('technicalTaskTypes').doc(taskType));
-      if (configSnap.exists) taskConfigMap.set(taskType, { id: configSnap.id, ...configSnap.data() } as TechnicalTaskTypeRecord);
+      if (!configSnap.exists) throw new Error(`TASK_TYPE_NOT_CONFIGURED: Hạng mục "${taskType}" chưa được thiết lập trong Cài đặt.`);
+      const taskConfig = { id: configSnap.id, ...configSnap.data() } as TechnicalTaskTypeRecord;
+      if (taskConfig.isActive === false) throw new Error(`TASK_TYPE_INACTIVE: Hạng mục "${taskConfig.name || taskType}" đã ngừng áp dụng.`);
+      taskConfigMap.set(taskType, taskConfig);
     }
 
     const deviceSnapshots: Array<{ ref: any; data: any }> = [];

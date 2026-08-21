@@ -59,7 +59,6 @@ import {
   calculateInvoiceCommissions, 
   calculateWarrantyTicketCommissions 
 } from '../utils/commissionEngine';
-import { TechCommissionMatrixEditor } from './TechCommissionMatrixEditor';
 
 interface AttendanceAdminViewProps {
   staffList: StaffMember[];
@@ -172,7 +171,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
     wallet: StaffDualWalletSummary;
   } | null>(null);
 
-  const [commissionViewMode, setCommissionViewMode] = useState<'MATRIX_CONFIG' | 'TECH_WALLET' | 'SALES_WALLET' | 'DUAL_COMBINED'>('MATRIX_CONFIG');
+  const [commissionViewMode, setCommissionViewMode] = useState<'TECH_WALLET' | 'SALES_WALLET' | 'DUAL_COMBINED'>('TECH_WALLET');
 
   const handleCalculatePayroll = () => {
     setIsCalculating(true);
@@ -865,14 +864,6 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-zinc-200 shadow-2xs">
             <div className="flex items-center gap-1.5 bg-zinc-100 p-1 rounded-xl">
               <button
-                onClick={() => setCommissionViewMode('MATRIX_CONFIG')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  commissionViewMode === 'MATRIX_CONFIG' ? 'bg-orange-500 text-white shadow-2xs font-black' : 'text-zinc-600 hover:text-zinc-900'
-                }`}
-              >
-                📋 Ma Trận Đơn Giá & Quy Chế KTV
-              </button>
-              <button
                 onClick={() => setCommissionViewMode('TECH_WALLET')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   commissionViewMode === 'TECH_WALLET' ? 'bg-rose-600 text-white shadow-2xs' : 'text-zinc-600 hover:text-zinc-900'
@@ -902,16 +893,6 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               Đồng bộ thực: {warrantyTickets.length} phiếu sửa chữa • {invoices.length} hóa đơn bán hàng
             </div>
           </div>
-
-          {/* 1. MATRIX & COMPENSATION CONFIG COMPONENT */}
-          {commissionViewMode === 'MATRIX_CONFIG' && (
-            <TechCommissionMatrixEditor 
-              onMatrixUpdated={() => {
-                // Trigger recalculation
-                handleCalculatePayroll();
-              }}
-            />
-          )}
 
           {/* DYNAMIC METRIC CARDS */}
           {commissionViewMode === 'TECH_WALLET' && (

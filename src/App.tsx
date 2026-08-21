@@ -3,7 +3,6 @@ import { GeofenceBackgroundTracker } from "./components/GeofenceBackgroundTracke
 import { INITIAL_TODAY_ATTENDANCE_LIST } from "./data/attendanceData";
 import { RoleSwitcher, WorkspaceMode } from './components/RoleSwitcher';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { INITIAL_STORE_SETTINGS } from './data/initialData';
 import { 
   DeviceItem, 
   Lead, 
@@ -24,7 +23,8 @@ import {
   SparePart,
   PurchaseOrder,
   StaffMember,
-  AttendanceRecord
+  AttendanceRecord,
+  SystemSetupStatus
 } from './types';
 import { AppShell } from './app/AppShell';
 import { DashboardPage } from './features/dashboard/DashboardPage';
@@ -52,10 +52,9 @@ import { InvoicesView } from './components/InvoicesView';
 import { InstallmentReconciliationView } from './components/InstallmentReconciliationView';
 import { UserManagementView } from './components/UserManagementView';
 import { PartnersView } from './components/PartnersView';
-import { StoreSettingsView } from './components/StoreSettingsView';
+import { SystemSettingsHub } from './components/SystemSettingsHub';
 import { MoreHubView } from './components/MoreHubView';
 import { HRHubView } from './components/HRHubView';
-import { SOPManagementView } from './components/SOPManagementView';
 import { StandaloneCheckInView } from './components/StandaloneCheckInView';
 import { TechWorkspaceView } from './components/TechWorkspaceView';
 import { SalesWorkspaceView } from './components/SalesWorkspaceView';
@@ -63,6 +62,7 @@ import { AICopilotModal } from './components/AICopilotModal';
 import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
+import { fetchOperationalConfigs, fetchSystemSetupStatus } from './services/configurationApiClient';
 import { testFirestoreConnection, auth } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
@@ -259,7 +259,11 @@ export default function App() {
 
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
     const saved = localStorage.getItem('phonehouse_store_settings');
-    return saved ? JSON.parse(saved) : INITIAL_STORE_SETTINGS;
+    return saved ? JSON.parse(saved) : {
+      companyName: '', brandName: '', hotline: '', supportEmail: '', website: '', taxCode: '',
+      headquarterAddress: '', slogan: '', printHeaderNote: '', printFooterNote: '',
+      defaultWarrantyMonths: 0, warrantyPackages: [], branches: [], warehouses: []
+    };
   });
 
   useEffect(() => {
@@ -297,6 +301,32 @@ export default function App() {
 
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(() => auth.currentUser?.uid || null);
+  const [systemSetupStatus, setSystemSetupStatus] = useState<SystemSetupStatus | null>(null);
+
+  useEffect(() => {
+    if (!authReady || !firebaseUid || !currentUser) {
+      setSystemSetupStatus(null);
+      return;
+    }
+    let active = true;
+    void fetchOperationalConfigs().catch((error) => console.warn('[Operational configs]', error));
+    fetchSystemSetupStatus()
+      .then((status) => {
+        if (!active) return;
+        setSystemSetupStatus(status);
+        const role = String(currentUser.role || '').toUpperCase();
+        if (!status.complete && (role === 'ADMIN' || role === 'MANAGER')) setActiveTab('store-settings');
+      })
+      .catch((error) => console.warn('[System setup status]', error));
+    return () => { active = false; };
+  }, [authReady, firebaseUid, currentUser?.id, currentUser?.role]);
+
+  useEffect(() => {
+    const role = String(currentUser?.role || '').toUpperCase();
+    if (systemSetupStatus && !systemSetupStatus.complete && (role === 'ADMIN' || role === 'MANAGER') && activeTab !== 'store-settings') {
+      setActiveTab('store-settings');
+    }
+  }, [activeTab, currentUser?.role, systemSetupStatus]);
 
   // Modals & Triggers
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
@@ -1306,9 +1336,9 @@ export default function App() {
     }
   };
 
-  const handleDeleteBranch = (branchId: string) => {
+  const handleDeleteBranch = async (branchId: string) => {
+    await deleteBranchFromFirestore(branchId);
     setBranches(prev => prev.filter(b => b.id !== branchId));
-    deleteBranchFromFirestore(branchId);
   };
 
   const handleAddWarehouse = async (newWarehouse: WarehouseInfo) => {
@@ -1326,9 +1356,9 @@ export default function App() {
     setWarehouses(prev => prev.map(w => w.id === warehouseId ? { ...w, isActive: false } : w));
   };
 
-  const handleSaveStoreSettings = (newSettings: StoreSettings) => {
+  const handleSaveStoreSettings = async (newSettings: StoreSettings) => {
+    await saveStoreSettingsToFirestore(newSettings);
     setStoreSettings(newSettings);
-    saveStoreSettingsToFirestore(newSettings);
   };
 
   // ==========================================
@@ -1663,6 +1693,26 @@ export default function App() {
     });
     setDevices(updated);
   };
+
+  const setupRole = String(currentUser?.role || '').toUpperCase();
+  const setupBlockedForStaff = Boolean(
+    currentUser && systemSetupStatus && !systemSetupStatus.complete && setupRole !== 'ADMIN' && setupRole !== 'MANAGER'
+  );
+
+  if (setupBlockedForStaff) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-6">
+        <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-white p-8 text-center shadow-2xl">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+            <MapPin className="h-7 w-7" />
+          </div>
+          <h1 className="text-2xl font-black text-zinc-900">Hệ thống chưa hoàn tất khởi tạo</h1>
+          <p className="mt-3 text-sm leading-6 text-zinc-600">Quản trị viên cần hoàn tất Chi nhánh, Kho, tài khoản tài chính, SOP, Task kỹ thuật, Sales và CSKH trước khi nhân viên có thể vận hành.</p>
+          <button onClick={handleLogout} className="mt-6 rounded-xl bg-zinc-900 px-5 py-2.5 text-sm font-black text-white">Đăng xuất</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -2136,8 +2186,11 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'store-settings' && (
-          <StoreSettingsView
+        {(activeTab === 'store-settings' || activeTab === 'sop-management' || activeTab === 'sop') && (
+          <SystemSettingsHub
+            initialTab={activeTab === 'sop-management' || activeTab === 'sop' ? 'sop' : 'overview'}
+            onNavigate={setActiveTab}
+            onSetupStatusChange={setSystemSetupStatus}
             branches={branches}
             warehouses={warehouses}
             settings={storeSettings}
@@ -2183,13 +2236,6 @@ export default function App() {
             onAddUser={handleAddUser}
             onUpdateUser={handleUpdateUser}
             onDeleteUser={handleDeleteUser}
-          />
-        )}
-
-        {(activeTab === 'sop-management' || activeTab === 'sop') && (
-          <SOPManagementView
-            currentUser={currentUser}
-            branches={branches}
           />
         )}
 

@@ -7,8 +7,6 @@ import {
 } from '../types';
 import { getVietnamDateString, getVietnamTimeString } from '../utils/dateTimeUtils';
 import { auth } from '../lib/firebase';
-import { INITIAL_BRANCHES } from '../data/initialData';
-import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
 import { 
   compareFaceVectors, 
@@ -82,7 +80,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
         branchName: (currentUser as any).branchName || (branches[0]?.name ?? '')
       } as StaffMember];
     }
-    return INITIAL_STAFF_MEMBERS;
+    return [];
   }, [staffList, currentUser, branches]);
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {

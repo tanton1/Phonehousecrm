@@ -384,8 +384,8 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
     },
     {
       id: 'store-settings',
-      label: 'Cài Đặt Cửa Hàng & Kho',
-      subtitle: 'Chi nhánh, kho hàng, máy in K80, logo',
+      label: 'Cài Đặt & Khởi Tạo Hệ Thống',
+      subtitle: 'Chi nhánh, kho, tài chính, SOP, Sales, CSKH',
       icon: Settings,
       color: 'text-orange-600',
       badge: 'Hệ thống'
@@ -724,8 +724,8 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               <div className="flex items-center space-x-3 min-w-0">
                 <Store className="w-5 h-5 text-orange-600 group-hover:text-orange-700 shrink-0 transition-colors" />
                 <div className="min-w-0">
-                  <span className="text-xs sm:text-sm font-bold text-zinc-900 group-hover:text-orange-600 truncate block">Cài Đặt Cửa Hàng & In Bill</span>
-                  <span className="text-[10px] sm:text-xs text-zinc-500 truncate block">Mẫu in K80, thông tin, logo</span>
+                  <span className="text-xs sm:text-sm font-bold text-zinc-900 group-hover:text-orange-600 truncate block">Cài Đặt & Khởi Tạo Hệ Thống</span>
+                  <span className="text-[10px] sm:text-xs text-zinc-500 truncate block">Toàn bộ cấu hình nghiệp vụ bắt buộc</span>
                 </div>
               </div>
               <ChevronRight className="w-4 h-4 text-zinc-400 shrink-0" />

@@ -9,6 +9,7 @@ import { ThermalReceiptK80 } from './ThermalReceiptK80';
 import { usePosHotkeys } from '../hooks/usePosHotkeys';
 import { PosHotkeysBar } from './PosHotkeysBar';
 import { CreatePartnerModal } from '../../../components/CreatePartnerModal';
+import { getCachedOperationalConfigs } from '../../../services/configurationApiClient';
 
 export interface POSCockpitViewProps {
   devices: DeviceItem[];
@@ -48,7 +49,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   // 1. Cart State
   const [selectedDevices, setSelectedDevices] = useState<DeviceItem[]>([]);
   const [selectedAccessories, setSelectedAccessories] = useState<{ product: ProductItem; quantity: number }[]>([]);
-  const [warrantyPackage, setWarrantyPackage] = useState('Gói Tiêu Chuẩn 6 Tháng');
+  const [warrantyPackage, setWarrantyPackage] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
   const [tradeInDeduction, setTradeInDeduction] = useState(0);
   const [tradeInDevice, setTradeInDevice] = useState<DeviceItem | null>(null);
@@ -108,6 +109,19 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   );
   const totalAmount = devicesTotal + accessoriesTotal;
   const finalAmount = Math.max(0, totalAmount - discountAmount - tradeInDeduction);
+  const salesConfig = getCachedOperationalConfigs().sales;
+  const setValidatedDiscount = (amount: number) => {
+    if (!salesConfig?.isActive) {
+      alert('Chưa có chính sách Sales được kích hoạt.');
+      return;
+    }
+    const maxDiscount = totalAmount * salesConfig.maxDiscountPercent / 100;
+    if (amount > maxDiscount) {
+      alert(`Mức giảm tối đa theo chính sách là ${salesConfig.maxDiscountPercent}% (${Math.round(maxDiscount).toLocaleString('vi-VN')} đ).`);
+      return;
+    }
+    setDiscountAmount(Math.max(0, amount));
+  };
 
   // Helper to switch payment methods via F8 hotkey
   const handleCyclePaymentMethod = () => {
@@ -535,23 +549,11 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
                 <input
                   type="number"
                   value={discountAmount || ''}
-                  onChange={(e) => setDiscountAmount(Number(e.target.value) || 0)}
+                  onChange={(e) => setValidatedDiscount(Number(e.target.value) || 0)}
                   placeholder="Nhập số tiền..."
                   className="w-full h-11 px-3 border border-zinc-300 rounded-2xl font-bold text-sm text-[#ff4b16] focus:outline-none focus:border-[#ff4b16]"
                   autoFocus
                 />
-              </div>
-              <div className="flex gap-2">
-                {[100000, 200000, 500000].map(amt => (
-                  <button
-                    key={amt}
-                    type="button"
-                    onClick={() => setDiscountAmount(amt)}
-                    className="flex-1 py-2 bg-zinc-100 hover:bg-orange-50 hover:text-[#ff4b16] rounded-xl text-[11px] font-bold transition-colors cursor-pointer"
-                  >
-                    +{(amt/1000).toLocaleString()}k
-                  </button>
-                ))}
               </div>
             </div>
             <div className="flex space-x-2 pt-2 border-t border-zinc-100">
@@ -697,7 +699,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           }}
           onVoucher={() => {
             const disc = window.prompt('Nhập số tiền giảm giá / Voucher (VNĐ):', discountAmount.toString());
-            if (disc !== null) setDiscountAmount(parseInt(disc.replace(/\D/g, ''), 10) || 0);
+            if (disc !== null) setValidatedDiscount(parseInt(disc.replace(/\D/g, ''), 10) || 0);
           }}
           onPayment={handleCyclePaymentMethod}
           onCheckout={() => {

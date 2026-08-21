@@ -104,9 +104,8 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
       { id: 'staff-hr', label: 'Bàn Nhân Sự Cá Nhân', icon: CheckSquare },
       { id: 'checkin-portal', label: 'Điểm Danh Face ID', icon: ScanFace },
       { id: 'payroll', label: 'Bảng Lương & Hoa Hồng', icon: Award, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] },
-      { id: 'sop-management', label: 'Quy Trình SOP & Ca', icon: CheckSquare },
       { id: 'users', label: 'Phân Quyền User RBAC', icon: ShieldCheck, roles: ['ADMIN'] },
-      { id: 'store-settings', label: 'Cài Đặt Cửa Hàng & Kho', icon: Settings, roles: ['ADMIN', 'MANAGER'] }
+      { id: 'store-settings', label: 'Cài Đặt & Khởi Tạo Hệ Thống', icon: Settings, roles: ['ADMIN', 'MANAGER'] }
     ]
   }
 ];
