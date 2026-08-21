@@ -29,7 +29,10 @@ import {
   Send,
   Wallet,
   Bot,
-  Mic
+  Mic,
+  Archive,
+  RotateCcw,
+  ChevronDown
 } from 'lucide-react';
 import { 
   StoreBranch, 
@@ -63,6 +66,7 @@ export interface StoreSettingsViewProps {
   onAddWarehouse: (warehouse: WarehouseInfo) => Promise<void> | void;
   onUpdateWarehouse: (warehouse: WarehouseInfo) => Promise<void> | void;
   onDeleteWarehouse: (warehouseId: string) => Promise<void> | void;
+  onRestoreWarehouse: (warehouseId: string) => Promise<void> | void;
   onSaveSettings: (settings: StoreSettings) => void;
   onNavigateToCashbook?: (branchId?: string) => void;
   isFirebaseConnected?: boolean;
@@ -84,12 +88,14 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   onAddWarehouse,
   onUpdateWarehouse,
   onDeleteWarehouse,
+  onRestoreWarehouse,
   onSaveSettings,
   onNavigateToCashbook,
   isFirebaseConnected = true
 }) => {
   const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty'>('branches');
   const [warehouseBranchFilter, setWarehouseBranchFilter] = useState<string>('ALL');
+  const [showArchivedWarehouses, setShowArchivedWarehouses] = useState(false);
   
   // Executive AI Modal state
   const [isExecutiveModalOpen, setIsExecutiveModalOpen] = useState(false);
@@ -429,6 +435,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   };
 
   const activeWarehouses = warehouses.filter(w => w.isActive !== false);
+  const archivedWarehouses = warehouses.filter(w => w.isActive === false);
   const filteredWarehouses = activeWarehouses.filter(w => {
     if (warehouseBranchFilter === 'ALL') return true;
     return w.branchId === warehouseBranchFilter;
@@ -769,6 +776,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {filteredWarehouses.length === 0 && (
+              <div className="col-span-full rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center text-sm text-zinc-500">
+                Chi nhánh đang chọn chưa có kho hoạt động.
+              </div>
+            )}
             {filteredWarehouses.map((wh) => {
               const isTechSub = wh.type === 'TECHNICIAN_SUB';
               const branch = branches.find(item => item.id === wh.branchId);
@@ -920,6 +932,49 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               );
             })}
           </div>
+
+          {archivedWarehouses.length > 0 && (
+            <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+              <button
+                type="button"
+                onClick={() => setShowArchivedWarehouses(value => !value)}
+                className="flex w-full items-center justify-between p-4 text-left hover:bg-zinc-50"
+              >
+                <span className="flex items-center gap-2 font-black text-zinc-800"><Archive className="h-4 w-4" /> Kho đã lưu trữ ({archivedWarehouses.length})</span>
+                <ChevronDown className={`h-4 w-4 text-zinc-500 transition-transform ${showArchivedWarehouses ? 'rotate-180' : ''}`} />
+              </button>
+              {showArchivedWarehouses && (
+                <div className="grid gap-3 border-t border-zinc-200 bg-zinc-50 p-4 md:grid-cols-2 xl:grid-cols-3">
+                  {archivedWarehouses.map(warehouse => {
+                    const branch = branches.find(item => item.id === warehouse.branchId);
+                    return <div key={warehouse.id} className="rounded-xl border border-zinc-200 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div><p className="font-black text-zinc-900">{warehouse.name}</p><p className="mt-1 text-xs text-zinc-500">{warehouse.code} · {branch?.name || 'Chi nhánh không còn hoạt động'}</p></div>
+                        <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-black text-zinc-500">Đã lưu trữ</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await onRestoreWarehouse(warehouse.id);
+                            showToast(`Đã khôi phục kho "${warehouse.name}"`, 'success');
+                          } catch (error: any) {
+                            const message = error?.message === 'WAREHOUSE_CODE_DUPLICATE'
+                              ? 'Không thể khôi phục vì chi nhánh đã có một kho hoạt động trùng mã.'
+                              : error?.message || 'Không thể khôi phục kho';
+                            showToast(message, 'error');
+                          }
+                        }}
+                        className="mt-3 flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-black text-white hover:bg-orange-600"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" /> Khôi phục kho
+                      </button>
+                    </div>;
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
 

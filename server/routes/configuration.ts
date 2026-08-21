@@ -51,6 +51,17 @@ export function warehouseHasBlockingDevices(devices: any[]): boolean {
   return devices.some(item => String(item?.status || '').toLowerCase() !== 'sold');
 }
 
+export function calculateBranchWarehouseCoverage(branchIds: string[], warehouses: any[]) {
+  const activeWarehouseBranches = new Set(
+    warehouses.filter(item => item?.isActive !== false && branchIds.includes(String(item?.branchId || ''))).map(item => String(item.branchId))
+  );
+  return {
+    coveredBranches: activeWarehouseBranches.size,
+    totalBranches: branchIds.length,
+    complete: branchIds.length > 0 && branchIds.every(branchId => activeWarehouseBranches.has(branchId))
+  };
+}
+
 const OPERATIONAL_CONFIG_KEYS = new Set(['sales', 'customerCare']);
 
 export function validateOperationalConfig(configKey: string, input: any) {
@@ -193,6 +204,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       ]);
       const activeBranches = branchesSnap.docs.filter(item => item.data().isActive !== false);
       const activeWarehouses = warehousesSnap.docs.filter(item => item.data().isActive !== false);
+      const warehouseCoverage = calculateBranchWarehouseCoverage(activeBranches.map(item => item.id), warehousesSnap.docs.map(item => item.data()));
       const mainWarehouseBranches = new Set(activeWarehouses.filter(item => item.data().isMain === true).map(item => item.data().branchId));
       const cashAccountBranches = new Set(fundsSnap.docs.filter(item => {
         const data = item.data();
@@ -206,7 +218,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       const checks = [
         { id: 'company', label: 'Thông tin doanh nghiệp', complete: Boolean(settings.companyName && settings.hotline && settings.headquarterAddress), detail: 'Tên doanh nghiệp, hotline và địa chỉ trụ sở' },
         { id: 'branches', label: 'Chi nhánh', complete: activeBranches.length > 0, detail: `${activeBranches.length} chi nhánh hoạt động` },
-        { id: 'warehouses', label: 'Kho tổng theo chi nhánh', complete: activeBranches.length > 0 && activeBranches.every(item => mainWarehouseBranches.has(item.id)), detail: `${mainWarehouseBranches.size}/${activeBranches.length} chi nhánh có kho tổng` },
+        { id: 'warehouses', label: 'Kho theo chi nhánh', complete: warehouseCoverage.complete, detail: `${warehouseCoverage.coveredBranches}/${warehouseCoverage.totalBranches} chi nhánh có kho hoạt động · ${mainWarehouseBranches.size} chi nhánh có kho tổng` },
         { id: 'funds', label: 'Quỹ tiền mặt theo chi nhánh', complete: activeBranches.length > 0 && activeBranches.every(item => cashAccountBranches.has(item.id)), detail: `${cashAccountBranches.size}/${activeBranches.length} chi nhánh có quỹ tiền mặt` },
         { id: 'sop', label: 'Quy trình SOP', complete: sopSnap.docs.some(item => item.data().isActive !== false), detail: `${sopSnap.docs.filter(item => item.data().isActive !== false).length} SOP hoạt động` },
         { id: 'technicalTasks', label: 'Task và hoa hồng kỹ thuật', complete: taskTypesSnap.docs.some(item => item.data().isActive !== false), detail: `${taskTypesSnap.docs.filter(item => item.data().isActive !== false).length} task hoạt động` },
@@ -389,6 +401,43 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       return res.json({ success: true });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message || 'WAREHOUSE_ARCHIVE_FAILED' });
+    }
+  });
+
+  router.post('/warehouses/:warehouseId/restore', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const warehouseRef = db.collection('warehouses').doc(req.params.warehouseId);
+      let restored: any;
+      await db.runTransaction(async transaction => {
+        const currentSnap = await transaction.get(warehouseRef);
+        if (!currentSnap.exists) throw new Error('WAREHOUSE_NOT_FOUND');
+        const current = currentSnap.data()!;
+        if (current.isActive !== false) {
+          restored = { id: currentSnap.id, ...current };
+          return;
+        }
+        await assertBranchActive(transaction, db, String(current.branchId || ''));
+        const sameBranch = await transaction.get(db.collection('warehouses').where('branchId', '==', current.branchId));
+        if (sameBranch.docs.some(item => item.id !== currentSnap.id && item.data().code === current.code && item.data().isActive !== false)) {
+          throw new Error('WAREHOUSE_CODE_DUPLICATE');
+        }
+        if (current.parentWarehouseId) {
+          await assertParentWarehouse(transaction, db, String(current.parentWarehouseId), String(current.branchId));
+          await assertCustodian(transaction, db, String(current.custodianUid || current.technicianId || ''), String(current.branchId));
+        }
+        restored = { ...current, id: currentSnap.id, isActive: true, updatedByUid: req.user?.uid };
+        transaction.update(warehouseRef, {
+          isActive: true,
+          archivedAt: FieldValue.delete(),
+          archivedByUid: FieldValue.delete(),
+          updatedByUid: req.user?.uid,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      });
+      return res.json({ success: true, warehouse: restored });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'WAREHOUSE_RESTORE_FAILED' });
     }
   });
 

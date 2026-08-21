@@ -661,6 +661,13 @@ export async function deleteWarehouseFromFirestore(id: string) {
   });
 }
 
+export async function restoreWarehouseFromFirestore(id: string) {
+  const response = await apiJson<{ success: boolean; warehouse: WarehouseInfo }>(`/api/configuration/warehouses/${encodeURIComponent(id)}/restore`, {
+    method: 'POST'
+  });
+  return response.warehouse;
+}
+
 // ----------------- STORE SETTINGS (CÀI ĐẶT DOANH NGHIỆP) -----------------
 export function subscribeToChatConversations(onData: (convos: ChatConversation[]) => void) {
   const q = collection(db, CHAT_CONVERSATIONS_COL);

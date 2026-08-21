@@ -109,6 +109,7 @@ import {
   addWarehouseToFirestore,
   updateWarehouseInFirestore,
   deleteWarehouseFromFirestore,
+  restoreWarehouseFromFirestore,
   subscribeToStoreSettings,
   saveStoreSettingsToFirestore,
   subscribeToSpareParts,
@@ -1351,6 +1352,11 @@ export default function App() {
     setWarehouses(prev => prev.map(w => w.id === warehouseId ? { ...w, isActive: false } : w));
   };
 
+  const handleRestoreWarehouse = async (warehouseId: string) => {
+    const restored = await restoreWarehouseFromFirestore(warehouseId);
+    setWarehouses(prev => prev.map(w => w.id === restored.id ? restored : w));
+  };
+
   const handleSaveStoreSettings = async (newSettings: StoreSettings) => {
     await saveStoreSettingsToFirestore(newSettings);
     setStoreSettings(newSettings);
@@ -2201,6 +2207,7 @@ export default function App() {
             onAddWarehouse={handleAddWarehouse}
             onUpdateWarehouse={handleUpdateWarehouse}
             onDeleteWarehouse={handleDeleteWarehouse}
+            onRestoreWarehouse={handleRestoreWarehouse}
             onSaveSettings={handleSaveStoreSettings}
           />
         )}

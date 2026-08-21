@@ -293,12 +293,14 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
   }, [onSetupStatusChange]);
   useEffect(() => { load(); }, [load]);
   const completed = useMemo(() => status?.checks.filter(item => item.complete).length || 0, [status]);
+  const incompleteChecks = useMemo(() => status?.checks.filter(item => !item.complete) || [], [status]);
 
   return <div className="space-y-5">
     <div className="rounded-2xl bg-gradient-to-r from-zinc-950 to-zinc-800 p-5 text-white shadow-lg">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center"><div><div className="mb-2 flex items-center gap-2 text-orange-400"><Settings2 className="h-5 w-5" /><span className="text-xs font-black uppercase tracking-widest">Thiết lập tập trung</span></div><h1 className="text-2xl font-black">Cài đặt & Khởi tạo hệ thống</h1><p className="mt-1 text-sm text-zinc-300">Mọi dữ liệu nghiệp vụ phải được tạo tại đây, không lấy giá trị mặc định trong mã nguồn.</p></div><div className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3">{status?.complete ? <CheckCircle2 className="h-7 w-7 text-emerald-400" /> : <CircleAlert className="h-7 w-7 text-amber-400" />}<div><p className="text-xs text-zinc-300">Tiến độ khởi tạo</p><p className="font-black">{completed}/{status?.checks.length || 8} hạng mục</p></div><button onClick={load} className="ml-2 rounded-lg p-2 hover:bg-white/10"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button></div></div>
     </div>
     <div className="flex gap-2 overflow-x-auto pb-1">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold ${activeTab === tab.id ? 'bg-orange-600 text-white shadow' : 'border border-zinc-200 bg-white text-zinc-600'}`}><Icon className="h-4 w-4" />{tab.label}</button>; })}</div>
+    {incompleteChecks.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-black text-amber-900">Hệ thống còn bị chặn bởi {incompleteChecks.length} hạng mục:</p><div className="mt-2 flex flex-wrap gap-2">{incompleteChecks.map(check => <button key={check.id} onClick={() => setActiveTab(TAB_BY_CHECK[check.id])} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:border-orange-400">{check.label}: {check.detail}</button>)}</div></div>}
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
     {activeTab === 'overview' && <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black">Checklist bắt buộc trước vận hành</h2><p className="mb-4 mt-1 text-sm text-zinc-500">Hệ thống chỉ sẵn sàng khi tất cả hạng mục đều hoàn tất.</p><div className="grid gap-3 md:grid-cols-2">{status?.checks.map(check => <button key={check.id} onClick={() => setActiveTab(TAB_BY_CHECK[check.id])} className="flex items-center gap-3 rounded-xl border p-4 text-left hover:border-orange-400"><span className={`rounded-full p-2 ${check.complete ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{check.complete ? <CheckCircle2 className="h-5 w-5" /> : <CircleAlert className="h-5 w-5" />}</span><div className="min-w-0 flex-1"><p className="font-black text-zinc-900">{check.label}</p><p className="text-xs text-zinc-500">{check.detail}</p></div><ChevronRight className="h-4 w-4 text-zinc-400" /></button>)}</div></section>}
     {activeTab === 'organization' && <StoreSettingsView
@@ -309,6 +311,7 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
       onAddWarehouse={async value => { await storeProps.onAddWarehouse(value); await load(); }}
       onUpdateWarehouse={async value => { await storeProps.onUpdateWarehouse(value); await load(); }}
       onDeleteWarehouse={async value => { await storeProps.onDeleteWarehouse(value); await load(); }}
+      onRestoreWarehouse={async value => { await storeProps.onRestoreWarehouse(value); await load(); }}
       onSaveSettings={async value => { await storeProps.onSaveSettings(value); await load(); }}
       onNavigateToCashbook={(branchId) => { if (branchId) sessionStorage.setItem('phonehouse_target_branch', branchId); onNavigate('funds'); }}
     />}

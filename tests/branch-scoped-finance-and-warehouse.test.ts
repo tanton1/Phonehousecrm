@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { financeAccountIdFromDraft, validateFinanceAccountDraft } from '../server/routes/finance';
-import { validateOperationalConfig, validateWarehouseDraft, warehouseHasBlockingDevices } from '../server/routes/configuration';
+import { calculateBranchWarehouseCoverage, validateOperationalConfig, validateWarehouseDraft, warehouseHasBlockingDevices } from '../server/routes/configuration';
 import { normalizeOperationalPolicyVersions, operationalPolicyPeriodsOverlap, selectEffectiveOperationalPolicy } from '../server/services/operationalPolicyService';
 
 describe('Branch-scoped finance accounts', () => {
@@ -76,6 +76,17 @@ describe('Branch-scoped warehouse hierarchy', () => {
   it('allows an empty warehouse with sold-device history to be archived or reassigned', () => {
     expect(warehouseHasBlockingDevices([{ status: 'sold' }, { status: 'SOLD' }])).toBe(false);
     expect(warehouseHasBlockingDevices([{ status: 'sold' }, { status: 'in_stock' }])).toBe(true);
+  });
+
+  it('accepts any active warehouse type for branch setup coverage and ignores archived warehouses', () => {
+    expect(calculateBranchWarehouseCoverage(['CN01', 'CN02'], [
+      { branchId: 'CN01', type: 'RETAIL_STORE', isMain: false, isActive: true },
+      { branchId: 'CN02', type: 'REPAIR_WARRANTY', isMain: false, isActive: true }
+    ])).toMatchObject({ coveredBranches: 2, totalBranches: 2, complete: true });
+    expect(calculateBranchWarehouseCoverage(['CN01', 'CN02'], [
+      { branchId: 'CN01', type: 'CENTRAL', isMain: true, isActive: true },
+      { branchId: 'CN02', type: 'RETAIL_STORE', isActive: false }
+    ])).toMatchObject({ coveredBranches: 1, totalBranches: 2, complete: false });
   });
 });
 
