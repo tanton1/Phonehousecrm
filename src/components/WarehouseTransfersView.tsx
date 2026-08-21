@@ -43,6 +43,7 @@ import {
   CheckSquare,
   DollarSign
 } from 'lucide-react';
+import { getLiveTechCommissionMatrix } from '../data/techCommissionMatrix';
 
 interface WarehouseTransfersViewProps {
   transfers: StockTransferSlip[];
@@ -110,6 +111,41 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       return isMatchWarehouse && isAvailable;
     });
   }, [devices, fromWarehouse]);
+
+  // Tech Commission Matrix
+  const techMatrix = useMemo(() => getLiveTechCommissionMatrix(), []);
+
+  // Auto-calculate commission based on matrix
+  React.useEffect(() => {
+    if (!autoCreateTechTask || selectedDeviceIds.length === 0) return;
+    
+    // Attempt to map taskType to Matrix Task Name
+    let matrixTaskKeywords = [''];
+    if (taskType === 'INBOUND_QC') matrixTaskKeywords = ['kcs', 'kiểm tra'];
+    else if (taskType === 'RETAIL_REPAIR') matrixTaskKeywords = ['sửa chữa', 'main'];
+    else if (taskType === 'WARRANTY') matrixTaskKeywords = ['bảo hành', 'khắc phục'];
+    else if (taskType === 'SPECIAL_COMPONENT') matrixTaskKeywords = ['thay', 'pin', 'kính'];
+
+    const matrixTask = techMatrix.tasks.find(t => 
+      matrixTaskKeywords.some(kw => t.name.toLowerCase().includes(kw))
+    );
+
+    if (matrixTask) {
+      // Find the model group for the first selected device
+      const firstDevice = devices.find(d => d.id === selectedDeviceIds[0]);
+      if (firstDevice) {
+        const modelGroup = techMatrix.models.find(m => 
+          m.keywords.some(k => firstDevice.model.toLowerCase().includes(k))
+        );
+        if (modelGroup) {
+          const rate = matrixTask.rates[modelGroup.id];
+          if (rate !== undefined && rate > 0) {
+            setTaskCommission(rate);
+          }
+        }
+      }
+    }
+  }, [taskType, selectedDeviceIds, autoCreateTechTask, techMatrix, devices]);
 
   // Filtered available devices by search in modal
   const modalFilteredDevices = useMemo(() => {
@@ -1036,7 +1072,8 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                     createStep === 1 ? 'bg-white text-orange-600' : 'bg-orange-200 text-orange-800'
                   }`}>1</span>
-                  <span>Kho & IMEI Máy</span>
+                  <span className="hidden sm:inline">Kho & IMEI Máy</span>
+                  <span className="inline sm:hidden">Kho & IMEI</span>
                 </button>
 
                 <ChevronRight className="w-4 h-4 text-orange-300 shrink-0" />
@@ -1061,7 +1098,8 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                     createStep === 2 ? 'bg-white text-orange-600' : 'bg-orange-200 text-orange-800'
                   }`}>2</span>
                   <span className="flex items-center space-x-1">
-                    <span>Task KTV & Hoa Hồng</span>
+                    <span className="hidden sm:inline">Task KTV & Hoa Hồng</span>
+                    <span className="inline sm:hidden">Giao Việc</span>
                     {autoCreateTechTask && (
                       <span className="bg-orange-400 text-zinc-900 text-[9px] px-1.5 py-0.2 rounded-full font-black">
                         ⚡ ON
@@ -1091,7 +1129,8 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                     createStep === 3 ? 'bg-white text-orange-600' : 'bg-orange-200 text-orange-800'
                   }`}>3</span>
-                  <span>Xác Nhận 1-Bước</span>
+                  <span className="hidden sm:inline">Xác Nhận 1-Bước</span>
+                  <span className="inline sm:hidden">Xác Nhận</span>
                 </button>
               </div>
             </div>
@@ -1182,10 +1221,12 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
                   {/* Device List Picker */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between bg-zinc-50 p-2.5 rounded-xl border border-zinc-200">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 shrink-0">
                         <Smartphone className="w-4 h-4 text-orange-600" />
                         <span className="text-xs font-bold text-zinc-900">
-                          Chọn Máy Trong Kho ({selectedDeviceIds.length}/{modalFilteredDevices.length} máy chọn)
+                          <span className="hidden sm:inline">Chọn Máy Trong Kho</span>
+                          <span className="inline sm:hidden">Chọn Máy</span>
+                           ({selectedDeviceIds.length}/{modalFilteredDevices.length})
                         </span>
                       </div>
 

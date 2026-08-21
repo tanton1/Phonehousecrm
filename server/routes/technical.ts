@@ -56,8 +56,8 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
-        const { scannedImei } = req.body;
-        const result = await processAcceptCustody(db, req.params.id, scannedImei || '', req.user!);
+        const { scannedImei, preRepairInspection } = req.body;
+        const result = await processAcceptCustody(db, req.params.id, scannedImei || '', req.user!, preRepairInspection);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Accept Custody Error]:', error);

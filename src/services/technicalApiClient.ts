@@ -89,9 +89,16 @@ export async function requestCreateWorkOrder(payload: {
  */
 export async function requestAcceptCustody(
   workOrderId: string,
-  scannedImei: string
+  scannedImei: string,
+  preRepairInspection: {
+    appearance: 'GOOD' | 'SCRATCHED' | 'DENTED';
+    screen: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
+    power: 'OK' | 'NO_POWER';
+    biometrics: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
+    technicianNotes?: string;
+  }
 ): Promise<{ success: boolean; workOrderId: string }> {
-  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/accept`, { scannedImei });
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/accept`, { scannedImei, preRepairInspection });
 }
 
 /**

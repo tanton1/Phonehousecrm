@@ -20,6 +20,14 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
   const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const [preRepairInspection, setPreRepairInspection] = useState({
+    appearance: 'GOOD' as 'GOOD' | 'SCRATCHED' | 'DENTED',
+    screen: 'OK' as 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE',
+    power: 'OK' as 'OK' | 'NO_POWER',
+    biometrics: 'OK' as 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE',
+    technicianNotes: ''
+  });
+
   // Columns Definition
   const COLUMNS = [
     { id: 'TODO', title: 'Chờ Tiếp Nhận', statuses: ['received', 'ASSIGNED'] },
@@ -57,9 +65,17 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
     setLoadingTaskId(task.id);
     setActionError(null);
     try {
-      await requestAcceptCustody(task.id, scannedImei.trim());
+      await requestAcceptCustody(task.id, scannedImei.trim(), preRepairInspection);
       setScanModalTaskId(null);
       setScannedImei('');
+      // Reset inspection form
+      setPreRepairInspection({
+        appearance: 'GOOD',
+        screen: 'OK',
+        power: 'OK',
+        biometrics: 'OK',
+        technicianNotes: ''
+      });
       if (onRefresh) onRefresh();
     } catch (err: any) {
       console.error('[Accept Custody Error]:', err);
@@ -192,6 +208,74 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                   className="w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
                   autoFocus
                 />
+              </div>
+
+              {/* BƯỚC TEST MÁY ĐẦU VÀO (PRE-REPAIR INSPECTION) */}
+              <div className="pt-3 mt-3 border-t border-zinc-100">
+                <h4 className="text-xs font-bold text-zinc-800 mb-2">Checklist Tình Trạng Máy Nhận (Bắt Buộc):</h4>
+                
+                <div className="space-y-2.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-zinc-600 font-medium w-24">Ngoại hình:</span>
+                    <select
+                      value={preRepairInspection.appearance}
+                      onChange={(e) => setPreRepairInspection(prev => ({ ...prev, appearance: e.target.value as any }))}
+                      className="flex-1 ml-2 p-1.5 border border-zinc-300 rounded text-xs outline-none focus:border-orange-500 bg-zinc-50"
+                    >
+                      <option value="GOOD">Tốt / Mới</option>
+                      <option value="SCRATCHED">Xước dăm / Xước lông mèo</option>
+                      <option value="DENTED">Cấn góc / Trầy nặng / Vỡ kính</option>
+                    </select>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-zinc-600 font-medium w-24">Màn hình:</span>
+                    <select
+                      value={preRepairInspection.screen}
+                      onChange={(e) => setPreRepairInspection(prev => ({ ...prev, screen: e.target.value as any }))}
+                      className="flex-1 ml-2 p-1.5 border border-zinc-300 rounded text-xs outline-none focus:border-orange-500 bg-zinc-50"
+                    >
+                      <option value="OK">Bình thường</option>
+                      <option value="DEFECTIVE">Lỗi hiển thị / Cảm ứng / Ám</option>
+                      <option value="NOT_TESTABLE">Không thể test (Mất nguồn/Bể nát)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-zinc-600 font-medium w-24">Nguồn/Pin:</span>
+                    <select
+                      value={preRepairInspection.power}
+                      onChange={(e) => setPreRepairInspection(prev => ({ ...prev, power: e.target.value as any }))}
+                      className="flex-1 ml-2 p-1.5 border border-zinc-300 rounded text-xs outline-none focus:border-orange-500 bg-zinc-50"
+                    >
+                      <option value="OK">Lên nguồn tốt</option>
+                      <option value="NO_POWER">Sập nguồn / Chập chờn</option>
+                    </select>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-zinc-600 font-medium w-24">Sinh trắc học:</span>
+                    <select
+                      value={preRepairInspection.biometrics}
+                      onChange={(e) => setPreRepairInspection(prev => ({ ...prev, biometrics: e.target.value as any }))}
+                      className="flex-1 ml-2 p-1.5 border border-zinc-300 rounded text-xs outline-none focus:border-orange-500 bg-zinc-50"
+                    >
+                      <option value="OK">Face ID / Vân tay OK</option>
+                      <option value="DEFECTIVE">Mất Face ID / Vân tay</option>
+                      <option value="NOT_TESTABLE">Không thể test</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="Ghi chú thêm (VD: Máy móp góc phải dưới...)"
+                      value={preRepairInspection.technicianNotes}
+                      onChange={(e) => setPreRepairInspection(prev => ({ ...prev, technicianNotes: e.target.value }))}
+                      className="w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none bg-zinc-50"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end space-x-2 pt-3">

@@ -229,10 +229,21 @@ export async function processAcceptCustody(
   db: Firestore,
   workOrderId: string,
   scannedImei: string,
-  technicianUser: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
+  technicianUser: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] },
+  preRepairInspection?: {
+    appearance: 'GOOD' | 'SCRATCHED' | 'DENTED';
+    screen: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
+    power: 'OK' | 'NO_POWER';
+    biometrics: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
+    technicianNotes?: string;
+  }
 ): Promise<{ success: boolean; workOrderId: string }> {
   if (!scannedImei || scannedImei.trim().length === 0) {
     throw new Error('SCANNED_IMEI_REQUIRED: Bắt buộc quét mã IMEI thực tế của máy để nhận bàn giao.');
+  }
+  
+  if (!preRepairInspection) {
+    throw new Error('PRE_REPAIR_INSPECTION_REQUIRED: KTV bắt buộc phải điền Checklist Test Máy Đầu Vào trước khi nhận.');
   }
 
   return await db.runTransaction(async (transaction) => {
@@ -281,6 +292,11 @@ export async function processAcceptCustody(
       currentCustodianName: technicianUser.name || 'Kỹ thuật viên',
       currentLocationId: techLocationId,
       acceptedAt: now,
+      preRepairInspection: {
+        ...preRepairInspection,
+        inspectedAt: now,
+        technicianId: technicianUser.uid
+      },
       updatedAt: FieldValue.serverTimestamp()
     });
 
