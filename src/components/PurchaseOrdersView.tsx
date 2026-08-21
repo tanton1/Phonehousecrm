@@ -66,7 +66,7 @@ interface PurchaseOrdersViewProps {
   branches?: StoreBranch[];
   selectedBranchId?: string;
   currentUser?: UserAccount | null;
-  onAddPurchaseOrder: (order: PurchaseOrder, autoCreateDevices: boolean) => void;
+  onAddPurchaseOrder: (order: PurchaseOrder, autoCreateDevices: boolean) => Promise<void> | void;
   onUpdatePurchaseOrder: (order: PurchaseOrder) => void;
   onDeletePurchaseOrder: (orderId: string) => void;
   onPaySupplierDebt?: (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => void;
@@ -531,7 +531,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
     return Math.max(0, formTotalAmount - newPaidAmount);
   }, [formTotalAmount, newPaidAmount]);
 
-  const handleSavePurchaseOrder = (e: React.FormEvent) => {
+  const handleSavePurchaseOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSupplierId) {
       alert('Vui lòng chọn Nhà Cung Cấp!');
@@ -560,6 +560,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       supplierPhone: supplierObj?.phone,
       supplierAddress: supplierObj?.address,
       supplierTaxCode: supplierObj?.taxCode,
+      branchId: warehouseObj?.branchId || (selectedBranchId && selectedBranchId !== 'ALL' ? selectedBranchId : currentUser?.branchId),
+      branchName: branches?.find(branch => branch.id === (warehouseObj?.branchId || selectedBranchId || currentUser?.branchId))?.name,
       warehouseId: newWarehouseId,
       warehouseName: warehouseObj ? warehouseObj.name : 'Kho Tổng',
       orderDate: newOrderDate,
@@ -589,10 +591,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       ]
     };
 
-    onAddPurchaseOrder(newOrder, autoCreateDevices && newStatus === 'COMPLETED');
-    setIsCreateModalOpen(false);
-    setSelectedOrder(newOrder); // Tự động mở xem chi tiết phiếu vừa tạo
-    triggerToast(`Đã tạo thành công phiếu nhập ${newCode}`);
+    try {
+      await onAddPurchaseOrder(newOrder, autoCreateDevices && newStatus === 'COMPLETED');
+      setIsCreateModalOpen(false);
+      setSelectedOrder(newOrder); // Tự động mở xem chi tiết phiếu vừa tạo
+      triggerToast(`Đã tạo thành công phiếu nhập ${newCode}`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Không thể nhập kho. Vui lòng kiểm tra lại IMEI và kho nhận.');
+    }
   };
 
   // ====================================================

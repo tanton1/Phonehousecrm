@@ -13,6 +13,8 @@ import {
   processDeliverToCustomer,
   processIssueSparePart
 } from '../services/technicalService';
+import { processAcceptTechnicalTransfer } from '../services/inventoryTransferService';
+import crypto from 'crypto';
 
 export function createTechnicalRouter(db: Firestore | null): Router {
   const router = Router();
@@ -57,6 +59,17 @@ export function createTechnicalRouter(db: Firestore | null): Router {
 
       try {
         const { scannedImei, preRepairInspection } = req.body;
+        const workOrderSnap = await db.collection('technicalWorkOrders').doc(req.params.id).get();
+        if (!workOrderSnap.exists) {
+          return res.status(404).json({ success: false, error: `WORK_ORDER_NOT_FOUND: Không tìm thấy phiếu kỹ thuật "${req.params.id}".` });
+        }
+        const workOrder = workOrderSnap.data()!;
+        if (workOrder.transferId) {
+          const normalizedImei = String(scannedImei || '').trim();
+          const stableKey = `tech-work-order-accept:${req.params.id}:${req.user!.uid}:${crypto.createHash('sha256').update(normalizedImei).digest('hex').slice(0, 16)}`;
+          await processAcceptTechnicalTransfer(db, workOrder.transferId, [normalizedImei], stableKey, req.user!, { preRepairInspection });
+          return res.json({ success: true, data: { success: true, workOrderId: req.params.id } });
+        }
         const result = await processAcceptCustody(db, req.params.id, scannedImei || '', req.user!, preRepairInspection);
         return res.json({ success: true, data: result });
       } catch (error: any) {

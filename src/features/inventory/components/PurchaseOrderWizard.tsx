@@ -97,9 +97,9 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
 
   const handleFinish = async () => {
     // Validate IMEIs
-    const emptyImeis = deviceRows.filter(r => !r.imei || r.imei.trim().length < 6);
+    const emptyImeis = deviceRows.filter(r => !/^\d{15}$/.test(r.imei.trim()));
     if (emptyImeis.length > 0) {
-      alert('Vui lòng nhập đầy đủ mã IMEI (ít nhất 6 số) cho tất cả các máy.');
+      alert('Vui lòng nhập IMEI đúng 15 chữ số cho tất cả các máy.');
       setStep(2);
       return;
     }
@@ -122,6 +122,9 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
         supplierId: selectedSupplier?.id,
         branchId: selectedBranch?.id,
         branch: selectedBranch?.name,
+        currentLocationId: selectedBranch?.warehouseId,
+        warehouseId: selectedBranch?.warehouseId,
+        warehouse: selectedBranch?.warehouseId,
         receivedDate: orderDate,
         warrantyPeriodMonths: 12,
         icloudStatus: 'Clean / Đã Thoát',
@@ -133,7 +136,9 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
         code: orderCode,
         supplierId: selectedSupplier?.id || '',
         supplierName: selectedSupplier?.name || 'NCC',
-        warehouseId: selectedBranch?.id || '',
+        branchId: selectedBranch?.id,
+        branchName: selectedBranch?.name,
+        warehouseId: selectedBranch?.warehouseId || '',
         warehouseName: selectedBranch?.name || '',
         orderDate,
         creatorName: 'Quản Lý Thu Mua',

@@ -170,6 +170,9 @@ app.use('/api/technical', createTechnicalRouter(adminDb));
 import { createInventoryTransfersRouter } from './server/routes/inventoryTransfers';
 app.use('/api/inventory-transfers', createInventoryTransfersRouter(adminDb));
 
+import { createInventoryRouter } from './server/routes/inventory';
+app.use('/api/inventory', createInventoryRouter(adminDb));
+
 // -------------------------------------------------------------
 // 7. ADMIN MANAGEMENT ROUTER (NETWORK ENROLL, AUDIT)
 // -------------------------------------------------------------

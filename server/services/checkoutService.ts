@@ -1,5 +1,6 @@
 import { Firestore, FieldValue, DocumentReference } from 'firebase-admin/firestore';
 import crypto from 'crypto';
+import { imeiRegistryId, normalizeImei } from './inventoryDeviceService';
 
 export interface CheckoutResult {
   success: boolean;
@@ -42,7 +43,13 @@ export async function executeAtomicCheckout(
     payment: payload.payment,
     branchId: payload.branchId || payload.invoice?.branchId,
     voucherCode: payload.voucherCode?.trim().toUpperCase(),
-    tradeInAppraisalId: payload.tradeInAppraisalId
+    tradeInAppraisalId: payload.tradeInAppraisalId,
+    tradeInDevice: payload.tradeInDevice ? {
+      imei: normalizeImei(payload.tradeInDevice.imei),
+      model: payload.tradeInDevice.model,
+      buyPrice: payload.tradeInDevice.buyPrice,
+      warehouseId: payload.tradeInDevice.currentLocationId || payload.tradeInDevice.warehouseId || payload.tradeInDevice.warehouse
+    } : null
   };
   const currentPayloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayloadObj)).digest('hex');
 
@@ -309,6 +316,73 @@ export async function executeAtomicCheckout(
       authoritativeTradeInDeduction = approvedPrice;
     }
 
+    // A trade-in device is inventory received as part of checkout and must be written
+    // in the same transaction as the sold device and invoice.
+    let loadedTradeIn: { id: string; ref: DocumentReference; registryRef: DocumentReference; movementRef: DocumentReference; data: any } | null = null;
+    if (payload.tradeInDevice) {
+      const draft = payload.tradeInDevice;
+      const normalizedImei = normalizeImei(draft.imei);
+      if (!/^\d{15}$/.test(normalizedImei)) {
+        throw new Error('TRADE_IN_IMEI_INVALID: IMEI máy thu cũ phải gồm đúng 15 chữ số.');
+      }
+      if (!draft.model || !String(draft.model).trim()) {
+        throw new Error('TRADE_IN_MODEL_REQUIRED: Thiếu model máy thu cũ.');
+      }
+      const tradeInCost = authoritativeTradeInDeduction || Number(draft.buyPrice || 0);
+      if (!Number.isFinite(tradeInCost) || tradeInCost <= 0) {
+        throw new Error('TRADE_IN_COST_INVALID: Giá thu máy cũ không hợp lệ.');
+      }
+      if (!authoritativeTradeInDeduction) authoritativeTradeInDeduction = tradeInCost;
+
+      const tradeInLocationId = String(draft.currentLocationId || draft.warehouseId || draft.warehouse || warehouseId || '');
+      const locationRef = db.collection('warehouses').doc(tradeInLocationId);
+      const locationSnap = await transaction.get(locationRef);
+      if (!locationSnap.exists || locationSnap.data()?.isActive === false) {
+        throw new Error('TRADE_IN_LOCATION_INVALID: Kho nhận máy thu cũ không tồn tại hoặc đã ngưng hoạt động.');
+      }
+      if (locationSnap.data()?.branchId && String(locationSnap.data()?.branchId) !== branchId) {
+        throw new Error('TRADE_IN_LOCATION_BRANCH_MISMATCH: Kho nhận máy thu cũ không thuộc chi nhánh bán.');
+      }
+
+      const registryRef = db.collection('imeiRegistry').doc(imeiRegistryId(normalizedImei));
+      const registrySnap = await transaction.get(registryRef);
+      const normalizedMatch = await transaction.get(db.collection('devices').where('imeiNormalized', '==', normalizedImei).limit(1));
+      const legacyMatch = await transaction.get(db.collection('devices').where('imei', '==', normalizedImei).limit(1));
+      if (registrySnap.exists || !normalizedMatch.empty || !legacyMatch.empty) {
+        throw new Error(`TRADE_IN_IMEI_ALREADY_EXISTS: IMEI ${normalizedImei} đã có trong kho.`);
+      }
+
+      const tradeInId = String(draft.id || `DEV_${imeiRegistryId(normalizedImei).slice(0, 20).toUpperCase()}`);
+      const tradeInRef = db.collection('devices').doc(tradeInId);
+      const tradeInIdSnap = await transaction.get(tradeInRef);
+      if (tradeInIdSnap.exists) {
+        throw new Error(`TRADE_IN_DEVICE_ID_ALREADY_EXISTS: Mã thiết bị ${tradeInId} đã tồn tại.`);
+      }
+      loadedTradeIn = {
+        id: tradeInId,
+        ref: tradeInRef,
+        registryRef,
+        movementRef: db.collection('inventoryMovements').doc(),
+        data: {
+          ...draft,
+          id: tradeInId,
+          imei: normalizedImei,
+          imeiNormalized: normalizedImei,
+          serialNo: draft.serialNo || normalizedImei,
+          model: String(draft.model).trim(),
+          buyPrice: tradeInCost,
+          currentCost: tradeInCost,
+          costVersion: payload.tradeInAppraisalId ? 'POS_TRADE_IN_APPROVED_V1' : 'POS_TRADE_IN_LEGACY_V1',
+          sellPrice: Number(draft.sellPrice || tradeInCost),
+          status: 'in_stock',
+          branchId,
+          currentLocationId: tradeInLocationId,
+          warehouseId: tradeInLocationId,
+          warehouse: tradeInLocationId
+        }
+      };
+    }
+
     const finalAmount = Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction);
 
     // 7. Settlement Model: Fix Installment Debt Double-Counting
@@ -422,6 +496,43 @@ export async function executeAtomicCheckout(
       }
     }
 
+    if (loadedTradeIn) {
+      transaction.set(loadedTradeIn.ref, {
+        ...loadedTradeIn.data,
+        sourceType: 'POS_TRADE_IN',
+        sourceId: invoiceId,
+        receivedDate: loadedTradeIn.data.receivedDate || new Date().toISOString().slice(0, 10),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        costCalculatedAt: FieldValue.serverTimestamp(),
+        stateVersion: 1
+      });
+      transaction.set(loadedTradeIn.registryRef, {
+        imei: loadedTradeIn.data.imei,
+        deviceId: loadedTradeIn.id,
+        branchId,
+        currentLocationId: loadedTradeIn.data.currentLocationId,
+        sourceType: 'POS_TRADE_IN',
+        sourceId: invoiceId,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      transaction.set(loadedTradeIn.movementRef, {
+        id: loadedTradeIn.movementRef.id,
+        movementType: 'STOCK_RECEIPT',
+        deviceId: loadedTradeIn.id,
+        imei: loadedTradeIn.data.imei,
+        branchId,
+        fromLocationId: null,
+        toLocationId: loadedTradeIn.data.currentLocationId,
+        sourceType: 'POS_TRADE_IN',
+        sourceId: invoiceId,
+        actorUid: authenticatedStaff?.uid || 'SYSTEM',
+        actorName: authenticatedStaff?.name || 'Thu Ngân',
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
+
     // 9. Deduct Accessory Stock (Global & Branch specific)
     for (const acc of loadedAccessories) {
       transaction.update(acc.ref, {
@@ -494,6 +605,7 @@ export async function executeAtomicCheckout(
       totalAmount: subTotal,
       discountAmount: authoritativeDiscount,
       tradeInDeduction: authoritativeTradeInDeduction,
+      tradeInDeviceId: loadedTradeIn?.id || null,
       finalAmount,
       paidAmount: finalAmount - customerDebtAmount - financeAmount,
       debtAmount: customerDebtAmount,

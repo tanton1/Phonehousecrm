@@ -39,6 +39,7 @@ export interface PureIntentCheckoutPayload {
   installmentContractCode?: string;
   voucherCode?: string;
   tradeInAppraisalId?: string;
+  tradeInDevice?: any | null;
   notes?: string;
   creatorUid?: string;
   creatorName?: string;
@@ -225,5 +226,4 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
 
   return { isValid: true, data: body as LegacyCheckoutPayload };
 }
-
 

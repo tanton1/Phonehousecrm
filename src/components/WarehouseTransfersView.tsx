@@ -60,6 +60,7 @@ interface WarehouseTransfersViewProps {
   branches: StoreBranch[];
   currentUser: UserAccount;
   onTransferSynced: (transfer: StockTransferSlip) => void;
+  onInventoryRefresh?: () => Promise<void> | void;
 }
 
 const currency = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
@@ -144,7 +145,8 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   warehouses,
   branches,
   currentUser,
-  onTransferSynced
+  onTransferSynced,
+  onInventoryRefresh
 }) => {
   const [activeTab, setActiveTab] = useState<TransferTab>('TECHNICAL');
   const [createOpen, setCreateOpen] = useState(false);
@@ -194,9 +196,20 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   }, [currentUser.id]);
 
   useEffect(() => {
-    fetchInventoryTransfers(currentUser)
-      .then(data => data.transfers.forEach(onTransferSynced))
-      .catch(error => setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không tải được danh sách điều chuyển.' }));
+    let active = true;
+    const refresh = () => fetchInventoryTransfers(currentUser)
+      .then(data => {
+        if (active) data.transfers.forEach(onTransferSynced);
+      })
+      .catch(error => {
+        if (active) setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không tải được danh sách điều chuyển.' });
+      });
+    void refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
     // onTransferSynced intentionally omitted: App recreates the optimistic sync callback on render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser.id]);
@@ -303,6 +316,10 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
   }), [devices, sourceBranchId, sourceLocationId, activeTab, deviceSearch]);
 
   const selectedDevices = useMemo(() => selectedDeviceIds.map(id => devices.find(device => device.id === id)).filter(Boolean) as DeviceItem[], [selectedDeviceIds, devices]);
+  const actionableReceiptResults = useMemo(() => (
+    Object.entries(receiptDraft) as Array<[string, ReceiptDraft[string]]>
+  ).filter(([, value]) => value.result === 'MISSING' || Boolean(value.scannedImei.trim()))
+    .map(([imei, value]) => ({ imei, ...value, scannedImei: value.scannedImei.trim() })), [receiptDraft]);
 
   const addOrRemoveDevice = (device: DeviceItem) => {
     setSelectedDeviceIds(current => {
@@ -389,6 +406,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
         setDetailTransfer(result.transfer);
         setNotice({ type: 'success', message: `Đã xuất chuyển ${result.code}; phiếu nhập chờ nhận và công nợ tạm tính đã tạo đồng thời.` });
       }
+      await onInventoryRefresh?.();
       setCreateOpen(false);
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể tạo phiếu điều chuyển.' });
@@ -401,7 +419,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
     const draft: ReceiptDraft = {};
     transfer.items.filter(item => !['RECEIVED', 'DAMAGED'].includes(item.receiptStatus || '')).forEach(item => {
       if (!item.imei) return;
-      draft[item.imei] = { result: 'RECEIVED', scannedImei: item.imei, notes: '' };
+      draft[item.imei] = { result: 'RECEIVED', scannedImei: '', notes: '' };
     });
     setReceiptDraft(draft);
   };
@@ -433,8 +451,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
         next = result.transfer;
         setNotice({ type: 'success', message: 'Đã hủy phiếu và giải phóng toàn bộ IMEI.' });
       } else if (action === 'RECEIVE') {
-        const results = (Object.entries(receiptDraft) as Array<[string, ReceiptDraft[string]]>).map(([imei, value]) => ({ imei, ...value }));
-        const result = await requestReceiveInterBranchTransfer(detailTransfer.id, results, currentUser);
+        const result = await requestReceiveInterBranchTransfer(detailTransfer.id, actionableReceiptResults, currentUser);
         next = result.transfer;
         prepareReceipt(next);
         setNotice({ type: 'success', message: `Đã đối soát nhận hàng. Công nợ chính thức: ${currency.format(result.postedAmount)}.` });
@@ -445,6 +462,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       }
       onTransferSynced(next);
       setDetailTransfer(next);
+      await onInventoryRefresh?.();
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Không thể cập nhật phiếu.' });
     } finally {
@@ -574,7 +592,7 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
             <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200 bg-white"><div className="border-b border-zinc-100 bg-zinc-50 px-4 py-3 text-xs font-black uppercase tracking-wider text-zinc-500">Đối soát từng IMEI</div><div className="divide-y divide-zinc-100">{detailTransfer.items.map(item => { const receipt = item.imei ? receiptDraft[item.imei] : undefined; const canReceive = getTransferType(detailTransfer, warehouses) === 'INTER_BRANCH' && ['IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED'].includes(detailTransfer.status) && !['RECEIVED', 'DAMAGED'].includes(item.receiptStatus || ''); const techScanned = Boolean(item.imei && scannedTechnicalImeis.includes(item.imei)); return <div key={item.id} className="p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-black text-zinc-900">{item.name}</p><p className="mt-1 font-mono text-xs text-zinc-500">{item.imei}</p>{techScanned && <p className="mt-1 text-[11px] font-black text-emerald-600">✓ Đã quét thực tế</p>}</div><div className="text-right"><p className="text-sm font-black text-zinc-900">{currency.format(item.costAtTransfer ?? item.costPrice)}</p><p className="text-[10px] text-zinc-400">{item.itemStatus ? STATUS_META[item.itemStatus]?.label || item.itemStatus : item.receiptStatus || 'Chờ nhận'}</p></div></div>{getTransferType(detailTransfer, warehouses) === 'TECHNICAL' && <div className="mt-3 flex flex-wrap gap-2">{(item.tasks || []).map(task => <span key={task.lineId || `${task.taskType}-${task.priority}`} className="rounded-lg border border-violet-100 bg-violet-50 px-2.5 py-1 text-[11px] font-bold text-violet-700">{task.taskName} · {PRIORITY_LABELS[task.priority]} · {currency.format(task.commissionAmount)}</span>)}</div>}{canReceive && receipt && <div className="mt-3 grid gap-2 rounded-xl bg-zinc-50 p-3 sm:grid-cols-[170px_1fr]"><select value={receipt.result} onChange={event => setReceiptDraft(current => ({ ...current, [item.imei!]: { ...current[item.imei!], result: event.target.value as ReceiptDraft[string]['result'], scannedImei: event.target.value === 'MISSING' ? '' : current[item.imei!].scannedImei } }))} className="h-10 rounded-lg border border-zinc-200 bg-white px-2 text-sm font-bold"><option value="RECEIVED">Đã nhận đủ</option><option value="MISSING">Không nhận được</option><option value="WRONG_DEVICE">Sai máy</option><option value="DAMAGED">Lỗi/hư khi vận chuyển</option></select><input value={receipt.scannedImei} disabled={receipt.result === 'MISSING'} onChange={event => setReceiptDraft(current => ({ ...current, [item.imei!]: { ...current[item.imei!], scannedImei: event.target.value } }))} placeholder={receipt.result === 'WRONG_DEVICE' ? 'Quét IMEI máy nhận sai' : 'Quét IMEI thực nhận'} className="h-10 rounded-lg border border-zinc-200 bg-white px-3 font-mono text-sm disabled:bg-zinc-100" /></div>}</div>; })}</div></div>
             {detailTransfer.notes && <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4"><p className="text-xs font-black uppercase tracking-wide text-zinc-400">Ghi chú</p><p className="mt-2 text-sm text-zinc-700">{detailTransfer.notes}</p></div>}
           </div>
-          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-200 bg-white px-5 py-4 sm:px-7"><button onClick={() => setDetailTransfer(null)} className="h-10 rounded-xl border border-zinc-200 px-4 text-sm font-black text-zinc-700">Đóng</button>{getTransferType(detailTransfer, warehouses) === 'TECHNICAL' && detailTransfer.status === 'WAITING_KTV_ACCEPT' && <><button disabled={busy} onClick={() => runDetailAction('CANCEL_TECH')} className="inline-flex h-10 items-center gap-2 rounded-xl border border-red-200 px-4 text-sm font-black text-red-700"><RotateCcw className="h-4 w-4" /> Hủy phiếu</button><button disabled={busy || scannedTechnicalImeis.length === 0} onClick={() => runDetailAction('ACCEPT_TECH')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-black text-white disabled:opacity-40">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Barcode className="h-4 w-4" />} Xác nhận {scannedTechnicalImeis.length} máy đã nhận</button></>}{getTransferType(detailTransfer, warehouses) === 'INTER_BRANCH' && ['IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED'].includes(detailTransfer.status) && <button disabled={busy || Object.keys(receiptDraft).length === 0} onClick={() => runDetailAction('RECEIVE')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-black text-white">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Xác nhận đối soát nhận</button>}{getTransferType(detailTransfer, warehouses) === 'INTER_BRANCH' && detailTransfer.status === 'RECEIVED' && <button disabled={busy} onClick={() => runDetailAction('COMPLETE')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white"><CheckCircle2 className="h-4 w-4" /> Hoàn tất đối soát</button>}</footer>
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-200 bg-white px-5 py-4 sm:px-7"><button onClick={() => setDetailTransfer(null)} className="h-10 rounded-xl border border-zinc-200 px-4 text-sm font-black text-zinc-700">Đóng</button>{getTransferType(detailTransfer, warehouses) === 'TECHNICAL' && detailTransfer.status === 'WAITING_KTV_ACCEPT' && <><button disabled={busy} onClick={() => runDetailAction('CANCEL_TECH')} className="inline-flex h-10 items-center gap-2 rounded-xl border border-red-200 px-4 text-sm font-black text-red-700"><RotateCcw className="h-4 w-4" /> Hủy phiếu</button><button disabled={busy || scannedTechnicalImeis.length === 0} onClick={() => runDetailAction('ACCEPT_TECH')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-black text-white disabled:opacity-40">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Barcode className="h-4 w-4" />} Xác nhận {scannedTechnicalImeis.length} máy đã nhận</button></>}{getTransferType(detailTransfer, warehouses) === 'INTER_BRANCH' && ['IN_TRANSIT', 'PARTIALLY_RECEIVED', 'DISPUTED'].includes(detailTransfer.status) && <button disabled={busy || actionableReceiptResults.length === 0} onClick={() => runDetailAction('RECEIVE')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-black text-white disabled:opacity-40">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageCheck className="h-4 w-4" />} Xác nhận {actionableReceiptResults.length} IMEI đã quét</button>}{getTransferType(detailTransfer, warehouses) === 'INTER_BRANCH' && detailTransfer.status === 'RECEIVED' && <button disabled={busy} onClick={() => runDetailAction('COMPLETE')} className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white"><CheckCircle2 className="h-4 w-4" /> Hoàn tất đối soát</button>}</footer>
         </Drawer>
       )}
     </div>

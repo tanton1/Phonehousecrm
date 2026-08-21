@@ -84,7 +84,6 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
   seedInitialDataIfEmpty,
   subscribeToDevices,
-  addDeviceToFirestore,
   updateDeviceInFirestore,
   deleteDeviceFromFirestore,
   subscribeToLeads,
@@ -155,6 +154,11 @@ import {
 } from './services/firestoreService';
 import { getVietnamDateString, getVietnamTimeString } from './utils/dateTimeUtils';
 import { requestServerCheckIn, requestServerCheckOut } from './services/attendanceApiClient';
+import {
+  createInventoryIdempotencyKey,
+  fetchInventoryDevices,
+  requestImportInventoryDevices
+} from './services/inventoryApiClient';
 
 export default function App() {
   // Navigation State
@@ -770,6 +774,31 @@ export default function App() {
     return () => unsubAttendance();
   }, [authReady, firebaseUid, currentUser?.role, currentUser?.branchId]);
 
+  const refreshInventorySnapshot = useCallback(async () => {
+    if (!currentUser) return;
+    const snapshot = await fetchInventoryDevices(currentUser);
+    setDevices(snapshot.devices || []);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!authReady || !currentUser) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const snapshot = await fetchInventoryDevices(currentUser);
+        if (active) setDevices(snapshot.devices || []);
+      } catch (error) {
+        console.warn('[Inventory snapshot notice]', error);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [authReady, currentUser]);
+
   // Safe set localStorage helper to catch QuotaExceededError safely
   const safeSetLocalStorage = useCallback((key: string, data: any) => {
     try {
@@ -848,14 +877,65 @@ export default function App() {
   }, []);
 
   // Handlers with Firestore integration
-  const handleAddDevice = (device: DeviceItem) => {
-    setDevices([device, ...devices]);
-    addDeviceToFirestore(device);
+  const resolveImportDestination = (device: DeviceItem) => {
+    const locationId = String(
+      device.currentLocationId ||
+      device.warehouseId ||
+      device.warehouse ||
+      resolvedCurrentBranch.warehouseId ||
+      ''
+    );
+    const location = warehouses.find(item => String(item.id) === locationId);
+    const selectedBranch = activeBranchId && activeBranchId !== 'ALL' ? activeBranchId : '';
+    const branchId = String(device.branchId || location?.branchId || selectedBranch || currentUser?.branchId || '');
+    if (!locationId || !branchId) throw new Error('Không xác định được chi nhánh/kho nhận cho IMEI.');
+    return { branchId, locationId };
   };
 
-  const handleAddMultipleDevices = (newDevices: DeviceItem[]) => {
-    setDevices(prev => [...newDevices, ...prev]);
-    newDevices.forEach(d => addDeviceToFirestore(d));
+  const mergeImportedDevices = (imported: DeviceItem[]) => {
+    setDevices(current => {
+      const importedIds = new Set(imported.map(item => item.id));
+      const importedImeis = new Set(imported.map(item => item.imei));
+      return [...imported, ...current.filter(item => !importedIds.has(item.id) && !importedImeis.has(item.imei))];
+    });
+  };
+
+  const handleAddDevice = async (device: DeviceItem) => {
+    if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn.');
+    const destination = resolveImportDestination(device);
+    const result = await requestImportInventoryDevices({
+      ...destination,
+      sourceType: 'MANUAL_IMPORT',
+      sourceId: device.batchCode || device.id,
+      idempotencyKey: createInventoryIdempotencyKey('manual-import'),
+      devices: [device]
+    }, currentUser);
+    mergeImportedDevices(result.devices);
+  };
+
+  const handleAddMultipleDevices = async (newDevices: DeviceItem[]) => {
+    if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn.');
+    const groups = new Map<string, { branchId: string; locationId: string; devices: DeviceItem[] }>();
+    newDevices.forEach(device => {
+      const destination = resolveImportDestination(device);
+      const key = `${destination.branchId}::${destination.locationId}`;
+      const group = groups.get(key) || { ...destination, devices: [] };
+      group.devices.push(device);
+      groups.set(key, group);
+    });
+    const imported: DeviceItem[] = [];
+    for (const group of groups.values()) {
+      const result = await requestImportInventoryDevices({
+        branchId: group.branchId,
+        locationId: group.locationId,
+        sourceType: 'MANUAL_IMPORT',
+        sourceId: group.devices[0]?.batchCode || `BATCH-${Date.now()}`,
+        idempotencyKey: createInventoryIdempotencyKey('batch-import'),
+        devices: group.devices
+      }, currentUser);
+      imported.push(...result.devices);
+    }
+    mergeImportedDevices(imported);
   };
 
   const handleUpdateDevice = (device: DeviceItem) => {
@@ -1285,9 +1365,9 @@ export default function App() {
   // ==========================================
   // PURCHASE ORDERS (NHẬP HÀNG & NCC) HANDLERS
   // ==========================================
-  const handleAddPurchaseOrder = (order: PurchaseOrder, autoCreateDevices: boolean) => {
+  const handleAddPurchaseOrder = async (order: PurchaseOrder, autoCreateDevices: boolean) => {
     setPurchaseOrders(prev => [order, ...prev]);
-    addPurchaseOrderToFirestore(order);
+    await addPurchaseOrderToFirestore(order);
 
     // 1. Ghi nhận Lịch sử Giao dịch & Công nợ của Nhà Cung Cấp (NCC)
     const supplier = partners.find(p => p.id === order.supplierId || (p.name && order.supplierName && p.name.trim().toLowerCase() === order.supplierName.trim().toLowerCase()));
@@ -1390,7 +1470,10 @@ export default function App() {
               buyPrice: item.importPrice,
               sellPrice: item.expectedSellPrice || Math.round(item.importPrice * 1.15),
               status: 'in_stock',
-              warehouse: (order.warehouseId as WarehouseId) || 'KHO_TONG',
+              branchId: order.branchId || warehouses.find(location => String(location.id) === String(order.warehouseId))?.branchId || (activeBranchId !== 'ALL' ? activeBranchId : currentUser?.branchId),
+              currentLocationId: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
+              warehouseId: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
+              warehouse: (order.warehouseId as WarehouseId) || resolvedCurrentBranch.warehouseId || 'KHO_TONG',
               supplier: order.supplierName,
               supplierId: order.supplierId,
               receivedDate: order.orderDate,
@@ -1434,7 +1517,16 @@ export default function App() {
       });
 
       if (newDevicesToAdd.length > 0) {
-        handleAddMultipleDevices(newDevicesToAdd);
+        if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn.');
+        const destination = resolveImportDestination(newDevicesToAdd[0]);
+        const result = await requestImportInventoryDevices({
+          ...destination,
+          sourceType: 'PURCHASE_ORDER',
+          sourceId: order.id,
+          idempotencyKey: `purchase-order:${order.id}`,
+          devices: newDevicesToAdd
+        }, currentUser);
+        mergeImportedDevices(result.devices);
       }
     }
   };
@@ -1752,6 +1844,7 @@ export default function App() {
             warehouses={warehouses}
             branches={branches}
             onTransferSynced={handleTransferServerSync}
+            onInventoryRefresh={refreshInventorySnapshot}
           />
         )}
 

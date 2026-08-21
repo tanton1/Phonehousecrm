@@ -129,6 +129,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Canonical IMEI registry and write idempotency are server-only invariants.
+    match /imeiRegistry/{registryId} {
+      allow read, write: if false;
+    }
+
+    match /inventoryDeviceIdempotency/{requestId} {
+      allow read, write: if false;
+    }
+
     // INVOICES: Strict Single Writer Principle (Only Server Atomic Transaction via Admin SDK)
     match /invoices/{invoiceId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);

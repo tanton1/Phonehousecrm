@@ -1103,6 +1103,7 @@ export async function processCheckoutTransaction(params: {
     installmentFinancePartnerId: params.financeCompanyPartner?.id,
     notes: params.invoice.notes,
     invoice: cleanDataForFirestore(params.invoice),
+    tradeInDevice: params.tradeInDevice ? cleanDataForFirestore(params.tradeInDevice) : null,
     devicesToSell: params.devicesToSell,
     accessoriesToSell: params.accessoriesToSell,
     customerPartner: params.customerPartner ? cleanDataForFirestore(params.customerPartner) : null,

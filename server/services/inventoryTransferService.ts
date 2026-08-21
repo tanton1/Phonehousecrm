@@ -457,7 +457,16 @@ export async function processAcceptTechnicalTransfer(
   transferId: string,
   scannedImeis: string[],
   idempotencyKey: string,
-  actor: TransferActor
+  actor: TransferActor,
+  options?: {
+    preRepairInspection?: {
+      appearance: 'GOOD' | 'SCRATCHED' | 'DENTED';
+      screen: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
+      power: 'OK' | 'NO_POWER';
+      biometrics: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
+      technicianNotes?: string;
+    };
+  }
 ): Promise<{ transferId: string; transfer: any; acceptedCount: number; idempotentReplay?: boolean }> {
   assertIdempotencyKey(idempotencyKey);
   if (!scannedImeis?.length) throw new Error('SCANNED_IMEI_REQUIRED: KTV phải quét ít nhất một IMEI.');
@@ -527,6 +536,13 @@ export async function processAcceptTechnicalTransfer(
         currentLocationId: transfer.destinationLocationId,
         currentCustodianUid: actor.uid,
         currentCustodianName: actor.name || transfer.technicianName || 'Kỹ thuật viên',
+        ...(options?.preRepairInspection ? {
+          preRepairInspection: {
+            ...options.preRepairInspection,
+            inspectedAt: now,
+            technicianId: actor.uid
+          }
+        } : {}),
         acceptedAt: now,
         updatedAt: now
       });
