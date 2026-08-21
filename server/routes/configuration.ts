@@ -2,6 +2,12 @@ import { Router, Request, Response } from 'express';
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
+import {
+  normalizeOperationalPolicyVersions,
+  operationalPolicyPeriodsOverlap,
+  selectEffectiveOperationalPolicy,
+  OperationalPolicyKind
+} from '../services/operationalPolicyService';
 
 function requiredBranchId(value: unknown): string {
   const branchId = String(value || '').trim();
@@ -16,7 +22,7 @@ export function validateWarehouseDraft(input: any) {
   const name = String(input?.name || '').trim();
   const shortName = String(input?.shortName || name).trim();
   const type = String(input?.type || 'RETAIL_STORE').trim().toUpperCase();
-  const isMain = input?.isMain === true;
+  const isMain = type === 'CENTRAL';
   const parentWarehouseId = String(input?.parentWarehouseId || '').trim();
   const custodianUid = String(input?.custodianUid || input?.technicianId || '').trim();
   const isChild = Boolean(parentWarehouseId) || type === 'TECHNICIAN_SUB';
@@ -47,7 +53,15 @@ export function validateOperationalConfig(configKey: string, input: any) {
   if (!OPERATIONAL_CONFIG_KEYS.has(configKey)) throw new Error('CONFIG_KEY_INVALID');
   const name = String(input?.name || '').trim();
   const version = String(input?.version || '').trim();
+  const policyId = String(input?.policyId || '').trim().toUpperCase();
+  const effectiveFrom = String(input?.effectiveFrom || '').trim();
+  const effectiveTo = String(input?.effectiveTo || '').trim();
   if (!name || !version) throw new Error('CONFIG_NAME_VERSION_REQUIRED');
+  if (!/^[A-Z0-9_]{2,60}$/.test(policyId)) throw new Error('POLICY_ID_INVALID');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom) || (effectiveTo && !/^\d{4}-\d{2}-\d{2}$/.test(effectiveTo)) || (effectiveTo && effectiveTo < effectiveFrom)) {
+    throw new Error('POLICY_EFFECTIVE_PERIOD_INVALID');
+  }
+  const policyIdentity = { policyId, name, version, effectiveFrom, effectiveTo, isActive: input?.isActive === true };
 
   if (configKey === 'sales') {
     const requiredKeys = ['deviceProfitPercent', 'accessoryProfitPercent', 'onlineSaleSplitPercent', 'maxDiscountPercent', 'defaultMonthlyTarget'];
@@ -79,24 +93,24 @@ export function validateOperationalConfig(configKey: string, input: any) {
       return { id, name: tagName, appliesTo, calculationType, value, description: String(tag?.description || '').trim(), isActive: tag?.isActive === true };
     });
     if (input?.isActive === true && !commissionTags.some((tag: any) => tag.isActive)) throw new Error('SALES_ACTIVE_COMMISSION_TAG_REQUIRED');
-    return { id: configKey, name, version, deviceProfitPercent, accessoryProfitPercent, onlineSaleSplitPercent, maxDiscountPercent, defaultMonthlyTarget, commissionTags, isActive: input?.isActive === true };
+    return { id: configKey, ...policyIdentity, deviceProfitPercent, accessoryProfitPercent, onlineSaleSplitPercent, maxDiscountPercent, defaultMonthlyTarget, commissionTags };
   }
 
-  if (typeof input?.firstResponseMinutes !== 'number' || typeof input?.followUpAttempts !== 'number') throw new Error('CUSTOMER_CARE_CONFIG_INVALID');
+  if (typeof input?.firstResponseMinutes !== 'number' || typeof input?.followUpAttempts !== 'number' || typeof input?.completedFollowUpCommission !== 'number') throw new Error('CUSTOMER_CARE_CONFIG_INVALID');
   const firstResponseMinutes = Number(input.firstResponseMinutes);
   const followUpAttempts = Number(input.followUpAttempts);
+  const completedFollowUpCommission = Number(input.completedFollowUpCommission);
   const followUpDays = Array.isArray(input?.followUpDays)
     ? input.followUpDays.map(Number)
     : String(input?.followUpDays || '').split(',').map((value: string) => Number(value.trim())).filter(Number.isFinite);
-  if (!Number.isFinite(firstResponseMinutes) || firstResponseMinutes <= 0 || !Number.isInteger(followUpAttempts) || followUpAttempts <= 0 || !followUpDays.length || followUpDays.some((value: number) => value < 0)) {
+  if (!Number.isFinite(firstResponseMinutes) || firstResponseMinutes <= 0 || !Number.isInteger(followUpAttempts) || followUpAttempts <= 0 || !Number.isFinite(completedFollowUpCommission) || completedFollowUpCommission < 0 || !followUpDays.length || followUpDays.some((value: number) => value < 0)) {
     throw new Error('CUSTOMER_CARE_CONFIG_INVALID');
   }
   return {
-    id: configKey, name, version, firstResponseMinutes, followUpAttempts,
+    id: configKey, ...policyIdentity, firstResponseMinutes, followUpAttempts, completedFollowUpCommission,
     followUpDays: [...new Set(followUpDays)].sort((a: number, b: number) => a - b),
     requireEvidence: input?.requireEvidence === true,
-    requireQaApproval: input?.requireQaApproval === true,
-    isActive: input?.isActive === true
+    requireQaApproval: input?.requireQaApproval === true
   };
 }
 
@@ -149,6 +163,10 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         return data.type === 'CASH' && data.isActive !== false && data.active !== false && data.isArchived !== true;
       }).map(item => item.data().branchId));
       const settings = settingsSnap.exists ? settingsSnap.data()! : {};
+      const salesVersions = normalizeOperationalPolicyVersions('sales', salesSnap.exists ? salesSnap.data() : null);
+      const careVersions = normalizeOperationalPolicyVersions('customerCare', careSnap.exists ? careSnap.data() : null);
+      const activeSales = selectEffectiveOperationalPolicy(salesVersions);
+      const activeCare = selectEffectiveOperationalPolicy(careVersions);
       const checks = [
         { id: 'company', label: 'Thông tin doanh nghiệp', complete: Boolean(settings.companyName && settings.hotline && settings.headquarterAddress), detail: 'Tên doanh nghiệp, hotline và địa chỉ trụ sở' },
         { id: 'branches', label: 'Chi nhánh', complete: activeBranches.length > 0, detail: `${activeBranches.length} chi nhánh hoạt động` },
@@ -156,8 +174,8 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         { id: 'funds', label: 'Quỹ tiền mặt theo chi nhánh', complete: activeBranches.length > 0 && activeBranches.every(item => cashAccountBranches.has(item.id)), detail: `${cashAccountBranches.size}/${activeBranches.length} chi nhánh có quỹ tiền mặt` },
         { id: 'sop', label: 'Quy trình SOP', complete: sopSnap.docs.some(item => item.data().isActive !== false), detail: `${sopSnap.docs.filter(item => item.data().isActive !== false).length} SOP hoạt động` },
         { id: 'technicalTasks', label: 'Task và hoa hồng kỹ thuật', complete: taskTypesSnap.docs.some(item => item.data().isActive !== false), detail: `${taskTypesSnap.docs.filter(item => item.data().isActive !== false).length} task hoạt động` },
-        { id: 'sales', label: 'Chính sách Sales', complete: salesSnap.exists && salesSnap.data()?.isActive === true && Array.isArray(salesSnap.data()?.commissionTags) && salesSnap.data()!.commissionTags.some((tag: any) => tag.isActive === true), detail: salesSnap.exists ? `${(salesSnap.data()?.commissionTags || []).filter((tag: any) => tag.isActive === true).length} tag hoa hồng hoạt động` : 'Chưa tạo cấu hình' },
-        { id: 'customerCare', label: 'Quy trình CSKH', complete: careSnap.exists && careSnap.data()?.isActive === true, detail: careSnap.exists ? 'Đã tạo cấu hình' : 'Chưa tạo cấu hình' }
+        { id: 'sales', label: 'Chính sách Sales', complete: Boolean(activeSales && activeSales.commissionTags?.some((tag: any) => tag.isActive === true)), detail: activeSales ? `${activeSales.commissionTags.filter((tag: any) => tag.isActive === true).length} tag · hiệu lực ${activeSales.effectiveFrom}${activeSales.effectiveTo ? ` đến ${activeSales.effectiveTo}` : ''}` : 'Không có chính sách đang hiệu lực' },
+        { id: 'customerCare', label: 'Quy trình & hoa hồng CSKH', complete: Boolean(activeCare && Number.isFinite(activeCare.completedFollowUpCommission)), detail: activeCare ? `Hiệu lực ${activeCare.effectiveFrom}${activeCare.effectiveTo ? ` đến ${activeCare.effectiveTo}` : ''} · ${Number(activeCare.completedFollowUpCommission || 0).toLocaleString('vi-VN')}đ/lượt đạt chuẩn` : 'Không có chính sách đang hiệu lực' }
       ];
       return res.json({ success: true, data: { complete: checks.every(item => item.complete), checks } });
     } catch (error: any) {
@@ -167,19 +185,38 @@ export function createConfigurationRouter(db: Firestore | null): Router {
 
   router.get('/operational-configs', async (_req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
-    const snapshot = await db.collection('operationalConfigs').get();
-    const configs = Object.fromEntries(snapshot.docs.map(item => [item.id, { id: item.id, ...item.data() }]));
-    return res.json({ success: true, data: { configs } });
+    const [salesSnap, careSnap] = await Promise.all([
+      db.collection('operationalConfigs').doc('sales').get(),
+      db.collection('operationalConfigs').doc('customerCare').get()
+    ]);
+    const policyVersions = {
+      sales: normalizeOperationalPolicyVersions('sales', salesSnap.exists ? salesSnap.data() : null),
+      customerCare: normalizeOperationalPolicyVersions('customerCare', careSnap.exists ? careSnap.data() : null)
+    };
+    const configs = {
+      sales: selectEffectiveOperationalPolicy(policyVersions.sales),
+      customerCare: selectEffectiveOperationalPolicy(policyVersions.customerCare)
+    };
+    return res.json({ success: true, data: { configs, policyVersions } });
   });
 
   router.put('/operational-configs/:configKey', requireRole('ADMIN'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const configKey = String(req.params.configKey || '').trim();
+      const configKey = String(req.params.configKey || '').trim() as OperationalPolicyKind;
       const config = validateOperationalConfig(configKey, req.body);
-      const record = { ...config, updatedAt: new Date().toISOString(), updatedByUid: req.user?.uid };
-      await db.collection('operationalConfigs').doc(configKey).set(record, { merge: false });
-      return res.json({ success: true, data: { config: record } });
+      const configRef = db.collection('operationalConfigs').doc(configKey);
+      let versions: any[] = [];
+      await db.runTransaction(async transaction => {
+        const currentSnap = await transaction.get(configRef);
+        const currentVersions = normalizeOperationalPolicyVersions(configKey, currentSnap.exists ? currentSnap.data() : null);
+        const otherVersions = currentVersions.filter(policy => policy.policyId !== config.policyId);
+        if (otherVersions.some(policy => operationalPolicyPeriodsOverlap(policy, config))) throw new Error('POLICY_EFFECTIVE_PERIOD_OVERLAP');
+        versions = [...otherVersions, config].sort((left, right) => String(right.effectiveFrom).localeCompare(String(left.effectiveFrom)));
+        transaction.set(configRef, { id: configKey, versions, updatedAt: new Date().toISOString(), updatedByUid: req.user?.uid }, { merge: false });
+      });
+      const activeConfig = selectEffectiveOperationalPolicy(versions);
+      return res.json({ success: true, data: { config: activeConfig, policy: config, policyVersions: versions } });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message || 'CONFIG_SAVE_FAILED' });
     }

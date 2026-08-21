@@ -255,7 +255,7 @@ export function calculateInvoiceCommissions(
       let type: CommissionTransaction['type'] = 'OTHER_BONUS';
       const baseAmount = Math.max(0, item.totalPrice || item.unitPrice || 0);
       let rate = 0;
-      let policyId = salesConfig.id;
+      let policyId: string = salesConfig.policyId;
       let policyVersion = salesConfig.version;
 
       if (item.type === 'phone' || item.type === 'device') {
@@ -335,7 +335,7 @@ export function calculateInvoiceCommissions(
           commissionRate: salesConfig.deviceProfitPercent * onlineFactor,
           commissionAmount: Math.round((dev.price || invoice.finalAmount) * (salesConfig.deviceProfitPercent / 100) * onlineFactor),
           status: txStatus,
-          policyId: salesConfig.id,
+          policyId: salesConfig.policyId,
           policyVersion: salesConfig.version,
           occurredAt: nowStr,
           approvedAt: nowStr,

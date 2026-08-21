@@ -314,7 +314,9 @@ export default function App() {
         if (!active) return;
         setSystemSetupStatus(status);
         const role = String(currentUser.role || '').toUpperCase();
-        if (!status.complete && (role === 'ADMIN' || role === 'MANAGER')) setActiveTab('store-settings');
+        if (!status.complete && (role === 'ADMIN' || role === 'MANAGER')) {
+          setActiveTab(current => current === 'funds' ? current : 'store-settings');
+        }
       })
       .catch((error) => console.warn('[System setup status]', error));
     return () => { active = false; };
@@ -322,7 +324,7 @@ export default function App() {
 
   useEffect(() => {
     const role = String(currentUser?.role || '').toUpperCase();
-    if (systemSetupStatus && !systemSetupStatus.complete && (role === 'ADMIN' || role === 'MANAGER') && activeTab !== 'store-settings') {
+    if (systemSetupStatus && !systemSetupStatus.complete && (role === 'ADMIN' || role === 'MANAGER') && !['store-settings', 'funds'].includes(activeTab)) {
       setActiveTab('store-settings');
     }
   }, [activeTab, currentUser?.role, systemSetupStatus]);
@@ -1312,7 +1314,7 @@ export default function App() {
 
   const handleAddBranch = async (newBranch: StoreBranch) => {
     try {
-      await addBranchToFirestore(newBranch);
+      await addBranchToFirestore(newBranch, branches);
     } catch (err: any) {
       console.error('Error adding branch:', err);
       alert('Lỗi lưu chi nhánh: ' + (err?.message || 'Không có quyền thực hiện.'));
@@ -1322,7 +1324,7 @@ export default function App() {
 
   const handleUpdateBranch = async (updatedBranch: StoreBranch) => {
     try {
-      await updateBranchInFirestore(updatedBranch);
+      await updateBranchInFirestore(updatedBranch, branches);
     } catch (err: any) {
       console.error('Error updating branch:', err);
       alert('Lỗi cập nhật chi nhánh: ' + (err?.message || 'Không có quyền thực hiện (Yêu cầu quyền ADMIN).'));

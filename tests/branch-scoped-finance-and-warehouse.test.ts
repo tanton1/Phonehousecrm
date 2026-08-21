@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { validateFinanceAccountDraft } from '../server/routes/finance';
 import { validateOperationalConfig, validateWarehouseDraft } from '../server/routes/configuration';
+import { normalizeOperationalPolicyVersions, operationalPolicyPeriodsOverlap, selectEffectiveOperationalPolicy } from '../server/services/operationalPolicyService';
 
 describe('Branch-scoped finance accounts', () => {
   it('rejects missing and global branch identifiers', () => {
@@ -51,16 +52,27 @@ describe('Branch-scoped warehouse hierarchy', () => {
 
   it('prevents a main warehouse from also being a child', () => {
     expect(() => validateWarehouseDraft({
-      id: 'W1', branchId: 'CN01', code: 'W1', name: 'Kho', isMain: true, parentWarehouseId: 'MAIN', custodianUid: 'USER_01'
+      id: 'W1', branchId: 'CN01', code: 'W1', name: 'Kho', type: 'CENTRAL',
+      isMain: true, parentWarehouseId: 'MAIN', custodianUid: 'USER_01'
     })).toThrow(/MAIN_WAREHOUSE_CANNOT_HAVE_PARENT/);
+  });
+
+  it('derives main-warehouse capability from the warehouse type only', () => {
+    expect(validateWarehouseDraft({
+      id: 'MAIN', branchId: 'CN01', code: 'MAIN', name: 'Kho tổng', type: 'CENTRAL'
+    })).toMatchObject({ type: 'CENTRAL', isMain: true, isChild: false });
+
+    expect(validateWarehouseDraft({
+      id: 'RETAIL', branchId: 'CN01', code: 'RETAIL', name: 'Kho bán lẻ', type: 'RETAIL_STORE', isMain: true
+    })).toMatchObject({ type: 'RETAIL_STORE', isMain: false, isChild: false });
   });
 });
 
 describe('Mandatory operational setup', () => {
   it('validates Sales configuration without injecting business defaults', () => {
-    expect(() => validateOperationalConfig('sales', { name: 'Sales 2026', version: 'v1' })).toThrow(/SALES_CONFIG_INVALID/);
+    expect(() => validateOperationalConfig('sales', { policyId: 'SALE_V1', effectiveFrom: '2026-01-01', name: 'Sales 2026', version: 'v1' })).toThrow(/SALES_CONFIG_INVALID/);
     expect(validateOperationalConfig('sales', {
-      name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
+      policyId: 'SALE_V1', effectiveFrom: '2026-01-01', name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
       onlineSaleSplitPercent: 50, maxDiscountPercent: 3, defaultMonthlyTarget: 800000000, isActive: true,
       commissionTags: [
         { id: 'may_full_bh', name: 'Máy full BH', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 150000, isActive: true },
@@ -74,7 +86,7 @@ describe('Mandatory operational setup', () => {
 
   it('rejects duplicate, invalid and inactive-only Sales commission tags', () => {
     const base = {
-      name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
+      policyId: 'SALE_V1', effectiveFrom: '2026-01-01', name: 'Sales 2026', version: 'v1', deviceProfitPercent: 4, accessoryProfitPercent: 8,
       onlineSaleSplitPercent: 50, maxDiscountPercent: 3, defaultMonthlyTarget: 800000000, isActive: true
     };
     expect(() => validateOperationalConfig('sales', { ...base, commissionTags: [] })).toThrow(/SALES_COMMISSION_TAG_REQUIRED/);
@@ -88,11 +100,31 @@ describe('Mandatory operational setup', () => {
 
   it('requires an explicit CSKH schedule', () => {
     expect(() => validateOperationalConfig('customerCare', {
-      name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3, followUpDays: []
+      policyId: 'CSKH_V1', effectiveFrom: '2026-01-01', name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3, followUpDays: []
     })).toThrow(/CUSTOMER_CARE_CONFIG_INVALID/);
     expect(validateOperationalConfig('customerCare', {
-      name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3,
-      followUpDays: [7, 1, 7, 30], requireEvidence: true, requireQaApproval: true, isActive: true
+      policyId: 'CSKH_V1', effectiveFrom: '2026-01-01', name: 'CSKH', version: 'v1', firstResponseMinutes: 15, followUpAttempts: 3,
+      followUpDays: [7, 1, 7, 30], completedFollowUpCommission: 20000, requireEvidence: true, requireQaApproval: true, isActive: true
     })).toMatchObject({ id: 'customerCare', followUpDays: [1, 7, 30], isActive: true });
+  });
+
+  it('selects one effective policy and rejects overlapping enabled periods', () => {
+    const versions = normalizeOperationalPolicyVersions('sales', { versions: [
+      { policyId: 'SALE_H1', name: 'H1', version: '1', effectiveFrom: '2026-01-01', effectiveTo: '2026-06-30', isActive: true },
+      { policyId: 'SALE_H2', name: 'H2', version: '2', effectiveFrom: '2026-07-01', effectiveTo: '', isActive: true }
+    ] });
+    expect(selectEffectiveOperationalPolicy(versions, '2026-08-21')?.policyId).toBe('SALE_H2');
+    expect(operationalPolicyPeriodsOverlap(versions[0], versions[1])).toBe(false);
+    expect(operationalPolicyPeriodsOverlap(versions[1], { effectiveFrom: '2026-08-01', effectiveTo: '2026-12-31', isActive: true })).toBe(true);
+  });
+
+  it('rejects incomplete or reversed policy effective dates', () => {
+    const sales = {
+      policyId: 'SALE_V1', name: 'Sales 2026', version: 'v1', effectiveFrom: '2026-12-31', effectiveTo: '2026-01-01',
+      deviceProfitPercent: 10, accessoryProfitPercent: 15, onlineSaleSplitPercent: 50,
+      maxDiscountPercent: 5, defaultMonthlyTarget: 500000000, isActive: false, commissionTags: []
+    };
+    expect(() => validateOperationalConfig('sales', sales)).toThrow(/POLICY_EFFECTIVE_PERIOD_INVALID/);
+    expect(() => validateOperationalConfig('sales', { ...sales, effectiveFrom: '' })).toThrow(/POLICY_EFFECTIVE_PERIOD_INVALID/);
   });
 });

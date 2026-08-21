@@ -1,6 +1,7 @@
 import { Firestore, FieldValue, DocumentReference } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 import { imeiRegistryId, normalizeImei } from './inventoryDeviceService';
+import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
 
 export interface CheckoutResult {
   success: boolean;
@@ -246,8 +247,8 @@ export async function executeAtomicCheckout(
     // Resolve every selected commission tag from the active policy. Client values are never trusted.
     const salesConfigRef = db.collection('operationalConfigs').doc('sales');
     const salesConfigSnap = await transaction.get(salesConfigRef);
-    const salesConfig = salesConfigSnap.exists ? salesConfigSnap.data()! : null;
-    if (!salesConfig || salesConfig.isActive !== true || !Array.isArray(salesConfig.commissionTags)) {
+    const salesConfig = selectEffectiveOperationalPolicy(normalizeOperationalPolicyVersions('sales', salesConfigSnap.exists ? salesConfigSnap.data() : null));
+    if (!salesConfig || !Array.isArray(salesConfig.commissionTags)) {
       throw new Error('SALES_CONFIG_REQUIRED: Chưa có chính sách Sales và tag hoa hồng được kích hoạt.');
     }
     const activeCommissionTags = salesConfig.commissionTags.filter((tag: any) => tag?.isActive === true);
@@ -267,7 +268,7 @@ export async function executeAtomicCheckout(
           id: String(tag.id), name: String(tag.name), appliesTo: itemType,
           calculationType: tag.calculationType, value: Number(tag.value),
           description: String(tag.description || ''), isActive: true,
-          policyId: 'sales', policyVersion: String(salesConfig.version)
+          policyId: String(salesConfig.policyId || 'sales'), policyVersion: String(salesConfig.version)
         };
       });
     };

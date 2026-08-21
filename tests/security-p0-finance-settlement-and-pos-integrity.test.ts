@@ -39,7 +39,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
               }
               if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return {
                 exists: true,
-                data: () => ({ isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
+                data: () => ({ name: 'Sales test', isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
               };
               if (ref.col === 'partners') {
                 return {
@@ -162,7 +162,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
               }
               if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return {
                 exists: true,
-                data: () => ({ isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
+                data: () => ({ name: 'Sales test', isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
               };
               return { exists: false };
             },

@@ -25,7 +25,7 @@ import {
   TechnicalTaskTypeConfig
 } from '../types';
 import {
-  fetchOperationalConfigs,
+  fetchOperationalConfigurationState,
   fetchSystemSetupStatus,
   fetchTechnicalTaskSettings,
   saveOperationalConfig,
@@ -64,14 +64,14 @@ const tabs: Array<{ id: SetupTab; label: string; icon: React.ElementType }> = [
 ];
 
 const emptySales = (): SalesSetupConfig => ({
-  id: 'sales', name: '', version: '', deviceProfitPercent: Number.NaN,
+  id: 'sales', policyId: '', name: '', version: '', effectiveFrom: '', effectiveTo: '', deviceProfitPercent: Number.NaN,
   accessoryProfitPercent: Number.NaN, onlineSaleSplitPercent: Number.NaN,
   maxDiscountPercent: Number.NaN, defaultMonthlyTarget: Number.NaN, commissionTags: [], isActive: true
 });
 
 const emptyCare = (): CustomerCareSetupConfig => ({
-  id: 'customerCare', name: '', version: '', firstResponseMinutes: Number.NaN,
-  followUpAttempts: Number.NaN, followUpDays: [], requireEvidence: false,
+  id: 'customerCare', policyId: '', name: '', version: '', effectiveFrom: '', effectiveTo: '', firstResponseMinutes: Number.NaN,
+  followUpAttempts: Number.NaN, followUpDays: [], completedFollowUpCommission: Number.NaN, requireEvidence: false,
   requireQaApproval: false, isActive: true
 });
 
@@ -92,16 +92,20 @@ function NumberField({ label, value, onChange, suffix }: { label: string; value:
   );
 }
 
-function OperationalPolicyPanel({ kind, config, onSaved }: {
+function OperationalPolicyPanel({ kind, policies, onSaved }: {
   kind: 'sales' | 'customerCare';
-  config?: SalesSetupConfig | CustomerCareSetupConfig;
+  policies: Array<SalesSetupConfig | CustomerCareSetupConfig>;
   onSaved: () => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<SalesSetupConfig | CustomerCareSetupConfig>(() => config || (kind === 'sales' ? emptySales() : emptyCare()));
+  const createEmpty = () => kind === 'sales' ? emptySales() : emptyCare();
+  const [draft, setDraft] = useState<SalesSetupConfig | CustomerCareSetupConfig>(createEmpty);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const editing = policies.some(policy => policy.policyId === draft.policyId);
 
-  useEffect(() => setDraft(config || (kind === 'sales' ? emptySales() : emptyCare())), [config, kind]);
+  useEffect(() => {
+    setDraft(current => policies.find(policy => policy.policyId === current.policyId) || policies[0] || createEmpty());
+  }, [policies, kind]);
 
   const save = async () => {
     setSaving(true);
@@ -109,7 +113,7 @@ function OperationalPolicyPanel({ kind, config, onSaved }: {
     try {
       await saveOperationalConfig(kind, draft);
       await onSaved();
-      setMessage('Đã lưu và kích hoạt cấu hình.');
+      setMessage('Đã lưu phiên bản chính sách.');
     } catch (error: any) {
       setMessage(error?.message || 'Không thể lưu cấu hình.');
     } finally {
@@ -119,17 +123,44 @@ function OperationalPolicyPanel({ kind, config, onSaved }: {
 
   const sales = kind === 'sales' ? draft as SalesSetupConfig : null;
   const care = kind === 'customerCare' ? draft as CustomerCareSetupConfig : null;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+  const statusOf = (policy: SalesSetupConfig | CustomerCareSetupConfig) => {
+    if (!policy.isActive) return { label: 'Đã tắt', className: 'bg-zinc-100 text-zinc-500' };
+    if (policy.effectiveFrom > today) return { label: 'Sắp hiệu lực', className: 'bg-blue-50 text-blue-700' };
+    if (policy.effectiveTo && policy.effectiveTo < today) return { label: 'Hết hiệu lực', className: 'bg-zinc-100 text-zinc-500' };
+    return { label: 'Đang áp dụng', className: 'bg-emerald-50 text-emerald-700' };
+  };
   return (
+    <div className="grid gap-5 xl:grid-cols-[320px_1fr]">
     <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="mb-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
         <h2 className="text-lg font-black text-zinc-900">{kind === 'sales' ? 'Chính sách Sales' : 'Quy trình CSKH'}</h2>
-        <p className="mt-1 text-sm text-zinc-500">Không có giá trị mặc định. Quản trị viên phải nhập và kích hoạt trước khi vận hành.</p>
+        <p className="mt-1 text-sm text-zinc-500">Lưu nhiều phiên bản, mỗi phiên bản có lịch hiệu lực riêng.</p>
+        </div>
+        <button type="button" onClick={() => { setDraft(createEmpty()); setMessage(''); }} className="shrink-0 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-black text-white">+ Tạo mới</button>
       </div>
+      <div className="space-y-2">
+        {policies.length === 0 && <div className="rounded-xl border border-dashed p-4 text-sm text-zinc-500">Chưa có phiên bản nào.</div>}
+        {policies.map(policy => { const status = statusOf(policy); return <button key={policy.policyId} type="button" onClick={() => { setDraft(policy); setMessage(''); }} className={`w-full rounded-xl border p-3 text-left ${draft.policyId === policy.policyId ? 'border-orange-500 bg-orange-50' : 'border-zinc-200 hover:border-orange-300'}`}>
+          <div className="flex items-start justify-between gap-2"><div><p className="font-black text-zinc-900">{policy.name}</p><p className="text-xs text-zinc-500">{policy.policyId} · {policy.version}</p></div><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${status.className}`}>{status.label}</span></div>
+          <p className="mt-2 text-xs text-zinc-600">{policy.effectiveFrom} → {policy.effectiveTo || 'Không giới hạn'}</p>
+        </button>; })}
+      </div>
+    </section>
+    <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="mb-5"><h3 className="font-black text-zinc-900">{editing ? 'Chỉnh sửa phiên bản' : 'Tạo phiên bản mới'}</h3><p className="text-xs text-zinc-500">Các phiên bản đang bật không được chồng lấn thời gian hiệu lực.</p></div>
       <div className="grid gap-4 md:grid-cols-2">
+        <label className="space-y-1.5 text-sm font-semibold text-zinc-700">
+          <span>Mã chính sách</span>
+          <input disabled={editing} value={draft.policyId} onChange={e => setDraft({ ...draft, policyId: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })} placeholder={kind === 'sales' ? 'SALE_2026_Q4' : 'CSKH_2026_Q4'} className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 disabled:bg-zinc-100" />
+        </label>
         <label className="space-y-1.5 text-sm font-semibold text-zinc-700">
           <span>Tên chính sách</span>
           <input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 outline-none focus:border-orange-500" />
         </label>
+        <label className="space-y-1.5 text-sm font-semibold text-zinc-700"><span>Hiệu lực từ</span><input type="date" value={draft.effectiveFrom} onChange={e => setDraft({ ...draft, effectiveFrom: e.target.value })} className="w-full rounded-xl border border-zinc-200 px-3 py-2.5" /></label>
+        <label className="space-y-1.5 text-sm font-semibold text-zinc-700"><span>Hiệu lực đến (để trống nếu không giới hạn)</span><input type="date" value={draft.effectiveTo || ''} onChange={e => setDraft({ ...draft, effectiveTo: e.target.value })} className="w-full rounded-xl border border-zinc-200 px-3 py-2.5" /></label>
         <label className="space-y-1.5 text-sm font-semibold text-zinc-700">
           <span>Phiên bản</span>
           <input value={draft.version} onChange={e => setDraft({ ...draft, version: e.target.value })} placeholder="Ví dụ: 2026.01" className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 outline-none focus:border-orange-500" />
@@ -144,6 +175,7 @@ function OperationalPolicyPanel({ kind, config, onSaved }: {
         {care && <>
           <NumberField label="Phản hồi đầu tiên trong" value={care.firstResponseMinutes} suffix="phút" onChange={value => setDraft({ ...care, firstResponseMinutes: value })} />
           <NumberField label="Số lần theo dõi tối thiểu" value={care.followUpAttempts} onChange={value => setDraft({ ...care, followUpAttempts: value })} />
+          <NumberField label="Hoa hồng mỗi lượt CSKH hoàn tất đạt chuẩn" value={care.completedFollowUpCommission} suffix="đ" onChange={value => setDraft({ ...care, completedFollowUpCommission: value })} />
           <label className="space-y-1.5 text-sm font-semibold text-zinc-700 md:col-span-2">
             <span>Các ngày chăm sóc sau giao dịch (phân cách dấu phẩy)</span>
             <input value={care.followUpDays.join(', ')} onChange={e => setDraft({ ...care, followUpDays: e.target.value.split(',').map(v => Number(v.trim())).filter(Number.isFinite) })} placeholder="Ví dụ: 1, 3, 7, 30" className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 outline-none focus:border-orange-500" />
@@ -174,14 +206,14 @@ function OperationalPolicyPanel({ kind, config, onSaved }: {
           })}
         </div>
       </div>}
-      <label className="mt-4 flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} /> Kích hoạt cấu hình</label>
+      <label className="mt-4 flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} /> Bật phiên bản này để hệ thống xét áp dụng</label>
       <div className="mt-5 flex items-center gap-3">
         <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">
-          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu cấu hình
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu phiên bản
         </button>
         {message && <span className="text-sm text-zinc-600">{message}</span>}
       </div>
-    </section>
+    </section></div>
   );
 }
 
@@ -242,14 +274,14 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
 export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab = 'overview', onNavigate, onSetupStatusChange, ...storeProps }) => {
   const [activeTab, setActiveTab] = useState<SetupTab>(initialTab);
   const [status, setStatus] = useState<SystemSetupStatus | null>(null);
-  const [configs, setConfigs] = useState<{ sales?: SalesSetupConfig; customerCare?: CustomerCareSetupConfig }>({});
+  const [policyVersions, setPolicyVersions] = useState<{ sales: SalesSetupConfig[]; customerCare: CustomerCareSetupConfig[] }>({ sales: [], customerCare: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [nextStatus, nextConfigs] = await Promise.all([fetchSystemSetupStatus(), fetchOperationalConfigs()]);
-      setStatus(nextStatus); setConfigs(nextConfigs); onSetupStatusChange?.(nextStatus);
+      const [nextStatus, configurationState] = await Promise.all([fetchSystemSetupStatus(), fetchOperationalConfigurationState()]);
+      setStatus(nextStatus); setPolicyVersions(configurationState.policyVersions); onSetupStatusChange?.(nextStatus);
     } catch (loadError: any) { setError(loadError?.message || 'Không tải được trạng thái khởi tạo.'); }
     finally { setLoading(false); }
   }, [onSetupStatusChange]);
@@ -274,10 +306,10 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
       onSaveSettings={async value => { await storeProps.onSaveSettings(value); await load(); }}
       onNavigateToCashbook={(branchId) => { if (branchId) sessionStorage.setItem('phonehouse_target_branch', branchId); onNavigate('funds'); }}
     />}
-    {activeTab === 'finance' && <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><div className="flex flex-col justify-between gap-4 md:flex-row md:items-center"><div><h2 className="text-lg font-black">Tài khoản tài chính theo chi nhánh</h2><p className="text-sm text-zinc-500">Mỗi quỹ tiền mặt và tài khoản ngân hàng bắt buộc có branchId.</p></div><button onClick={() => onNavigate('funds')} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white">Mở quản lý sổ quỹ</button></div><div className="mt-5 grid gap-3 md:grid-cols-2">{storeProps.branches.filter(b => b.isActive !== false).map(branch => { const accounts = (storeProps.funds || []).filter(f => f.branchId === branch.id && (f as any).isArchived !== true); return <div key={branch.id} className="rounded-xl border p-4"><div className="flex items-center gap-2 font-black"><Building2 className="h-4 w-4 text-orange-600" />{branch.name}</div><p className="mt-2 text-sm text-zinc-600">{accounts.length ? `${accounts.length} tài khoản đã định danh` : 'Chưa tạo tài khoản'}</p></div>; })}</div></section>}
+    {activeTab === 'finance' && <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><div className="flex flex-col justify-between gap-4 md:flex-row md:items-center"><div><h2 className="text-lg font-black">Tài khoản tài chính theo chi nhánh</h2><p className="text-sm text-zinc-500">Mỗi quỹ tiền mặt và tài khoản ngân hàng bắt buộc có branchId.</p></div><button onClick={() => onNavigate('funds')} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white">Mở thiết lập tài khoản & Sổ quỹ</button></div><div className="mt-5 grid gap-3 md:grid-cols-2">{storeProps.branches.filter(b => b.isActive !== false).map(branch => { const accounts = (storeProps.funds || []).filter(f => f.branchId === branch.id && (f as any).isArchived !== true); return <div key={branch.id} className="rounded-xl border p-4"><div className="flex items-center gap-2 font-black"><Building2 className="h-4 w-4 text-orange-600" />{branch.name}</div><p className="mt-2 text-sm text-zinc-600">{accounts.length ? `${accounts.length} tài khoản đã định danh` : 'Chưa tạo tài khoản'}</p></div>; })}</div></section>}
     {activeTab === 'sop' && <SOPManagementView branches={storeProps.branches} staffMembers={storeProps.staffMembers} onNotify={() => { void load(); }} />}
     {activeTab === 'technicalTasks' && <TechnicalTaskPanel onSaved={load} />}
-    {activeTab === 'sales' && <OperationalPolicyPanel kind="sales" config={configs.sales} onSaved={load} />}
-    {activeTab === 'customerCare' && <OperationalPolicyPanel kind="customerCare" config={configs.customerCare} onSaved={load} />}
+    {activeTab === 'sales' && <OperationalPolicyPanel kind="sales" policies={policyVersions.sales} onSaved={load} />}
+    {activeTab === 'customerCare' && <OperationalPolicyPanel kind="customerCare" policies={policyVersions.customerCare} onSaved={load} />}
   </div>;
 };

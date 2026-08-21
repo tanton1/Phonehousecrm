@@ -224,7 +224,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [warehouseForm, setWarehouseForm] = useState<Partial<WarehouseInfo>>({
     id: '',
     code: '',
-    branchId: branches[0]?.id || '',
+    branchId: '',
     name: '',
     shortName: '',
     address: '',
@@ -296,6 +296,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         const updated: StoreBranch = {
           ...editingBranch,
           ...(branchForm as StoreBranch),
+          warehouseId: '',
           allowedPublicIps: ips,
           storePublicIp: ips.join(', '),
           attendanceRadius: radius,
@@ -341,7 +342,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     setWarehouseForm({
       id: newId,
       code: `KHO-0${warehouses.length + 1}`,
-      branchId: branches[0]?.id || '',
+      branchId: '',
       name: '',
       shortName: '',
       address: '',
@@ -365,6 +366,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     setEditingWarehouse(warehouse);
     setWarehouseForm({
       ...warehouse,
+      type: warehouse.isMain ? 'CENTRAL' : warehouse.type,
       custodianUid: warehouse.custodianUid || warehouse.technicianId || '',
       custodianName: warehouse.custodianName || warehouse.technicianName || ''
     });
@@ -378,6 +380,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
       return;
     }
     const isChild = warehouseForm.type === 'TECHNICIAN_SUB' || Boolean(warehouseForm.parentWarehouseId);
+    const isMain = warehouseForm.type === 'CENTRAL';
     if (isChild && (!warehouseForm.parentWarehouseId || !warehouseForm.custodianUid)) {
       alert('Kho con bắt buộc chọn kho tổng cùng chi nhánh và nhân viên chịu trách nhiệm.');
       return;
@@ -394,7 +397,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         custodianUid: isChild ? warehouseForm.custodianUid : undefined,
         custodianName: isChild ? warehouseForm.custodianName : undefined,
         parentWarehouseId: isChild ? warehouseForm.parentWarehouseId : undefined,
-        isMain: isChild ? false : Boolean(warehouseForm.isMain),
+        isMain: isChild ? false : isMain,
         color: warehouseColor
       } : {
         id: (warehouseForm.id || `KHO_${Date.now()}`) as WarehouseId,
@@ -413,7 +416,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         custodianUid: isChild ? warehouseForm.custodianUid : undefined,
         parentWarehouseId: isChild ? warehouseForm.parentWarehouseId : undefined,
         capacityNotes: warehouseForm.capacityNotes || '',
-        isMain: isChild ? false : Boolean(warehouseForm.isMain),
+        isMain: isChild ? false : isMain,
         isActive: warehouseForm.isActive ?? true
       };
       if (editingWarehouse) await onUpdateWarehouse(warehouse);
@@ -538,7 +541,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-zinc-200">
             <div>
               <h3 className="font-black text-zinc-900 text-base">Danh Sách Cửa Hàng & Showroom Bán Lẻ</h3>
-              <p className="text-xs text-zinc-500">Mỗi chi nhánh được liên kết với một kho hàng riêng và tài khoản ngân hàng nhận tiền</p>
+              <p className="text-xs text-zinc-500">Tạo cửa hàng trước. Kho và tài khoản tài chính được tạo riêng rồi gắn bằng mã chi nhánh.</p>
             </div>
             <button
               onClick={handleOpenAddBranch}
@@ -551,7 +554,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {branches.map((branch) => {
-              const matchedWh = warehouses.find(w => w.id === branch.warehouseId);
+              const branchWarehouses = warehouses.filter(w => w.branchId === branch.id && w.isActive !== false);
               return (
                 <div 
                   key={branch.id} 
@@ -633,7 +636,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                         </div>
                         <div className="flex items-center space-x-2">
                           <Warehouse className="w-3.5 h-3.5 text-orange-500" />
-                          <span>Kho liên kết: <strong>{matchedWh ? matchedWh.shortName : branch.warehouseId}</strong></span>
+                          <span>Kho thuộc cửa hàng: <strong>{branchWarehouses.length} kho</strong></span>
                         </div>
                       </div>
                     </div>
@@ -1356,7 +1359,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveBranch} className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
-              <div className="grid grid-cols-2 gap-3">
+              <div>
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Mã chi nhánh *</label>
                   <input
@@ -1367,18 +1370,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     onChange={(e) => setBranchForm({ ...branchForm, code: e.target.value })}
                     className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">Kho hàng liên kết</label>
-                  <select
-                    value={branchForm.warehouseId}
-                    onChange={(e) => setBranchForm({ ...branchForm, warehouseId: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-900"
-                  >
-                    {warehouses.map((w) => (
-                      <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
-                    ))}
-                  </select>
                 </div>
               </div>
 
@@ -1584,6 +1575,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   <span className="text-xs font-bold text-zinc-700">Đang hoạt động</span>
                 </label>
               </div>
+              <p className="-mt-2 text-[11px] text-zinc-500">Trụ sở chính là chi nhánh đại diện mặc định cho báo cáo và điều phối. Tồn kho, doanh thu và tài khoản vẫn tách riêng như mọi chi nhánh khác. Chỉ có một trụ sở chính.</p>
 
               <div className="pt-3 border-t border-zinc-100 flex gap-2">
                 <button
@@ -1628,7 +1620,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             <form onSubmit={handleSaveWarehouse} className="p-5 space-y-4 overflow-y-auto custom-scrollbar flex-1">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">
-                  Chi nhánh sở hữu kho <span className="text-rose-600">*</span>
+                  Cửa hàng / Chi nhánh sở hữu kho <span className="text-rose-600">*</span>
                 </label>
                 <select
                   required
@@ -1645,7 +1637,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   })}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900 disabled:opacity-70"
                 >
-                  <option value="">Chọn chi nhánh</option>
+                  <option value="">Bắt buộc chọn cửa hàng trước</option>
                   {branches.filter(branch => branch.isActive !== false).map(branch => (
                     <option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>
                   ))}
@@ -1676,7 +1668,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       setWarehouseForm({
                         ...warehouseForm,
                         type,
-                        isMain: type === 'TECHNICIAN_SUB' ? false : warehouseForm.isMain,
+                        isMain: type === 'CENTRAL',
                         parentWarehouseId: type === 'TECHNICIAN_SUB' ? warehouseForm.parentWarehouseId : undefined,
                         custodianUid: type === 'TECHNICIAN_SUB' ? warehouseForm.custodianUid : undefined,
                         custodianName: type === 'TECHNICIAN_SUB' ? warehouseForm.custodianName : undefined
@@ -1684,7 +1676,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     }}
                     className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-900"
                   >
-                    <option value="CENTRAL">Kho Tổng Phân Phối (Central Hub)</option>
+                    <option value="CENTRAL">Kho tổng – được phép có kho con</option>
                     <option value="TECHNICIAN_SUB">Kho Con Kỹ Thuật Viên (Gán cho từng KTV)</option>
                     <option value="RETAIL_STORE">Kho Cửa Hàng Bán Lẻ (Showroom)</option>
                     <option value="REPAIR_WARRANTY">Kho Tiếp Nhận & Bảo Hành</option>
@@ -1823,17 +1815,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    disabled={warehouseForm.type === 'TECHNICIAN_SUB'}
-                    checked={Boolean(warehouseForm.isMain)}
-                    onChange={(e) => setWarehouseForm({ ...warehouseForm, isMain: e.target.checked })}
-                    className="w-4 h-4 text-rose-600 rounded disabled:opacity-50"
-                  />
-                  <span className="text-xs font-bold text-zinc-700">Kho tổng – được phép có kho con</span>
-                </label>
-
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
                     checked={warehouseForm.isActive}
                     onChange={(e) => setWarehouseForm({ ...warehouseForm, isActive: e.target.checked })}
                     className="w-4 h-4 text-orange-500 rounded"
@@ -1841,6 +1822,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   <span className="text-xs font-bold text-zinc-700">Đang hoạt động</span>
                 </label>
               </div>
+              <p className="-mt-2 text-[11px] text-zinc-500">Kho tổng là kho cha có thể quản lý kho con. Kho bán lẻ chỉ giữ tồn tại cửa hàng và không có kho con. Chọn “Kho tổng” trong Phân loại là đủ.</p>
 
               <div className="pt-3 border-t border-zinc-100 flex gap-2">
                 <button

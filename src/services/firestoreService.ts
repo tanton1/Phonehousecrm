@@ -589,20 +589,33 @@ export function subscribeToBranches(onData: (branches: StoreBranch[]) => void) {
   }, (error) => handleFirestoreError(error, OperationType.LIST, BRANCHES_COL));
 }
 
-export async function addBranchToFirestore(branch: StoreBranch) {
+export async function addBranchToFirestore(branch: StoreBranch, existingBranches: StoreBranch[] = []) {
   const path = `${BRANCHES_COL}/${branch.id}`;
   try {
-    await setDoc(doc(db, BRANCHES_COL, branch.id), cleanDataForFirestore(branch));
+    const batch = writeBatch(db);
+    batch.set(doc(db, BRANCHES_COL, branch.id), cleanDataForFirestore(branch));
+    if (branch.isHeadquarter) {
+      existingBranches.filter(item => item.isHeadquarter && item.id !== branch.id).forEach(item => {
+        batch.set(doc(db, BRANCHES_COL, item.id), { isHeadquarter: false }, { merge: true });
+      });
+    }
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
 
-export async function updateBranchInFirestore(branch: StoreBranch) {
+export async function updateBranchInFirestore(branch: StoreBranch, existingBranches: StoreBranch[] = []) {
   const path = `${BRANCHES_COL}/${branch.id}`;
   try {
-    const docRef = doc(db, BRANCHES_COL, branch.id);
-    await setDoc(docRef, cleanDataForFirestore(branch), { merge: true });
+    const batch = writeBatch(db);
+    batch.set(doc(db, BRANCHES_COL, branch.id), cleanDataForFirestore(branch), { merge: true });
+    if (branch.isHeadquarter) {
+      existingBranches.filter(item => item.isHeadquarter && item.id !== branch.id).forEach(item => {
+        batch.set(doc(db, BRANCHES_COL, item.id), { isHeadquarter: false }, { merge: true });
+      });
+    }
+    await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }

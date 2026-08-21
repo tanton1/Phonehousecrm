@@ -105,8 +105,11 @@ export interface StockTransferItem {
 
 export interface SalesSetupConfig {
   id: 'sales';
+  policyId: string;
   name: string;
   version: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
   deviceProfitPercent: number;
   accessoryProfitPercent: number;
   onlineSaleSplitPercent: number;
@@ -130,17 +133,21 @@ export interface SalesCommissionTag {
 }
 
 export interface SalesCommissionTagSnapshot extends SalesCommissionTag {
-  policyId: 'sales';
+  policyId: string;
   policyVersion: string;
 }
 
 export interface CustomerCareSetupConfig {
   id: 'customerCare';
+  policyId: string;
   name: string;
   version: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
   firstResponseMinutes: number;
   followUpAttempts: number;
   followUpDays: number[];
+  completedFollowUpCommission: number;
   requireEvidence: boolean;
   requireQaApproval: boolean;
   isActive: boolean;
