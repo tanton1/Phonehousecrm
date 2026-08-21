@@ -47,28 +47,7 @@ import {
   LeadAppointment,
   LeadQuote
 } from '../types';
-import { 
-  INITIAL_DEVICES, 
-  INITIAL_LEADS, 
-  INITIAL_TRADE_INS, 
-  INITIAL_WARRANTY_TICKETS, 
-  INITIAL_INVOICES,
-  INITIAL_USERS,
-  INITIAL_PARTNERS,
-  INITIAL_TRANSFERS,
-  INITIAL_BRANCHES,
-  INITIAL_WAREHOUSES,
-  INITIAL_STORE_SETTINGS,
-  INITIAL_FUNDS,
-  INITIAL_CASH_TRANSACTIONS,
-  INITIAL_SPARE_PARTS,
-  INITIAL_PURCHASE_ORDERS,
-  REPAIR_SERVICES_PRICELIST,
-  RepairServiceItem
-} from '../data/initialData';
-import { INITIAL_CATALOG_ITEMS } from '../data/catalogData';
-import { INITIAL_TODAY_ATTENDANCE_LIST, INITIAL_STAFF_MEMBERS, INITIAL_LEAVE_REQUESTS } from '../data/attendanceData';
-import { INITIAL_SOP_TEMPLATES, INITIAL_TODAY_SHIFT_CHECKLISTS, INITIAL_HANDOVER_REPORTS } from '../data/sopTemplatesData';
+import { RepairServiceItem } from '../data/initialData';
 
 // Firestore Collection Names Constants
 const DEVICES_COL = 'devices';
@@ -119,45 +98,6 @@ export function cleanDataForFirestore<T>(data: T): T {
     return cleaned as T;
   }
   return data;
-}
-
-// Auto-seed Initial Configuration if Firestore is empty (Only seeds system branches, warehouses and settings without demo transaction data)
-export async function seedInitialDataIfEmpty() {
-  try {
-    const branchesSnap = await getDocs(collection(db, BRANCHES_COL));
-    if (branchesSnap.empty) {
-      console.log('Seeding initial system branches, warehouses and settings to Firestore...');
-      const batch = writeBatch(db);
-
-      INITIAL_BRANCHES.forEach((br) => {
-        const ref = doc(db, BRANCHES_COL, br.id);
-        batch.set(ref, cleanDataForFirestore(br));
-      });
-
-      INITIAL_WAREHOUSES.forEach((wh) => {
-        const ref = doc(db, WAREHOUSES_COL, wh.id);
-        batch.set(ref, cleanDataForFirestore(wh));
-      });
-
-      INITIAL_FUNDS.forEach((f) => {
-        const ref = doc(db, FUNDS_COL, f.id);
-        batch.set(ref, cleanDataForFirestore(f));
-      });
-
-      REPAIR_SERVICES_PRICELIST.forEach((r) => {
-        const ref = doc(db, REPAIR_SERVICES_COL, r.id);
-        batch.set(ref, cleanDataForFirestore(r));
-      });
-
-      const settingsRef = doc(db, SETTINGS_COL, 'main');
-      batch.set(settingsRef, cleanDataForFirestore(INITIAL_STORE_SETTINGS));
-
-      await batch.commit();
-      console.log('✅ Initial system configuration saved to Firestore!');
-    }
-  } catch (error) {
-    console.warn('Initial seeding note (will use local fallback if offline):', error);
-  }
 }
 
 // Function to wipe all transaction & demo collections in Firestore
@@ -460,12 +400,7 @@ export function subscribeToPartners(onData: (partners: Partner[]) => void) {
       snapshot.forEach((doc) => {
         items.push(doc.data() as Partner);
       });
-      if (items.length > 0) {
-        onData(items);
-      } else {
-        // Fallback to default partners if collection is empty
-        onData(INITIAL_PARTNERS);
-      }
+      onData(items);
     },
     (error) => {
       handleFirestoreError(error, OperationType.GET, PARTNERS_COL);
@@ -507,11 +442,7 @@ export function subscribeToFunds(onData: (funds: FundAccount[]) => void) {
   const colRef = collection(db, FUNDS_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as FundAccount);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_FUNDS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, FUNDS_COL));
 }
 
@@ -549,11 +480,7 @@ export function subscribeToCashTransactions(onData: (txs: CashTransaction[]) => 
   const colRef = collection(db, CASH_TRANSACTIONS_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as CashTransaction);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_CASH_TRANSACTIONS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, CASH_TRANSACTIONS_COL));
 }
 
@@ -630,11 +557,7 @@ export function subscribeToTransfers(onData: (transfers: StockTransferSlip[]) =>
   const colRef = collection(db, TRANSFERS_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as StockTransferSlip);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_TRANSFERS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, TRANSFERS_COL));
 }
 
@@ -821,11 +744,7 @@ export function subscribeToWarehouses(onData: (warehouses: WarehouseInfo[]) => v
   const colRef = collection(db, WAREHOUSES_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as WarehouseInfo);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_WAREHOUSES);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, WAREHOUSES_COL));
 }
 
@@ -1325,11 +1244,7 @@ export function subscribeToPurchaseOrders(onData: (orders: PurchaseOrder[]) => v
   const colRef = collection(db, PURCHASE_ORDERS_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as PurchaseOrder);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_PURCHASE_ORDERS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, PURCHASE_ORDERS_COL));
 }
 
@@ -1368,11 +1283,7 @@ export function subscribeToCatalog(onData: (items: MasterCatalogItem[]) => void)
   const colRef = collection(db, CATALOG_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as MasterCatalogItem);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_CATALOG_ITEMS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, CATALOG_COL));
 }
 
@@ -1476,11 +1387,7 @@ export function subscribeToShiftHandovers(onData: (reports: ShiftHandoverReport[
   const colRef = collection(db, SHIFT_HANDOVER_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as ShiftHandoverReport);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_HANDOVER_REPORTS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, SHIFT_HANDOVER_COL));
 }
 
@@ -1509,11 +1416,7 @@ export function subscribeToSOPTemplates(onData: (templates: SOPTemplateItem[]) =
   const colRef = collection(db, SOP_TEMPLATES_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as SOPTemplateItem);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_SOP_TEMPLATES);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, SOP_TEMPLATES_COL));
 }
 
@@ -1552,11 +1455,7 @@ export function subscribeToDailyChecklists(onData: (items: DailyShiftChecklistIt
   const colRef = collection(db, DAILY_CHECKLISTS_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as DailyShiftChecklistItem);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_TODAY_SHIFT_CHECKLISTS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, DAILY_CHECKLISTS_COL));
 }
 
@@ -1595,11 +1494,7 @@ export function subscribeToLeaveRequests(onData: (requests: LeaveRequest[]) => v
   const colRef = collection(db, LEAVE_REQUESTS_COL);
   return onSnapshot(colRef, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as LeaveRequest);
-    if (data.length > 0) {
-      onData(data);
-    } else {
-      onData(INITIAL_LEAVE_REQUESTS);
-    }
+    onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, LEAVE_REQUESTS_COL));
 }
 

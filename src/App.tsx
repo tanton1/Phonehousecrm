@@ -3,22 +3,7 @@ import { GeofenceBackgroundTracker } from "./components/GeofenceBackgroundTracke
 import { INITIAL_TODAY_ATTENDANCE_LIST } from "./data/attendanceData";
 import { RoleSwitcher, WorkspaceMode } from './components/RoleSwitcher';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  INITIAL_DEVICES, 
-  INITIAL_LEADS, 
-  INITIAL_TRADE_INS, 
-  INITIAL_WARRANTY_TICKETS, 
-  INITIAL_INVOICES,
-  INITIAL_USERS,
-  INITIAL_PARTNERS,
-  INITIAL_FUNDS,
-  INITIAL_CASH_TRANSACTIONS,
-  INITIAL_TRANSFERS,
-  INITIAL_BRANCHES,
-  INITIAL_WAREHOUSES,
-  INITIAL_STORE_SETTINGS,
-  INITIAL_PURCHASE_ORDERS
-} from './data/initialData';
+import { INITIAL_STORE_SETTINGS } from './data/initialData';
 import { 
   DeviceItem, 
   Lead, 
@@ -61,7 +46,6 @@ import { PurchaseOrdersView } from './components/PurchaseOrdersView';
 import { InventoryView } from './components/InventoryView';
 import { WarehouseTransfersView } from './components/WarehouseTransfersView';
 import { MasterCatalogView } from './components/MasterCatalogView';
-import { INITIAL_CATALOG_ITEMS } from './data/catalogData';
 import { MasterCatalogItem } from './types';
 import { ProductsView } from './components/ProductsView';
 import { InvoicesView } from './components/InvoicesView';
@@ -82,7 +66,6 @@ import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
 import { testFirestoreConnection, auth } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
-  seedInitialDataIfEmpty,
   subscribeToDevices,
   updateDeviceInFirestore,
   deleteDeviceFromFirestore,
@@ -160,6 +143,35 @@ import {
   requestImportInventoryDevices
 } from './services/inventoryApiClient';
 
+const BUSINESS_DATA_RESET_MARKER = 'phonehouse_business_data_reset_2026_08_21_v1';
+const BUSINESS_CACHE_KEYS = [
+  'istore_devices',
+  'istore_leads',
+  'istore_tradeins',
+  'istore_warranty',
+  'istore_invoices',
+  'istore_users',
+  'istore_partners',
+  'phonehouse_funds',
+  'phonehouse_cash_transactions',
+  'phonehouse_catalog',
+  'phonehouse_products',
+  'phonehouse_transfers',
+  'phonehouse_purchase_orders',
+  'phonehouse_branches',
+  'phonehouse_warehouses',
+  'phonehouse_store_settings',
+  'phonehouse_active_user'
+] as const;
+
+function clearLegacyBusinessCacheOnce() {
+  if (localStorage.getItem(BUSINESS_DATA_RESET_MARKER) === 'done') return;
+  BUSINESS_CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
+  localStorage.setItem(BUSINESS_DATA_RESET_MARKER, 'done');
+}
+
+clearLegacyBusinessCacheOnce();
+
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -168,47 +180,47 @@ export default function App() {
   // Persistence State
   const [devices, setDevices] = useState<DeviceItem[]>(() => {
     const saved = localStorage.getItem('istore_devices');
-    return saved ? JSON.parse(saved) : INITIAL_DEVICES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [leads, setLeads] = useState<Lead[]>(() => {
     const saved = localStorage.getItem('istore_leads');
-    return saved ? JSON.parse(saved) : INITIAL_LEADS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [tradeIns, setTradeIns] = useState<TradeInAppraisal[]>(() => {
     const saved = localStorage.getItem('istore_tradeins');
-    return saved ? JSON.parse(saved) : INITIAL_TRADE_INS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [warrantyTickets, setWarrantyTickets] = useState<WarrantyTicket[]>(() => {
     const saved = localStorage.getItem('istore_warranty');
-    return saved ? JSON.parse(saved) : INITIAL_WARRANTY_TICKETS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [invoices, setInvoices] = useState<SalesInvoice[]>(() => {
     const saved = localStorage.getItem('istore_invoices');
-    return saved ? JSON.parse(saved) : INITIAL_INVOICES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [users, setUsers] = useState<UserAccount[]>(() => {
     const saved = localStorage.getItem('istore_users');
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [partners, setPartners] = useState<Partner[]>(() => {
     const saved = localStorage.getItem('istore_partners');
-    return saved ? JSON.parse(saved) : INITIAL_PARTNERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [funds, setFunds] = useState<FundAccount[]>(() => {
     const saved = localStorage.getItem('phonehouse_funds');
-    return saved ? JSON.parse(saved) : INITIAL_FUNDS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [cashTransactions, setCashTransactions] = useState<CashTransaction[]>(() => {
     const saved = localStorage.getItem('phonehouse_cash_transactions');
-    return saved ? JSON.parse(saved) : INITIAL_CASH_TRANSACTIONS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   
@@ -216,64 +228,25 @@ export default function App() {
     const saved = localStorage.getItem('phonehouse_catalog');
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Force update if the cached version has fewer items than our new programmatic 400+ SKU generation
-      if (parsed.length < 100) return INITIAL_CATALOG_ITEMS;
       return parsed;
     }
-    return INITIAL_CATALOG_ITEMS;
+    return [];
   });
 
   const [products, setProducts] = useState<ProductItem[]>(() => {
     const saved = localStorage.getItem('phonehouse_products');
     if (saved) return JSON.parse(saved);
-    return [
-      {
-        id: 'PROD-1A2B3C',
-        sku: 'PK-OP15PM-TR',
-        name: 'Ốp lưng iPhone 15 Pro Max Trong Suốt Magsafe',
-        category: 'Phụ kiện',
-        brand: 'Torras',
-        buyPrice: 150000,
-        sellPrice: 350000,
-        stockQuantity: 45,
-        minStockLevel: 10,
-        status: 'active'
-      },
-      {
-        id: 'PROD-4D5E6F',
-        sku: 'PK-SAC20W-AP',
-        name: 'Củ sạc Apple 20W Type-C Chính hãng (VN/A)',
-        category: 'Phụ kiện',
-        brand: 'Apple',
-        buyPrice: 380000,
-        sellPrice: 550000,
-        stockQuantity: 28,
-        minStockLevel: 15,
-        status: 'active'
-      },
-      {
-        id: 'PROD-7G8H9I',
-        sku: 'LK-PIN-13PM-ZN',
-        name: 'Pin thay thế iPhone 13 Pro Max',
-        category: 'Linh kiện',
-        brand: 'Zin bóc máy',
-        buyPrice: 650000,
-        sellPrice: 1200000,
-        stockQuantity: 5,
-        minStockLevel: 10,
-        status: 'active'
-      }
-    ];
+    return [];
   });
 
   const [transfers, setTransfers] = useState<StockTransferSlip[]>(() => {
     const saved = localStorage.getItem('phonehouse_transfers');
-    return saved ? JSON.parse(saved) : INITIAL_TRANSFERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
     const saved = localStorage.getItem('phonehouse_purchase_orders');
-    return saved ? JSON.parse(saved) : INITIAL_PURCHASE_ORDERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [branches, setBranches] = useState<StoreBranch[]>(() => {
@@ -283,7 +256,7 @@ export default function App() {
 
   const [warehouses, setWarehouses] = useState<WarehouseInfo[]>(() => {
     const saved = localStorage.getItem('phonehouse_warehouses');
-    return saved ? JSON.parse(saved) : INITIAL_WAREHOUSES;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [spareParts, setSpareParts] = useState<SparePart[]>([]);
@@ -610,73 +583,50 @@ export default function App() {
     let unsubCatalog = () => {};
     let unsubAttendance = () => {};
 
-    // 2. Setup real-time Firestore subscriptions (bypassing auth check since local login might be used)
-    seedInitialDataIfEmpty();
+    // 2. Setup real-time Firestore subscriptions. An empty snapshot is authoritative.
 
     unsubDevices = subscribeToDevices((remoteDevices) => {
-      if (remoteDevices && remoteDevices.length > 0) {
-        setDevices(remoteDevices);
-      }
+      setDevices(remoteDevices || []);
     });
 
     unsubLeads = subscribeToLeads((remoteLeads) => {
-      if (remoteLeads && remoteLeads.length > 0) {
-        setLeads(remoteLeads);
-      }
+      setLeads(remoteLeads || []);
     });
 
     unsubTradeIns = subscribeToTradeIns((remoteTradeIns) => {
-      if (remoteTradeIns && remoteTradeIns.length > 0) {
-        setTradeIns(remoteTradeIns);
-      }
+      setTradeIns(remoteTradeIns || []);
     });
 
     unsubWarranty = subscribeToWarrantyTickets((remoteWarranty) => {
-      if (remoteWarranty && remoteWarranty.length > 0) {
-        setWarrantyTickets(remoteWarranty);
-      }
+      setWarrantyTickets(remoteWarranty || []);
     });
 
     unsubInvoices = subscribeToInvoices((remoteInvoices) => {
-      if (remoteInvoices && remoteInvoices.length > 0) {
-        setInvoices(remoteInvoices);
-      }
+      setInvoices(remoteInvoices || []);
     });
 
     unsubUsers = subscribeToUsers((remoteUsers) => {
-      if (remoteUsers && remoteUsers.length > 0) {
-        setUsers(remoteUsers);
-      }
+      setUsers(remoteUsers || []);
     });
 
     unsubPartners = subscribeToPartners((remotePartners) => {
-      if (remotePartners && remotePartners.length > 0) {
-        setPartners(remotePartners);
-      }
+      setPartners(remotePartners || []);
     });
 
     unsubFunds = subscribeToFunds((remoteFunds) => {
-      if (remoteFunds && remoteFunds.length > 0) {
-        setFunds(remoteFunds);
-      }
+      setFunds(remoteFunds || []);
     });
 
     unsubCashTxs = subscribeToCashTransactions((remoteTxs) => {
-      if (remoteTxs && remoteTxs.length > 0) {
-        setCashTransactions(remoteTxs);
-      }
+      setCashTransactions(remoteTxs || []);
     });
 
     unsubTransfers = subscribeToTransfers((remoteTransfers) => {
-      if (remoteTransfers && remoteTransfers.length > 0) {
-        setTransfers(remoteTransfers);
-      }
+      setTransfers(remoteTransfers || []);
     });
 
     unsubProducts = subscribeToProducts((remoteProducts) => {
-      if (remoteProducts && remoteProducts.length > 0) {
-        setProducts(remoteProducts);
-      }
+      setProducts(remoteProducts || []);
     });
 
     unsubBranches = subscribeToBranches((remoteBranches) => {
@@ -686,9 +636,7 @@ export default function App() {
     });
 
     unsubWarehouses = subscribeToWarehouses((remoteWarehouses) => {
-      if (remoteWarehouses && remoteWarehouses.length > 0) {
-        setWarehouses(remoteWarehouses);
-      }
+      setWarehouses(remoteWarehouses || []);
     });
 
     unsubStoreSettings = subscribeToStoreSettings((remoteSettings) => {
@@ -698,15 +646,11 @@ export default function App() {
     });
 
     unsubPurchaseOrders = subscribeToPurchaseOrders((remoteOrders) => {
-      if (remoteOrders && remoteOrders.length > 0) {
-        setPurchaseOrders(remoteOrders);
-      }
+      setPurchaseOrders(remoteOrders || []);
     });
 
     unsubCatalog = subscribeToCatalog((remoteCatalog) => {
-      if (remoteCatalog && remoteCatalog.length > 0) {
-        setCatalogItems(remoteCatalog);
-      }
+      setCatalogItems(remoteCatalog || []);
     });
 
     const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
