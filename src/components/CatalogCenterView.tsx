@@ -323,20 +323,20 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
     setBulkModelIds(current => current.includes(modelId) ? current.filter(id => id !== modelId) : [...current, modelId]);
   };
 
-  const addCodeValue = (setter: React.Dispatch<React.SetStateAction<CodeValue[]>>) => {
-    setter(current => [...current, { id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: '', code: '' }]);
+  // Biến thể chỉ được lấy từ Bộ từ điển. Chọn/bỏ chọn trực tiếp giúp tạo ma
+  // trận nhanh hơn, đồng thời không mở lại đường nhập mã tự do ở frontend.
+  const toggleCodeValue = (setter: React.Dispatch<React.SetStateAction<CodeValue[]>>, option: CodeValue) => {
+    const normalized = codeLabel(option.code);
+    setter(current => current.some(row => codeLabel(row.code) === normalized)
+      ? current.filter(row => codeLabel(row.code) !== normalized)
+      : [...current, { id: option.id, label: option.label, code: option.code }]);
     setPreview(null);
   };
 
-  const updateCodeValue = (setter: React.Dispatch<React.SetStateAction<CodeValue[]>>, id: string, key: 'label' | 'code', value: string) => {
-    setter(current => current.map(row => row.id === id ? { ...row, [key]: value } : row));
-    setPreview(null);
-  };
-
-  const removeCodeValue = (setter: React.Dispatch<React.SetStateAction<CodeValue[]>>, id: string) => {
-    setter(current => current.filter(row => row.id !== id));
-    setPreview(null);
-  };
+  useEffect(() => {
+    const configuredUnits = dictionaryOptionsFor('ATTRIBUTE', 'UNIT', true);
+    if (!bulkUnit && configuredUnits.length === 1) setBulkUnit(configuredUnits[0]);
+  }, [dictionaries, bulkUnit]);
 
   const buildBulkCandidates = (): CatalogCandidateInput[] => {
     const modelRows = selectedModels;
@@ -482,7 +482,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
   const handleCreateModel = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!modelDraft.brandName.trim() || !codeLabel(modelDraft.brandCode) || !modelDraft.modelName.trim() || !codeLabel(modelDraft.modelCode)) {
-      showNotice('Tên hãng, mã hãng, tên model và modelCode là bắt buộc. Mã được quản trị viên tự thiết lập.');
+      showNotice('Chọn thương hiệu đã thiết lập, rồi nhập tên model và modelCode.');
       return;
     }
     if (!dictionaryForScope('BRAND').some(entry => codeLabel(entry.code) === codeLabel(modelDraft.brandCode))) {
@@ -867,8 +867,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
               <form onSubmit={handleCreateModel} className="rounded-2xl border border-orange-200 bg-orange-50/50 p-3">
                 <div className="mb-2 flex items-center justify-between"><p className="text-xs font-black text-orange-900">Khai báo model mới</p><button type="button" onClick={() => setIsModelFormOpen(false)} className="rounded-lg p-1 text-zinc-500 hover:bg-white"><X className="h-4 w-4" /></button></div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <div><FieldLabel required>Tên hãng</FieldLabel><Input value={modelDraft.brandName} onChange={event => setModelDraft(draft => ({ ...draft, brandName: event.target.value }))} placeholder="Ví dụ: hãng do admin khai báo" /></div>
-                  <div><FieldLabel required>Mã hãng</FieldLabel><Input value={modelDraft.brandCode} onChange={event => setModelDraft(draft => ({ ...draft, brandCode: event.target.value }))} placeholder="Mã chuẩn, ví dụ: APP" /></div>
+                  <div className="sm:col-span-2"><FieldLabel required>Thương hiệu đã thiết lập</FieldLabel><Select value={modelDraft.brandCode} onChange={event => { const selected = dictionaryForScope('BRAND').find(entry => codeLabel(entry.code) === event.target.value); setModelDraft(draft => ({ ...draft, brandCode: selected?.code || '', brandName: selected?.label || '' })); }}><option value="">Chọn từ Bộ từ điển mã</option>{dictionaryForScope('BRAND').map(entry => <option key={entry.id} value={codeLabel(entry.code)}>{entry.label} · {entry.code}</option>)}</Select><p className="mt-1 text-[10px] text-zinc-500">Chưa có hãng? Tạo một mã BRAND trong Bộ từ điển trước.</p></div>
                   <div><FieldLabel>Series</FieldLabel><Input value={modelDraft.seriesName} onChange={event => setModelDraft(draft => ({ ...draft, seriesName: event.target.value }))} placeholder="Có thể để trống" /></div>
                   <div><FieldLabel>Năm ra mắt</FieldLabel><Input type="number" value={modelDraft.releaseYear} onChange={event => setModelDraft(draft => ({ ...draft, releaseYear: event.target.value }))} placeholder="2026" /></div>
                   <div><FieldLabel required>Tên model</FieldLabel><Input value={modelDraft.modelName} onChange={event => setModelDraft(draft => ({ ...draft, modelName: event.target.value }))} placeholder="Tên hiển thị chính thức" /></div>
@@ -958,13 +957,13 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
             <div className="space-y-4 xl:col-span-7">
               {bulkKind === 'DEVICE' ? (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <VariantEditor title="3. Dung lượng / cấu hình" description="Chọn mã thuộc tính trong nhóm STORAGE đã được thiết lập." rows={bulkStorageValues} options={dictionaryOptionsFor('ATTRIBUTE', 'STORAGE', true)} onAdd={() => addCodeValue(setBulkStorageValues)} onSelectOption={(id, option) => { updateCodeValue(setBulkStorageValues, id, 'code', option.code); updateCodeValue(setBulkStorageValues, id, 'label', option.label); }} onRemove={id => removeCodeValue(setBulkStorageValues, id)} placeholders={['Tên hiển thị', 'Chọn mã']} />
-                  <VariantEditor title="4. Màu sắc" description="Chọn mã thuộc tính trong nhóm COLOR đã được thiết lập." rows={bulkColorValues} options={dictionaryOptionsFor('ATTRIBUTE', 'COLOR', true)} onAdd={() => addCodeValue(setBulkColorValues)} onSelectOption={(id, option) => { updateCodeValue(setBulkColorValues, id, 'code', option.code); updateCodeValue(setBulkColorValues, id, 'label', option.label); }} onRemove={id => removeCodeValue(setBulkColorValues, id)} placeholders={['Tên hiển thị', 'Chọn mã']} />
+                  <VariantPicker title="3. Dung lượng / cấu hình" description="Tick các mã thuộc tính STORAGE đã được thiết lập." selectedCodes={bulkStorageValues.map(row => row.code)} options={dictionaryOptionsFor('ATTRIBUTE', 'STORAGE', true)} onToggle={option => toggleCodeValue(setBulkStorageValues, option)} />
+                  <VariantPicker title="4. Màu sắc" description="Tick các mã thuộc tính COLOR đã được thiết lập." selectedCodes={bulkColorValues.map(row => row.code)} options={dictionaryOptionsFor('ATTRIBUTE', 'COLOR', true)} onToggle={option => toggleCodeValue(setBulkColorValues, option)} />
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <VariantEditor title="3. Hãng / nhà sản xuất" description="Chọn từ thương hiệu/nhà sản xuất đã được thiết lập." rows={bulkManufacturerValues} options={dictionaryOptionsFor('BRAND')} onAdd={() => addCodeValue(setBulkManufacturerValues)} onSelectOption={(id, option) => { updateCodeValue(setBulkManufacturerValues, id, 'code', option.code); updateCodeValue(setBulkManufacturerValues, id, 'label', option.label); }} onRemove={id => removeCodeValue(setBulkManufacturerValues, id)} placeholders={['Tên hãng', 'Chọn mã']} />
-                  <VariantEditor title="4. Công nghệ / cấp chất lượng" description="Chọn từ thuộc tính trong nhóm QUALITY đã được thiết lập." rows={bulkQualityValues} options={dictionaryOptionsFor('ATTRIBUTE', 'QUALITY', true)} onAdd={() => addCodeValue(setBulkQualityValues)} onSelectOption={(id, option) => { updateCodeValue(setBulkQualityValues, id, 'code', option.code); updateCodeValue(setBulkQualityValues, id, 'label', option.label); }} onRemove={id => removeCodeValue(setBulkQualityValues, id)} placeholders={['Tên cấp/phiên bản', 'Chọn mã']} />
+                  <VariantPicker title="3. Hãng / nhà sản xuất" description="Tick các thương hiệu/nhà sản xuất đã được thiết lập." selectedCodes={bulkManufacturerValues.map(row => row.code)} options={dictionaryOptionsFor('BRAND')} onToggle={option => toggleCodeValue(setBulkManufacturerValues, option)} />
+                  <VariantPicker title="4. Công nghệ / cấp chất lượng" description="Tick các mã QUALITY đã được thiết lập." selectedCodes={bulkQualityValues.map(row => row.code)} options={dictionaryOptionsFor('ATTRIBUTE', 'QUALITY', true)} onToggle={option => toggleCodeValue(setBulkQualityValues, option)} />
                 </div>
               )}
               <MatrixSummary kind={bulkKind} modelCount={selectedModels.length} firstCount={bulkKind === 'DEVICE' ? Math.max(bulkStorageValues.filter(row => row.label || row.code).length, 1) : Math.max(bulkManufacturerValues.filter(row => row.label || row.code).length, 1)} secondCount={bulkKind === 'DEVICE' ? Math.max(bulkColorValues.filter(row => row.label || row.code).length, 1) : Math.max(bulkQualityValues.filter(row => row.label || row.code).length, 1)} />
@@ -1000,30 +999,25 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
   );
 };
 
-function VariantEditor({
+function VariantPicker({
   title,
   description,
-  rows,
+  selectedCodes,
   options,
-  onAdd,
-  onSelectOption,
-  onRemove,
-  placeholders
+  onToggle
 }: {
   title: string;
   description: string;
-  rows: CodeValue[];
+  selectedCodes: string[];
   options: CodeValue[];
-  onAdd: () => void;
-  onSelectOption: (id: string, option: CodeValue) => void;
-  onRemove: (id: string) => void;
-  placeholders: [string, string];
+  onToggle: (option: CodeValue) => void;
 }) {
+  const selected = new Set(selectedCodes.map(codeLabel));
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-start justify-between gap-2"><div><h2 className="text-sm font-black">{title}</h2><p className="mt-0.5 text-[11px] leading-4 text-zinc-500">{description}</p></div><button type="button" onClick={onAdd} className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-zinc-950 px-2.5 py-1.5 text-[10px] font-bold text-white hover:bg-black"><Plus className="h-3 w-3 text-orange-400" /> Thêm</button></div>
+      <div className="mb-3"><h2 className="text-sm font-black">{title}</h2><p className="mt-0.5 text-[11px] leading-4 text-zinc-500">{description}</p></div>
       {!options.length && <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-800">Chưa có mã phù hợp trong Bộ từ điển. Hãy tạo mã thuộc tính/thương hiệu trước; form không tự sinh mã.</div>}
-      {!rows.length ? <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-5 text-center text-[11px] text-zinc-500">Chưa có biến thể. Bấm “Thêm” để tạo các ô của ma trận.</div> : <div className="space-y-2">{rows.map((row, index) => <div key={row.id} className="grid grid-cols-[1fr_0.8fr_auto] gap-1.5"><Input readOnly value={row.label} placeholder={index === 0 ? placeholders[0] : 'Tên hiển thị'} className="bg-zinc-50 text-zinc-600" /><Select value={row.code} disabled={!options.length} onChange={event => { const option = options.find(item => item.code === event.target.value); if (option) onSelectOption(row.id, option); }}><option value="">{index === 0 ? placeholders[1] : 'Chọn mã'}</option>{options.map(option => <option key={option.id} value={option.code}>{option.label} · {option.code}</option>)}</Select><IconButton label="Bỏ biến thể" onClick={() => onRemove(row.id)} className="h-9 w-9 border border-zinc-200 text-zinc-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"><X className="h-4 w-4" /></IconButton></div>)}</div>}
+      {options.length > 0 && <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">{options.map(option => { const isSelected = selected.has(codeLabel(option.code)); return <button key={option.id} type="button" onClick={() => onToggle(option)} className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition ${isSelected ? 'border-orange-500 bg-orange-50 text-orange-900' : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50'}`}><span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${isSelected ? 'border-orange-600 bg-orange-600 text-white' : 'border-zinc-300 bg-white text-transparent'}`}><Check className="h-3 w-3" /></span><span className="min-w-0 flex-1 truncate text-[11px] font-bold">{option.label}</span><CodeBadge code={option.code} /></button>; })}</div>}
     </div>
   );
 }
