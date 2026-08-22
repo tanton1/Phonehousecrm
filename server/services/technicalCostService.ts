@@ -88,6 +88,81 @@ function canAccessBranch(actor: TechnicalCostActor, branchId: string): boolean {
   return role === 'ADMIN' || role === 'REGIONAL_MANAGER' || actor.branchId === branchId || (actor.assignedBranchIds || []).includes(branchId);
 }
 
+/**
+ * A technical task must explicitly describe the parts it may consume.  `partId`
+ * is retained only for backwards compatibility; part ids are warehouse-scoped,
+ * therefore new policies should use `sku` and/or `category`.
+ */
+type TaskPartTemplate = {
+  partId?: string;
+  sku?: string;
+  category?: string;
+  quantity?: number;
+  maxQuantity?: number;
+  allowSubstitution?: boolean;
+};
+
+function normalizePartToken(value: unknown): string {
+  return String(value || '').trim().toLocaleUpperCase('vi');
+}
+
+function taskPartTemplates(line: any): TaskPartTemplate[] {
+  return Array.isArray(line?.requiredParts)
+    ? line.requiredParts.filter((rule: any) => rule && typeof rule === 'object')
+    : [];
+}
+
+function partMatchesTaskTemplate(part: any, template: TaskPartTemplate): boolean {
+  const expectedPartId = String(template.partId || '').trim();
+  const expectedSku = normalizePartToken(template.sku);
+  const expectedCategory = normalizePartToken(template.category);
+  const actualPartId = String(part?.id || '').trim();
+  const actualSku = normalizePartToken(part?.sku);
+  const actualCategory = normalizePartToken(part?.category);
+  // A rule may be category-only (PIN), SKU-only (PIN-15-PRO), or exact.
+  const skuMustMatch = !!expectedSku && !(template.allowSubstitution === true && !!expectedCategory);
+  return (!expectedPartId || expectedPartId === actualPartId)
+    && (!skuMustMatch || expectedSku === actualSku)
+    && (!expectedCategory || expectedCategory === actualCategory);
+}
+
+function matchingTaskTemplate(line: any, part: any): TaskPartTemplate | null {
+  return taskPartTemplates(line).find(template => partMatchesTaskTemplate(part, template)) || null;
+}
+
+function assertTaskPartModelCompatibility(workOrder: any, line: any, part: any): void {
+  const compatibleModels = Array.isArray(part?.compatibleModels)
+    ? part.compatibleModels.map(normalizePartToken).filter(Boolean)
+    : [];
+  if (compatibleModels.length === 0) return;
+  const model = normalizePartToken(
+    workOrder?.deviceModel
+    || workOrder?.model
+    || line?.deviceModel
+    || line?.model
+    || workOrder?.deviceSnapshot?.model
+  );
+  // Older work orders can lack a model snapshot. Do not falsely reject them;
+  // all new work orders should carry one before a compatibility policy is used.
+  if (model && !compatibleModels.includes(model)) throw new Error('SPARE_PART_MODEL_INCOMPATIBLE');
+}
+
+function assertTechnicianUsesOwnWarehouse(actor: TechnicalCostActor, warehouse: any): void {
+  // Technical leads are still technicians for physical issue purposes.  Only
+  // stock-management roles may issue directly from a central warehouse.
+  if (isPartStockApprover(actor)) return;
+  if (String(warehouse?.type || '') !== 'TECHNICIAN_SUB') throw new Error('TECHNICIAN_PERSONAL_WAREHOUSE_REQUIRED');
+  if (String(warehouse?.custodianUid || '') !== actor.uid) throw new Error('TECHNICIAN_PERSONAL_WAREHOUSE_FORBIDDEN');
+}
+
+function isPartStockApprover(actor: TechnicalCostActor): boolean {
+  return ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'].includes(normalizedRole(actor));
+}
+
+function isPartSupplyApprover(actor: TechnicalCostActor): boolean {
+  return isPartStockApprover(actor) || normalizedRole(actor) === 'ACCOUNTANT';
+}
+
 function assertIdempotencyKey(value: unknown): string {
   const key = String(value || '').trim();
   if (key.length < 8 || key.length > 160) throw new Error('IDEMPOTENCY_KEY_REQUIRED');
@@ -213,7 +288,9 @@ export async function processReceiveTechnicalSparePart(
   },
   actor: TechnicalCostActor
 ): Promise<{ part: any; lot: any; receiptId: string; idempotentReplay?: boolean }> {
-  if (!isElevated(actor)) throw new Error('SPARE_PART_RECEIPT_FORBIDDEN');
+  // Supplier/opening-balance receipts are posted by the stock function, not
+  // by a KTV.  A KTV uses the replenishment request flow below instead.
+  if (!isPartStockApprover(actor) && normalizedRole(actor) !== 'TECH_LEAD') throw new Error('SPARE_PART_RECEIPT_FORBIDDEN');
   const key = assertIdempotencyKey(input.idempotencyKey);
   const sku = String(input.sku || '').trim().toUpperCase();
   const name = String(input.name || '').trim();
@@ -260,6 +337,10 @@ export async function processReceiveTechnicalSparePart(
     if (!warehouseSnap.exists) throw new Error('PART_WAREHOUSE_NOT_FOUND');
     const warehouse = warehouseSnap.data()!;
     if (warehouse.isActive === false || warehouse.isArchived === true || warehouseBranchId(warehouse) !== branchId) throw new Error('PART_WAREHOUSE_BRANCH_MISMATCH');
+    // Supplier receipts and opening balances always land in Kho Tổng.  Child
+    // KTV stock is created only by an approved transfer, preserving custody
+    // and the source lot/cost audit trail.
+    if (String(warehouse.type || '') !== 'CENTRAL') throw new Error('SPARE_PART_RECEIPT_MUST_BE_CENTRAL');
     const existingPart = partSnap.exists ? partSnap.data()! : null;
     if (existingPart && (
       String(existingPart.branchId || '') !== branchId
@@ -373,6 +454,423 @@ export async function processReceiveTechnicalSparePart(
   });
 }
 
+/**
+ * A KTV never decrements the central balance directly.  They request a
+ * replenishment to their own TECHNICIAN_SUB warehouse; approval fulfils a
+ * traceable transfer and creates a usable destination balance/lot.
+ */
+export async function processCreateTechnicalPartStockRequest(
+  db: Firestore,
+  input: {
+    sourceWarehouseId: string;
+    targetWarehouseId: string;
+    partId: string;
+    lotId?: string;
+    quantity: number;
+    reason: string;
+    workOrderId?: string;
+    workOrderLineId?: string;
+    idempotencyKey: string;
+  },
+  actor: TechnicalCostActor
+): Promise<{ request: any; idempotentReplay?: boolean }> {
+  const key = assertIdempotencyKey(input.idempotencyKey);
+  const quantity = positiveInteger(input.quantity);
+  const sourceWarehouseId = String(input.sourceWarehouseId || '').trim();
+  const targetWarehouseId = String(input.targetWarehouseId || '').trim();
+  const partId = String(input.partId || '').trim();
+  const lotId = String(input.lotId || '').trim() || null;
+  const reason = String(input.reason || '').trim();
+  if (!sourceWarehouseId || !targetWarehouseId || !partId || reason.length < 5) throw new Error('PART_STOCK_REQUEST_FIELDS_REQUIRED');
+  const idemRef = db.collection('technicalOperationIdempotency').doc(idempotencyId('PART_STOCK_REQUEST', key));
+  const sourceWarehouseRef = db.collection('warehouses').doc(sourceWarehouseId);
+  const targetWarehouseRef = db.collection('warehouses').doc(targetWarehouseId);
+  const partRef = db.collection('spareParts').doc(partId);
+  const lotRef = lotId ? db.collection('sparePartLots').doc(lotId) : null;
+
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) {
+      const requestRef = db.collection('technicalPartStockRequests').doc(String(idemSnap.data()?.requestId || ''));
+      const requestSnap = await transaction.get(requestRef);
+      if (!requestSnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      return { request: publicIssue(requestSnap.data()), idempotentReplay: true };
+    }
+    const [sourceWarehouseSnap, targetWarehouseSnap, partSnap, lotSnap] = await Promise.all([
+      transaction.get(sourceWarehouseRef),
+      transaction.get(targetWarehouseRef),
+      transaction.get(partRef),
+      lotRef ? transaction.get(lotRef) : Promise.resolve(null)
+    ]);
+    if (!sourceWarehouseSnap.exists || !targetWarehouseSnap.exists) throw new Error('PART_TRANSFER_WAREHOUSE_NOT_FOUND');
+    if (!partSnap.exists) throw new Error('SPARE_PART_NOT_FOUND');
+    if (lotRef && !lotSnap?.exists) throw new Error('SPARE_PART_LOT_NOT_FOUND');
+    const sourceWarehouse = sourceWarehouseSnap.data()!;
+    const targetWarehouse = targetWarehouseSnap.data()!;
+    const part = partSnap.data()!;
+    const lot = lotSnap?.data();
+    const branchId = warehouseBranchId(sourceWarehouse);
+    if (!branchId || branchId !== warehouseBranchId(targetWarehouse)) throw new Error('PART_TRANSFER_BRANCH_MISMATCH');
+    if (!canAccessBranch(actor, branchId)) throw new Error('BRANCH_FORBIDDEN');
+    if (sourceWarehouse.isActive === false || targetWarehouse.isActive === false || sourceWarehouse.isArchived || targetWarehouse.isArchived) throw new Error('PART_TRANSFER_WAREHOUSE_INACTIVE');
+    if (String(sourceWarehouse.type || '') !== 'CENTRAL') throw new Error('PART_TRANSFER_SOURCE_MUST_BE_CENTRAL');
+    if (String(targetWarehouse.type || '') !== 'TECHNICIAN_SUB' || String(targetWarehouse.parentWarehouseId || '') !== sourceWarehouseId) throw new Error('PART_TRANSFER_TARGET_MUST_BE_CHILD_TECHNICIAN_WAREHOUSE');
+    if (!isPartStockApprover(actor) && String(targetWarehouse.custodianUid || '') !== actor.uid) throw new Error('TECHNICIAN_PERSONAL_WAREHOUSE_FORBIDDEN');
+    if (String(part.branchId || '') !== branchId || String(part.warehouseId || '') !== sourceWarehouseId) throw new Error('SPARE_PART_WAREHOUSE_MISMATCH');
+    if (lot && (String(lot.partId || '') !== partId || String(lot.warehouseId || '') !== sourceWarehouseId)) throw new Error('SPARE_PART_LOT_MISMATCH');
+    const availableQuantity = numberOrZero(lot?.stockQuantity ?? part.stockQuantity) - numberOrZero(lot?.reservedQuantity ?? part.reservedQuantity);
+    const now = new Date().toISOString();
+    const requestId = randomId('PSR');
+    const request = {
+      id: requestId,
+      status: 'PENDING',
+      branchId,
+      sourceWarehouseId,
+      targetWarehouseId,
+      targetCustodianUid: targetWarehouse.custodianUid || null,
+      targetCustodianName: targetWarehouse.custodianName || null,
+      partId,
+      lotId,
+      sku: part.sku || partId,
+      partName: part.name || partId,
+      category: part.category || 'KHAC',
+      compatibleModels: Array.isArray(part.compatibleModels) ? part.compatibleModels : [],
+      quantityRequested: quantity,
+      quantityApproved: 0,
+      sourceAvailableSnapshot: Math.max(0, availableQuantity),
+      workOrderId: String(input.workOrderId || '') || null,
+      workOrderLineId: String(input.workOrderLineId || '') || null,
+      reason,
+      requestedByUid: actor.uid,
+      requestedByName: actor.name || null,
+      requestedAt: now,
+      createdAt: now,
+      updatedAt: now
+    };
+    transaction.set(db.collection('technicalPartStockRequests').doc(requestId), request);
+    transaction.set(idemRef, { scope: 'PART_STOCK_REQUEST', requestId, createdAt: now });
+    return { request };
+  });
+}
+
+export async function processDecideTechnicalPartStockRequest(
+  db: Firestore,
+  requestId: string,
+  input: { decision: 'APPROVED' | 'REJECTED'; quantityApproved?: number; note?: string; idempotencyKey: string },
+  actor: TechnicalCostActor
+): Promise<{ request: any; transferId?: string; idempotentReplay?: boolean }> {
+  if (!isPartSupplyApprover(actor)) throw new Error('PART_STOCK_REQUEST_DECISION_FORBIDDEN');
+  const key = assertIdempotencyKey(input.idempotencyKey);
+  const decision = String(input.decision || '').toUpperCase();
+  if (!['APPROVED', 'REJECTED'].includes(decision)) throw new Error('PART_STOCK_REQUEST_DECISION_INVALID');
+  const requestRef = db.collection('technicalPartStockRequests').doc(requestId);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(idempotencyId(`PART_STOCK_REQUEST_DECISION:${requestId}`, key));
+
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) {
+      const replaySnap = await transaction.get(requestRef);
+      if (!replaySnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      return { request: publicIssue(replaySnap.data()), transferId: String(idemSnap.data()?.transferId || '') || undefined, idempotentReplay: true };
+    }
+    const requestSnap = await transaction.get(requestRef);
+    if (!requestSnap.exists) throw new Error('PART_STOCK_REQUEST_NOT_FOUND');
+    const request = requestSnap.data()!;
+    if (!canAccessBranch(actor, String(request.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (String(request.status || '') !== 'PENDING') throw new Error('PART_STOCK_REQUEST_NOT_PENDING');
+    const sourceWarehouseRef = db.collection('warehouses').doc(String(request.sourceWarehouseId));
+    const targetWarehouseRef = db.collection('warehouses').doc(String(request.targetWarehouseId));
+    const sourcePartRef = db.collection('spareParts').doc(String(request.partId));
+    const sourceLotRef = request.lotId ? db.collection('sparePartLots').doc(String(request.lotId)) : null;
+    const targetPartId = deterministicId('SP', `${request.branchId}:${request.targetWarehouseId}:${String(request.sku || '').toUpperCase()}`);
+    const targetPartRef = db.collection('spareParts').doc(targetPartId);
+    const targetLotCode = request.lotId ? `FROM-${String(request.lotId)}` : `TRANSFER-${requestId}`;
+    const targetLotId = deterministicId('SPL', `${targetPartId}:${targetLotCode}`);
+    const targetLotRef = db.collection('sparePartLots').doc(targetLotId);
+    // All document reads are queued before mutations; this is required by
+    // Firestore transaction semantics and prevents partially posted transfers.
+    const [sourceWarehouseSnap, targetWarehouseSnap, sourcePartSnap, sourceLotSnap, targetPartSnap, targetLotSnap] = await Promise.all([
+      transaction.get(sourceWarehouseRef),
+      transaction.get(targetWarehouseRef),
+      transaction.get(sourcePartRef),
+      sourceLotRef ? transaction.get(sourceLotRef) : Promise.resolve(null),
+      transaction.get(targetPartRef),
+      transaction.get(targetLotRef)
+    ]);
+    const sourceWarehouse = sourceWarehouseSnap.exists ? sourceWarehouseSnap.data()! : null;
+    const targetWarehouse = targetWarehouseSnap.exists ? targetWarehouseSnap.data()! : null;
+    const sourcePart = sourcePartSnap.exists ? sourcePartSnap.data()! : null;
+    const sourceLot = sourceLotSnap?.data();
+    if (decision === 'APPROVED') {
+      if (!sourceWarehouse || !targetWarehouse) throw new Error('PART_TRANSFER_WAREHOUSE_NOT_FOUND');
+      if (!sourcePart || sourcePart.isActive === false) throw new Error('SPARE_PART_NOT_FOUND');
+      if (sourceWarehouse.isActive === false || targetWarehouse.isActive === false || sourceWarehouse.isArchived || targetWarehouse.isArchived) throw new Error('PART_TRANSFER_WAREHOUSE_INACTIVE');
+      if (String(sourceWarehouse.type || '') !== 'CENTRAL' || String(targetWarehouse.type || '') !== 'TECHNICIAN_SUB' || String(targetWarehouse.parentWarehouseId || '') !== String(request.sourceWarehouseId)) throw new Error('PART_TRANSFER_WAREHOUSE_HIERARCHY_INVALID');
+      if (warehouseBranchId(sourceWarehouse) !== request.branchId || warehouseBranchId(targetWarehouse) !== request.branchId || String(sourcePart.warehouseId || '') !== String(request.sourceWarehouseId)) throw new Error('PART_TRANSFER_BRANCH_MISMATCH');
+      if (sourceLot && (String(sourceLot.partId || '') !== String(request.partId) || String(sourceLot.warehouseId || '') !== String(request.sourceWarehouseId))) throw new Error('SPARE_PART_LOT_MISMATCH');
+    }
+    const now = new Date().toISOString();
+    const note = String(input.note || '').trim();
+    if (decision === 'REJECTED') {
+      const rejected = { ...request, status: 'REJECTED', decidedByUid: actor.uid, decidedByName: actor.name || null, decidedAt: now, decisionNote: note, updatedAt: now };
+      transaction.update(requestRef, rejected);
+      transaction.set(idemRef, { scope: 'PART_STOCK_REQUEST_DECISION', requestId, createdAt: now });
+      return { request: rejected };
+    }
+    const quantityApproved = positiveInteger(input.quantityApproved ?? request.quantityRequested, 'PART_STOCK_REQUEST_APPROVED_QUANTITY_INVALID');
+    if (quantityApproved > numberOrZero(request.quantityRequested)) throw new Error('PART_STOCK_REQUEST_APPROVED_QUANTITY_EXCEEDS_REQUEST');
+    const sourceStock = numberOrZero(sourceLot?.stockQuantity ?? sourcePart.stockQuantity);
+    const sourceReserved = numberOrZero(sourceLot?.reservedQuantity ?? sourcePart.reservedQuantity);
+    const aggregateStock = numberOrZero(sourcePart.stockQuantity);
+    const aggregateReserved = numberOrZero(sourcePart.reservedQuantity);
+    if (sourceStock - sourceReserved < quantityApproved || (sourceLotRef && aggregateStock - aggregateReserved < quantityApproved)) throw new Error('INSUFFICIENT_AVAILABLE_PARTS_STOCK');
+    const unitCostSnapshot = numberOrZero(sourceLot?.unitCost ?? sourcePart.currentAverageCost ?? sourcePart.costPrice);
+    if (unitCostSnapshot < 0) throw new Error('SPARE_PART_COST_INVALID');
+    const targetPart = targetPartSnap.exists ? targetPartSnap.data()! : null;
+    const targetLot = targetLotSnap.exists ? targetLotSnap.data()! : null;
+    const targetStock = numberOrZero(targetPart?.stockQuantity);
+    const targetAverage = numberOrZero(targetPart?.currentAverageCost ?? targetPart?.costPrice);
+    const nextTargetStock = targetStock + quantityApproved;
+    const nextTargetAverage = nextTargetStock > 0 ? Math.round((targetStock * targetAverage + quantityApproved * unitCostSnapshot) / nextTargetStock) : unitCostSnapshot;
+    const targetLotStock = numberOrZero(targetLot?.stockQuantity);
+    const nextTargetLotStock = targetLotStock + quantityApproved;
+    const targetLotAverage = nextTargetLotStock > 0 ? Math.round((targetLotStock * numberOrZero(targetLot?.unitCost) + quantityApproved * unitCostSnapshot) / nextTargetLotStock) : unitCostSnapshot;
+    const transferId = randomId('SPT');
+    const sourceMovementId = randomId('SPM');
+    const destinationMovementId = randomId('SPM');
+    const costVersion = `PART_TRANSFER_${now}`;
+    const nextTargetPart = {
+      ...(targetPart || {}),
+      id: targetPartId,
+      sku: String(request.sku || sourcePart.sku || '').toUpperCase(),
+      name: request.partName || sourcePart.name || request.partId,
+      category: request.category || sourcePart.category || 'KHAC',
+      branchId: request.branchId,
+      warehouseId: request.targetWarehouseId,
+      stockQuantity: nextTargetStock,
+      reservedQuantity: numberOrZero(targetPart?.reservedQuantity),
+      currentAverageCost: nextTargetAverage,
+      costPrice: nextTargetAverage,
+      costVersion,
+      compatibleModels: Array.isArray(targetPart?.compatibleModels) && targetPart.compatibleModels.length ? targetPart.compatibleModels : (request.compatibleModels || sourcePart.compatibleModels || []),
+      isActive: targetPart?.isActive !== false,
+      createdAt: targetPart?.createdAt || now,
+      updatedAt: now
+    };
+    const nextTargetLot = {
+      ...(targetLot || {}),
+      id: targetLotId,
+      lotCode: targetLotCode,
+      partId: targetPartId,
+      sku: nextTargetPart.sku,
+      branchId: request.branchId,
+      warehouseId: request.targetWarehouseId,
+      supplierId: sourceLot?.supplierId || targetLot?.supplierId || null,
+      sourceType: 'PART_TRANSFER',
+      sourceId: transferId,
+      sourceCode: requestId,
+      stockQuantity: nextTargetLotStock,
+      reservedQuantity: numberOrZero(targetLot?.reservedQuantity),
+      unitCost: targetLotAverage,
+      costVersion,
+      receivedAt: now,
+      createdAt: targetLot?.createdAt || now,
+      updatedAt: now
+    };
+    transaction.update(sourcePartRef, { stockQuantity: aggregateStock - quantityApproved, updatedAt: now });
+    if (sourceLotRef) transaction.update(sourceLotRef, { stockQuantity: sourceStock - quantityApproved, updatedAt: now });
+    transaction.set(targetPartRef, nextTargetPart);
+    transaction.set(targetLotRef, nextTargetLot);
+    const fulfilled = {
+      ...request,
+      status: 'FULFILLED',
+      quantityApproved,
+      transferId,
+      targetPartId,
+      targetLotId,
+      unitCostSnapshot,
+      decidedByUid: actor.uid,
+      decidedByName: actor.name || null,
+      decidedAt: now,
+      fulfilledAt: now,
+      decisionNote: note,
+      updatedAt: now
+    };
+    transaction.update(requestRef, fulfilled);
+    transaction.set(db.collection('sparePartTransfers').doc(transferId), {
+      id: transferId,
+      requestId,
+      branchId: request.branchId,
+      sourceWarehouseId: request.sourceWarehouseId,
+      targetWarehouseId: request.targetWarehouseId,
+      sourcePartId: request.partId,
+      sourceLotId: request.lotId || null,
+      targetPartId,
+      targetLotId,
+      sku: nextTargetPart.sku,
+      partName: nextTargetPart.name,
+      quantity: quantityApproved,
+      unitCostSnapshot,
+      totalCost: quantityApproved * unitCostSnapshot,
+      approvedByUid: actor.uid,
+      approvedAt: now,
+      createdAt: now
+    });
+    transaction.set(db.collection('sparePartMovements').doc(sourceMovementId), {
+      id: sourceMovementId, movementType: 'TRANSFER_OUT', branchId: request.branchId,
+      warehouseId: request.sourceWarehouseId, counterpartyWarehouseId: request.targetWarehouseId,
+      partId: request.partId, lotId: request.lotId || null, quantity: quantityApproved,
+      unitCostSnapshot, sourceType: 'PART_STOCK_REQUEST', sourceId: requestId, transferId,
+      actorUid: actor.uid, occurredAt: now, createdAt: now
+    });
+    transaction.set(db.collection('sparePartMovements').doc(destinationMovementId), {
+      id: destinationMovementId, movementType: 'TRANSFER_IN', branchId: request.branchId,
+      warehouseId: request.targetWarehouseId, counterpartyWarehouseId: request.sourceWarehouseId,
+      partId: targetPartId, lotId: targetLotId, quantity: quantityApproved,
+      unitCostSnapshot, sourceType: 'PART_STOCK_REQUEST', sourceId: requestId, transferId,
+      actorUid: actor.uid, occurredAt: now, createdAt: now
+    });
+    transaction.set(idemRef, { scope: 'PART_STOCK_REQUEST_DECISION', requestId, transferId, createdAt: now });
+    return { request: fulfilled, transferId };
+  });
+}
+
+export async function listTechnicalPartStockRequests(db: Firestore, actor: TechnicalCostActor, status?: string): Promise<any[]> {
+  const snapshot = await db.collection('technicalPartStockRequests').limit(300).get();
+  const role = normalizedRole(actor);
+  return snapshot.docs
+    .map(doc => ({ id: doc.id, ...doc.data() } as any))
+    .filter(request => canAccessBranch(actor, String(request.branchId || '')))
+    .filter(request => role === 'ADMIN' || role === 'REGIONAL_MANAGER' || isPartSupplyApprover(actor) || String(request.targetCustodianUid || '') === actor.uid || String(request.targetWarehouseCustodianUid || '') === actor.uid || String(request.requestedByUid || '') === actor.uid)
+    .filter(request => !status || String(request.status || '') === status)
+    .sort((left, right) => String(right.requestedAt || right.createdAt || '').localeCompare(String(left.requestedAt || left.createdAt || '')));
+}
+
+export async function processCreateTechnicalPartException(
+  db: Firestore,
+  workOrderId: string,
+  input: { lineId: string; partId: string; warehouseId: string; lotId?: string; quantity: number; reason: string; idempotencyKey: string },
+  actor: TechnicalCostActor
+): Promise<{ exception: any; idempotentReplay?: boolean }> {
+  const key = assertIdempotencyKey(input.idempotencyKey);
+  const quantity = positiveInteger(input.quantity);
+  const reason = String(input.reason || '').trim();
+  if (!input.lineId || !input.partId || !input.warehouseId || reason.length < 5) throw new Error('PART_EXCEPTION_FIELDS_REQUIRED');
+  const idemRef = db.collection('technicalOperationIdempotency').doc(idempotencyId(`PART_EXCEPTION:${workOrderId}`, key));
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  const lineRef = db.collection('technicalWorkOrderLines').doc(input.lineId);
+  const partRef = db.collection('spareParts').doc(input.partId);
+  const warehouseRef = db.collection('warehouses').doc(input.warehouseId);
+  const lotRef = input.lotId ? db.collection('sparePartLots').doc(input.lotId) : null;
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) {
+      const exceptionSnap = await transaction.get(db.collection('technicalPartExceptions').doc(String(idemSnap.data()?.exceptionId || '')));
+      if (!exceptionSnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      return { exception: publicIssue(exceptionSnap.data()), idempotentReplay: true };
+    }
+    const [woSnap, lineSnap, partSnap, warehouseSnap, lotSnap] = await Promise.all([
+      transaction.get(woRef), transaction.get(lineRef), transaction.get(partRef), transaction.get(warehouseRef), lotRef ? transaction.get(lotRef) : Promise.resolve(null)
+    ]);
+    if (!woSnap.exists || !lineSnap.exists || !partSnap.exists || !warehouseSnap.exists || (lotRef && !lotSnap?.exists)) throw new Error('PART_EXCEPTION_REFERENCE_NOT_FOUND');
+    const workOrder = woSnap.data()!;
+    const line = lineSnap.data()!;
+    const part = partSnap.data()!;
+    const warehouse = warehouseSnap.data()!;
+    const lot = lotSnap?.data();
+    if (line.workOrderId !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
+    if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (!isElevated(actor) && line.assigneeUid !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
+    if (!ACTIVE_PART_WORK_ORDER_STATUSES.has(String(workOrder.status)) || !ACTIVE_PART_LINE_STATUSES.has(String(line.status))) throw new Error('TASK_NOT_OPEN_FOR_PARTS');
+    if (warehouseBranchId(warehouse) !== String(workOrder.branchId) || warehouse.isActive === false) throw new Error('PART_WAREHOUSE_BRANCH_MISMATCH');
+    assertTechnicianUsesOwnWarehouse(actor, warehouse);
+    if (String(part.warehouseId || '') !== String(input.warehouseId) || String(part.branchId || '') !== String(workOrder.branchId)) throw new Error('SPARE_PART_WAREHOUSE_MISMATCH');
+    if (lot && (String(lot.partId || '') !== String(input.partId) || String(lot.warehouseId || '') !== String(input.warehouseId))) throw new Error('SPARE_PART_LOT_MISMATCH');
+    if (matchingTaskTemplate(line, { ...part, id: partSnap.id || input.partId })) throw new Error('PART_ALREADY_ALLOWED_BY_TASK');
+    const now = new Date().toISOString();
+    const exceptionId = randomId('TPE');
+    const exception = {
+      id: exceptionId,
+      status: 'PENDING',
+      workOrderId,
+      workOrderLineId: input.lineId,
+      deviceId: workOrder.deviceId || null,
+      imei: workOrder.imei || null,
+      branchId: workOrder.branchId,
+      partId: input.partId,
+      sku: part.sku || input.partId,
+      partName: part.name || input.partId,
+      category: part.category || 'KHAC',
+      warehouseId: input.warehouseId,
+      lotId: input.lotId || null,
+      quantityRequested: quantity,
+      quantityApproved: 0,
+      quantityIssued: 0,
+      taskPartRulesSnapshot: taskPartTemplates(line),
+      reason,
+      requestedByUid: actor.uid,
+      requestedByName: actor.name || null,
+      requestedAt: now,
+      createdAt: now,
+      updatedAt: now
+    };
+    transaction.set(db.collection('technicalPartExceptions').doc(exceptionId), exception);
+    transaction.set(idemRef, { scope: 'PART_EXCEPTION', workOrderId, exceptionId, createdAt: now });
+    return { exception };
+  });
+}
+
+export async function processDecideTechnicalPartException(
+  db: Firestore,
+  workOrderId: string,
+  exceptionId: string,
+  input: { decision: 'APPROVED' | 'REJECTED'; quantityApproved?: number; note?: string; idempotencyKey: string },
+  actor: TechnicalCostActor
+): Promise<{ exception: any; idempotentReplay?: boolean }> {
+  if (!isPartStockApprover(actor)) throw new Error('PART_EXCEPTION_DECISION_FORBIDDEN');
+  const key = assertIdempotencyKey(input.idempotencyKey);
+  const decision = String(input.decision || '').toUpperCase();
+  if (!['APPROVED', 'REJECTED'].includes(decision)) throw new Error('PART_EXCEPTION_DECISION_INVALID');
+  const exceptionRef = db.collection('technicalPartExceptions').doc(exceptionId);
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(idempotencyId(`PART_EXCEPTION_DECISION:${exceptionId}`, key));
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) {
+      const replaySnap = await transaction.get(exceptionRef);
+      if (!replaySnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      return { exception: publicIssue(replaySnap.data()), idempotentReplay: true };
+    }
+    const [exceptionSnap, woSnap] = await Promise.all([transaction.get(exceptionRef), transaction.get(woRef)]);
+    if (!exceptionSnap.exists || !woSnap.exists) throw new Error('PART_EXCEPTION_REFERENCE_NOT_FOUND');
+    const exception = exceptionSnap.data()!;
+    const workOrder = woSnap.data()!;
+    if (exception.workOrderId !== workOrderId || String(exception.branchId || '') !== String(workOrder.branchId || '')) throw new Error('WORK_ORDER_MISMATCH');
+    if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (String(exception.status || '') !== 'PENDING') throw new Error('PART_EXCEPTION_NOT_PENDING');
+    const now = new Date().toISOString();
+    const quantityApproved = decision === 'APPROVED'
+      ? positiveInteger(input.quantityApproved ?? exception.quantityRequested, 'PART_EXCEPTION_APPROVED_QUANTITY_INVALID')
+      : 0;
+    if (quantityApproved > numberOrZero(exception.quantityRequested)) throw new Error('PART_EXCEPTION_APPROVED_QUANTITY_EXCEEDS_REQUEST');
+    const updated = {
+      ...exception,
+      status: decision,
+      quantityApproved,
+      decidedByUid: actor.uid,
+      decidedByName: actor.name || null,
+      decidedAt: now,
+      decisionNote: String(input.note || '').trim(),
+      // Exception authority is intentionally short-lived and single-purpose.
+      expiresAt: decision === 'APPROVED' ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : null,
+      updatedAt: now
+    };
+    transaction.update(exceptionRef, updated);
+    transaction.set(idemRef, { scope: 'PART_EXCEPTION_DECISION', workOrderId, exceptionId, createdAt: now });
+    return { exception: updated };
+  });
+}
+
 export async function processReserveTechnicalPart(
   db: Firestore,
   workOrderId: string,
@@ -395,6 +893,8 @@ export async function processReserveTechnicalPart(
   const partRef = db.collection('spareParts').doc(input.partId);
   const warehouseRef = db.collection('warehouses').doc(input.warehouseId);
   const lotRef = input.lotId ? db.collection('sparePartLots').doc(input.lotId) : null;
+  const lineIssuesQuery = db.collection('technicalPartIssues').where('workOrderLineId', '==', input.lineId);
+  const lineReservationsQuery = db.collection('technicalPartReservations').where('workOrderLineId', '==', input.lineId);
   return db.runTransaction(async transaction => {
     const idemSnap = await transaction.get(idemRef);
     if (idemSnap.exists) {
@@ -402,12 +902,14 @@ export async function processReserveTechnicalPart(
       if (!reservationSnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
       return { reservation: publicIssue(reservationSnap.data()), availableQuantity: Number(idemSnap.data()?.availableQuantity || 0), idempotentReplay: true };
     }
-    const [woSnap, lineSnap, partSnap, warehouseSnap, lotSnap] = await Promise.all([
+    const [woSnap, lineSnap, partSnap, warehouseSnap, lotSnap, lineIssuesSnap, lineReservationsSnap] = await Promise.all([
       transaction.get(woRef),
       transaction.get(lineRef),
       transaction.get(partRef),
       transaction.get(warehouseRef),
-      lotRef ? transaction.get(lotRef) : Promise.resolve(null)
+      lotRef ? transaction.get(lotRef) : Promise.resolve(null),
+      transaction.get(lineIssuesQuery),
+      transaction.get(lineReservationsQuery)
     ]);
     if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
     if (!lineSnap.exists) throw new Error('LINE_NOT_FOUND');
@@ -426,9 +928,28 @@ export async function processReserveTechnicalPart(
     if (!ACTIVE_PART_WORK_ORDER_STATUSES.has(String(workOrder.status))) throw new Error('WORK_ORDER_NOT_OPEN_FOR_PARTS');
     if (!ACTIVE_PART_LINE_STATUSES.has(String(line.status))) throw new Error('TASK_NOT_OPEN_FOR_PARTS');
     if (warehouse.isActive === false || warehouseBranchId(warehouse) !== String(workOrder.branchId)) throw new Error('PART_WAREHOUSE_BRANCH_MISMATCH');
+    assertTechnicianUsesOwnWarehouse(actor, warehouse);
     if (part.branchId && part.branchId !== workOrder.branchId) throw new Error('SPARE_PART_BRANCH_MISMATCH');
     if (part.warehouseId && part.warehouseId !== input.warehouseId) throw new Error('SPARE_PART_WAREHOUSE_MISMATCH');
     if (lot && (lot.partId !== input.partId || lot.warehouseId !== input.warehouseId)) throw new Error('SPARE_PART_LOT_MISMATCH');
+    const taskTemplate = matchingTaskTemplate(line, { ...part, id: partSnap.id || input.partId });
+    if (!taskTemplate) {
+      throw new Error(taskPartTemplates(line).length === 0 ? 'TASK_PART_POLICY_NOT_CONFIGURED' : 'TASK_PART_NOT_ALLOWED');
+    }
+    assertTaskPartModelCompatibility(workOrder, line, part);
+    const maxQuantity = Number(taskTemplate.maxQuantity ?? taskTemplate.quantity ?? 0);
+    if (Number.isFinite(maxQuantity) && maxQuantity > 0) {
+      const issuedQuantity = lineIssuesSnap.docs.reduce((sum: number, doc: any) => {
+        const issue = doc.data();
+        return issue?.status === 'CANCELLED' || String(issue?.partId || '') !== input.partId ? sum : sum + numberOrZero(issue?.quantityIssued);
+      }, 0);
+      const reservedQuantityForTask = lineReservationsSnap.docs.reduce((sum: number, doc: any) => {
+        const reservation = doc.data();
+        if (String(reservation?.partId || '') !== input.partId || ['FULFILLED', 'CANCELLED'].includes(String(reservation?.status || ''))) return sum;
+        return sum + Math.max(0, numberOrZero(reservation?.quantityReserved) - numberOrZero(reservation?.quantityIssued) - numberOrZero(reservation?.quantityCancelled));
+      }, 0);
+      if (issuedQuantity + reservedQuantityForTask + quantity > maxQuantity) throw new Error('TASK_PART_QUANTITY_LIMIT_EXCEEDED');
+    }
     const stockQuantity = numberOrZero(lot?.stockQuantity ?? part.stockQuantity);
     const reservedQuantity = numberOrZero(lot?.reservedQuantity ?? part.reservedQuantity);
     const aggregateStock = numberOrZero(part.stockQuantity);
@@ -590,6 +1111,7 @@ export async function processIssueTechnicalPart(
     warehouseId: string;
     lotId?: string;
     reservationId?: string;
+    exceptionApprovalId?: string;
     quantity: number;
     idempotencyKey: string;
   },
@@ -606,6 +1128,9 @@ export async function processIssueTechnicalPart(
   const warehouseRef = db.collection('warehouses').doc(input.warehouseId);
   const lotRef = input.lotId ? db.collection('sparePartLots').doc(input.lotId) : null;
   const reservationRef = input.reservationId ? db.collection('technicalPartReservations').doc(input.reservationId) : null;
+  const exceptionRef = input.exceptionApprovalId ? db.collection('technicalPartExceptions').doc(input.exceptionApprovalId) : null;
+  const lineIssuesQuery = db.collection('technicalPartIssues').where('workOrderLineId', '==', input.lineId);
+  const lineReservationsQuery = db.collection('technicalPartReservations').where('workOrderLineId', '==', input.lineId);
 
   return db.runTransaction(async transaction => {
     const idemSnap = await transaction.get(idemRef);
@@ -616,12 +1141,19 @@ export async function processIssueTechnicalPart(
       return { issue: visiblePartIssue(issueSnap.data(), actor), remainingStock: Number(idem.remainingStock), idempotentReplay: true };
     }
 
-    const woSnap = await transaction.get(woRef);
-    const lineSnap = await transaction.get(lineRef);
-    const partSnap = await transaction.get(partRef);
-    const warehouseSnap = await transaction.get(warehouseRef);
-    const lotSnap = lotRef ? await transaction.get(lotRef) : null;
-    const reservationSnap = reservationRef ? await transaction.get(reservationRef) : null;
+    // Keep every read ahead of every write. Firestore transactions reject a
+    // late read after a mutation and this is a financial/cost posting path.
+    const [woSnap, lineSnap, partSnap, warehouseSnap, lotSnap, reservationSnap, exceptionSnap, lineIssuesSnap, lineReservationsSnap] = await Promise.all([
+      transaction.get(woRef),
+      transaction.get(lineRef),
+      transaction.get(partRef),
+      transaction.get(warehouseRef),
+      lotRef ? transaction.get(lotRef) : Promise.resolve(null),
+      reservationRef ? transaction.get(reservationRef) : Promise.resolve(null),
+      exceptionRef ? transaction.get(exceptionRef) : Promise.resolve(null),
+      transaction.get(lineIssuesQuery),
+      transaction.get(lineReservationsQuery)
+    ]);
     if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
     if (!lineSnap.exists) throw new Error('LINE_NOT_FOUND');
     if (!partSnap.exists) throw new Error('SPARE_PART_NOT_FOUND');
@@ -642,6 +1174,7 @@ export async function processIssueTechnicalPart(
     if (!ACTIVE_PART_WORK_ORDER_STATUSES.has(String(workOrder.status))) throw new Error('WORK_ORDER_NOT_OPEN_FOR_PARTS');
     if (!ACTIVE_PART_LINE_STATUSES.has(String(line.status))) throw new Error('TASK_NOT_OPEN_FOR_PARTS');
     if (warehouse.isActive === false || warehouseBranchId(warehouse) !== String(workOrder.branchId)) throw new Error('PART_WAREHOUSE_BRANCH_MISMATCH');
+    assertTechnicianUsesOwnWarehouse(actor, warehouse);
     if (part.branchId && part.branchId !== workOrder.branchId) throw new Error('SPARE_PART_BRANCH_MISMATCH');
     if (part.warehouseId && part.warehouseId !== input.warehouseId) throw new Error('SPARE_PART_WAREHOUSE_MISMATCH');
     if (lot && (lot.partId !== input.partId || (lot.warehouseId && lot.warehouseId !== input.warehouseId))) throw new Error('SPARE_PART_LOT_MISMATCH');
@@ -653,6 +1186,40 @@ export async function processIssueTechnicalPart(
       || String(reservation.lotId || '') !== String(input.lotId || '')
       || !['RESERVED', 'PARTIALLY_ISSUED'].includes(String(reservation.status || ''))
     )) throw new Error('PART_RESERVATION_MISMATCH');
+
+    const taskTemplate = matchingTaskTemplate(line, { ...part, id: partSnap.id || input.partId });
+    const partException = exceptionSnap?.data();
+    if (!taskTemplate) {
+      if (!exceptionRef || !exceptionSnap?.exists) throw new Error('TASK_PART_EXCEPTION_APPROVAL_REQUIRED');
+      const expiresAt = String(partException?.expiresAt || '');
+      const approvedRemaining = numberOrZero(partException?.quantityApproved) - numberOrZero(partException?.quantityIssued);
+      if (
+        partException?.status !== 'APPROVED'
+        || partException?.workOrderId !== workOrderId
+        || partException?.workOrderLineId !== input.lineId
+        || partException?.partId !== input.partId
+        || partException?.warehouseId !== input.warehouseId
+        || String(partException?.lotId || '') !== String(input.lotId || '')
+        || (expiresAt && expiresAt <= new Date().toISOString())
+        || approvedRemaining < quantity
+      ) throw new Error('TASK_PART_EXCEPTION_NOT_APPROVED');
+    } else {
+      assertTaskPartModelCompatibility(workOrder, line, part);
+      const maxQuantity = Number(taskTemplate.maxQuantity ?? taskTemplate.quantity ?? 0);
+      if (Number.isFinite(maxQuantity) && maxQuantity > 0) {
+        const issuedQuantity = lineIssuesSnap.docs.reduce((sum: number, doc: any) => {
+          const issue = doc.data();
+          return issue?.status === 'CANCELLED' || String(issue?.partId || '') !== input.partId ? sum : sum + numberOrZero(issue?.quantityIssued);
+        }, 0);
+        const reservedQuantityForTask = lineReservationsSnap.docs.reduce((sum: number, doc: any) => {
+          const reserved = doc.data();
+          if (String(reserved?.partId || '') !== input.partId || ['FULFILLED', 'CANCELLED'].includes(String(reserved?.status || ''))) return sum;
+          return sum + Math.max(0, numberOrZero(reserved?.quantityReserved) - numberOrZero(reserved?.quantityIssued) - numberOrZero(reserved?.quantityCancelled));
+        }, 0);
+        const addedQuantity = reservation ? 0 : quantity;
+        if (issuedQuantity + reservedQuantityForTask + addedQuantity > maxQuantity) throw new Error('TASK_PART_QUANTITY_LIMIT_EXCEEDED');
+      }
+    }
 
     const stockQuantity = numberOrZero(lot?.stockQuantity ?? part.stockQuantity);
     const reservedQuantity = numberOrZero(lot?.reservedQuantity ?? part.reservedQuantity);
@@ -687,6 +1254,7 @@ export async function processIssueTechnicalPart(
       partName: part.name || input.partId,
       lotId: input.lotId || null,
       reservationId: input.reservationId || null,
+      exceptionApprovalId: input.exceptionApprovalId || null,
       quantityIssued: quantity,
       quantityConsumed: 0,
       quantityReturned: 0,
@@ -730,6 +1298,14 @@ export async function processIssueTechnicalPart(
         : 'PARTIALLY_ISSUED';
       transaction.update(reservationRef, { quantityIssued, status, updatedAt: now });
     }
+    if (exceptionRef && partException) {
+      transaction.update(exceptionRef, {
+        quantityIssued: numberOrZero(partException.quantityIssued) + quantity,
+        updatedAt: now,
+        lastIssuedAt: now,
+        lastIssueId: issueId
+      });
+    }
     transaction.set(db.collection('technicalPartIssues').doc(issueId), issue);
     transaction.set(db.collection('sparePartMovements').doc(movementId), {
       id: movementId,
@@ -744,6 +1320,7 @@ export async function processIssueTechnicalPart(
       sourceId: workOrderId,
       issueId,
       reservationId: input.reservationId || null,
+      exceptionApprovalId: input.exceptionApprovalId || null,
       workOrderLineId: input.lineId,
       actorUid: actor.uid,
       occurredAt: now,
@@ -1286,10 +1863,11 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
   if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
   const workOrder = woSnap.data()!;
   if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
-  const [linesSnap, issuesSnap, reservationsSnap, externalSnap, recoverySnap, postingSnap, qcSnap, movementBySourceSnap, movementByWorkOrderSnap, costEventsSnap] = await Promise.all([
+  const [linesSnap, issuesSnap, reservationsSnap, exceptionsSnap, externalSnap, recoverySnap, postingSnap, qcSnap, movementBySourceSnap, movementByWorkOrderSnap, costEventsSnap] = await Promise.all([
     db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartIssues').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartReservations').where('workOrderId', '==', workOrderId).get(),
+    db.collection('technicalPartExceptions').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalExternalCosts').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalRecoveries').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalCostPostings').doc(workOrderId).get(),
@@ -1301,6 +1879,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
   const taskLines: any[] = linesSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const partIssues: any[] = issuesSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const partReservations: any[] = reservationsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
+  const partExceptions: any[] = exceptionsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const externalCosts: any[] = externalSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const recoveries: any[] = recoverySnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const openingDeviceCost = numberOrZero(workOrder.openingDeviceCost ?? postingSnap.data()?.breakdown?.openingDeviceCost);
@@ -1330,6 +1909,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
     ]),
     ...partIssues.map(issue => ({ id: issue.id, type: 'PART_ISSUE', title: `Linh kiện: ${issue.partName}`, occurredAt: eventTime(issue.issuedAt || issue.createdAt), actorUid: issue.issuedByUid || null, status: issue.status })),
     ...partReservations.map(reservation => ({ id: reservation.id, type: 'PART_RESERVATION', title: `Giữ linh kiện: ${reservation.partName}`, occurredAt: eventTime(reservation.reservedAt || reservation.createdAt), actorUid: reservation.reservedByUid || null, status: reservation.status })),
+    ...partExceptions.map(exception => ({ id: exception.id, type: 'PART_EXCEPTION', title: `Ngoại lệ linh kiện: ${exception.partName}`, occurredAt: eventTime(exception.decidedAt || exception.requestedAt || exception.createdAt), actorUid: exception.decidedByUid || exception.requestedByUid || null, status: exception.status })),
     ...qcInspections.map(inspection => ({ id: inspection.id, type: 'QC_INSPECTION', title: `KCS ${inspection.overallResult}`, occurredAt: eventTime(inspection.inspectedAt || inspection.createdAt), actorUid: inspection.inspectorUid || null, actorName: inspection.inspectorName || null, status: inspection.overallResult })),
     ...(mayViewCost ? costEvents.map(event => ({ id: event.id, type: event.eventType, title: 'Kết chuyển giá vốn', occurredAt: eventTime(event.createdAt), actorUid: event.createdByUid || null, amount: event.amount, costAfter: event.costAfter })) : [])
   ].filter((event): event is any => !!event && !!event.occurredAt)
@@ -1374,6 +1954,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
     taskLines: publicIssue(visibleTaskLines),
     partIssues: publicIssue(visibleIssues),
     partReservations: publicIssue(partReservations),
+    partExceptions: publicIssue(partExceptions),
     externalCosts: mayViewCost ? publicIssue(externalCosts) : [],
     recoveries: mayViewCost ? publicIssue(recoveries) : [],
     qcInspections: publicIssue(qcInspections),

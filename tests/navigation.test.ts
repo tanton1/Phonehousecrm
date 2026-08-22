@@ -47,7 +47,8 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     const techItemIds = techGroups.flatMap(g => g.items.map(i => i.id));
 
     expect(techItemIds).toContain('warranty');
-    expect(techItemIds).toContain('spare-parts');
+    expect(techItemIds).toContain('products');
+    expect(techItemIds).not.toContain('spare-parts');
     expect(techItemIds).toContain('tech-workspace');
     expect(techItemIds).toContain('checkin-portal');
     expect(techItemIds).not.toContain('funds');

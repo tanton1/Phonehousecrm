@@ -46,6 +46,25 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
       if (!/^[A-Z0-9_]{2,50}$/.test(taskType) || !body.name || !body.taskCode || numbers.some(value => !Number.isFinite(value) || value < 0) || !body.version) {
         return res.status(400).json({ success: false, error: 'TASK_TYPE_CONFIG_INVALID' });
       }
+      const requiredPartTemplates = Array.isArray(body.requiredPartTemplates)
+        ? body.requiredPartTemplates.map((template: any) => {
+          const partId = String(template?.partId || '').trim();
+          const sku = String(template?.sku || '').trim().toUpperCase();
+          const category = String(template?.category || '').trim().toUpperCase();
+          const quantity = Number(template?.maxQuantity ?? template?.quantity);
+          if ((!partId && !sku && !category) || !Number.isInteger(quantity) || quantity <= 0 || quantity > 1000) {
+            throw new Error('TASK_PART_TEMPLATE_INVALID');
+          }
+          return {
+            ...(partId ? { partId } : {}),
+            ...(sku ? { sku } : {}),
+            ...(category ? { category } : {}),
+            quantity,
+            maxQuantity: quantity,
+            allowSubstitution: template?.allowSubstitution === true
+          };
+        })
+        : [];
       const now = new Date().toISOString();
       const record = {
         id: taskType,
@@ -57,7 +76,7 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
         capitalizeLaborCost: body.capitalizeLaborCost !== false,
         reworkCommissionPolicy: ['NO_EXTRA_COMMISSION', 'REPEAT_COMMISSION', 'MANAGER_APPROVAL'].includes(body.reworkCommissionPolicy) ? body.reworkCommissionPolicy : 'NO_EXTRA_COMMISSION',
         requiredEvidenceTypes: Array.isArray(body.requiredEvidenceTypes) ? body.requiredEvidenceTypes.filter((value: unknown) => typeof value === 'string') : [],
-        requiredPartTemplates: Array.isArray(body.requiredPartTemplates) ? body.requiredPartTemplates : [],
+        requiredPartTemplates,
         qcChecklistTemplateId: body.qcChecklistTemplateId ? String(body.qcChecklistTemplateId) : null,
         normalSlaHours: Number(body.normalSlaHours),
         prioritySlaHours: Number(body.prioritySlaHours),

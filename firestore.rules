@@ -529,6 +529,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /technicalPartExceptions/{exceptionId} {
+      // Requests and approvals are posted through the server so an exception
+      // can never be forged in a browser to bypass the task-to-part policy.
+      allow read, write: if false;
+    }
+
+    match /technicalPartStockRequests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /sparePartTransfers/{transferId} {
+      allow read, write: if false;
+    }
+
     match /sparePartMovements/{movementId} {
       allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
       allow write: if false;

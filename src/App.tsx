@@ -46,8 +46,7 @@ import { InventoryView } from './components/InventoryView';
 import { WarehouseTransfersView } from './components/WarehouseTransfersView';
 import { MasterCatalogView } from './components/MasterCatalogView';
 import { MasterCatalogItem } from './types';
-import { ProductsView } from './components/ProductsView';
-import { TechnicalSparePartsView } from './components/TechnicalSparePartsView';
+import { PartsInventoryHub } from './components/PartsInventoryHub';
 import { InvoicesView } from './components/InvoicesView';
 import { InstallmentReconciliationView } from './components/InstallmentReconciliationView';
 import { UserManagementView } from './components/UserManagementView';
@@ -1628,9 +1627,12 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'products' && (
-          <ProductsView
+        {(activeTab === 'products' || activeTab === 'spare-parts') && (
+          <PartsInventoryHub
             products={products}
+            warehouses={warehouses}
+            currentUser={currentUser}
+            preferredSection={activeTab === 'spare-parts' ? 'technical' : undefined}
             onAddProduct={(p) => {
               setProducts([...products, p]);
               addProductToFirestore(p);
@@ -1925,10 +1927,6 @@ export default function App() {
             onRestoreWarehouse={handleRestoreWarehouse}
             onSaveSettings={handleSaveStoreSettings}
           />
-        )}
-
-        {activeTab === 'spare-parts' && (
-          <TechnicalSparePartsView warehouses={warehouses} currentUser={currentUser} />
         )}
 
         {activeTab === 'more' && (

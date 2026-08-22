@@ -25,12 +25,17 @@ import {
   processConsumeTechnicalPart,
   processCancelTechnicalPartReservation,
   processCancelTechnicalPartIssue,
+  processCreateTechnicalPartException,
+  processCreateTechnicalPartStockRequest,
+  processDecideTechnicalPartException,
+  processDecideTechnicalPartStockRequest,
   processFinalizeTechnicalCost,
   processIssueTechnicalPart,
   processReceiveTechnicalSparePart,
   processReserveTechnicalPart,
   processReturnTechnicalPart,
-  processScrapTechnicalPart
+  processScrapTechnicalPart,
+  listTechnicalPartStockRequests
 } from '../services/technicalCostService';
 import { processAcceptTechnicalTransfer } from '../services/inventoryTransferService';
 import crypto from 'crypto';
@@ -218,9 +223,9 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
-        const { lineId, partId, warehouseId, lotId, reservationId, quantity = 1, idempotencyKey } = req.body;
+        const { lineId, partId, warehouseId, lotId, reservationId, exceptionApprovalId, quantity = 1, idempotencyKey } = req.body;
         const result = await processIssueTechnicalPart(db, req.params.id, {
-          lineId, partId, warehouseId, lotId, reservationId, quantity: Number(quantity), idempotencyKey
+          lineId, partId, warehouseId, lotId, reservationId, exceptionApprovalId, quantity: Number(quantity), idempotencyKey
         }, req.user!);
         return res.json({ success: true, data: result });
       } catch (error: any) {
@@ -240,6 +245,26 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       return res.json({ success: true, data: result });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error?.message || 'Lỗi giữ trước linh kiện.' });
+    }
+  });
+
+  router.post('/work-orders/:id/parts/exceptions', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER', 'WAREHOUSE'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processCreateTechnicalPartException(db, req.params.id, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tạo yêu cầu ngoại lệ linh kiện.' });
+    }
+  });
+
+  router.post('/work-orders/:id/parts/exceptions/:exceptionId/decision', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processDecideTechnicalPartException(db, req.params.id, req.params.exceptionId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể duyệt ngoại lệ linh kiện.' });
     }
   });
 
@@ -353,7 +378,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     }
   });
 
-  router.get('/parts', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER'), async (req: Request, res: Response) => {
+  router.get('/parts', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER', 'WAREHOUSE'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await listTechnicalSpareParts(db, req.user!, String(req.query.warehouseId || '') || undefined);
@@ -363,13 +388,43 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/parts/receive', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH_LEAD'), async (req: Request, res: Response) => {
+  router.post('/parts/receive', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await processReceiveTechnicalSparePart(db, req.body, req.user!);
       return res.json({ success: true, data: result });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error?.message || 'Lỗi nhập kho linh kiện.' });
+    }
+  });
+
+  router.get('/parts/requests', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await listTechnicalPartStockRequests(db, req.user!, String(req.query.status || '') || undefined);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tải yêu cầu cấp linh kiện.' });
+    }
+  });
+
+  router.post('/parts/requests', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processCreateTechnicalPartStockRequest(db, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tạo yêu cầu cấp linh kiện.' });
+    }
+  });
+
+  router.post('/parts/requests/:requestId/decision', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER', 'WAREHOUSE'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processDecideTechnicalPartStockRequest(db, req.params.requestId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể duyệt yêu cầu cấp linh kiện.' });
     }
   });
 

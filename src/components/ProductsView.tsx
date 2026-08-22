@@ -23,13 +23,16 @@ interface ProductsViewProps {
   onAddProduct: (product: ProductItem) => void;
   onUpdateProduct: (product: ProductItem) => void;
   onDeleteProduct: (productId: string) => void;
+  /** Rendered inside the unified parts hub, which already owns the page header. */
+  embedded?: boolean;
 }
 
 export const ProductsView: React.FC<ProductsViewProps> = ({
   products,
   onAddProduct,
   onUpdateProduct,
-  onDeleteProduct
+  onDeleteProduct,
+  embedded = false
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -81,8 +84,8 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     <div className="space-y-4 sm:space-y-6 max-w-[1600px] mx-auto pb-24 sm:pb-8">
       
       {/* 1. Header Area */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
-        <div>
+      <div className={`flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 ${embedded ? 'justify-end' : 'justify-between'}`}>
+        {!embedded && <div>
           <h2 className="text-lg sm:text-2xl font-black text-zinc-900 flex items-center space-x-2 tracking-tight">
             <Box className="w-6 h-6 sm:w-7 sm:h-7 text-[#F94A1F]" />
             <span>Kho Linh Kiện & Phụ Kiện</span>
@@ -93,7 +96,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           <p className="text-[11px] sm:text-xs text-zinc-500 mt-1 font-medium">
             Quản lý mã vạch (SKU) cho ốp lưng, sạc, pin thay thế, linh kiện sửa chữa và dịch vụ
           </p>
-        </div>
+        </div>}
         
         <button
           onClick={() => {

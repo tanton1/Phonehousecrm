@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   subscribeToRepairServices, 
-  addRepairServiceToFirestore,
-  deductSparePartsStockForWarrantyTicket 
+  addRepairServiceToFirestore
 } from '../services/firestoreService';
 import { 
   WarrantyTicket, 
@@ -518,22 +517,15 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       }
     }
 
-    // Deduct spare parts stock atomically if parts are used
+    // The legacy warranty ticket has no task/lot/cost snapshot. Never let it
+    // mutate spare-part stock directly; that would bypass the canonical part
+    // ledger and make IMEI cost wrong. It must first be handled as a standard
+    // Technical Work Order.
     if ((newStatus === 'ready' || newStatus === 'delivered') && ticket.partsUsed && ticket.partsUsed.length > 0) {
       const unDeductedParts = ticket.partsUsed.filter(p => !p.deductedFromStock);
       if (unDeductedParts.length > 0) {
-        deductSparePartsStockForWarrantyTicket(unDeductedParts);
-        if (onUpdateSparePart) {
-          unDeductedParts.forEach(p => {
-            const currentPart = spareParts.find(sp => sp.id === p.id || sp.sku === p.sku);
-            if (currentPart) {
-              onUpdateSparePart({
-                ...currentPart,
-                stockQuantity: Math.max(0, currentPart.stockQuantity - p.quantity)
-              });
-            }
-          });
-        }
+        alert('Phiếu sửa cũ đang có linh kiện chưa qua Part Ledger. Hãy tạo/hoàn tất Phiếu kỹ thuật chuẩn để xuất đúng task, kho KTV và giá vốn trước khi chuyển trạng thái.');
+        return;
       }
     }
 

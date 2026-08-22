@@ -75,8 +75,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
       { id: 'inventory', label: 'Kho IMEI Máy', icon: Package, shortcut: 'Alt+3' },
       { id: 'purchase-orders', label: 'Nhập Hàng NCC', icon: ShoppingBag, roles: ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] },
       { id: 'transfers', label: 'Điều Chuyển Hàng', icon: ArrowRightLeft, roles: ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH', 'TECHNICIAN', 'TECH_LEAD'] },
-      { id: 'products', label: 'Phụ Kiện Bán Kèm', icon: Store },
-      { id: 'spare-parts', label: 'Kho Linh Kiện Kỹ Thuật', icon: Cpu, roles: ['ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'] },
+      { id: 'products', label: 'Kho Linh Kiện & Phụ Kiện', icon: Store },
       { id: 'master-catalog', label: 'Danh Mục Hàng Hóa SKU', icon: Database, roles: ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] }
     ]
   },

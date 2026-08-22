@@ -284,7 +284,7 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
 
       await expect(
         processIssueSparePart(mockDb, 'WO_DIFFERENT_01', 'WOL_01', 'PART-01', 1, { uid: 'UID_KTV_NAM', branchId: 'CN01' })
-      ).rejects.toThrow('WORK_ORDER_MISMATCH');
+      ).rejects.toThrow('LEGACY_PART_ISSUE_RETIRED_USE_PART_LEDGER');
     });
   });
 });

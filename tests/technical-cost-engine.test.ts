@@ -3,6 +3,10 @@ import {
   calculateTechnicalCostBreakdown,
   processCancelTechnicalPartReservation,
   processConsumeTechnicalPart,
+  processCreateTechnicalPartException,
+  processCreateTechnicalPartStockRequest,
+  processDecideTechnicalPartException,
+  processDecideTechnicalPartStockRequest,
   processFinalizeTechnicalCost,
   processIssueTechnicalPart,
   processReceiveTechnicalSparePart,
@@ -63,9 +67,9 @@ describe('Technical per-IMEI cost engine', () => {
   it('issues, consumes and returns parts without double-counting returned quantity', async () => {
     const store = createTechnicalCostDb({
       technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },
-      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01' } },
-      spareParts: { PART_01: { id: 'PART_01', sku: 'PIN-15', name: 'Pin iPhone 15', branchId: 'CN01', stockQuantity: 2, costPrice: 500_000 } },
-      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', isActive: true } }
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 4 }] } },
+      spareParts: { PART_01: { id: 'PART_01', sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01', stockQuantity: 2, costPrice: 500_000 } },
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
     });
     const issued = await processIssueTechnicalPart(store.db, 'WO_01', {
       lineId: 'LINE_01', partId: 'PART_01', warehouseId: 'PARTS_CN01', quantity: 2, idempotencyKey: 'issue-parts-test-0001'
@@ -83,7 +87,7 @@ describe('Technical per-IMEI cost engine', () => {
 
   it('receives canonical spare-part lots and updates moving-average cost idempotently', async () => {
     const store = createTechnicalCostDb({
-      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', isActive: true } }
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'CENTRAL', isActive: true } }
     });
     const first = await processReceiveTechnicalSparePart(store.db, {
       sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01',
@@ -108,9 +112,9 @@ describe('Technical per-IMEI cost engine', () => {
   it('reserves stock before issue and prevents another task from consuming the reserved balance', async () => {
     const store = createTechnicalCostDb({
       technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },
-      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01' } },
-      spareParts: { PART_01: { id: 'PART_01', sku: 'PIN-15', name: 'Pin iPhone 15', branchId: 'CN01', warehouseId: 'PARTS_CN01', stockQuantity: 3, reservedQuantity: 0, costPrice: 500_000 } },
-      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', isActive: true } }
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 4 }] } },
+      spareParts: { PART_01: { id: 'PART_01', sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01', stockQuantity: 3, reservedQuantity: 0, costPrice: 500_000 } },
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
     });
     const reserved = await processReserveTechnicalPart(store.db, 'WO_01', {
       lineId: 'LINE_01', partId: 'PART_01', warehouseId: 'PARTS_CN01', quantity: 2, idempotencyKey: 'part-reserve-test-0001'
@@ -132,9 +136,9 @@ describe('Technical per-IMEI cost engine', () => {
   it('releases an unused part reservation without changing physical stock', async () => {
     const store = createTechnicalCostDb({
       technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },
-      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01' } },
-      spareParts: { PART_01: { id: 'PART_01', name: 'Pin', branchId: 'CN01', warehouseId: 'PARTS_CN01', stockQuantity: 2, reservedQuantity: 0, costPrice: 100_000 } },
-      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', isActive: true } }
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 1 }] } },
+      spareParts: { PART_01: { id: 'PART_01', name: 'Pin', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01', stockQuantity: 2, reservedQuantity: 0, costPrice: 100_000 } },
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
     });
     const reserved = await processReserveTechnicalPart(store.db, 'WO_01', {
       lineId: 'LINE_01', partId: 'PART_01', warehouseId: 'PARTS_CN01', quantity: 1, idempotencyKey: 'part-reserve-cancel-0001'
@@ -201,10 +205,10 @@ describe('Technical per-IMEI cost engine', () => {
   it('keeps lot stock and aggregate spare-part stock synchronized', async () => {
     const store = createTechnicalCostDb({
       technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },
-      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01' } },
-      spareParts: { PART_01: { id: 'PART_01', sku: 'PIN-15', name: 'Pin iPhone 15', branchId: 'CN01', stockQuantity: 2, currentAverageCost: 500_000 } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 2 }] } },
+      spareParts: { PART_01: { id: 'PART_01', sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01', stockQuantity: 2, currentAverageCost: 500_000 } },
       sparePartLots: { LOT_01: { id: 'LOT_01', partId: 'PART_01', warehouseId: 'PARTS_CN01', stockQuantity: 2, unitCost: 450_000, costVersion: 'LOT_V1' } },
-      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', isActive: true } }
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
     });
     const issued = await processIssueTechnicalPart(store.db, 'WO_01', {
       lineId: 'LINE_01', partId: 'PART_01', warehouseId: 'PARTS_CN01', lotId: 'LOT_01', quantity: 2, idempotencyKey: 'issue-lot-test-0001'
@@ -214,6 +218,91 @@ describe('Technical per-IMEI cost engine', () => {
     await processReturnTechnicalPart(store.db, 'WO_01', issued.issue.id, { quantity: 1, idempotencyKey: 'return-lot-test-0001' }, tech);
     expect(store.get('spareParts', 'PART_01').stockQuantity).toBe(1);
     expect(store.get('sparePartLots', 'LOT_01').stockQuantity).toBe(1);
+  });
+
+  it('blocks a screen for a battery task before any reservation or stock mutation', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345', model: 'IPHONE 15' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 1 }] } },
+      spareParts: { SCREEN_01: { id: 'SCREEN_01', sku: 'SCREEN-15', name: 'Màn iPhone 15', category: 'MAN_HINH', branchId: 'CN01', warehouseId: 'KHO_KTV_NAM', stockQuantity: 1, reservedQuantity: 0, costPrice: 900_000 } },
+      warehouses: { KHO_KTV_NAM: { id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
+    });
+    await expect(processReserveTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1, idempotencyKey: 'reserve-screen-wrong-task-01'
+    }, tech)).rejects.toThrow('TASK_PART_NOT_ALLOWED');
+    await expect(processIssueTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1, idempotencyKey: 'issue-screen-wrong-task-01'
+    }, tech)).rejects.toThrow('TASK_PART_EXCEPTION_APPROVAL_REQUIRED');
+    expect(store.get('spareParts', 'SCREEN_01')).toMatchObject({ stockQuantity: 1, reservedQuantity: 0 });
+    expect(store.values('sparePartMovements')).toHaveLength(0);
+  });
+
+  it('does not let a KTV consume matching stock directly from the central warehouse', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 1 }] } },
+      spareParts: { PIN_MAIN: { id: 'PIN_MAIN', sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'KHO_TONG', stockQuantity: 2, reservedQuantity: 0, costPrice: 500_000 } },
+      warehouses: { KHO_TONG: { id: 'KHO_TONG', branchId: 'CN01', type: 'CENTRAL', isActive: true } }
+    });
+    await expect(processIssueTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'PIN_MAIN', warehouseId: 'KHO_TONG', quantity: 1, idempotencyKey: 'central-issue-tech-forbidden-01'
+    }, tech)).rejects.toThrow('TECHNICIAN_PERSONAL_WAREHOUSE_REQUIRED');
+    expect(store.get('spareParts', 'PIN_MAIN').stockQuantity).toBe(2);
+  });
+
+  it('moves approved central stock and its cost snapshot into the KTV child warehouse before issue', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 2 }] } },
+      spareParts: { PIN_MAIN: { id: 'PIN_MAIN', sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'KHO_TONG', stockQuantity: 5, reservedQuantity: 0, currentAverageCost: 450_000 } },
+      warehouses: {
+        KHO_TONG: { id: 'KHO_TONG', branchId: 'CN01', type: 'CENTRAL', isActive: true },
+        KHO_KTV_NAM: { id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'TECHNICIAN_SUB', parentWarehouseId: 'KHO_TONG', custodianUid: 'TECH_01', isActive: true }
+      }
+    });
+    const request = await processCreateTechnicalPartStockRequest(store.db, {
+      sourceWarehouseId: 'KHO_TONG', targetWarehouseId: 'KHO_KTV_NAM', partId: 'PIN_MAIN', quantity: 2,
+      reason: 'Cần tồn pin để xử lý các máy đã nhận.', workOrderId: 'WO_01', workOrderLineId: 'LINE_01', idempotencyKey: 'stock-request-pin-ktv-0001'
+    }, tech);
+    expect(store.get('spareParts', 'PIN_MAIN').stockQuantity).toBe(5);
+    const fulfilled = await processDecideTechnicalPartStockRequest(store.db, request.request.id, {
+      decision: 'APPROVED', quantityApproved: 2, note: 'Đủ tồn, cấp cho kho KTV Nam.', idempotencyKey: 'stock-request-decision-0001'
+    }, { uid: 'ACC_01', name: 'Kế toán', role: 'ACCOUNTANT', branchId: 'CN01' });
+    expect(fulfilled.request).toMatchObject({ status: 'FULFILLED', quantityApproved: 2 });
+    expect(store.get('spareParts', 'PIN_MAIN').stockQuantity).toBe(3);
+    const personalPart = store.values('spareParts').find(item => item.warehouseId === 'KHO_KTV_NAM');
+    expect(personalPart).toMatchObject({ sku: 'PIN-15', stockQuantity: 2, currentAverageCost: 450_000 });
+    expect(store.values('sparePartMovements').map(item => item.movementType).sort()).toEqual(['TRANSFER_IN', 'TRANSFER_OUT']);
+    await processIssueTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: personalPart.id, warehouseId: 'KHO_KTV_NAM', quantity: 1, idempotencyKey: 'issue-after-approved-transfer-01'
+    }, tech);
+    expect(store.get('spareParts', personalPart.id).stockQuantity).toBe(1);
+  });
+
+  it('requires a server-approved, quantity-limited exception before using a part outside the task policy', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 1 }] } },
+      spareParts: { SCREEN_01: { id: 'SCREEN_01', sku: 'SCREEN-15', name: 'Màn iPhone 15', category: 'MAN_HINH', branchId: 'CN01', warehouseId: 'KHO_KTV_NAM', stockQuantity: 2, reservedQuantity: 0, costPrice: 900_000 } },
+      warehouses: { KHO_KTV_NAM: { id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
+    });
+    const requested = await processCreateTechnicalPartException(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1,
+      reason: 'Máy phát hiện màn hình chớp, cần thay ngoài phương án ban đầu.', idempotencyKey: 'screen-exception-request-0001'
+    }, tech);
+    await expect(processIssueTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1, exceptionApprovalId: requested.exception.id, idempotencyKey: 'screen-before-approval-0001'
+    }, tech)).rejects.toThrow('TASK_PART_EXCEPTION_NOT_APPROVED');
+    const approved = await processDecideTechnicalPartException(store.db, 'WO_01', requested.exception.id, {
+      decision: 'APPROVED', quantityApproved: 1, note: 'Đã đối chiếu lỗi thực tế.', idempotencyKey: 'screen-exception-decision-0001'
+    }, manager);
+    expect(approved.exception.status).toBe('APPROVED');
+    await processIssueTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1, exceptionApprovalId: requested.exception.id, idempotencyKey: 'screen-after-approval-0001'
+    }, tech);
+    await expect(processIssueTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1, exceptionApprovalId: requested.exception.id, idempotencyKey: 'screen-exception-overuse-0001'
+    }, tech)).rejects.toThrow('TASK_PART_EXCEPTION_NOT_APPROVED');
   });
 
   it('posts one authoritative cost version to device financials', async () => {

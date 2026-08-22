@@ -7,6 +7,7 @@ import {
   requestAddTechnicalExternalCost,
   requestAddTechnicalRecovery,
   requestCompleteTaskLine,
+  requestDecideTechnicalPartException,
   requestDecideTechnicalExternalCost,
   requestDecideTechnicalRecovery,
   requestDeliverToCustomer,
@@ -16,6 +17,7 @@ import {
   requestFinalizeTechnicalCost,
   requestIssueSparePart,
   requestReserveSparePart,
+  requestTechnicalPartException,
   requestRevealTechnicalPasscode,
   requestTechnicalHandoff,
   requestReturnSparePart,
@@ -35,6 +37,45 @@ interface TechnicalWorkOrderDrawerProps {
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
 const ACTIVE_LINE_STATUSES = ['ACCEPTED', 'IN_PROGRESS', 'WAITING_PARTS', 'REWORK_REQUIRED'];
 
+type TaskPartRule = {
+  category?: string;
+  sku?: string;
+  partId?: string;
+  quantity?: number;
+  maxQuantity?: number;
+  allowSubstitution?: boolean;
+};
+
+const normalizedPartValue = (value: unknown) => String(value || '').trim().toUpperCase();
+
+const partMatchesTaskRule = (part: any, rule: TaskPartRule): boolean => {
+  const category = normalizedPartValue(rule.category);
+  const sku = normalizedPartValue(rule.sku);
+  const partId = String(rule.partId || '').trim();
+  const categoryMatches = !category || normalizedPartValue(part?.category) === category;
+  if (!categoryMatches) return false;
+  if (partId && String(part?.id || '') !== partId) return false;
+
+  if (sku) {
+    if (normalizedPartValue(part?.sku) === sku) return true;
+    return Boolean(rule.allowSubstitution && category);
+  }
+
+  // partId only supports records configured by an older version of the setup.
+  if (!category && partId) return true;
+  return Boolean(category);
+};
+
+const taskPartRuleLabel = (rule: TaskPartRule) => {
+  const target = [
+    rule.category ? `Nhóm ${normalizedPartValue(rule.category)}` : '',
+    rule.sku ? `SKU ${normalizedPartValue(rule.sku)}` : '',
+    !rule.category && !rule.sku && rule.partId ? `Mã cũ ${rule.partId}` : ''
+  ].filter(Boolean).join(' · ');
+  const maximum = Number(rule.maxQuantity ?? rule.quantity ?? 0);
+  return `${target || 'Chưa định danh'} · tối đa ${maximum > 0 ? maximum : '—'}${rule.allowSubstitution ? ' · cho phép thay thế cùng nhóm' : ''}`;
+};
+
 export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> = ({ task, warehouses, currentUser, onClose, onRefresh }) => {
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TASKS' | 'PARTS' | 'COST' | 'QC' | 'TIMELINE' | 'RETURN'>('OVERVIEW');
   const [details, setDetails] = useState<any>(null);
@@ -48,6 +89,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const [partsWarehouseId, setPartsWarehouseId] = useState('');
   const [selectedLotId, setSelectedLotId] = useState('');
   const [issueQuantity, setIssueQuantity] = useState(1);
+  const [partExceptionReason, setPartExceptionReason] = useState('');
   const [settleQuantities, setSettleQuantities] = useState<Record<string, number>>({});
   const [settleNotes, setSettleNotes] = useState<Record<string, string>>({});
   const [completionNotes, setCompletionNotes] = useState('');
@@ -66,9 +108,10 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
 
   const workOrderId = String((task as any)?.workOrderId || task?.id || '');
   const role = String(currentUser?.role || '').toUpperCase();
+  const isTechnician = ['TECHNICIAN', 'TECH'].includes(role);
   const canFinalizeCost = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(role);
   const canReturnStock = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'].includes(role);
-  const canManagePartExceptions = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(role);
+  const canManagePartExceptions = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'].includes(role);
   const canDeliverCustomer = ['ADMIN', 'MANAGER', 'SALES', 'SALE', 'TECH_LEAD'].includes(role);
 
   const load = async () => {
@@ -77,15 +120,21 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     try {
       const [nextDetails, nextParts] = await Promise.all([
         fetchTechnicalCostBreakdown(workOrderId),
-        fetchTechnicalSpareParts(partsWarehouseId || undefined)
+        partsWarehouseId ? fetchTechnicalSpareParts(partsWarehouseId) : Promise.resolve([])
       ]);
       setDetails(nextDetails);
       setParts(nextParts || []);
       const firstLine = nextDetails?.taskLines?.find((line: any) => line.id === (task as any)?.lineId) || nextDetails?.taskLines?.[0];
       if (!selectedLineId && firstLine) setSelectedLineId(firstLine.id);
-      if (!selectedPartId && nextParts?.[0]) setSelectedPartId(nextParts[0].id);
       if (!partsWarehouseId) {
-        const preferred = warehouses.find(item => item.id === nextDetails?.workOrder?.currentLocationId)
+        const ownTechnicianWarehouse = warehouses.find(item => item.type === 'TECHNICIAN_SUB'
+          && (item.custodianUid === currentUser?.id || item.technicianId === currentUser?.id)
+          && (!nextDetails?.workOrder?.branchId || item.branchId === nextDetails.workOrder.branchId)
+          && item.isActive !== false
+          && !item.isArchived);
+        const preferred = isTechnician
+          ? ownTechnicianWarehouse
+          : warehouses.find(item => item.id === nextDetails?.workOrder?.currentLocationId)
           || warehouses.find(item => item.branchId === nextDetails?.workOrder?.branchId && item.isActive !== false);
         if (preferred) setPartsWarehouseId(preferred.id);
       }
@@ -101,7 +150,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   useEffect(() => {
     setRevealedPasscode(null);
     if (!task) return;
-    setActiveTab('OVERVIEW'); setDetails(null); setError(''); setMessage(''); setSelectedLineId(String((task as any).lineId || ''));
+    setActiveTab('OVERVIEW'); setDetails(null); setError(''); setMessage(''); setSelectedLineId(String((task as any).lineId || '')); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); setPartsWarehouseId('');
     void load();
   }, [workOrderId]);
 
@@ -128,7 +177,40 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const selectedLine = details?.taskLines?.find((line: any) => line.id === selectedLineId);
   const selectedPart = parts.find((part: any) => part.id === selectedPartId);
   const selectedPartLots = Array.isArray(selectedPart?.lots) ? selectedPart.lots.filter((lot: any) => Number(lot.availableQuantity || 0) > 0) : [];
-  const eligiblePartWarehouses = useMemo(() => warehouses.filter(item => item.isActive !== false && (!details?.workOrder?.branchId || item.branchId === details.workOrder.branchId)), [warehouses, details?.workOrder?.branchId]);
+  const eligiblePartWarehouses = useMemo(() => warehouses.filter(item => item.isActive !== false && !item.isArchived && (!details?.workOrder?.branchId || item.branchId === details.workOrder.branchId)), [warehouses, details?.workOrder?.branchId]);
+  const ownTechnicianPartWarehouses = useMemo(() => eligiblePartWarehouses.filter(item => item.type === 'TECHNICIAN_SUB'
+    && (item.custodianUid === currentUser?.id || item.technicianId === currentUser?.id)), [eligiblePartWarehouses, currentUser?.id]);
+  const selectablePartWarehouses = isTechnician ? ownTechnicianPartWarehouses : eligiblePartWarehouses;
+  const taskPartRules = useMemo<TaskPartRule[]>(() => {
+    const snapshotRules = selectedLine?.requiredParts ?? selectedLine?.requiredPartTemplates;
+    return Array.isArray(snapshotRules) ? snapshotRules : [];
+  }, [selectedLine]);
+  const compatibleParts = useMemo(() => parts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [parts, taskPartRules]);
+  const incompatibleParts = useMemo(() => parts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && !taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [parts, taskPartRules]);
+  const selectedPartRule = selectedPart ? taskPartRules.find(rule => partMatchesTaskRule(selectedPart, rule)) : undefined;
+  const selectedPartMaximum = Number(selectedPartRule?.maxQuantity ?? selectedPartRule?.quantity ?? 0);
+  const exceedsTaskPartMaximum = Boolean(selectedPartRule && Number.isFinite(selectedPartMaximum) && selectedPartMaximum > 0 && issueQuantity > selectedPartMaximum);
+  const selectedPartIsMismatch = Boolean(selectedPart && !selectedPartRule);
+  const selectedApprovedPartException = useMemo(() => (details?.partExceptions || []).find((exception: any) => (
+    exception.status === 'APPROVED'
+    && exception.workOrderLineId === selectedLineId
+    && exception.partId === selectedPartId
+    && exception.warehouseId === partsWarehouseId
+    && String(exception.lotId || '') === String(selectedLotId || '')
+    && Number(exception.quantityApproved || 0) > Number(exception.quantityIssued || 0)
+  )), [details?.partExceptions, selectedLineId, selectedPartId, partsWarehouseId, selectedLotId]);
+  const selectedPendingPartException = useMemo(() => (details?.partExceptions || []).find((exception: any) => (
+    exception.status === 'PENDING'
+    && exception.workOrderLineId === selectedLineId
+    && exception.partId === selectedPartId
+    && exception.warehouseId === partsWarehouseId
+    && String(exception.lotId || '') === String(selectedLotId || '')
+  )), [details?.partExceptions, selectedLineId, selectedPartId, partsWarehouseId, selectedLotId]);
+  const selectedExceptionAvailableQuantity = selectedApprovedPartException
+    ? Number(selectedApprovedPartException.quantityApproved || 0) - Number(selectedApprovedPartException.quantityIssued || 0)
+    : 0;
+  const exceedsExceptionApproval = Boolean(selectedApprovedPartException && issueQuantity > selectedExceptionAvailableQuantity);
+  const partSelectionReady = Boolean(selectedLineId && selectedPartId && partsWarehouseId && (selectedPartRule || selectedApprovedPartException) && Number.isFinite(issueQuantity) && issueQuantity > 0 && !exceedsTaskPartMaximum && !exceedsExceptionApproval && (selectedPartLots.length === 0 || selectedLotId));
   const eligibleHandoffWarehouses = useMemo(() => warehouses.filter(item =>
     item.isActive !== false
     && !item.isArchived
@@ -137,6 +219,37 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     && item.id !== details?.workOrder?.currentLocationId
     && !!item.custodianUid
   ), [warehouses, details?.workOrder?.branchId, details?.workOrder?.currentLocationId]);
+
+  useEffect(() => {
+    if (!task || !workOrderId || !partsWarehouseId) return;
+    let active = true;
+    fetchTechnicalSpareParts(partsWarehouseId)
+      .then(nextParts => { if (active) setParts(nextParts || []); })
+      .catch(cause => { if (active) setError(cause?.message || 'Không thể tải tồn linh kiện của kho đã chọn.'); });
+    return () => { active = false; };
+  }, [task, workOrderId, partsWarehouseId]);
+
+  useEffect(() => {
+    if (!isTechnician) return;
+    const personalWarehouse = ownTechnicianPartWarehouses[0];
+    if (personalWarehouse && partsWarehouseId !== personalWarehouse.id) {
+      setPartsWarehouseId(personalWarehouse.id);
+      setSelectedPartId('');
+    }
+  }, [isTechnician, ownTechnicianPartWarehouses, partsWarehouseId]);
+
+  useEffect(() => {
+    if (!details?.workOrder || partsWarehouseId) return;
+    const preferred = isTechnician
+      ? ownTechnicianPartWarehouses[0]
+      : eligiblePartWarehouses.find(item => item.id === details.workOrder.currentLocationId)
+        || eligiblePartWarehouses[0];
+    if (preferred) setPartsWarehouseId(preferred.id);
+  }, [details?.workOrder?.branchId, details?.workOrder?.currentLocationId, partsWarehouseId, isTechnician, ownTechnicianPartWarehouses, eligiblePartWarehouses]);
+
+  useEffect(() => {
+    if (!selectedPartId && compatibleParts.length > 0) setSelectedPartId(compatibleParts[0].id);
+  }, [selectedPartId, compatibleParts]);
 
   if (!task) return null;
   const workOrder = details?.workOrder || {};
@@ -212,19 +325,31 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
 
           {activeTab === 'PARTS' && <div className="space-y-4">
             <section className="rounded-2xl border bg-white p-5">
-              <h3 className="font-black">Giữ trước hoặc xuất linh kiện cho task</h3>
+              <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black">Giữ trước hoặc xuất linh kiện cho task</h3><p className="mt-1 text-xs text-zinc-500">Chỉ linh kiện đúng policy của task mới được phát hành. Chọn sai sẽ chỉ tạo yêu cầu chờ Kho/Admin duyệt, không trừ tồn.</p></div>{isTechnician && <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">Chỉ dùng kho KTV cá nhân</span>}</div>
+              {selectedLine && <div className={`mt-4 rounded-xl border p-3 text-sm ${taskPartRules.length ? 'border-emerald-200 bg-emerald-50/60 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}><p className="font-black">Policy linh kiện: {selectedLine.taskName}</p>{taskPartRules.length ? <ul className="mt-2 list-inside list-disc space-y-1 text-xs">{taskPartRules.map((rule, index) => <li key={`${rule.category || rule.sku || rule.partId || 'rule'}-${index}`}>{taskPartRuleLabel(rule)}</li>)}</ul> : <p className="mt-1 text-xs">Task này chưa có quy tắc linh kiện. KTV không được tự giữ/xuất; chỉ có thể gửi yêu cầu ngoại lệ để Kho/Admin duyệt.</p>}</div>}
+              {isTechnician && ownTechnicianPartWarehouses.length === 0 && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">Tài khoản KTV này chưa được gắn kho con kỹ thuật. Hãy vào Cài đặt → Kho hàng để gắn đúng kho KTV trước khi xuất linh kiện.</div>}
+              {isTechnician && taskPartRules.length > 0 && compatibleParts.length === 0 && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800">Kho KTV cá nhân chưa có linh kiện đúng task hoặc đã hết tồn. Mở <strong>Kho Linh Kiện &amp; Phụ Kiện → Linh kiện theo kho</strong>, chọn <strong>Yêu cầu Kho Tổng</strong> để cấp phát về kho cá nhân trước khi xuất.</div>}
               <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <select value={selectedLineId} onChange={event => setSelectedLineId(event.target.value)} className="h-11 rounded-xl border px-3 text-sm">{(details?.taskLines || []).map((line: any) => <option key={line.id} value={line.id}>{line.taskName}</option>)}</select>
-                <select value={partsWarehouseId} onChange={event => setPartsWarehouseId(event.target.value)} className="h-11 rounded-xl border px-3 text-sm"><option value="">Chọn kho xuất</option>{eligiblePartWarehouses.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-                <select value={selectedPartId} onChange={event => setSelectedPartId(event.target.value)} className="h-11 rounded-xl border px-3 text-sm"><option value="">Chọn linh kiện</option>{parts.filter(item => item.availableQuantity > 0).map(item => <option key={item.id} value={item.id}>{item.name} · còn {item.availableQuantity}</option>)}</select>
+                <select value={selectedLineId} onChange={event => { setSelectedLineId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} className="h-11 rounded-xl border px-3 text-sm">{(details?.taskLines || []).map((line: any) => <option key={line.id} value={line.id}>{line.taskName}</option>)}</select>
+                <select value={partsWarehouseId} onChange={event => { setPartsWarehouseId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} disabled={isTechnician && ownTechnicianPartWarehouses.length <= 1} className="h-11 rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{isTechnician ? 'Kho KTV chưa được gắn' : 'Chọn kho xuất'}</option>{selectablePartWarehouses.map(item => <option key={item.id} value={item.id}>{item.name}{isTechnician ? ' · kho cá nhân' : ''}</option>)}</select>
+                <select value={selectedPartId} onChange={event => { setSelectedPartId(event.target.value); setPartExceptionReason(''); }} className="h-11 rounded-xl border px-3 text-sm"><option value="">Chọn linh kiện</option>{compatibleParts.length > 0 && <optgroup label="Đúng task">{compatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}{incompatibleParts.length > 0 && <optgroup label="Không đúng task — cần duyệt ngoại lệ">{incompatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}</select>
                 <select value={selectedLotId} onChange={event => setSelectedLotId(event.target.value)} disabled={selectedPartLots.length === 0} className="h-11 rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{selectedPartLots.length ? 'Chọn lô xuất' : 'Không quản lý theo lô'}</option>{selectedPartLots.map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotCode} · còn {lot.availableQuantity}</option>)}</select>
                 <input type="number" min={1} value={issueQuantity} onChange={event => setIssueQuantity(Number(event.target.value))} className="h-11 rounded-xl border px-3"/>
               </div>
+              {selectedPartRule && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">✓ Linh kiện phù hợp: {taskPartRuleLabel(selectedPartRule)}</p>}
+              {exceedsTaskPartMaximum && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Số lượng đang chọn vượt tối đa {selectedPartMaximum} cho task này. Hãy giảm số lượng hoặc gửi yêu cầu ngoại lệ.</p>}
+              {selectedPartIsMismatch && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3"><p className="text-sm font-black text-amber-900">Linh kiện này không khớp task đã chọn</p>{selectedApprovedPartException ? <p className="mt-1 text-xs font-semibold text-emerald-800">Ngoại lệ đã được Kho/Admin duyệt ({selectedExceptionAvailableQuantity} còn lại). Có thể xuất ngay, nhưng không thể giữ trước linh kiện sai task.</p> : selectedPendingPartException ? <p className="mt-1 text-xs font-semibold text-amber-800">Đã gửi yêu cầu ngoại lệ, đang chờ Kho/Admin xét duyệt. Tồn kho chưa thay đổi.</p> : <><p className="mt-1 text-xs text-amber-800">Không thể tự xuất linh kiện sai task. Nêu lý do để gửi yêu cầu, sau đó Kho/Admin sẽ xét duyệt trước khi có thể dùng.</p><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={partExceptionReason} onChange={event => setPartExceptionReason(event.target.value)} placeholder="Lý do cần dùng linh kiện này (ít nhất 5 ký tự)" className="h-10 min-w-0 flex-1 rounded-lg border border-amber-300 bg-white px-3 text-sm"/><button disabled={saving || !selectedLineId || !selectedPartId || !partsWarehouseId || issueQuantity <= 0 || partExceptionReason.trim().length < 5 || (selectedPartLots.length > 0 && !selectedLotId)} onClick={() => void run(async () => { await requestTechnicalPartException(workOrderId, { lineId: selectedLineId, partId: selectedPartId, warehouseId: partsWarehouseId, lotId: selectedLotId || undefined, quantity: issueQuantity, reason: partExceptionReason.trim() }); setPartExceptionReason(''); }, 'Đã gửi yêu cầu ngoại lệ; linh kiện chưa được xuất cho đến khi Kho/Admin duyệt.')} className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Yêu cầu duyệt ngoại lệ</button></div></>}</div>}
+              {exceedsExceptionApproval && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Số lượng đang chọn vượt quyền ngoại lệ còn lại ({selectedExceptionAvailableQuantity}). Hãy giảm số lượng hoặc xin duyệt thêm.</p>}
               <div className="mt-3 flex flex-wrap gap-2">
-                <button disabled={saving || !selectedLineId || !selectedPartId || !partsWarehouseId || (selectedPartLots.length > 0 && !selectedLotId)} onClick={() => void run(() => requestReserveSparePart(workOrderId, selectedLineId, selectedPartId, partsWarehouseId, issueQuantity, selectedLotId || undefined), 'Đã giữ linh kiện cho đúng task.' )} className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Giữ trước</button>
-                <button disabled={saving || !selectedLineId || !selectedPartId || !partsWarehouseId || (selectedPartLots.length > 0 && !selectedLotId)} onClick={() => void run(() => requestIssueSparePart(workOrderId, selectedLineId, selectedPartId, partsWarehouseId, issueQuantity, selectedLotId || undefined), 'Đã xuất linh kiện và snapshot giá vốn.' )} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Package className="mr-2 inline h-4 w-4"/>Xuất ngay</button>
+                <button disabled={saving || !partSelectionReady || selectedPartIsMismatch} onClick={() => void run(() => requestReserveSparePart(workOrderId, selectedLineId, selectedPartId, partsWarehouseId, issueQuantity, selectedLotId || undefined), 'Đã giữ linh kiện đúng task.' )} className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Giữ trước</button>
+                <button disabled={saving || !partSelectionReady} onClick={() => void run(() => requestIssueSparePart(workOrderId, selectedLineId, selectedPartId, partsWarehouseId, issueQuantity, selectedLotId || undefined, undefined, selectedApprovedPartException?.id), selectedPartIsMismatch ? 'Đã xuất linh kiện theo ngoại lệ đã được duyệt và snapshot giá vốn.' : 'Đã xuất linh kiện đúng task và snapshot giá vốn.' )} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Package className="mr-2 inline h-4 w-4"/>Xuất ngay</button>
               </div>
             </section>
+
+            {!!details?.partExceptions?.length && <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white">
+              <div className="border-b border-amber-100 px-4 py-3 font-black text-amber-950">Ngoại lệ linh kiện theo task</div>
+              <div className="divide-y">{details.partExceptions.map((exception: any) => <article key={exception.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><p className="font-bold">{exception.partName} <span className="text-xs text-zinc-500">· {exception.category || exception.sku}</span></p><p className="mt-1 text-xs text-zinc-500">Task {exception.workOrderLineId} · Yêu cầu {exception.quantityRequested} · Đã duyệt {exception.quantityApproved || 0} · Đã xuất {exception.quantityIssued || 0}</p><p className="mt-1 text-xs text-amber-800">Lý do: {exception.reason || '—'}</p></div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${exception.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : exception.status === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>{exception.status}</span>{canManagePartExceptions && exception.status === 'PENDING' && <><button disabled={saving} onClick={() => void run(() => requestDecideTechnicalPartException(workOrderId, exception.id, { decision: 'APPROVED', quantityApproved: Number(exception.quantityRequested || 1), note: 'Đã duyệt ngoại lệ linh kiện theo hồ sơ kỹ thuật.' }), 'Đã duyệt ngoại lệ; KTV có thể xuất đúng số lượng được duyệt.')} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-black text-white">Duyệt</button><button disabled={saving} onClick={() => void run(() => requestDecideTechnicalPartException(workOrderId, exception.id, { decision: 'REJECTED', note: 'Không duyệt linh kiện ngoài policy task.' }), 'Đã từ chối ngoại lệ linh kiện.')} className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-black text-red-700">Từ chối</button></>}</div></article>)}</div>
+            </section>}
 
             <section className="overflow-hidden rounded-2xl border bg-white">
               <div className="border-b px-4 py-3 font-black">Linh kiện đang giữ trước</div>

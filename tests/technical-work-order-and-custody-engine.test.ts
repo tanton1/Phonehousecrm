@@ -194,7 +194,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
 
       await expect(
         processIssueSparePart(mockDb, 'WO_01', 'WOL_01', 'PART-PIN-15P', 1, { uid: 'UID_KTV_NAM', branchId: 'CN01' })
-      ).rejects.toThrow('INSUFFICIENT_PARTS_STOCK');
+      ).rejects.toThrow('LEGACY_PART_ISSUE_RETIRED_USE_PART_LEDGER');
     });
   });
 

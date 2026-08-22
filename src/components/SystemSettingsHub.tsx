@@ -335,9 +335,41 @@ function RetailPricingPanel({ policies, branches, devices = [], products = [], o
   </div>;
 }
 
+type TaskPartTemplate = NonNullable<TechnicalTaskTypeConfig['requiredPartTemplates']>[number];
+
+const emptyPartTemplate = (): TaskPartTemplate => ({
+  category: '',
+  sku: '',
+  quantity: 1,
+  maxQuantity: 1,
+  allowSubstitution: true
+});
+
+const normalizePartTemplates = (templates: TaskPartTemplate[] = []): TaskPartTemplate[] => templates
+  .reduce<TaskPartTemplate[]>((normalized, template) => {
+    const category = String(template.category || '').trim().toUpperCase();
+    const sku = String(template.sku || '').trim().toUpperCase();
+    const partId = String(template.partId || '').trim();
+    const maxQuantity = Number(template.maxQuantity ?? template.quantity);
+    if (!category && !sku && !partId) return normalized;
+    if (!Number.isFinite(maxQuantity) || maxQuantity <= 0) {
+      throw new Error('Số lượng tối đa của linh kiện phải lớn hơn 0.');
+    }
+    normalized.push({
+      ...(category ? { category } : {}),
+      ...(sku ? { sku } : {}),
+      ...(partId ? { partId } : {}),
+      quantity: maxQuantity,
+      maxQuantity,
+      allowSubstitution: template.allowSubstitution === true
+    });
+    return normalized;
+  }, []);
+
 const emptyTask = (): TechnicalTaskTypeConfig => ({
   id: '', taskType: '', name: '', taskCode: '', baseCommission: Number.NaN,
   laborCostToDevice: Number.NaN, capitalizeLaborCost: true, reworkCommissionPolicy: 'NO_EXTRA_COMMISSION', requiredEvidenceTypes: ['AFTER_PHOTO', 'RESULT_NOTES'],
+  requiredPartTemplates: [],
   normalSlaHours: Number.NaN, prioritySlaHours: Number.NaN, urgentSlaHours: Number.NaN,
   priorityMultiplier: { NORMAL: Number.NaN, PRIORITY: Number.NaN, URGENT: Number.NaN },
   requiresQc: true, isActive: true, version: ''
@@ -355,7 +387,13 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
   const save = async () => {
     setSaving(true); setMessage('');
     try {
-      const normalized = { ...draft, id: draft.taskType, taskType: draft.taskType.trim().toUpperCase(), taskCode: draft.taskCode.trim().toUpperCase() };
+      const normalized = {
+        ...draft,
+        id: draft.taskType,
+        taskType: draft.taskType.trim().toUpperCase(),
+        taskCode: draft.taskCode.trim().toUpperCase(),
+        requiredPartTemplates: normalizePartTemplates(draft.requiredPartTemplates)
+      };
       await saveTechnicalTaskSetting(normalized);
       await Promise.all([load(), onSaved()]);
       setDraft(emptyTask());
@@ -385,6 +423,24 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
         <NumberField label="Hệ số ưu tiên" value={draft.priorityMultiplier.PRIORITY} onChange={value => setDraft({ ...draft, priorityMultiplier: { ...draft.priorityMultiplier, PRIORITY: value } })} />
         <NumberField label="Hệ số khẩn" value={draft.priorityMultiplier.URGENT} onChange={value => setDraft({ ...draft, priorityMultiplier: { ...draft.priorityMultiplier, URGENT: value } })} />
       </div>
+      <section className="mt-5 rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><h4 className="font-black text-zinc-900">Linh kiện được phép theo task</h4><p className="mt-1 max-w-2xl text-xs text-zinc-600">KTV chỉ được giữ hoặc xuất linh kiện khớp nhóm/SKU này. Ví dụ task <strong>Thay pin</strong> khai báo nhóm <strong>PIN</strong>; chọn màn hình sẽ bị chặn và phải gửi yêu cầu ngoại lệ để Kho/Admin duyệt.</p></div><button type="button" onClick={() => setDraft({ ...draft, requiredPartTemplates: [...(draft.requiredPartTemplates || []), emptyPartTemplate()] })} className="shrink-0 rounded-xl bg-blue-700 px-3 py-2 text-xs font-black text-white">+ Thêm quy tắc</button></div>
+        <div className="mt-4 space-y-3">
+          {(draft.requiredPartTemplates || []).length === 0 && <div className="rounded-xl border border-dashed border-blue-200 bg-white/70 p-3 text-sm text-blue-900">Chưa khai báo linh kiện. Task này sẽ không cho KTV tự xuất bất kỳ linh kiện nào cho đến khi có quy tắc hoặc được Kho/Admin duyệt ngoại lệ.</div>}
+          {(draft.requiredPartTemplates || []).map((rule, index) => {
+            const updateRule = (nextRule: TaskPartTemplate) => setDraft({ ...draft, requiredPartTemplates: (draft.requiredPartTemplates || []).map((item, itemIndex) => itemIndex === index ? nextRule : item) });
+            const limit = Number(rule.maxQuantity ?? rule.quantity ?? 1);
+            return <div key={`${rule.category || rule.sku || rule.partId || 'part'}-${index}`} className="grid gap-3 rounded-xl border bg-white p-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_150px_1fr_auto]">
+              <label className="space-y-1 text-xs font-bold"><span>Nhóm linh kiện</span><input value={rule.category || ''} onChange={event => updateRule({ ...rule, category: event.target.value.toUpperCase() })} placeholder="PIN, MAN_HINH, VO..." className="w-full rounded-lg border px-2.5 py-2" /></label>
+              <label className="space-y-1 text-xs font-bold"><span>SKU cụ thể (tuỳ chọn)</span><input value={rule.sku || ''} onChange={event => updateRule({ ...rule, sku: event.target.value.toUpperCase() })} placeholder="PIN-IPHONE-15-PRO" className="w-full rounded-lg border px-2.5 py-2" /></label>
+              <NumberField label="Tối đa / task" value={limit} onChange={value => updateRule({ ...rule, quantity: value, maxQuantity: value })} />
+              <label className="flex items-end gap-2 pb-2 text-xs font-bold"><input type="checkbox" checked={rule.allowSubstitution === true} onChange={event => updateRule({ ...rule, allowSubstitution: event.target.checked })} /> Cho phép SKU thay thế cùng nhóm</label>
+              <div className="flex items-end justify-end"><button type="button" onClick={() => setDraft({ ...draft, requiredPartTemplates: (draft.requiredPartTemplates || []).filter((_, itemIndex) => itemIndex !== index) })} className="rounded-lg p-2 text-red-600 hover:bg-red-50" title="Xóa quy tắc"><Trash2 className="h-4 w-4" /></button></div>
+              {rule.partId && <p className="text-[11px] text-zinc-400 md:col-span-2 xl:col-span-5">Mã linh kiện cũ đang được giữ để tương thích: {rule.partId}</p>}
+            </div>;
+          })}
+        </div>
+      </section>
       <div className="mt-4 flex flex-wrap gap-5"><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.requiresQc} onChange={e => setDraft({ ...draft, requiresQc: e.target.checked })} /> Bắt buộc KCS</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.capitalizeLaborCost !== false} onChange={e => setDraft({ ...draft, capitalizeLaborCost: e.target.checked })} /> Cộng nhân công vào giá vốn máy</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={(draft.requiredEvidenceTypes || []).includes('AFTER_PHOTO')} onChange={e => setDraft({ ...draft, requiredEvidenceTypes: e.target.checked ? [...new Set([...(draft.requiredEvidenceTypes || []), 'AFTER_PHOTO' as const, 'RESULT_NOTES' as const])] : (draft.requiredEvidenceTypes || []).filter(item => item !== 'AFTER_PHOTO') })} /> Bắt buộc ảnh sau sửa</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} /> Kích hoạt</label></div>
       <div className="mt-5 flex items-center gap-3"><button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu task</button>{message && <span className="text-sm text-zinc-600">{message}</span>}</div>
     </section>

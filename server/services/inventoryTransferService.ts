@@ -22,7 +22,14 @@ export interface TechnicalTaskTypeRecord {
   capitalizeLaborCost?: boolean;
   reworkCommissionPolicy?: 'NO_EXTRA_COMMISSION' | 'REPEAT_COMMISSION' | 'MANAGER_APPROVAL';
   requiredEvidenceTypes?: string[];
-  requiredPartTemplates?: Array<{ partId?: string; sku?: string; quantity: number }>;
+  requiredPartTemplates?: Array<{
+    partId?: string;
+    sku?: string;
+    category?: string;
+    quantity: number;
+    maxQuantity?: number;
+    allowSubstitution?: boolean;
+  }>;
   qcChecklistTemplateId?: string;
   normalSlaHours: number;
   prioritySlaHours: number;

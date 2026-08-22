@@ -184,7 +184,8 @@ export async function requestIssueSparePart(
   warehouseId: string,
   quantity: number = 1,
   lotId?: string,
-  reservationId?: string
+  reservationId?: string,
+  exceptionApprovalId?: string
 ): Promise<{ issue: any; remainingStock: number; idempotentReplay?: boolean }> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/issue`, {
     lineId,
@@ -192,6 +193,7 @@ export async function requestIssueSparePart(
     warehouseId,
     lotId,
     reservationId,
+    exceptionApprovalId,
     quantity,
     idempotencyKey: createTechnicalIdempotencyKey(`part-issue-${workOrderId}-${lineId}`)
   });
@@ -212,6 +214,39 @@ export async function requestReserveSparePart(
     lotId,
     quantity,
     idempotencyKey: createTechnicalIdempotencyKey(`part-reserve-${workOrderId}-${lineId}`)
+  });
+}
+
+/**
+ * KTV không thể tự xuất linh kiện không nằm trong policy của task.
+ * Hàm này chỉ tạo yêu cầu để Kho/Admin xét duyệt ngoại lệ; không làm
+ * phát sinh phiếu xuất hay thay đổi tồn kho.
+ */
+export async function requestTechnicalPartException(
+  workOrderId: string,
+  payload: {
+    lineId: string;
+    partId: string;
+    warehouseId: string;
+    lotId?: string;
+    quantity: number;
+    reason: string;
+  }
+): Promise<{ exception: any }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/exceptions`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`part-exception-${workOrderId}-${payload.lineId}-${payload.partId}`)
+  });
+}
+
+export async function requestDecideTechnicalPartException(
+  workOrderId: string,
+  exceptionId: string,
+  payload: { decision: 'APPROVED' | 'REJECTED'; quantityApproved?: number; note?: string }
+): Promise<{ exception: any; idempotentReplay?: boolean }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/exceptions/${exceptionId}/decision`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`part-exception-decision-${exceptionId}`)
   });
 }
 
@@ -306,6 +341,78 @@ export async function fetchTechnicalCostBreakdown(workOrderId: string): Promise<
 export async function fetchTechnicalSpareParts(warehouseId?: string): Promise<any[]> {
   const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : '';
   return await sendTechnicalApiRequest(`parts${query}`, {}, 'GET');
+}
+
+/**
+ * A request moves stock only after it has been approved.  The requester
+ * never receives a write path to the central balance directly.
+ */
+export interface TechnicalPartStockRequest {
+  id: string;
+  status: 'PENDING' | 'FULFILLED' | 'REJECTED' | string;
+  branchId?: string;
+  sourceWarehouseId: string;
+  targetWarehouseId: string;
+  targetCustodianUid?: string | null;
+  targetCustodianName?: string | null;
+  partId: string;
+  lotId?: string | null;
+  sku?: string;
+  partName?: string;
+  category?: string;
+  quantityRequested: number;
+  quantityApproved?: number;
+  sourceAvailableSnapshot?: number;
+  reason: string;
+  workOrderId?: string | null;
+  workOrderLineId?: string | null;
+  requestedByUid?: string;
+  requestedByName?: string | null;
+  requestedAt?: string;
+  decidedByUid?: string | null;
+  decidedByName?: string | null;
+  decidedAt?: string | null;
+  decisionNote?: string | null;
+  transferId?: string | null;
+}
+
+export async function fetchTechnicalPartStockRequests(
+  status?: string
+): Promise<TechnicalPartStockRequest[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return await sendTechnicalApiRequest(`parts/requests${query}`, {}, 'GET');
+}
+
+export async function requestTechnicalPartStockRequest(payload: {
+  sourceWarehouseId: string;
+  targetWarehouseId: string;
+  partId: string;
+  lotId?: string;
+  quantity: number;
+  reason: string;
+  workOrderId?: string;
+  workOrderLineId?: string;
+}): Promise<{ request: TechnicalPartStockRequest; idempotentReplay?: boolean }> {
+  return await sendTechnicalApiRequest('parts/requests', {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(
+      `part-stock-request-${payload.sourceWarehouseId}-${payload.targetWarehouseId}-${payload.partId}`
+    )
+  });
+}
+
+export async function requestDecideTechnicalPartStockRequest(
+  requestId: string,
+  payload: {
+    decision: 'APPROVED' | 'REJECTED';
+    quantityApproved?: number;
+    note?: string;
+  }
+): Promise<{ request: TechnicalPartStockRequest; transferId?: string; idempotentReplay?: boolean }> {
+  return await sendTechnicalApiRequest(`parts/requests/${requestId}/decision`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`part-stock-request-decision-${requestId}`)
+  });
 }
 
 export async function requestFinalizeTechnicalCost(workOrderId: string): Promise<any> {

@@ -231,7 +231,22 @@ export interface TechnicalTaskTypeConfig {
   capitalizeLaborCost?: boolean;
   reworkCommissionPolicy?: 'NO_EXTRA_COMMISSION' | 'REPEAT_COMMISSION' | 'MANAGER_APPROVAL';
   requiredEvidenceTypes?: Array<'BEFORE_PHOTO' | 'AFTER_PHOTO' | 'RESULT_NOTES' | 'REPLACEMENT_SERIAL'>;
-  requiredPartTemplates?: Array<{ partId?: string; sku?: string; quantity: number }>;
+  /**
+   * Danh mục linh kiện được phép dùng cho task. Đây là policy nghiệp vụ,
+   * không phải tồn kho: KTV chỉ được giữ/xuất linh kiện khớp một rule này.
+   * Ưu tiên định danh bằng category/SKU; partId chỉ giữ lại để tương thích
+   * với các cấu hình cũ đã lưu.
+   */
+  requiredPartTemplates?: Array<{
+    category?: string;
+    sku?: string;
+    partId?: string;
+    /** Số lượng tối đa theo rule cho một task line (legacy: số lượng yêu cầu). */
+    quantity: number;
+    maxQuantity?: number;
+    /** Cho phép dùng SKU thay thế khi vẫn cùng nhóm linh kiện. */
+    allowSubstitution?: boolean;
+  }>;
   qcChecklistTemplateId?: string;
   normalSlaHours: number;
   prioritySlaHours?: number;

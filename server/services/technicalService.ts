@@ -1348,65 +1348,9 @@ export async function processIssueSparePart(
   quantity: number,
   technicianUser: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
 ): Promise<{ success: boolean; partId: string; remainingStock: number }> {
-  if (quantity <= 0) {
-    throw new Error('INVALID_QUANTITY: Số lượng linh kiện phải lớn hơn 0.');
-  }
-
-  return await db.runTransaction(async (transaction) => {
-    // 1. Verify Work Order Line
-    const lineRef = db.collection('technicalWorkOrderLines').doc(lineId);
-    const lineSnap = await transaction.get(lineRef);
-    if (!lineSnap.exists) {
-      throw new Error(`LINE_NOT_FOUND: Không tìm thấy hạng mục công việc "${lineId}".`);
-    }
-
-    const lineData = lineSnap.data()!;
-    if (lineData.workOrderId !== workOrderId) {
-      throw new Error(`WORK_ORDER_MISMATCH: Hạng mục "${lineId}" không thuộc phiếu kỹ thuật "${workOrderId}".`);
-    }
-
-    if (!canAccessBranch(technicianUser, lineData.branchId)) {
-      throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền xuất linh kiện tại chi nhánh "${lineData.branchId}".`);
-    }
-
-    // 2. Verify Spare Part
-    const partRef = db.collection('spareParts').doc(partId);
-    const partSnap = await transaction.get(partRef);
-    if (!partSnap.exists) {
-      throw new Error(`SPARE_PART_NOT_FOUND: Không tìm thấy linh kiện ID "${partId}".`);
-    }
-
-    const partData = partSnap.data()!;
-    const currentStock = typeof partData.stockQuantity === 'number' ? partData.stockQuantity : 0;
-
-    if (currentStock < quantity) {
-      throw new Error(`INSUFFICIENT_PARTS_STOCK: Linh kiện "${partData.name}" chỉ còn ${currentStock} cái (yêu cầu ${quantity}).`);
-    }
-
-    // Deduct stock atomically
-    const newStock = currentStock - quantity;
-    transaction.update(partRef, {
-      stockQuantity: newStock,
-      updatedAt: FieldValue.serverTimestamp()
-    });
-
-    // Record Part Reservation / Movement
-    const resId = `PART_ISSUE_${Date.now()}_${partId}`;
-    transaction.set(db.collection('technicalPartReservations').doc(resId), {
-      id: resId,
-      workOrderId,
-      workOrderLineId: lineId,
-      partId,
-      partName: partData.name,
-      branchId: lineData.branchId || 'CN01',
-      quantity,
-      issuedToUid: technicianUser.uid,
-      issuedToName: technicianUser.name || 'Kỹ thuật viên',
-      status: 'ISSUED',
-      issuedAt: new Date().toISOString(),
-      createdAt: FieldValue.serverTimestamp()
-    });
-
-    return { success: true, partId, remainingStock: newStock };
-  });
+  // Deliberately retired. This legacy helper bypassed task policy, personal
+  // warehouse custody, lot-cost snapshots and the immutable part ledger.
+  // All callers must use POST /api/technical/work-orders/:id/parts/issue.
+  void db; void workOrderId; void lineId; void partId; void quantity; void technicianUser;
+  throw new Error('LEGACY_PART_ISSUE_RETIRED_USE_PART_LEDGER');
 }
