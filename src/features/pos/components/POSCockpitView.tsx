@@ -416,7 +416,6 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           totalSpent: finalAmount,
           outstandingDebt: debtAmt
         };
-        onAddPartner?.(customerPartner);
       }
     }
 
@@ -703,6 +702,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         isOpen={isCreateCustomerModalOpen}
         onClose={() => setIsCreateCustomerModalOpen(false)}
         defaultType="CUSTOMER"
+        branchId={currentBranch.id}
         initialPhone={customerPhone}
         initialName={customerName}
         onSavePartner={async (newPartner) => {

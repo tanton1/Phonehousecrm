@@ -274,28 +274,6 @@ export function subscribeToWarrantyTickets(onData: (tickets: WarrantyTicket[]) =
   );
 }
 
-export async function addWarrantyTicketToFirestore(ticket: WarrantyTicket) {
-  const path = `${WARRANTY_COL}/${ticket.id}`;
-  try {
-    const docRef = doc(db, WARRANTY_COL, ticket.id);
-    await setDoc(docRef, cleanDataForFirestore(ticket));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
-}
-
-export async function updateWarrantyTicketInFirestore(ticket: WarrantyTicket) {
-  const path = `${WARRANTY_COL}/${ticket.id}`;
-  try {
-    const docRef = doc(db, WARRANTY_COL, ticket.id);
-    await setDoc(docRef, cleanDataForFirestore(ticket), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
-  }
-}
-
 // ----------------- INVOICES -----------------
 export function subscribeToInvoices(onData: (invoices: SalesInvoice[]) => void) {
   const colRef = collection(db, INVOICES_COL);
@@ -312,36 +290,6 @@ export function subscribeToInvoices(onData: (invoices: SalesInvoice[]) => void) 
       handleFirestoreError(error, OperationType.GET, INVOICES_COL);
     }
   );
-}
-
-export async function addInvoiceToFirestore(invoice: SalesInvoice) {
-  const path = `${INVOICES_COL}/${invoice.id}`;
-  try {
-    const docRef = doc(db, INVOICES_COL, invoice.id);
-    await setDoc(docRef, cleanDataForFirestore(invoice));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateInvoiceInFirestore(invoice: SalesInvoice) {
-  const path = `${INVOICES_COL}/${invoice.id}`;
-  try {
-    const docRef = doc(db, INVOICES_COL, invoice.id);
-    await setDoc(docRef, cleanDataForFirestore(invoice), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteInvoiceFromFirestore(id: string) {
-  const path = `${INVOICES_COL}/${id}`;
-  try {
-    const docRef = doc(db, INVOICES_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
 }
 
 // ----------------- USERS & PERMISSIONS -----------------

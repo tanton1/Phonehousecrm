@@ -1,22 +1,28 @@
 import React, { useState } from 'react';
 import { CheckCircle2, ChevronRight, X, Calendar, Search, Building2 } from 'lucide-react';
-import { SalesInvoice, CashTransaction, FundAccount, Partner } from '../types';
+import { SalesInvoice, FundAccount } from '../types';
 
 interface Props {
   invoices: SalesInvoice[];
   funds: FundAccount[];
-  partners: Partner[];
-  onUpdateInvoice: (invoice: SalesInvoice) => void;
-  onAddTransaction: (transaction: CashTransaction) => void;
-  onUpdateFunds: (funds: FundAccount[]) => void;
-  onUpdatePartner: (partner: Partner) => void;
+  onConfirmDisbursement: (input: {
+    invoiceId: string;
+    fundId: string;
+    receivedAmount: number;
+    feeAmount: number;
+    note: string;
+    idempotencyKey: string;
+  }) => Promise<void>;
 }
 
-export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds, partners, onUpdateInvoice, onAddTransaction, onUpdateFunds, onUpdatePartner }) => {
+export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds, onConfirmDisbursement }) => {
   const [selectedInvoice, setSelectedInvoice] = useState<SalesInvoice | null>(null);
   const [actualAmount, setActualAmount] = useState('');
   const [feeAmount, setFeeAmount] = useState('');
   const [selectedFund, setSelectedFund] = useState('');
+  const [idempotencyKey, setIdempotencyKey] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   const pendingInvoices = invoices.filter(inv => inv.installmentDisbursementStatus === 'PENDING');
   const disbursedInvoices = invoices.filter(inv => inv.installmentDisbursementStatus === 'DISBURSED');
@@ -29,90 +35,45 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
     setFeeAmount('0');
     const eligibleFunds = funds.filter(f => f.branchId === inv.branchId && f.isActive !== false && f.isArchived !== true);
     setSelectedFund(eligibleFunds.find(f => f.type === 'BANK' && f.isDefault)?.id || eligibleFunds.find(f => f.type === 'BANK')?.id || '');
+    const suffix = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    setIdempotencyKey(`INSTALLMENT:${inv.id}:${suffix}`);
+    setSubmitError('');
   };
 
-  const handleConfirmDisbursement = (e: React.FormEvent) => {
+  const handleConfirmDisbursement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedInvoice) return;
 
-    const amountNum = parseFloat(actualAmount.replace(/[^0-9]/g, '')) || 0;
-    const feeNum = parseFloat(feeAmount.replace(/[^0-9]/g, '')) || 0;
+    const amountNum = Number(actualAmount.replace(/[^0-9]/g, '')) || 0;
+    const feeNum = Number(feeAmount.replace(/[^0-9]/g, '')) || 0;
+    const expectedAmount = Number(selectedInvoice.installmentExpectedAmount || selectedInvoice.installmentFinanceAmount || 0);
     if (amountNum <= 0) {
       alert('Vui lòng nhập số tiền hợp lệ lớn hơn 0');
       return;
     }
 
-    const fund = funds.find(f => f.id === selectedFund && f.branchId === selectedInvoice.branchId && f.isActive !== false && f.isArchived !== true);
-    if (!fund) return;
-
-    const now = new Date();
-    const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
-
-    // 1. Ghi nhận tiền thu về
-    const txIn: CashTransaction = {
-      id: `TX-${Date.now()}-DISB`,
-      code: `PT-${Math.floor(1000 + Math.random() * 9000)}`,
-      type: 'RECEIPT',
-      category: 'OTHER_INCOME',
-      categoryName: 'Giải ngân trả góp/MPOS',
-      amount: amountNum,
-      fundId: fund.id,
-      fundType: fund.type,
-      fundName: fund.name,
-      branchId: fund.branchId,
-      date: dateStr,
-      creator: 'Nhật Tân (Admin)',
-      notes: `Giải ngân HĐ ${selectedInvoice.installmentContractCode || selectedInvoice.invoiceCode} (${selectedInvoice.installmentDetails?.financeCompany || selectedInvoice.installmentCompany || 'Tài chính'})`,
-      status: 'COMPLETED'
-    };
-    onAddTransaction(txIn);
-
-    // 2. Ghi nhận chi phí (nếu có)
-    if (feeNum > 0) {
-      const txFee: CashTransaction = {
-        id: `TX-${Date.now()}-FEE`,
-        code: `PC-${Math.floor(1000 + Math.random() * 9000)}`,
-        type: 'PAYMENT',
-        category: 'OTHER_EXPENSE',
-        categoryName: 'Phí trả góp/MPOS',
-        amount: feeNum,
-        fundId: fund.id,
-        fundType: fund.type,
-        fundName: fund.name,
-        branchId: fund.branchId,
-        date: dateStr,
-        creator: 'Nhật Tân (Admin)',
-        notes: `Phí dịch vụ giải ngân HĐ ${selectedInvoice.installmentContractCode || selectedInvoice.invoiceCode}`,
-        status: 'COMPLETED'
-      };
-      setTimeout(() => {
-        onAddTransaction(txFee);
-      }, 100);
+    const fund = funds.find(f => f.id === selectedFund && f.type === 'BANK' && f.branchId === selectedInvoice.branchId && f.isActive !== false && f.isArchived !== true);
+    if (!fund) return setSubmitError('Vui lòng chọn tài khoản ngân hàng đang hoạt động của đúng chi nhánh.');
+    if (!Number.isSafeInteger(amountNum) || !Number.isSafeInteger(feeNum) || amountNum + feeNum !== expectedAmount) {
+      return setSubmitError(`Tiền thực nhận + phí phải bằng khoản chờ giải ngân ${expectedAmount.toLocaleString('vi-VN')}đ.`);
     }
-
-    // 3. Cập nhật trạng thái Invoice
-    const updatedInvoice = {
-      ...selectedInvoice,
-      installmentDisbursementStatus: 'DISBURSED' as const,
-      status: 'completed' as const
-    };
-    onUpdateInvoice(updatedInvoice);
-
-    
-    // 4. Giảm công nợ khách hàng
-    const customerPhone = selectedInvoice.customerPhone || selectedInvoice.phone;
-    if (customerPhone) {
-      const customer = partners.find(p => p.phone === customerPhone);
-      if (customer && selectedInvoice.installmentExpectedAmount) {
-        onUpdatePartner({
-          ...customer,
-          outstandingDebt: (customer.outstandingDebt || 0) - selectedInvoice.installmentExpectedAmount
-        });
-      }
+    setIsSubmitting(true);
+    setSubmitError('');
+    try {
+      await onConfirmDisbursement({
+        invoiceId: selectedInvoice.id,
+        fundId: selectedFund,
+        receivedAmount: amountNum,
+        feeAmount: feeNum,
+        note: `Đối soát hợp đồng ${selectedInvoice.installmentContractCode || selectedInvoice.invoiceCode || selectedInvoice.id}`,
+        idempotencyKey
+      });
+      setSelectedInvoice(null);
+    } catch (error: any) {
+      setSubmitError(error?.message || 'Không thể ghi nhận giải ngân. Không có dữ liệu nào được thay đổi.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setSelectedInvoice(null);
-
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(val);
@@ -226,7 +187,10 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                   value={feeAmount}
                   onChange={e => {
                     const val = e.target.value.replace(/[^0-9]/g, '');
-                    setFeeAmount(val ? parseInt(val).toLocaleString('vi-VN') : '');
+                    const fee = val ? parseInt(val) : 0;
+                    const expected = Number(selectedInvoice.installmentExpectedAmount || selectedInvoice.installmentFinanceAmount || 0);
+                    setFeeAmount(fee ? fee.toLocaleString('vi-VN') : '0');
+                    setActualAmount(Math.max(0, expected - fee).toLocaleString('vi-VN'));
                   }}
                   className="w-full px-4 py-3 bg-white border border-rose-200 rounded-xl text-lg font-bold text-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500"
                 />
@@ -239,20 +203,22 @@ export const InstallmentReconciliationView: React.FC<Props> = ({ invoices, funds
                   className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-semibold"
                 >
                   {funds
-                    .filter(f => f.branchId === selectedInvoice?.branchId && f.isActive !== false && f.isArchived !== true)
+                    .filter(f => f.type === 'BANK' && f.branchId === selectedInvoice?.branchId && f.isActive !== false && f.isArchived !== true)
                     .map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
               </div>
               <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
                 <p className="text-[11px] text-orange-800 leading-relaxed">
-                  <strong>Lưu ý:</strong> Hành động này sẽ tạo 1 phiếu Thu (tiền về) và 1 phiếu Chi (tiền phí) tự động. Khoản nợ chờ giải ngân của khách sẽ được xóa.
+                  <strong>Lưu ý:</strong> Hệ thống sẽ thu đủ khoản phải giải ngân, hạch toán riêng phí và giảm công nợ của công ty tài chính — không giảm công nợ khách hàng.
                 </p>
               </div>
+              {submitError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{submitError}</div>}
               <button
                 type="submit"
-                className="w-full py-3.5 bg-[#EA580C] hover:bg-[#128a59] text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer"
+                disabled={isSubmitting || !selectedFund}
+                className="w-full py-3.5 bg-[#EA580C] hover:bg-[#128a59] text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Hoàn tất & Cập nhật sổ sách
+                {isSubmitting ? 'Đang ghi transaction...' : 'Hoàn tất & Cập nhật sổ sách'}
               </button>
             </form>
           </div>

@@ -15,6 +15,7 @@ import {
 import { ActivityLog } from './ActivityLog';
 import { UniformEntryForm } from './UniformEntryForm';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
+import { createInventoryIdempotencyKey } from '../services/inventoryApiClient';
 import { 
   Database,
   Plus, 
@@ -67,10 +68,10 @@ interface PurchaseOrdersViewProps {
   branches?: StoreBranch[];
   selectedBranchId?: string;
   currentUser?: UserAccount | null;
-  onAddPurchaseOrder: (order: PurchaseOrder, autoCreateDevices: boolean) => Promise<void> | void;
+  onAddPurchaseOrder: (order: PurchaseOrder, autoCreateDevices: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
   onUpdatePurchaseOrder: (order: PurchaseOrder) => void;
   onDeletePurchaseOrder: (orderId: string) => Promise<void> | void;
-  onPaySupplierDebt?: (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => void;
+  onPaySupplierDebt?: (orderId: string, supplierId: string, amount: number, fundId: string, note: string, idempotencyKey: string) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
   onAddCashTransaction?: (tx: import('../types').CashTransaction) => void;
   onUpdatePartner?: (partner: Partner) => void;
@@ -189,6 +190,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   const [payAmount, setPayAmount] = useState<number>(0);
   const [selectedPayFundId, setSelectedPayFundId] = useState<string>(funds[0]?.id || 'FUND-01');
   const [payNote, setPayNote] = useState('');
+  const [isPayingDebt, setIsPayingDebt] = useState(false);
+  const [payIdempotencyKey, setPayIdempotencyKey] = useState('');
 
   // Suppliers List
   const suppliers = useMemo(() => {
@@ -221,27 +224,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       }
       return;
     }
-    if (selectedOrder.status === 'COMPLETED' || selectedOrder.status === 'CANCELLED') {
-      alert('Phiếu đã nhập kho/đã hủy không thể đổi trạng thái thủ công. Hãy dùng nghiệp vụ hủy phiếu để bảo toàn tồn kho.');
-      return;
-    }
-    const updatedOrder: PurchaseOrder = {
-      ...selectedOrder,
-      status: newStatus,
-      receivedDate: newStatus === 'COMPLETED' ? new Date().toISOString().split('T')[0] : selectedOrder.receivedDate,
-      history: [
-        ...(selectedOrder.history || []),
-        {
-          time: new Date().toLocaleString('vi-VN'),
-          action: `Chuyển trạng thái: ${STATUS_CONFIG[newStatus]?.label || newStatus}`,
-          user: currentUser ? currentUser.displayName : 'Admin PhoneHouse'
-        }
-      ]
-    };
-    setSelectedOrder(updatedOrder);
-    onUpdatePurchaseOrder(updatedOrder);
+    alert('Không cho đổi trạng thái kế toán bằng cập nhật phiếu chung. “Đã nhập kho” chỉ được tạo bởi API nhận hàng nguyên tử; các bước nháp/KCS sẽ dùng endpoint state machine riêng.');
     setShowStatusPicker(false);
-    triggerToast(`Đã chuyển trạng thái: "${STATUS_CONFIG[newStatus]?.label}"`);
   };
 
   // Save Note in Detail View
@@ -267,42 +251,25 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   };
 
   // Handle Pay Debt Confirmation
-  const handleConfirmPayDebt = () => {
+  const handleConfirmPayDebt = async () => {
     if (!selectedOrder || payAmount <= 0) return;
     if (payAmount > selectedOrder.debtAmount) {
       alert('Số tiền thanh toán không được vượt quá số nợ còn lại!');
       return;
     }
 
-    const updatedPaid = selectedOrder.paidAmount + payAmount;
-    const updatedDebt = Math.max(0, selectedOrder.totalAmount - updatedPaid);
-    const updatedPaymentStatus: PurchasePaymentStatus = updatedDebt === 0 ? 'PAID' : 'PARTIAL';
-
-    const updatedOrder: PurchaseOrder = {
-      ...selectedOrder,
-      paidAmount: updatedPaid,
-      debtAmount: updatedDebt,
-      paymentStatus: updatedPaymentStatus,
-      history: [
-        ...(selectedOrder.history || []),
-        {
-          time: new Date().toLocaleString('vi-VN'),
-          action: 'Thanh toán nợ NCC',
-          user: currentUser ? currentUser.displayName : 'Admin PhoneHouse',
-          note: `Thanh toán thêm ${payAmount.toLocaleString('vi-VN')}đ. Nợ còn lại: ${updatedDebt.toLocaleString('vi-VN')}đ`
-        }
-      ]
-    };
-
-    setSelectedOrder(updatedOrder);
-    onUpdatePurchaseOrder(updatedOrder);
-
-    if (onPaySupplierDebt) {
-      onPaySupplierDebt(selectedOrder.id, selectedOrder.supplierId, payAmount, selectedPayFundId, payNote);
+    if (!onPaySupplierDebt) return;
+    try {
+      setIsPayingDebt(true);
+      const updatedOrder = await onPaySupplierDebt(selectedOrder.id, selectedOrder.supplierId, payAmount, selectedPayFundId, payNote, payIdempotencyKey);
+      if (updatedOrder) setSelectedOrder(updatedOrder);
+      setIsPayDebtModalOpen(false);
+      triggerToast(`Đã chi thanh toán ${payAmount.toLocaleString('vi-VN')}đ cho NCC ${selectedOrder.supplierName}`);
+    } catch (error: any) {
+      alert(error?.message || 'Thanh toán thất bại. Phiếu, công nợ và quỹ không bị thay đổi.');
+    } finally {
+      setIsPayingDebt(false);
     }
-
-    setIsPayDebtModalOpen(false);
-    triggerToast(`Đã chi thanh toán ${payAmount.toLocaleString('vi-VN')}đ cho NCC ${selectedOrder.supplierName}`);
   };
 
   // Filter Logic
@@ -628,6 +595,16 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
     }
   };
 
+  const openPayDebtModal = () => {
+    if (!selectedOrder) return;
+    const firstEligibleFund = funds.find(f => f.branchId === selectedOrder.branchId && f.isActive !== false && f.isArchived !== true);
+    setSelectedPayFundId(firstEligibleFund?.id || '');
+    setPayAmount(selectedOrder.debtAmount);
+    setPayNote(`Thanh toán nợ phiếu ${selectedOrder.code} cho ${selectedOrder.supplierName}`);
+    setPayIdempotencyKey(createInventoryIdempotencyKey(`purchase-payment:${selectedOrder.id}`));
+    setIsPayDebtModalOpen(true);
+  };
+
   // ====================================================
   // RENDER: FULL DETAIL VIEW (When an order is selected)
   // Matching the exact look & feel of InvoicesView
@@ -742,9 +719,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                   <button
                     onClick={() => {
                       setShowMoreDropdown(false);
-                      setPayAmount(selectedOrder.debtAmount);
-                      setPayNote(`Thanh toán nợ phiếu ${selectedOrder.code} cho ${selectedOrder.supplierName}`);
-                      setIsPayDebtModalOpen(true);
+                      openPayDebtModal();
                     }}
                     className="w-full px-3.5 py-2 text-left font-medium text-orange-700 hover:bg-orange-50 flex items-center space-x-2"
                   >
@@ -953,11 +928,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                 </span>
                 {selectedOrder.debtAmount > 0 && (
                   <button
-                    onClick={() => {
-                      setPayAmount(selectedOrder.debtAmount);
-                      setPayNote(`Thanh toán nợ phiếu ${selectedOrder.code} cho ${selectedOrder.supplierName}`);
-                      setIsPayDebtModalOpen(true);
-                    }}
+                    onClick={openPayDebtModal}
                     className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] rounded-lg shadow-2xs transition-all cursor-pointer"
                   >
                     Trả nợ ngay
@@ -1063,11 +1034,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
 
             {selectedOrder.debtAmount > 0 ? (
               <button
-                onClick={() => {
-                  setPayAmount(selectedOrder.debtAmount);
-                  setPayNote(`Thanh toán nợ phiếu ${selectedOrder.code} cho ${selectedOrder.supplierName}`);
-                  setIsPayDebtModalOpen(true);
-                }}
+                onClick={openPayDebtModal}
                 className="py-2.5 px-4 bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-600 hover:to-orange-600 text-white font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-md shadow-rose-500/20 active:scale-95 cursor-pointer"
               >
                 <Coins className="w-4 h-4" />
@@ -1246,7 +1213,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                     onChange={(e) => setSelectedPayFundId(e.target.value)}
                     className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl font-medium text-zinc-900 focus:outline-none focus:border-orange-500"
                   >
-                    {funds.map(f => (
+                    {funds.filter(f => f.branchId === selectedOrder.branchId && f.isActive !== false && f.isArchived !== true).map(f => (
                       <option key={f.id} value={f.id}>
                         {f.name} (Số dư: {f.currentBalance.toLocaleString('vi-VN')}đ)
                       </option>
@@ -1274,9 +1241,10 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                 </button>
                 <button
                   onClick={handleConfirmPayDebt}
-                  className="flex-1 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 rounded-xl shadow-xs cursor-pointer"
+                  disabled={isPayingDebt || !selectedPayFundId || payAmount <= 0}
+                  className="flex-1 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 rounded-xl shadow-xs cursor-pointer disabled:opacity-50"
                 >
-                  Xác Nhận Chi Trả
+                  {isPayingDebt ? 'Đang đối soát...' : 'Xác Nhận Chi Trả'}
                 </button>
               </div>
             </div>

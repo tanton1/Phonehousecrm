@@ -3,18 +3,16 @@ import { WarrantyTicket } from '../types';
 import { KanbanSquare, Wrench, Package, ArrowRight, CheckCircle2, QrCode, AlertCircle } from 'lucide-react';
 import {
   requestAcceptCustody,
-  requestQuickAcceptCustody,
   requestStartTaskLine,
-  requestCompleteTaskLine,
   requestQCInspection
 } from '../services/technicalApiClient';
+import { uploadTechnicalEvidence } from '../services/technicalEvidenceService';
 
 interface TechKanbanBoardProps {
   tasks: WarrantyTicket[];
   onTaskClick: (task: WarrantyTicket) => void;
   onOpenAddTaskModal?: () => void;
   onRefresh?: () => Promise<void> | void;
-  onLegacyStatusChange?: (task: WarrantyTicket, status: WarrantyTicket['status']) => Promise<void> | void;
   currentUserRole?: string;
 }
 
@@ -27,7 +25,7 @@ const QC_STEPS: Array<[string, string]> = [
   ['water_seal_glue', 'Ron/keo chống nước'], ['internal_cleaning', 'Vệ sinh hoàn thiện']
 ];
 
-export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskClick, onOpenAddTaskModal, onRefresh, onLegacyStatusChange, currentUserRole }) => {
+export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskClick, onOpenAddTaskModal, onRefresh, currentUserRole }) => {
   const [scanModalTaskId, setScanModalTaskId] = useState<string | null>(null);
   const [scannedImei, setScannedImei] = useState('');
   const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
@@ -36,6 +34,8 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
   const [qcChecks, setQcChecks] = useState<Record<string, boolean>>({});
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [qcReason, setQcReason] = useState('');
+  const [qcFiles, setQcFiles] = useState<File[]>([]);
+  const [acceptanceFiles, setAcceptanceFiles] = useState<File[]>([]);
 
   const [preRepairInspection, setPreRepairInspection] = useState({
     appearance: 'GOOD' as 'GOOD' | 'SCRATCHED' | 'DENTED',
@@ -78,13 +78,20 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
       setActionError('Vui lòng quét hoặc nhập số IMEI thực tế của máy để nhận bàn giao.');
       return;
     }
+    if (acceptanceFiles.length === 0) {
+      setActionError('Bắt buộc chụp ít nhất một ảnh tình trạng máy khi nhận.');
+      return;
+    }
 
     setLoadingTaskId(task.id);
     setActionError(null);
     try {
-      await requestAcceptCustody(task.id, scannedImei.trim(), preRepairInspection);
+      const workOrderId = String((task as any).workOrderId || task.id);
+      const urls = await uploadTechnicalEvidence(workOrderId, `acceptance-${String((task as any).lineId || 'device')}`, acceptanceFiles);
+      await requestAcceptCustody(workOrderId, scannedImei.trim(), { ...preRepairInspection, handoverPhotoUrls: urls });
       setScanModalTaskId(null);
       setScannedImei('');
+      setAcceptanceFiles([]);
       // Reset inspection form
       setPreRepairInspection({
         appearance: 'GOOD',
@@ -119,50 +126,6 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
     }
   };
 
-  const handleCompleteTask = async (task: WarrantyTicket) => {
-    setLoadingTaskId(task.id);
-    setActionError(null);
-    try {
-      const workOrderId = String((task as any).workOrderId || task.id);
-      const lineId = String((task as any).lineId || (task as any).technicalLineId || '');
-      if (!lineId) throw new Error('Không tìm thấy mã hạng mục kỹ thuật. Hãy đồng bộ lại bảng công việc.');
-      await requestCompleteTaskLine(workOrderId, lineId, [], 'KTV báo hoàn thành xử lý.');
-      if (onRefresh) await onRefresh();
-    } catch (err: any) {
-      console.error('[Complete Task Error]:', err);
-      setActionError(err?.message || 'Không thể báo hoàn thành.');
-    } finally {
-      setLoadingTaskId(null);
-    }
-  };
-
-  const handleQuickAccept = async (task: WarrantyTicket) => {
-    setLoadingTaskId(task.id);
-    setActionError(null);
-    try {
-      await requestQuickAcceptCustody(String((task as any).workOrderId || task.id));
-      if (onRefresh) await onRefresh();
-    } catch (err: any) {
-      setActionError(err?.message || 'Không thể xác nhận nhanh nhận máy.');
-    } finally {
-      setLoadingTaskId(null);
-    }
-  };
-
-  const moveLegacyTask = async (task: WarrantyTicket, status: WarrantyTicket['status']) => {
-    setLoadingTaskId(task.id);
-    setActionError(null);
-    try {
-      if (onLegacyStatusChange) await onLegacyStatusChange(task, status);
-      else onTaskClick(task);
-      if (onRefresh) await onRefresh();
-    } catch (err: any) {
-      setActionError(err?.message || 'Không thể chuyển bước phiếu sửa chữa.');
-    } finally {
-      setLoadingTaskId(null);
-    }
-  };
-
   const submitQc = async () => {
     if (!qcTask) return;
     if (qcResult === 'PASS' && QC_STEPS.some(([key]) => !qcChecks[key])) {
@@ -173,13 +136,19 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
       setActionError('Vui lòng ghi rõ lý do KCS không đạt để trả lại KTV.');
       return;
     }
+    if (qcFiles.length === 0) {
+      setActionError('KCS bắt buộc có ít nhất một ảnh bằng chứng.');
+      return;
+    }
     setLoadingTaskId(qcTask.id);
     try {
+      const workOrderId = String((qcTask as any).workOrderId);
+      const photoEvidenceUrls = await uploadTechnicalEvidence(workOrderId, 'qc-inspection', qcFiles);
       await requestQCInspection(String((qcTask as any).workOrderId), {
         checklistVersion: 'QC_STANDARD_12_STEPS_V2', checklistResults: qcChecks,
-        overallResult: qcResult, failedReason: qcReason.trim() || undefined
+        overallResult: qcResult, failedReason: qcReason.trim() || undefined, photoEvidenceUrls
       });
-      setQcTask(null); setQcChecks({}); setQcReason(''); setQcResult('PASS'); setActionError(null);
+      setQcTask(null); setQcChecks({}); setQcReason(''); setQcResult('PASS'); setQcFiles([]); setActionError(null);
       if (onRefresh) await onRefresh();
     } catch (error: any) {
       setActionError(error?.message || 'Không thể hoàn tất KCS.');
@@ -197,27 +166,15 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
           return (
             <button
               disabled={isBusy}
-              onClick={(e) => { e.stopPropagation(); void handleQuickAccept(task); }}
+              onClick={(e) => { e.stopPropagation(); setScanModalTaskId(task.id); setScannedImei(''); setAcceptanceFiles([]); setActionError(null); }}
               className="w-full mt-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 flex items-center justify-center transition-colors disabled:opacity-50"
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              {isBusy ? 'Đang xác nhận...' : '✓ Xác nhận nhanh đã nhận máy'}
+              Quét IMEI · nhận máy
             </button>
           );
         }
-        return (
-          <button 
-            disabled={isBusy}
-            onClick={(e) => {
-              e.stopPropagation();
-              void moveLegacyTask(task, 'inspecting');
-            }}
-            className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors disabled:opacity-50"
-          >
-            <Wrench className="w-3.5 h-3.5 mr-1" />
-            {isBusy ? 'Đang chuyển...' : 'Bắt đầu kiểm tra'}
-          </button>
-        );
+        return <div className="mt-3 rounded bg-zinc-100 py-1.5 text-center text-xs font-semibold text-zinc-500">Phiếu cũ chỉ đọc · cần chuyển đổi dữ liệu</div>;
       case 'IN_PROGRESS':
         if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER' && ['ACCEPTED', 'REWORK_REQUIRED'].includes(String(task.status))) {
           return (
@@ -226,14 +183,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
             </button>
           );
         }
-        if ((task as any).sourceKind !== 'TECHNICAL_WORK_ORDER') {
-          const nextStatus: WarrantyTicket['status'] = String(task.status) === 'repairing' ? 'ready' : 'repairing';
-          return (
-            <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); void moveLegacyTask(task, nextStatus); }} className="w-full mt-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded hover:bg-orange-700 flex items-center justify-center disabled:opacity-50">
-              <ArrowRight className="w-3.5 h-3.5 mr-1" />{isBusy ? 'Đang chuyển...' : nextStatus === 'ready' ? 'Sửa xong · Gửi KCS' : 'Bắt đầu sửa'}
-            </button>
-          );
-        }
+        if ((task as any).sourceKind !== 'TECHNICAL_WORK_ORDER') return <div className="mt-3 rounded bg-zinc-100 py-1.5 text-center text-xs font-semibold text-zinc-500">Phiếu cũ chỉ đọc</div>;
         return (
           <div className="flex space-x-2 mt-3">
             <button 
@@ -246,11 +196,11 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
             </button>
             <button 
               disabled={isBusy}
-              onClick={(e) => { e.stopPropagation(); handleCompleteTask(task); }}
+              onClick={(e) => { e.stopPropagation(); onTaskClick(task); }}
               className="flex-1 py-1.5 bg-emerald-50 text-emerald-600 text-xs font-semibold rounded hover:bg-emerald-100 flex items-center justify-center transition-colors disabled:opacity-50"
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              {isBusy ? 'Đang gửi...' : 'Xong (Gửi QC)'}
+              Hồ sơ & hoàn thành
             </button>
           </div>
         );
@@ -258,7 +208,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         return (
           <button 
             disabled={isBusy}
-            onClick={(e) => { e.stopPropagation(); (task as any).sourceKind === 'TECHNICAL_WORK_ORDER' ? void handleStartTask(task) : void moveLegacyTask(task, 'repairing'); }}
+            onClick={(e) => { e.stopPropagation(); if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER') void handleStartTask(task); else onTaskClick(task); }}
             className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors disabled:opacity-50"
           >
             <ArrowRight className="w-3.5 h-3.5 mr-1" />
@@ -267,11 +217,9 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         );
       case 'DONE':
         if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER' && String(task.status) === 'COMPLETED' && ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(currentUserRole || '').toUpperCase())) {
-          return <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); setQcTask(task); setQcChecks({}); setQcResult('PASS'); setQcReason(''); }} className="w-full mt-3 py-1.5 bg-violet-600 text-white text-xs font-bold rounded hover:bg-violet-700 disabled:opacity-50">KCS độc lập · Duyệt 12 bước</button>;
+          return <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); setQcTask(task); setQcChecks({}); setQcResult('PASS'); setQcReason(''); setQcFiles([]); }} className="w-full mt-3 py-1.5 bg-violet-600 text-white text-xs font-bold rounded hover:bg-violet-700 disabled:opacity-50">KCS độc lập · Duyệt 12 bước</button>;
         }
-        if ((task as any).sourceKind !== 'TECHNICAL_WORK_ORDER' && String(task.status) === 'ready') {
-          return <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); void moveLegacyTask(task, 'delivered'); }} className="w-full mt-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded hover:bg-emerald-700 disabled:opacity-50">Bàn giao khách</button>;
-        }
+        if ((task as any).sourceKind !== 'TECHNICAL_WORK_ORDER') return <div className="mt-3 rounded bg-zinc-100 py-1.5 text-center text-xs font-semibold text-zinc-500">Phiếu cũ chỉ đọc</div>;
         return (
           <div className="mt-3 text-center text-xs font-medium text-zinc-500 bg-zinc-50 py-1.5 rounded">
             {String(task.status) === 'delivered' || String(task.status) === 'DELIVERED_TO_CUSTOMER'
@@ -385,6 +333,11 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                       className="w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none bg-zinc-50"
                     />
                   </div>
+                  <label className="block rounded-lg border border-dashed border-orange-300 bg-orange-50 p-3 text-xs">
+                    <span className="font-bold text-orange-900">Ảnh tình trạng lúc nhận *</span>
+                    <input type="file" accept="image/*" multiple onChange={event => setAcceptanceFiles(Array.from(event.target.files || []).slice(0, 6))} className="mt-2 block w-full" />
+                    <span className="mt-1 block text-orange-700">Đã chọn {acceptanceFiles.length} ảnh · tối đa 6 ảnh.</span>
+                  </label>
                 </div>
               </div>
 
@@ -414,7 +367,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         </div>
       )}
 
-      {qcTask && <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"><div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-zinc-950">KCS độc lập · 12 tiêu chí</h3><p className="text-xs text-zinc-500">{qcTask.ticketNumber} · IMEI {qcTask.imei}</p></div><button onClick={() => setQcTask(null)} className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold">Đóng</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{QC_STEPS.map(([key, label]) => <label key={key} className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${qcChecks[key] ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}><input type="checkbox" checked={Boolean(qcChecks[key])} onChange={e => setQcChecks(current => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-bold"><span>Kết quả KCS</span><select value={qcResult} onChange={e => setQcResult(e.target.value as 'PASS' | 'FAIL')} className="h-10 w-full rounded-xl border px-3"><option value="PASS">Đạt · chuyển bước tiếp</option><option value="FAIL">Không đạt · trả KTV làm lại</option></select></label><label className="space-y-1 text-xs font-bold"><span>Lý do/Ghi chú</span><input value={qcReason} onChange={e => setQcReason(e.target.value)} className="h-10 w-full rounded-xl border px-3" placeholder={qcResult === 'FAIL' ? 'Bắt buộc khi không đạt' : 'Ghi chú KCS'} /></label></div><button disabled={loadingTaskId === qcTask.id} onClick={() => void submitQc()} className="mt-4 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black text-white disabled:opacity-50">{loadingTaskId === qcTask.id ? 'Đang ghi nhận...' : 'Xác nhận kết quả KCS'}</button></div></div>}
+      {qcTask && <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"><div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-zinc-950">KCS độc lập · 12 tiêu chí</h3><p className="text-xs text-zinc-500">{qcTask.ticketNumber} · IMEI {qcTask.imei}</p></div><button onClick={() => setQcTask(null)} className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold">Đóng</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{QC_STEPS.map(([key, label]) => <label key={key} className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${qcChecks[key] ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}><input type="checkbox" checked={Boolean(qcChecks[key])} onChange={e => setQcChecks(current => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-bold"><span>Kết quả KCS</span><select value={qcResult} onChange={e => setQcResult(e.target.value as 'PASS' | 'FAIL')} className="h-10 w-full rounded-xl border px-3"><option value="PASS">Đạt · chuyển bước tiếp</option><option value="FAIL">Không đạt · trả KTV làm lại</option></select></label><label className="space-y-1 text-xs font-bold"><span>Lý do/Ghi chú</span><input value={qcReason} onChange={e => setQcReason(e.target.value)} className="h-10 w-full rounded-xl border px-3" placeholder={qcResult === 'FAIL' ? 'Bắt buộc khi không đạt' : 'Ghi chú KCS'} /></label></div><label className="mt-4 block rounded-xl border border-dashed p-3 text-xs font-bold"><span>Ảnh bằng chứng KCS (bắt buộc)</span><input type="file" accept="image/*" multiple onChange={event => setQcFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block font-normal text-zinc-500">Đã chọn {qcFiles.length} ảnh · tối đa 8 ảnh, 10MB/ảnh.</span></label><button disabled={loadingTaskId === qcTask.id} onClick={() => void submitQc()} className="mt-4 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black text-white disabled:opacity-50">{loadingTaskId === qcTask.id ? 'Đang ghi nhận...' : 'Xác nhận kết quả KCS'}</button></div></div>}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {COLUMNS.map(col => {

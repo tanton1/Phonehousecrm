@@ -6,15 +6,35 @@ import { requireBranchAccess } from '../middleware/requireBranchAccess';
 import {
   processCreateWorkOrder,
   processAcceptCustody,
+  processAcceptTechnicalHandoff,
   processStartTaskLine,
   processCompleteTaskLine,
   processQCInspection,
   processReturnToStock,
+  processRequestTechnicalHandoff,
   processDeliverToCustomer,
-  processIssueSparePart
+  isTechnicalEvidenceUrlForWorkOrder
 } from '../services/technicalService';
+import {
+  getTechnicalCostBreakdown,
+  listTechnicalSpareParts,
+  processAddTechnicalExternalCost,
+  processAddTechnicalRecovery,
+  processApproveTechnicalExternalCost,
+  processApproveTechnicalRecovery,
+  processConsumeTechnicalPart,
+  processCancelTechnicalPartReservation,
+  processCancelTechnicalPartIssue,
+  processFinalizeTechnicalCost,
+  processIssueTechnicalPart,
+  processReceiveTechnicalSparePart,
+  processReserveTechnicalPart,
+  processReturnTechnicalPart,
+  processScrapTechnicalPart
+} from '../services/technicalCostService';
 import { processAcceptTechnicalTransfer } from '../services/inventoryTransferService';
 import crypto from 'crypto';
+import { revealTechnicalPasscode } from '../services/technicalSecretService';
 
 export function createTechnicalRouter(db: Firestore | null): Router {
   const router = Router();
@@ -28,7 +48,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
    */
   router.post(
     '/work-orders',
-    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'INVENTORY_MANAGER'),
+    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER', 'WAREHOUSE', 'STORE_MANAGER', 'SALES', 'CASHIER', 'ACCOUNTANT'),
     requireBranchAccess(),
     async (req: Request, res: Response) => {
       if (!db) {
@@ -45,6 +65,56 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     }
   );
 
+  router.get(
+    '/work-orders/:id/passcode',
+    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const result = await revealTechnicalPasscode(db, req.params.id, req.user!);
+        res.setHeader('Cache-Control', 'no-store, max-age=0');
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        return res.status(/DENIED|FORBIDDEN/.test(error?.message || '') ? 403 : 400).json({ success: false, error: error?.message || 'Không thể xem mật mã mở máy.' });
+      }
+    }
+  );
+
+  router.post('/work-orders/:id/handoffs', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processRequestTechnicalHandoff(db, req.params.id, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(/FORBIDDEN/.test(error?.message || '') ? 403 : 400).json({ success: false, error: error?.message || 'Lỗi tạo bàn giao KTV.' });
+    }
+  });
+
+  router.post('/handoffs/:handoffId/accept', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processAcceptTechnicalHandoff(db, req.params.handoffId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(/FORBIDDEN|TARGET_ONLY/.test(error?.message || '') ? 403 : 400).json({ success: false, error: error?.message || 'Lỗi nhận bàn giao KTV.' });
+    }
+  });
+
+  router.get('/handoffs/pending', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const snapshot = await db.collection('technicalCustodyHandovers')
+        .where('targetTechnicianUid', '==', req.user!.uid)
+        .where('status', '==', 'PENDING_ACCEPTANCE')
+        .limit(50)
+        .get();
+      const handoffs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      return res.json({ success: true, data: handoffs });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi tải bàn giao KTV đang chờ.' });
+    }
+  });
+
   /**
    * 2. POST /api/technical/work-orders/:id/accept
    * KTV physically scans IMEI to accept custody & begin responsibility
@@ -59,6 +129,10 @@ export function createTechnicalRouter(db: Firestore | null): Router {
 
       try {
         const { scannedImei, preRepairInspection } = req.body;
+        const handoverPhotoUrls = preRepairInspection?.handoverPhotoUrls;
+        if (!preRepairInspection || !Array.isArray(handoverPhotoUrls) || handoverPhotoUrls.length === 0 || handoverPhotoUrls.length > 6 || handoverPhotoUrls.some((url: unknown) => !isTechnicalEvidenceUrlForWorkOrder(url, req.params.id))) {
+          return res.status(400).json({ success: false, error: 'PRE_REPAIR_INSPECTION_EVIDENCE_REQUIRED: Bắt buộc checklist và ảnh tình trạng khi nhận máy.' });
+        }
         const workOrderSnap = await db.collection('technicalWorkOrders').doc(req.params.id).get();
         if (!workOrderSnap.exists) {
           return res.status(404).json({ success: false, error: `WORK_ORDER_NOT_FOUND: Không tìm thấy phiếu kỹ thuật "${req.params.id}".` });
@@ -75,43 +149,6 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       } catch (error: any) {
         console.error('[Accept Custody Error]:', error);
         return res.status(400).json({ success: false, error: error?.message || 'Lỗi xác nhận nhận máy.' });
-      }
-    }
-  );
-
-  /**
-   * Quick acknowledgement for a device explicitly dispatched from inventory
-   * to the authenticated technician. The expected IMEI is read from the
-   * authoritative work order, so the technician only needs to tick confirm.
-   */
-  router.post(
-    '/work-orders/:id/quick-accept',
-    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'),
-    async (req: Request, res: Response) => {
-      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
-      try {
-        const workOrderSnap = await db.collection('technicalWorkOrders').doc(req.params.id).get();
-        if (!workOrderSnap.exists) return res.status(404).json({ success: false, error: 'WORK_ORDER_NOT_FOUND' });
-        const workOrder = workOrderSnap.data()!;
-        if (!workOrder.transferId) throw new Error('QUICK_ACCEPT_ONLY_FOR_INVENTORY_TRANSFER');
-
-        const workOrderLines = await db.collection('technicalWorkOrderLines')
-          .where('workOrderId', '==', req.params.id)
-          .get();
-        const elevated = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(req.user!.role || '').toUpperCase());
-        const isAssigned = workOrderLines.docs.some(line => line.data().assigneeUid === req.user!.uid);
-        if (!isAssigned && !elevated) throw new Error('TECHNICIAN_NOT_ASSIGNED');
-
-        const expectedImei = String(workOrder.imei || '').trim();
-        if (!expectedImei) throw new Error('WORK_ORDER_IMEI_MISSING');
-        const stableKey = `tech-quick-accept:${req.params.id}:${req.user!.uid}`;
-        await processAcceptTechnicalTransfer(db, workOrder.transferId, [expectedImei], stableKey, req.user!, {
-          preRepairInspection: req.body?.preRepairInspection
-        });
-        return res.json({ success: true, data: { success: true, workOrderId: req.params.id } });
-      } catch (error: any) {
-        console.error('[Quick Accept Custody Error]:', error);
-        return res.status(400).json({ success: false, error: error?.message || 'Lỗi xác nhận nhanh nhận máy.' });
       }
     }
   );
@@ -155,11 +192,11 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
-        const { lineId, evidencePhotoUrls, notes } = req.body;
+        const { lineId, evidencePhotoUrls, notes, completionMetadata } = req.body;
         if (!lineId) {
           return res.status(400).json({ success: false, error: 'MISSING_LINE_ID' });
         }
-        const result = await processCompleteTaskLine(db, req.params.id, lineId, evidencePhotoUrls, notes, req.user!);
+        const result = await processCompleteTaskLine(db, req.params.id, lineId, evidencePhotoUrls, notes, req.user!, completionMetadata);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Complete Task Error]:', error);
@@ -181,11 +218,10 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
-        const { lineId, partId, quantity = 1 } = req.body;
-        if (!partId) {
-          return res.status(400).json({ success: false, error: 'MISSING_PART_ID' });
-        }
-        const result = await processIssueSparePart(db, req.params.id, lineId || '', partId, Number(quantity), req.user!);
+        const { lineId, partId, warehouseId, lotId, reservationId, quantity = 1, idempotencyKey } = req.body;
+        const result = await processIssueTechnicalPart(db, req.params.id, {
+          lineId, partId, warehouseId, lotId, reservationId, quantity: Number(quantity), idempotencyKey
+        }, req.user!);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Issue Spare Part Error]:', error);
@@ -193,6 +229,149 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
     }
   );
+
+  router.post('/work-orders/:id/parts/reserve', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processReserveTechnicalPart(db, req.params.id, {
+        ...req.body,
+        quantity: Number(req.body?.quantity)
+      }, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi giữ trước linh kiện.' });
+    }
+  });
+
+  router.post('/work-orders/:id/parts/reservations/:reservationId/cancel', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processCancelTechnicalPartReservation(db, req.params.id, req.params.reservationId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi hủy giữ linh kiện.' });
+    }
+  });
+
+  router.post('/work-orders/:id/parts/:issueId/consume', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processConsumeTechnicalPart(db, req.params.id, req.params.issueId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi xác nhận linh kiện đã dùng.' });
+    }
+  });
+
+  router.post('/work-orders/:id/parts/:issueId/return', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processReturnTechnicalPart(db, req.params.id, req.params.issueId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi trả linh kiện về kho.' });
+    }
+  });
+
+  router.post('/work-orders/:id/parts/:issueId/scrap', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processScrapTechnicalPart(db, req.params.id, req.params.issueId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi ghi nhận linh kiện hỏng.' });
+    }
+  });
+
+  router.post('/work-orders/:id/parts/:issueId/cancel', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processCancelTechnicalPartIssue(db, req.params.id, req.params.issueId, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi hủy phiếu xuất linh kiện.' });
+    }
+  });
+
+  router.post('/work-orders/:id/external-costs', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processAddTechnicalExternalCost(db, req.params.id, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi ghi nhận chi phí kỹ thuật.' });
+    }
+  });
+
+  router.post('/work-orders/:id/external-costs/:costId/decision', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processApproveTechnicalExternalCost(db, req.params.id, req.params.costId, req.body?.decision, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi duyệt chi phí kỹ thuật.' });
+    }
+  });
+
+  router.post('/work-orders/:id/recoveries', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processAddTechnicalRecovery(db, req.params.id, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi ghi nhận khoản bồi hoàn kỹ thuật.' });
+    }
+  });
+
+  router.post('/work-orders/:id/recoveries/:recoveryId/decision', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processApproveTechnicalRecovery(db, req.params.id, req.params.recoveryId, req.body?.decision, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi duyệt khoản bồi hoàn kỹ thuật.' });
+    }
+  });
+
+  router.get('/work-orders/:id/cost-breakdown', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await getTechnicalCostBreakdown(db, req.params.id, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi tải giá vốn kỹ thuật.' });
+    }
+  });
+
+  router.post('/work-orders/:id/finalize-cost', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processFinalizeTechnicalCost(db, req.params.id, req.body?.idempotencyKey, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi chốt giá vốn kỹ thuật.' });
+    }
+  });
+
+  router.get('/parts', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await listTechnicalSpareParts(db, req.user!, String(req.query.warehouseId || '') || undefined);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi tải kho linh kiện.' });
+    }
+  });
+
+  router.post('/parts/receive', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH_LEAD'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processReceiveTechnicalSparePart(db, req.body, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Lỗi nhập kho linh kiện.' });
+    }
+  });
 
   /**
    * 6. POST /api/technical/work-orders/:id/qc
@@ -230,8 +409,8 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
-        const { targetWarehouseId = 'KHO_TONG' } = req.body;
-        const result = await processReturnToStock(db, req.params.id, targetWarehouseId, req.user!);
+        const { targetWarehouseId, scannedImei } = req.body;
+        const result = await processReturnToStock(db, req.params.id, targetWarehouseId, scannedImei, req.user!);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Return to Stock Error]:', error);
@@ -264,7 +443,52 @@ export function createTechnicalRouter(db: Firestore | null): Router {
   );
 
   /**
-   * 9. GET /api/technical/my-work
+   * GET /api/technical/commissions?period=YYYY-MM
+   * Server-redacted source of truth for technician wallets and payroll previews.
+   */
+  router.get('/commissions', async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const requestedPeriod = String(req.query.period || new Date().toISOString().slice(0, 7));
+      if (!/^\d{4}-\d{2}$/.test(requestedPeriod)) {
+        return res.status(400).json({ success: false, error: 'INVALID_PAYROLL_PERIOD' });
+      }
+      const snapshot = await db.collection('commissionLedger')
+        .where('payrollPeriod', '==', requestedPeriod)
+        .limit(1000)
+        .get();
+      const role = String(req.user!.role || '').toUpperCase();
+      const canReviewBranch = ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'TECH_LEAD'].includes(role);
+      const allowedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      const serializeDate = (value: any): string | null => {
+        if (!value) return null;
+        if (typeof value === 'string') return value;
+        if (typeof value.toDate === 'function') return value.toDate().toISOString();
+        return null;
+      };
+      const entries = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(entry => {
+          if (!canReviewBranch) return entry.staffUid === req.user!.uid;
+          if (role === 'ADMIN') return true;
+          return allowedBranches.has(entry.branchId);
+        })
+        .map(entry => ({
+          ...entry,
+          createdAt: serializeDate(entry.createdAt),
+          eligibleAt: serializeDate(entry.eligibleAt),
+          paidAt: serializeDate(entry.paidAt),
+          updatedAt: serializeDate(entry.updatedAt)
+        }))
+        .sort((left, right) => String(right.eligibleAt || right.createdAt || '').localeCompare(String(left.eligibleAt || left.createdAt || '')));
+      return res.json({ success: true, data: entries });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tải sổ hoa hồng kỹ thuật.' });
+    }
+  });
+
+  /**
+   * GET /api/technical/my-work
    * Get all task lines assigned to authenticated technician
    */
   router.get('/my-work', async (req: Request, res: Response) => {
@@ -285,11 +509,20 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         : [];
       const workOrders = new Map(workOrderSnaps.filter(item => item.exists).map(item => [item.id, item.data()!]));
       const assignedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      const mayViewCost = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(role);
       const lines = snap.docs.filter(doc => {
         const line = doc.data();
         return line.status !== 'CANCELLED' && (role === 'ADMIN' || !canSeeQcQueue || assignedBranches.has(line.branchId));
       }).map(doc => {
-        const line = doc.data();
+        const rawLine = doc.data();
+        const line = mayViewCost ? rawLine : (() => {
+          const {
+            laborCostToDevice: _laborCostToDevice,
+            capitalizeLaborCost: _capitalizeLaborCost,
+            ...operationalLine
+          } = rawLine;
+          return operationalLine;
+        })();
         const workOrder = workOrders.get(String(line.workOrderId || '')) || {};
         return {
           id: doc.id,

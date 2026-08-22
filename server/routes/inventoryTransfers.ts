@@ -4,7 +4,6 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import {
   listTechnicalTaskTypes,
-  processAcceptTechnicalTransfer,
   processCancelTechnicalTransfer,
   processCompleteInterBranchTransfer,
   processCreateInterBranchTransfer,
@@ -39,11 +38,11 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
       const taskType = String(req.params.taskType || '').trim().toUpperCase();
       const body = req.body || {};
       const multipliers = body.priorityMultiplier || {};
-      const numericValues = [body.baseCommission, body.normalSlaHours, body.prioritySlaHours, body.urgentSlaHours, multipliers.NORMAL, multipliers.PRIORITY, multipliers.URGENT];
+      const numericValues = [body.baseCommission, body.laborCostToDevice ?? body.baseCommission, body.normalSlaHours, body.prioritySlaHours, body.urgentSlaHours, multipliers.NORMAL, multipliers.PRIORITY, multipliers.URGENT];
       if (numericValues.some(value => typeof value !== 'number')) {
         return res.status(400).json({ success: false, error: 'TASK_TYPE_CONFIG_INVALID' });
       }
-      const numbers = [body.baseCommission, body.normalSlaHours, body.prioritySlaHours, body.urgentSlaHours, multipliers.NORMAL, multipliers.PRIORITY, multipliers.URGENT].map(Number);
+      const numbers = [body.baseCommission, body.laborCostToDevice ?? body.baseCommission, body.normalSlaHours, body.prioritySlaHours, body.urgentSlaHours, multipliers.NORMAL, multipliers.PRIORITY, multipliers.URGENT].map(Number);
       if (!/^[A-Z0-9_]{2,50}$/.test(taskType) || !body.name || !body.taskCode || numbers.some(value => !Number.isFinite(value) || value < 0) || !body.version) {
         return res.status(400).json({ success: false, error: 'TASK_TYPE_CONFIG_INVALID' });
       }
@@ -54,6 +53,12 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
         name: String(body.name),
         taskCode: String(body.taskCode),
         baseCommission: Number(body.baseCommission),
+        laborCostToDevice: Number(body.laborCostToDevice ?? body.baseCommission),
+        capitalizeLaborCost: body.capitalizeLaborCost !== false,
+        reworkCommissionPolicy: ['NO_EXTRA_COMMISSION', 'REPEAT_COMMISSION', 'MANAGER_APPROVAL'].includes(body.reworkCommissionPolicy) ? body.reworkCommissionPolicy : 'NO_EXTRA_COMMISSION',
+        requiredEvidenceTypes: Array.isArray(body.requiredEvidenceTypes) ? body.requiredEvidenceTypes.filter((value: unknown) => typeof value === 'string') : [],
+        requiredPartTemplates: Array.isArray(body.requiredPartTemplates) ? body.requiredPartTemplates : [],
+        qcChecklistTemplateId: body.qcChecklistTemplateId ? String(body.qcChecklistTemplateId) : null,
         normalSlaHours: Number(body.normalSlaHours),
         prioritySlaHours: Number(body.prioritySlaHours),
         urgentSlaHours: Number(body.urgentSlaHours),
@@ -115,19 +120,10 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
     '/technical/:id/accept',
     requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'),
     async (req: Request, res: Response) => {
-      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
-      try {
-        const data = await processAcceptTechnicalTransfer(
-          db,
-          req.params.id,
-          req.body.scannedImeis || [],
-          req.body.idempotencyKey || '',
-          req.user!
-        );
-        return res.json({ success: true, data });
-      } catch (error: any) {
-        return sendTransferError(res, error);
-      }
+      return res.status(409).json({
+        success: false,
+        error: 'ACCEPT_VIA_TECH_DESK_REQUIRED: KTV phải mở Bàn kỹ thuật, quét từng IMEI, hoàn tất checklist và ảnh tình trạng để nhận máy.'
+      });
     }
   );
 

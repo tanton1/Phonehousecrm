@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildInventoryAuditReport,
+  decodeInventoryCursor,
+  encodeInventoryCursor,
   ImportInventoryDevicesInput,
   processImportInventoryDevices
 } from '../server/services/inventoryDeviceService';
@@ -63,6 +65,12 @@ function createInventoryDb(seed: Record<string, Record<string, any>>) {
 const actor = { uid: 'INV_01', name: 'Thủ kho', role: 'INVENTORY_MANAGER', branchId: 'CN01' };
 
 describe('Inventory device canonical single writer', () => {
+  it('uses an opaque versioned cursor and rejects malformed pagination state', () => {
+    const cursor = encodeInventoryCursor('DEV_000500');
+    expect(decodeInventoryCursor(cursor)).toBe('DEV_000500');
+    expect(() => decodeInventoryCursor('not-a-valid-cursor')).toThrow('INVENTORY_CURSOR_INVALID');
+  });
+
   it('creates device, IMEI registry and stock receipt with one canonical branch/location', async () => {
     const store = createInventoryDb({
       warehouses: { KHO_CN01: { id: 'KHO_CN01', branchId: 'CN01', isActive: true, name: 'Kho CN01' } }

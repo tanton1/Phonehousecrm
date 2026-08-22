@@ -99,9 +99,9 @@ class SecurityRulesValidator {
     return this.canManageInventory(auth);
   }
 
-  // Rules for Spare Parts create/update
+  // Canonical spare-parts stock/cost is written only by the server Part Ledger.
   canWriteSpareParts(auth: SimulatedAuth | null): boolean {
-    return this.canManageTechnicalStock(auth);
+    return false;
   }
 
   // Rules for Users collection creation
@@ -178,11 +178,11 @@ describe('Firestore Security Rules v4.2 & Authority Invariant Test Suite', () =>
     expect(validator.canWriteProducts({ uid: 'ADMIN-UID' })).toBe(true);
   });
 
-  it('Case 5: Phân quyền Kho Linh kiện kỹ thuật (canManageTechnicalStock)', () => {
+  it('Case 5: Khóa mọi ghi trực tiếp vào kho linh kiện, kể cả Admin', () => {
     expect(validator.canWriteSpareParts({ uid: 'SALES-CN01' })).toBe(false);
-    expect(validator.canWriteSpareParts({ uid: 'TECH-UID' })).toBe(true);
-    expect(validator.canWriteSpareParts({ uid: 'MANAGER-UID' })).toBe(true);
-    expect(validator.canWriteSpareParts({ uid: 'ADMIN-UID' })).toBe(true);
+    expect(validator.canWriteSpareParts({ uid: 'TECH-UID' })).toBe(false);
+    expect(validator.canWriteSpareParts({ uid: 'MANAGER-UID' })).toBe(false);
+    expect(validator.canWriteSpareParts({ uid: 'ADMIN-UID' })).toBe(false);
   });
 
   it('Case 6: Cách ly dữ liệu Chi nhánh (Branch Isolation)', () => {

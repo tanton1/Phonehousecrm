@@ -20,7 +20,7 @@ interface UniformEntryFormProps {
   funds?: FundAccount[];
   catalogItems?: MasterCatalogItem[];
   currentUser?: UserAccount | null;
-  onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => void | Promise<void>;
+  onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => PurchaseOrder | void | Promise<PurchaseOrder | void>;
   onAddPartner?: (partner: Partner) => void | Promise<void>;
   onAddDevice?: () => void;
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
@@ -277,7 +277,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
       const purchaseOrder: PurchaseOrder = {
         id: `PO-${Date.now()}`,
-        code: `PN-${Date.now().toString().slice(-6)}`,
+        code: 'SERVER_GENERATED',
         supplierId: supplier.id,
         supplierName: supplier.name,
         supplierPhone: supplier.phone,
@@ -328,7 +328,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             <div className="flex items-center space-x-2">
               <span className="text-sm font-bold tracking-tight text-white uppercase">Phiếu Nhập Hàng Kho</span>
               <span className="px-2 py-0.2 text-[10px] font-mono font-semibold bg-[#FF4B16]/20 text-[#FF4B16] border border-[#FF4B16]/30 rounded-full">
-                Mã: PN-{Date.now().toString().slice(-6)}
+                Mã: cấp tự động khi lưu
               </span>
               <span className="hidden sm:inline-block px-2 py-0.2 text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-full">
                 PhoneHouse CRM
@@ -801,6 +801,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       <CreatePartnerModal
         isOpen={isCreateSupplierModalOpen}
         onClose={() => setIsCreateSupplierModalOpen(false)}
+        branchId={watchBranchId}
         onSavePartner={async (newPartner) => {
           if (onAddPartner) {
             await onAddPartner({ ...newPartner, type: 'SUPPLIER', branchId: watchBranchId });

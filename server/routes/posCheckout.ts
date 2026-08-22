@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { Firestore } from 'firebase-admin/firestore';
 import { validateCheckoutPayload } from '../validation/checkoutSchema';
-import { executeAtomicCheckout, executeAtomicInvoiceRefund } from '../services/checkoutService';
+import { executeAtomicCheckout, executeAtomicInvoiceRefund, processUpdateInvoiceNote } from '../services/checkoutService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
@@ -34,6 +34,21 @@ export function createPOSCheckoutRouter(db: Firestore): Router {
           success: false,
           error: error?.message || 'Lỗi xử lý giao dịch thanh toán.'
         });
+      }
+    }
+  );
+
+  router.patch(
+    '/invoices/:invoiceId/notes',
+    authenticateFirebase,
+    requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'SALES', 'SALE'),
+    async (req: Request, res: Response) => {
+      try {
+        const invoice = await processUpdateInvoiceNote(db, req.params.invoiceId, req.body?.notes, req.user!);
+        return res.json({ success: true, data: { invoice } });
+      } catch (error: any) {
+        const message = error?.message || 'INVOICE_NOTE_UPDATE_FAILED';
+        return res.status(message.includes('FORBIDDEN') ? 403 : 400).json({ success: false, error: message });
       }
     }
   );

@@ -18,6 +18,46 @@ export interface InvoiceRefundResult {
   restoredDeviceIds: string[];
 }
 
+export async function processUpdateInvoiceNote(
+  db: Firestore,
+  invoiceIdRaw: string,
+  noteRaw: unknown,
+  actor: { uid: string; role?: string; name?: string; branchId?: string; assignedBranchIds?: string[] }
+): Promise<any> {
+  const invoiceId = String(invoiceIdRaw || '').trim();
+  const notes = String(noteRaw || '').trim();
+  if (!invoiceId) throw new Error('INVOICE_ID_REQUIRED');
+  if (notes.length > 2000) throw new Error('INVOICE_NOTE_TOO_LONG');
+  const invoiceRef = db.collection('invoices').doc(invoiceId);
+  return db.runTransaction(async transaction => {
+    const invoiceSnap = await transaction.get(invoiceRef);
+    if (!invoiceSnap.exists) throw new Error('INVOICE_NOT_FOUND');
+    const invoice = invoiceSnap.data()!;
+    const branchId = String(invoice.branchId || '').trim();
+    const role = String(actor.role || '').toUpperCase();
+    const canAccess = role === 'ADMIN' || actor.branchId === branchId || (actor.assignedBranchIds || []).includes(branchId);
+    if (!branchId || branchId === 'ALL' || !canAccess) throw new Error('INVOICE_BRANCH_FORBIDDEN');
+    const now = new Date().toISOString();
+    const history = [
+      ...(Array.isArray(invoice.history) ? invoice.history : []),
+      { time: now, action: 'Cập nhật ghi chú hóa đơn', note: notes, user: actor.name || actor.uid, actorUid: actor.uid }
+    ].slice(-200);
+    const updated = { ...invoice, id: invoiceSnap.id, notes, history, updatedAt: now };
+    transaction.update(invoiceRef, { notes, history, updatedAt: now });
+    transaction.set(db.collection('invoiceEvents').doc(), {
+      invoiceId,
+      invoiceCode: invoice.invoiceCode || invoiceId,
+      branchId,
+      eventType: 'NOTE_UPDATED',
+      note: notes,
+      actorUid: actor.uid,
+      actorName: actor.name || actor.uid,
+      occurredAt: now
+    });
+    return updated;
+  });
+}
+
 const ALLOWED_FUND_TYPES_BY_METHOD: Record<string, string[]> = {
   CASH: ['CASH', 'TIỀN MẶT', 'KÉT TIỀN', 'TIEN_MAT'],
   BANK: ['BANK', 'VIETQR', 'NGÂN HÀNG', 'TÀI KHOẢN NGÂN HÀNG', 'NGAN_HANG'],
@@ -462,8 +502,9 @@ export async function executeAtomicCheckout(
           throw new Error(`FINANCE_PARTNER_INACTIVE: Đối tác tài chính "${partnerData.name}" đang tạm ngưng hợp tác.`);
         }
 
-        const partnerType = (partnerData.type || partnerData.category || '').toUpperCase();
-        if (partnerType && !partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP') && !partnerType.includes('TRA_GOP')) {
+        if (String(partnerData.branchId || '') !== branchId) throw new Error('FINANCE_PARTNER_BRANCH_MISMATCH');
+        const partnerType = `${partnerData.type || ''} ${partnerData.category || ''} ${partnerData.supplierCategory || ''}`.toUpperCase();
+        if (!partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP') && !partnerType.includes('TRA_GOP')) {
           throw new Error(`INVALID_FINANCE_PARTNER_TYPE: Đối tác "${partnerData.name}" không phải là công ty tài chính trả góp.`);
         }
       }
@@ -497,8 +538,9 @@ export async function executeAtomicCheckout(
           throw new Error(`FINANCE_PARTNER_INACTIVE: Đối tác tài chính "${partnerData.name}" đang tạm ngưng hợp tác.`);
         }
 
-        const partnerType = (partnerData.type || partnerData.category || '').toUpperCase();
-        if (partnerType && !partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP') && !partnerType.includes('TRA_GOP')) {
+        if (String(partnerData.branchId || '') !== branchId) throw new Error('FINANCE_PARTNER_BRANCH_MISMATCH');
+        const partnerType = `${partnerData.type || ''} ${partnerData.category || ''} ${partnerData.supplierCategory || ''}`.toUpperCase();
+        if (!partnerType.includes('FINANCE') && !partnerType.includes('TRẢ GÓP') && !partnerType.includes('TRA_GOP')) {
           throw new Error(`INVALID_FINANCE_PARTNER_TYPE: Đối tác "${partnerData.name}" không phải là công ty tài chính trả góp.`);
         }
       }
@@ -611,6 +653,7 @@ export async function executeAtomicCheckout(
       id: invoiceId,
       invoiceCode,
       branchId,
+      customerId: payload.customerId || payload.customerPartner?.id || null,
       leadId: checkoutLeadId || null,
       quoteId: payload.quoteId || null,
       customerName: payload.customerName || payload.invoice?.customerName || 'Khách vãng lai',
@@ -667,10 +710,16 @@ export async function executeAtomicCheckout(
       debtAmount: customerDebtAmount,
       financeAmount,
       paymentMethod,
+      paymentFundId: isMultiPayment ? null : (payload.payment?.fundId || payload.fundToUpdate?.id || payload.invoice?.paymentFundId || null),
       ...(isMultiPayment ? { splitPayments: payload.payments } : {}),
       installmentDownPayment: downPayment,
       installmentFinanceAmount: financeAmount,
       installmentFinancePartnerId: payload.installmentFinancePartnerId || payload.payment?.installmentFinancePartnerId || null,
+      installmentDisbursementStatus: financeAmount > 0 ? 'PENDING' : null,
+      installmentExpectedAmount: financeAmount,
+      installmentContractCode: payload.invoice?.installmentContractCode || null,
+      installmentCompany: payload.invoice?.installmentCompany || payload.invoice?.installmentDetails?.financeCompany || null,
+      installmentDetails: payload.invoice?.installmentDetails || null,
       idempotencyKey,
       creatorUid: authenticatedStaff?.uid || 'SYSTEM',
       creatorName: authenticatedStaff?.name || 'Thu Ngân',
@@ -724,7 +773,17 @@ export async function executeAtomicCheckout(
 
       if (financePartnerRef && financeAmount > 0) {
         transaction.update(financePartnerRef, {
-          outstandingDebt: FieldValue.increment(financeAmount)
+          outstandingDebt: FieldValue.increment(financeAmount),
+          debtTransactions: FieldValue.arrayUnion({
+            id: `FINANCE_DEBT_${invoiceId}`,
+            date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
+            type: 'DEBT_INCREASE',
+            amount: financeAmount,
+            note: `Chờ giải ngân hóa đơn ${invoiceCode}`,
+            referenceId: invoiceId,
+            referenceCode: invoiceCode,
+            referenceType: 'INVOICE'
+          })
         });
       }
     } else if (paymentMethod === 'INSTALLMENT') {
@@ -768,7 +827,17 @@ export async function executeAtomicCheckout(
 
       if (financePartnerRef && financeAmount > 0) {
         transaction.update(financePartnerRef, {
-          outstandingDebt: FieldValue.increment(financeAmount)
+          outstandingDebt: FieldValue.increment(financeAmount),
+          debtTransactions: FieldValue.arrayUnion({
+            id: `FINANCE_DEBT_${invoiceId}`,
+            date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
+            type: 'DEBT_INCREASE',
+            amount: financeAmount,
+            note: `Chờ giải ngân hóa đơn ${invoiceCode}`,
+            referenceId: invoiceId,
+            referenceCode: invoiceCode,
+            referenceType: 'INVOICE'
+          })
         });
       }
     } else if (paymentMethod !== 'DEBT') {
@@ -816,24 +885,43 @@ export async function executeAtomicCheckout(
     if (customerId) {
       const custRef = db.collection('partners').doc(customerId);
       const custSnap = await transaction.get(custRef);
+      const debtTransaction = customerDebtAmount > 0 ? {
+        id: `DEBT_${invoiceId}`,
+        date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
+        type: 'DEBT_INCREASE',
+        amount: customerDebtAmount,
+        note: `Công nợ hóa đơn ${invoiceCode}`,
+        referenceId: invoiceId,
+        referenceCode: invoiceCode,
+        referenceType: 'INVOICE'
+      } : null;
       if (custSnap.exists) {
         transaction.update(custRef, {
           totalSpent: FieldValue.increment(finalAmount),
           outstandingDebt: FieldValue.increment(customerDebtAmount),
           lastInvoiceId: invoiceId,
           lastPurchaseDate: FieldValue.serverTimestamp(),
-          ...(customerDebtAmount > 0 ? {
-            debtTransactions: FieldValue.arrayUnion({
-              id: `DEBT_${invoiceId}`,
-              date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
-              type: 'DEBT_INCREASE',
-              amount: customerDebtAmount,
-              note: `Công nợ hóa đơn ${invoiceCode}`,
-              referenceId: invoiceId,
-              referenceCode: invoiceCode,
-              referenceType: 'INVOICE'
-            })
-          } : {})
+          ...(debtTransaction ? { debtTransactions: FieldValue.arrayUnion(debtTransaction) } : {})
+        });
+      } else {
+        const profile = payload.customerPartner || {};
+        transaction.set(custRef, {
+          id: customerId,
+          branchId,
+          type: 'CUSTOMER',
+          name: String(payload.customerName || profile.name || invoiceRecord.customerName || '').trim() || `Khách ${customerId}`,
+          phone: String(payload.customerPhone || profile.phone || invoiceRecord.customerPhone || '').trim(),
+          email: String(profile.email || '').trim(),
+          address: String(profile.address || '').trim(),
+          customerTier: profile.customerTier || 'STANDARD',
+          loyaltyPoints: Number(profile.loyaltyPoints || 0),
+          totalSpent: finalAmount,
+          outstandingDebt: customerDebtAmount,
+          debtTransactions: debtTransaction ? [debtTransaction] : [],
+          createdAt: new Date().toISOString(),
+          lastInteraction: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
+          lastInvoiceId: invoiceId,
+          lastPurchaseDate: FieldValue.serverTimestamp()
         });
       }
     }
@@ -927,9 +1015,17 @@ export async function executeAtomicInvoiceRefund(
     const invoice = invoiceSnap.data()!;
     if (String(invoice.branchId || '') !== branchId) throw new Error('INVOICE_BRANCH_MISMATCH');
     if (String(invoice.status || '').toLowerCase() === 'cancelled') throw new Error('INVOICE_ALREADY_CANCELLED');
+    if (Array.isArray(invoice.debtSettlementIds) && invoice.debtSettlementIds.length > 0) {
+      throw new Error('INVOICE_REFUND_HAS_PARTNER_DEBT_SETTLEMENT');
+    }
+    if (invoice.installmentDisbursementStatus === 'DISBURSED') {
+      throw new Error('INVOICE_REFUND_REQUIRES_INSTALLMENT_REVERSAL');
+    }
 
     const refundAmount = Number(invoice.paidAmount ?? invoice.finalAmount ?? 0);
-    const splitPayments = Array.isArray(invoice.splitPayments) ? invoice.splitPayments.filter((line: any) => Number(line.amount || 0) > 0) : [];
+    const splitPayments = Array.isArray(invoice.splitPayments) ? invoice.splitPayments.filter((line: any) =>
+      Number(line.amount || 0) > 0 && line.fundId && !['DEBT', 'INSTALLMENT'].includes(String(line.method || '').toUpperCase())
+    ) : [];
     if (splitPayments.length > 1) throw new Error('MULTI_FUND_REFUND_REQUIRES_ALLOCATION');
     const originalFundId = String(invoice.paymentFundId || splitPayments[0]?.fundId || '').trim();
     if (originalFundId && fundId !== originalFundId) throw new Error('REFUND_MUST_USE_ORIGINAL_FUND');
@@ -971,13 +1067,36 @@ export async function executeAtomicInvoiceRefund(
     }
 
     let customerRef: DocumentReference | null = null;
+    let customerData: any = null;
     if (invoice.customerId) {
       const candidate = db.collection('partners').doc(String(invoice.customerId));
       const candidateSnap = await transaction.get(candidate);
-      if (candidateSnap.exists) customerRef = candidate;
+      if (candidateSnap.exists) {
+        customerRef = candidate;
+        customerData = candidateSnap.data();
+      }
     } else if (invoice.customerPhone || invoice.phone) {
       const matches = await transaction.get(db.collection('partners').where('phone', '==', invoice.customerPhone || invoice.phone).limit(1));
-      if (!matches.empty) customerRef = matches.docs[0].ref;
+      if (!matches.empty) {
+        customerRef = matches.docs[0].ref;
+        customerData = matches.docs[0].data();
+      }
+    }
+
+    const pendingFinanceAmount = invoice.installmentDisbursementStatus === 'PENDING'
+      ? Number(invoice.installmentExpectedAmount ?? invoice.installmentFinanceAmount ?? invoice.financeAmount ?? 0)
+      : 0;
+    let financePartnerRef: DocumentReference | null = null;
+    let financePartnerData: any = null;
+    if (pendingFinanceAmount > 0) {
+      const financePartnerId = String(invoice.installmentFinancePartnerId || '').trim();
+      if (!financePartnerId) throw new Error('REFUND_FINANCE_PARTNER_REQUIRED');
+      financePartnerRef = db.collection('partners').doc(financePartnerId);
+      const financePartnerSnap = await transaction.get(financePartnerRef);
+      if (!financePartnerSnap.exists) throw new Error('REFUND_FINANCE_PARTNER_NOT_FOUND');
+      financePartnerData = financePartnerSnap.data();
+      if (String(financePartnerData.branchId || '') !== branchId) throw new Error('REFUND_FINANCE_PARTNER_BRANCH_MISMATCH');
+      if (Number(financePartnerData.outstandingDebt || 0) < pendingFinanceAmount) throw new Error('REFUND_FINANCE_PARTNER_DEBT_MISMATCH');
     }
 
     const now = new Date().toISOString();
@@ -1007,7 +1126,9 @@ export async function executeAtomicInvoiceRefund(
     transaction.update(invoiceRef, {
       status: 'cancelled', cancellationReason: reason,
       cancelledBy: authenticatedStaff?.name || authenticatedStaff?.uid || '',
-      cancelledByUid: authenticatedStaff?.uid || '', cancelledAt: now
+      cancelledByUid: authenticatedStaff?.uid || '', cancelledAt: now,
+      debtAmount: 0,
+      ...(pendingFinanceAmount > 0 ? { installmentDisbursementStatus: 'CANCELLED' } : {})
     });
     deviceSnapshots.forEach(item => transaction.update(item.ref, {
       status: 'in_stock', soldDate: FieldValue.delete(), soldInvoiceId: FieldValue.delete(),
@@ -1022,8 +1143,25 @@ export async function executeAtomicInvoiceRefund(
       });
       transaction.set(db.collection('cashTransactions').doc(refundTxId), refundTransaction);
     }
-    if (customerRef && refundAmount > 0) {
-      transaction.update(customerRef, { totalSpent: FieldValue.increment(-refundAmount), updatedAt: now });
+    if (customerRef && customerData) {
+      const customerDebtToReverse = Number(invoice.debtAmount || 0);
+      const customerOutstandingDebt = Number(customerData.outstandingDebt || 0);
+      if (customerDebtToReverse > 0 && customerOutstandingDebt < customerDebtToReverse) throw new Error('REFUND_CUSTOMER_DEBT_MISMATCH');
+      transaction.update(customerRef, {
+        totalSpent: Math.max(0, Number(customerData.totalSpent || 0) - Number(invoice.finalAmount || 0)),
+        outstandingDebt: Math.max(0, customerOutstandingDebt - customerDebtToReverse),
+        debtTransactions: (Array.isArray(customerData.debtTransactions) ? customerData.debtTransactions : [])
+          .filter((item: any) => String(item.referenceId || '') !== invoiceId),
+        updatedAt: now
+      });
+    }
+    if (financePartnerRef && financePartnerData && pendingFinanceAmount > 0) {
+      transaction.update(financePartnerRef, {
+        outstandingDebt: Number(financePartnerData.outstandingDebt || 0) - pendingFinanceAmount,
+        debtTransactions: (Array.isArray(financePartnerData.debtTransactions) ? financePartnerData.debtTransactions : [])
+          .filter((item: any) => String(item.referenceId || '') !== invoiceId),
+        updatedAt: now
+      });
     }
 
     const result = { invoiceId, refundTransaction, restoredDeviceIds: [...deviceSnapshots.keys()] };

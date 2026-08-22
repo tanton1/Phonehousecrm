@@ -25,7 +25,6 @@ import { History,
   Edit3, 
   X, 
   Trash2, 
-  Check, 
   Zap, 
   CreditCard, 
   Building2, 
@@ -40,7 +39,6 @@ import { History,
   Truck,
   RotateCcw,
   Sparkles,
-  ChevronDown,
   List,
   SlidersHorizontal,
   ScanLine
@@ -50,12 +48,9 @@ interface InvoicesViewProps {
   invoices: SalesInvoice[];
   devices: DeviceItem[];
   onNavigateToPOS: () => void;
-  onUpdateInvoice?: (invoice: SalesInvoice) => void;
-  onDeleteInvoice?: (invoiceId: string) => void;
+  onUpdateInvoiceNote?: (invoiceId: string, notes: string) => Promise<SalesInvoice>;
   onCancelInvoice?: (invoice: SalesInvoice, reason: string) => Promise<void> | void;
   initialSelectedInvoiceId?: string | null;
-  currentUser?: any;
-  branches?: any[];
 }
 
 type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
@@ -154,11 +149,8 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
 export const InvoicesView: React.FC<InvoicesViewProps> = ({
   invoices,
   devices,
-  currentUser,
-  branches = [],
   onNavigateToPOS,
-  onUpdateInvoice,
-  onDeleteInvoice,
+  onUpdateInvoiceNote,
   onCancelInvoice,
   initialSelectedInvoiceId
 }) => {
@@ -185,7 +177,6 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [noteContent, setNoteContent] = useState('');
   const [showMoreDropdown, setShowMoreDropdown] = useState(false);
-  const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [syncToast, setSyncToast] = useState<string | null>(null);
 
@@ -198,30 +189,6 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedText(label);
     setTimeout(() => setCopiedText(null), 2000);
-  };
-
-  // Quick Status Change directly on UI -> Persists to Firestore
-  const handleQuickChangeStatus = (newStatus: string) => {
-    if (!selectedInvoice) return;
-    if (['cancelled', 'CANCELLED', 'refunded', 'REFUNDED'].includes(newStatus)) {
-      alert('Không thể hủy hoặc hoàn tiền đơn hàng bằng thao tác nhanh. Vui lòng sử dụng tính năng "Hủy đơn hàng" để xử lý trả hàng và hoàn tiền đúng quy trình.');
-      return;
-    }
-    const updatedInvoice: SalesInvoice = {
-      ...selectedInvoice,
-      status: newStatus,
-      history: [ 
-        ...(selectedInvoice.history || []), 
-        { time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16), action: `Chuyển trạng thái: ${STATUS_CONFIG[newStatus]?.label || newStatus}`, user: currentUser?.displayName || "Admin" } 
-      ]
-    };
-    setSelectedInvoice(updatedInvoice);
-    if (onUpdateInvoice) {
-      onUpdateInvoice(updatedInvoice);
-    }
-    setShowStatusPicker(false);
-    const statusLabel = STATUS_CONFIG[newStatus]?.label || newStatus;
-    triggerSyncToast(`Đã cập nhật trạng thái: "${statusLabel}" & đồng bộ Firestore`);
   };
 
   // Filter & Search Logic
@@ -408,18 +375,16 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     };
   };
 
-  const handleSaveNote = () => {
-    if (!selectedInvoice) return;
-    const updated = {
-      ...selectedInvoice,
-      notes: noteContent, history: [ ...(selectedInvoice.history || []), { time: new Date().toLocaleString("sv-SE").replace("T", " ").slice(0, 16), action: "Cập nhật ghi chú", note: noteContent, user: "Admin (Current User)" } ]
-    };
-    setSelectedInvoice(updated);
-    if (onUpdateInvoice) {
-      onUpdateInvoice(updated);
+  const handleSaveNote = async () => {
+    if (!selectedInvoice || !onUpdateInvoiceNote) return;
+    try {
+      const updated = await onUpdateInvoiceNote(selectedInvoice.id, noteContent);
+      setSelectedInvoice(updated);
+      setIsEditingNote(false);
+      triggerSyncToast('Đã lưu ghi chú hóa đơn qua máy chủ');
+    } catch (error: any) {
+      alert(error?.message || 'Không thể lưu ghi chú hóa đơn.');
     }
-    setIsEditingNote(false);
-    triggerSyncToast('Đã lưu ghi chú đơn hàng lên Firestore');
   };
 
   // ----------------------------------------------------
@@ -519,46 +484,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           branchName={selectedInvoice.branch || 'Phone House'}
           statusBadge={
             <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowStatusPicker(!showStatusPicker)}
-                className={`${currentStatusConfig.bg} ${currentStatusConfig.text} border ${currentStatusConfig.border} text-[11px] font-medium px-2.5 py-0.5 rounded-full flex items-center space-x-1.5 hover:opacity-85 transition-all cursor-pointer shadow-2xs`}
-                title="Nhấn để đổi trạng thái đơn hàng (Đồng bộ Firestore)"
+              <div
+                className={`${currentStatusConfig.bg} ${currentStatusConfig.text} border ${currentStatusConfig.border} text-[11px] font-medium px-2.5 py-0.5 rounded-full flex items-center space-x-1.5 shadow-2xs`}
+                title="Trạng thái kế toán chỉ thay đổi qua nghiệp vụ thanh toán/hủy hoàn"
               >
                 <span className={`w-1.5 h-1.5 rounded-full ${currentStatusConfig.dot}`}></span>
                 <span>{currentStatusConfig.label}</span>
-                <ChevronDown className="w-3 h-3 opacity-60" />
-              </button>
-
-              {/* Status Picker Dropdown Menu */}
-              {showStatusPicker && (
-                <div className="absolute left-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1.5 z-50 animate-fadeIn text-xs text-zinc-900">
-                  <div className="px-3 py-1 text-[10px] font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-100">
-                    Chuyển Trạng Thái Đơn:
-                  </div>
-                  {Object.entries(STATUS_CONFIG)
-                    .filter(([key]) => !['cancelled', 'CANCELLED', 'refunded', 'REFUNDED'].includes(key) && key === key.toLowerCase())
-                    .map(([key, cfg]) => {
-                    const isSelected = key === statusKey;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => handleQuickChangeStatus(key)}
-                        className={`w-full px-3 py-2 text-left font-medium flex items-center justify-between transition-colors ${
-                          isSelected ? `${cfg.bg} ${cfg.text} font-semibold` : 'text-zinc-700 hover:bg-zinc-50'
-                        }`}
-                      >
-                        <div className="flex items-center space-x-2">
-                          <span className={`w-2 h-2 rounded-full ${cfg.dot}`}></span>
-                          <span>{cfg.label}</span>
-                        </div>
-                        {isSelected && <Check className="w-3.5 h-3.5" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              </div>
             </div>
           }
           onPrint={() => setIsPrintModalOpen(true)}
@@ -598,7 +530,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <Share2 className="w-4 h-4 text-zinc-400" />
                       <span>{copiedText === 'link' ? 'Đã sao chép link!' : 'Chia sẻ liên kết'}</span>
                     </button>
-                    {(onCancelInvoice || onDeleteInvoice) && (
+                    {onCancelInvoice && (
                       <button
                         type="button"
                         onClick={async () => {
@@ -608,11 +540,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           }
                           const reason = window.prompt(`Nhập lý do hủy/hoàn hóa đơn ${invoiceCode}:`, 'Khách đổi ý trả hàng hoàn tiền');
                           if (reason !== null && reason.trim()) {
-                            if (onCancelInvoice) {
-                              await onCancelInvoice(selectedInvoice, reason.trim());
-                            } else if (onDeleteInvoice) {
-                              onDeleteInvoice(selectedInvoice.id);
-                            }
+                            await onCancelInvoice(selectedInvoice, reason.trim());
                             setSelectedInvoice(null);
                           }
                         }}
@@ -1117,13 +1045,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
 
               <button
-                onClick={() => {
-                  handleQuickChangeStatus('completed');
-                  setIsQRModalOpen(false);
-                }}
+                onClick={() => setIsQRModalOpen(false)}
                 className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-orange-500 text-white text-xs font-semibold rounded-xl shadow-md cursor-pointer"
               >
-                Đã Thu Tiền Xong
+                Đóng mã QR
               </button>
             </div>
           </div>

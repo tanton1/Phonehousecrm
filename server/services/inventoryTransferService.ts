@@ -18,6 +18,12 @@ export interface TechnicalTaskTypeRecord {
   name: string;
   taskCode: string;
   baseCommission: number;
+  laborCostToDevice?: number;
+  capitalizeLaborCost?: boolean;
+  reworkCommissionPolicy?: 'NO_EXTRA_COMMISSION' | 'REPEAT_COMMISSION' | 'MANAGER_APPROVAL';
+  requiredEvidenceTypes?: string[];
+  requiredPartTemplates?: Array<{ partId?: string; sku?: string; quantity: number }>;
+  qcChecklistTemplateId?: string;
   normalSlaHours: number;
   prioritySlaHours: number;
   urgentSlaHours: number;
@@ -94,6 +100,10 @@ export function calculateTechnicalTaskQuote(config: TechnicalTaskTypeRecord, pri
   const deadlineAt = new Date(new Date(dispatchedAt).getTime() + slaHours * 60 * 60 * 1000).toISOString();
   return {
     commissionAmount: Math.round(config.baseCommission * multiplier),
+    laborCostToDevice: config.capitalizeLaborCost === false
+      ? 0
+      : Math.round(Number(config.laborCostToDevice ?? config.baseCommission) * multiplier),
+    capitalizeLaborCost: config.capitalizeLaborCost !== false,
     slaHours,
     deadlineAt
   };
@@ -277,6 +287,12 @@ export async function processCreateTechnicalTransfer(
           taskName: config.name,
           priority: taskRequest.priority,
           commissionAmount: quote.commissionAmount,
+          laborCostToDevice: quote.laborCostToDevice,
+          capitalizeLaborCost: quote.capitalizeLaborCost,
+          reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
+          requiredEvidenceTypes: config.requiredEvidenceTypes || [],
+          requiredPartTemplates: config.requiredPartTemplates || [],
+          qcChecklistTemplateId: config.qcChecklistTemplateId || null,
           slaHours: quote.slaHours,
           deadlineAt: quote.deadlineAt,
           requiresQc: config.requiresQc,
@@ -309,12 +325,19 @@ export async function processCreateTechnicalTransfer(
           staffName: technicianName,
           workOrderId,
           workOrderLineId: lineId,
+          workOrderType: 'INBOUND_PREP',
           transferId,
           branchId: input.sourceBranchId,
           imei: device.imei,
           taskCode: config.taskCode,
           taskName: config.name,
           amount: quote.commissionAmount,
+          commissionPayable: quote.commissionAmount,
+          laborCostToDevice: quote.laborCostToDevice,
+          capitalizeToDevice: quote.capitalizeLaborCost,
+          policyId: config.id,
+          policyVersion: config.version,
+          reworkCycle: 0,
           status: 'PENDING',
           eligibilityRequiresStockReturn: true,
           payrollPeriod: now.slice(0, 7),
@@ -330,6 +353,7 @@ export async function processCreateTechnicalTransfer(
         imei: device.imei,
         model: device.model,
         workOrderType: 'INBOUND_PREP',
+        assetOwnership: 'COMPANY',
         branchId: input.sourceBranchId,
         sourceWarehouseId: input.sourceLocationId,
         destinationLocationId: input.destinationLocationId,
@@ -341,6 +365,9 @@ export async function processCreateTechnicalTransfer(
         assignedTechnicianName: technicianName,
         taskLineIds: lineIds,
         totalCommissionAmount: itemCommission,
+        openingDeviceCost: getDeviceCostSnapshot(device, now).costAtTransfer,
+        openingCostVersion: getDeviceCostSnapshot(device, now).costVersion,
+        costPostingStatus: 'NOT_READY',
         eligibilityRequiresStockReturn: true,
         reworkCount: 0,
         createdByUid: actor.uid,

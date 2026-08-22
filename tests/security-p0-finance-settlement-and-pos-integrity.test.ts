@@ -44,7 +44,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
               if (ref.col === 'partners') {
                 return {
                   exists: true,
-                  data: () => ({ id: ref.docId, name: 'FE Credit', type: 'FINANCE_COMPANY', status: 'ACTIVE' })
+                  data: () => ({ id: ref.docId, name: 'FE Credit', type: 'FINANCE_COMPANY', status: 'ACTIVE', branchId: 'CN01' })
                 };
               }
               return { exists: false };

@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
+import { processPartnerDebtSettlement } from '../services/partnerDebtService';
+import { processInstallmentDisbursement } from '../services/installmentDisbursementService';
 
 function canAccessBranch(user: any, targetBranchId?: string): boolean {
   if (!targetBranchId || targetBranchId === 'ALL') return false;
@@ -261,6 +263,47 @@ export function createFinanceRouter(db: Firestore | null): Router {
     }
   });
 
+  router.post('/partner-debts/settle', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processPartnerDebtSettlement(db, {
+        ...req.body,
+        idempotencyKey: req.body?.idempotencyKey || req.headers['x-idempotency-key']
+      }, {
+        uid: req.user!.uid,
+        role: req.user!.role,
+        branchId: req.user!.branchId,
+        assignedBranchIds: req.user!.assignedBranchIds,
+        name: req.user!.name || req.user!.email
+      });
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      const message = error?.message || 'PARTNER_DEBT_SETTLEMENT_FAILED';
+      const forbidden = message.includes('FORBIDDEN') || message.includes('BRANCH_MISMATCH');
+      return res.status(forbidden ? 403 : 400).json({ success: false, error: message });
+    }
+  });
+
+  router.post('/installments/disburse', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processInstallmentDisbursement(db, {
+        ...req.body,
+        idempotencyKey: req.body?.idempotencyKey || req.headers['x-idempotency-key']
+      }, {
+        uid: req.user!.uid,
+        role: req.user!.role,
+        branchId: req.user!.branchId,
+        assignedBranchIds: req.user!.assignedBranchIds,
+        name: req.user!.name || req.user!.email
+      });
+      return res.json({ success: true, ...result });
+    } catch (error: any) {
+      const message = error?.message || 'INSTALLMENT_DISBURSEMENT_FAILED';
+      return res.status(message.includes('FORBIDDEN') || message.includes('BRANCH_MISMATCH') ? 403 : 400).json({ success: false, error: message });
+    }
+  });
+
   /**
    * 1. POST /api/finance/receipt
    * Lập phiếu thu tiền (+), cộng số dư quỹ, ghi nhận cashTransactions atomically
@@ -288,6 +331,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
       const numAmount = Number(amount);
       if (!fundId || isNaN(numAmount) || numAmount <= 0) {
         return res.status(400).json({ success: false, error: 'Thông tin quỹ hoặc số tiền thu không hợp lệ' });
+      }
+      if (category === 'CUSTOMER_DEBT_COLLECT') {
+        return res.status(400).json({ success: false, error: 'USE_PARTNER_DEBT_SETTLEMENT: Thu nợ phải thực hiện từ Sổ nợ đối tác để cập nhật đồng thời công nợ và chứng từ gốc.' });
       }
 
       const now = getVietnamDateTime();
@@ -414,6 +460,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
       const numAmount = Number(amount);
       if (!fundId || isNaN(numAmount) || numAmount <= 0) {
         return res.status(400).json({ success: false, error: 'Thông tin quỹ hoặc số tiền chi không hợp lệ' });
+      }
+      if (category === 'SUPPLIER_DEBT_PAY') {
+        return res.status(400).json({ success: false, error: 'USE_PARTNER_DEBT_SETTLEMENT: Trả nợ NCC phải thực hiện từ Sổ nợ đối tác để cập nhật đồng thời công nợ và phiếu nhập.' });
       }
 
       const now = getVietnamDateTime();

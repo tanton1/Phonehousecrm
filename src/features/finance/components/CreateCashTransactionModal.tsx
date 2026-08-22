@@ -39,7 +39,6 @@ export const CreateCashTransactionModal: React.FC<CreateCashTransactionModalProp
 
   const receiptCategories: { id: CashReceiptCategory; label: string }[] = [
     { id: 'SALES_REVENUE', label: 'Thu tiền bán hàng / POS' },
-    { id: 'CUSTOMER_DEBT_COLLECT', label: 'Thu tiền nợ khách hàng' },
     { id: 'TRADEIN_DIFF_COLLECT', label: 'Thu tiền chênh lệch Trade-in' },
     { id: 'DEPOSIT', label: 'Thu tiền đặt cọc giữ máy' },
     { id: 'REPAIR_SERVICE', label: 'Thu tiền sửa chữa / bảo hành' },
@@ -50,7 +49,6 @@ export const CreateCashTransactionModal: React.FC<CreateCashTransactionModalProp
 
   const paymentCategories: { id: CashPaymentCategory; label: string }[] = [
     { id: 'INVENTORY_PURCHASE', label: 'Chi nhập hàng iPhone / Máy' },
-    { id: 'SUPPLIER_DEBT_PAY', label: 'Chi thanh toán nợ NCC' },
     { id: 'STORE_RENT', label: 'Chi tiền thuê mặt bằng' },
     { id: 'SALARY_BONUS', label: 'Chi lương / thưởng / hoa hồng' },
     { id: 'MARKETING_ADS', label: 'Chi quảng cáo Ads' },

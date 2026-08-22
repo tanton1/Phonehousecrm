@@ -59,29 +59,70 @@ async function sendTechnicalApiRequest<T>(
  * 1. Create Technical Work Order with Task Lines
  */
 export async function requestCreateWorkOrder(payload: {
-  deviceId: string;
+  deviceId?: string;
   imei: string;
   model: string;
   workOrderType: 'INBOUND_PREP' | 'CUSTOMER_SERVICE' | 'WARRANTY' | 'TRADE_IN_REFURB' | 'SHOP_RETURN_REWORK';
   branchId: string;
-  sourceWarehouseId?: string;
+  sourceWarehouseId: string;
+  destinationWarehouseId: string;
+  assetOwnership?: 'COMPANY' | 'CUSTOMER';
   customerName?: string;
   customerPhone?: string;
   customerApprovedQuote?: number;
   totalEstimatedCost?: number;
+  passcode?: string;
+  intakeDetails?: {
+    issueType?: string;
+    faultDescription?: string;
+    deviceAppearance?: string;
+    accessoriesIncluded?: string;
+    expectedReturnDate?: string;
+  };
   notes?: string;
   lines: Array<{
-    taskCode: 'LV' | 'EK' | 'TP' | 'RC2.5' | 'FIX_FACE' | 'MAIN' | 'KCS' | 'OTHER';
-    taskName: string;
+    taskType: string;
+    priority?: 'NORMAL' | 'PRIORITY' | 'URGENT';
     assigneeUid: string;
     assigneeName: string;
-    ratePolicyId?: string;
-    ratePolicyVersion?: string;
-    commissionAmount: number;
-    requiredParts?: Array<{ partId: string; partName: string; quantity: number }>;
   }>;
 }): Promise<{ workOrderId: string; code: string; lineIds: string[] }> {
   return await sendTechnicalApiRequest('work-orders', payload);
+}
+
+export async function requestRevealTechnicalPasscode(workOrderId: string): Promise<{ passcode: string | null }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/passcode`, {}, 'GET');
+}
+
+export async function requestTechnicalHandoff(
+  workOrderId: string,
+  payload: {
+    targetWarehouseId: string;
+    targetTechnicianUid: string;
+    targetTechnicianName?: string;
+    scannedImei: string;
+    reason: string;
+    handoverPhotoUrls: string[];
+  }
+): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/handoffs`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`tech-handoff-request-${workOrderId}`)
+  });
+}
+
+export async function fetchPendingTechnicalHandoffs(): Promise<any[]> {
+  return await sendTechnicalApiRequest('handoffs/pending', {}, 'GET');
+}
+
+export async function requestAcceptTechnicalHandoff(
+  handoffId: string,
+  payload: { scannedImei: string; handoverPhotoUrls: string[]; notes?: string }
+): Promise<any> {
+  return await sendTechnicalApiRequest(`handoffs/${handoffId}/accept`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`tech-handoff-accept-${handoffId}`)
+  });
 }
 
 /**
@@ -96,16 +137,10 @@ export async function requestAcceptCustody(
     power: 'OK' | 'NO_POWER';
     biometrics: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
     technicianNotes?: string;
+    handoverPhotoUrls: string[];
   }
 ): Promise<{ success: boolean; workOrderId: string }> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/accept`, { scannedImei, preRepairInspection });
-}
-
-/** Confirm a warehouse-dispatched device without retyping its known IMEI. */
-export async function requestQuickAcceptCustody(
-  workOrderId: string
-): Promise<{ success: boolean; workOrderId: string }> {
-  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/quick-accept`, {});
 }
 
 /**
@@ -125,12 +160,17 @@ export async function requestCompleteTaskLine(
   workOrderId: string,
   lineId: string,
   evidencePhotoUrls: string[] = [],
-  notes: string = ''
+  notes: string = '',
+  completionMetadata: {
+    replacementSerials?: string[];
+    postRepairMetrics?: Record<string, string | number | boolean | null>;
+  } = {}
 ): Promise<{ success: boolean; lineId: string; workOrderId: string; allLinesCompleted: boolean }> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/complete-task`, {
     lineId,
     evidencePhotoUrls,
-    notes
+    notes,
+    completionMetadata
   });
 }
 
@@ -141,12 +181,136 @@ export async function requestIssueSparePart(
   workOrderId: string,
   lineId: string,
   partId: string,
-  quantity: number = 1
-): Promise<{ success: boolean; partId: string; remainingStock: number }> {
+  warehouseId: string,
+  quantity: number = 1,
+  lotId?: string,
+  reservationId?: string
+): Promise<{ issue: any; remainingStock: number; idempotentReplay?: boolean }> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/issue`, {
     lineId,
     partId,
-    quantity
+    warehouseId,
+    lotId,
+    reservationId,
+    quantity,
+    idempotencyKey: createTechnicalIdempotencyKey(`part-issue-${workOrderId}-${lineId}`)
+  });
+}
+
+export async function requestReserveSparePart(
+  workOrderId: string,
+  lineId: string,
+  partId: string,
+  warehouseId: string,
+  quantity: number = 1,
+  lotId?: string
+): Promise<{ reservation: any; availableQuantity: number; idempotentReplay?: boolean }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/reserve`, {
+    lineId,
+    partId,
+    warehouseId,
+    lotId,
+    quantity,
+    idempotencyKey: createTechnicalIdempotencyKey(`part-reserve-${workOrderId}-${lineId}`)
+  });
+}
+
+export async function requestCancelSparePartReservation(workOrderId: string, reservationId: string, reason: string): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/reservations/${reservationId}/cancel`, {
+    reason,
+    idempotencyKey: createTechnicalIdempotencyKey(`part-reservation-cancel-${reservationId}`)
+  });
+}
+
+export async function requestReceiveTechnicalSparePart(payload: {
+  partId?: string;
+  sku: string;
+  name: string;
+  category?: string;
+  branchId: string;
+  warehouseId: string;
+  lotCode?: string;
+  quantity: number;
+  unitCost: number;
+  supplierId?: string;
+  sourceType: 'PART_PURCHASE' | 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT';
+  sourceId: string;
+  sourceCode?: string;
+  note?: string;
+  compatibleModels?: string[];
+}): Promise<any> {
+  return await sendTechnicalApiRequest('parts/receive', {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`part-receipt-${payload.branchId}-${payload.warehouseId}-${payload.sku}`)
+  });
+}
+
+export async function requestConsumeSparePart(workOrderId: string, issueId: string, quantity: number, note = ''): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/${issueId}/consume`, {
+    quantity, note, idempotencyKey: createTechnicalIdempotencyKey(`part-consume-${issueId}`)
+  });
+}
+
+export async function requestReturnSparePart(workOrderId: string, issueId: string, quantity: number, note = ''): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/${issueId}/return`, {
+    quantity, note, idempotencyKey: createTechnicalIdempotencyKey(`part-return-${issueId}`)
+  });
+}
+
+export async function requestScrapSparePart(workOrderId: string, issueId: string, quantity: number, reason: string, capitalizeToDevice = false): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/${issueId}/scrap`, {
+    quantity, reason, capitalizeToDevice, idempotencyKey: createTechnicalIdempotencyKey(`part-scrap-${issueId}`)
+  });
+}
+
+export async function requestCancelSparePartIssue(workOrderId: string, issueId: string, reason: string): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/parts/${issueId}/cancel`, {
+    reason, idempotencyKey: createTechnicalIdempotencyKey(`part-cancel-${issueId}`)
+  });
+}
+
+export async function requestAddTechnicalExternalCost(workOrderId: string, payload: Record<string, any>): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/external-costs`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`external-cost-${workOrderId}`)
+  });
+}
+
+export async function requestDecideTechnicalExternalCost(
+  workOrderId: string,
+  costId: string,
+  decision: 'APPROVED' | 'REJECTED'
+): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/external-costs/${costId}/decision`, { decision });
+}
+
+export async function requestAddTechnicalRecovery(workOrderId: string, payload: Record<string, any>): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/recoveries`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`recovery-${workOrderId}`)
+  });
+}
+
+export async function requestDecideTechnicalRecovery(
+  workOrderId: string,
+  recoveryId: string,
+  decision: 'APPROVED' | 'REJECTED'
+): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/recoveries/${recoveryId}/decision`, { decision });
+}
+
+export async function fetchTechnicalCostBreakdown(workOrderId: string): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/cost-breakdown`, {}, 'GET');
+}
+
+export async function fetchTechnicalSpareParts(warehouseId?: string): Promise<any[]> {
+  const query = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : '';
+  return await sendTechnicalApiRequest(`parts${query}`, {}, 'GET');
+}
+
+export async function requestFinalizeTechnicalCost(workOrderId: string): Promise<any> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/finalize-cost`, {
+    idempotencyKey: createTechnicalIdempotencyKey(`finalize-cost-${workOrderId}`)
   });
 }
 
@@ -171,9 +335,10 @@ export async function requestQCInspection(
  */
 export async function requestReturnToStock(
   workOrderId: string,
-  targetWarehouseId: string = 'KHO_TONG'
+  targetWarehouseId: string,
+  scannedImei: string
 ): Promise<{ success: boolean; deviceId: string }> {
-  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/return-to-stock`, { targetWarehouseId });
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/return-to-stock`, { targetWarehouseId, scannedImei });
 }
 
 /**
@@ -186,9 +351,43 @@ export async function requestDeliverToCustomer(
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/deliver-customer`, { notes });
 }
 
+export interface TechnicalCommissionLedgerEntry {
+  id: string;
+  staffUid: string;
+  staffName: string;
+  workOrderId: string;
+  workOrderLineId: string;
+  workOrderType?: string;
+  branchId: string;
+  imei?: string;
+  taskCode?: string;
+  taskName?: string;
+  commissionPayable?: number;
+  amount?: number;
+  policyId?: string;
+  policyVersion?: string;
+  payrollPeriod: string;
+  status: 'PENDING' | 'ELIGIBLE' | 'CANCELLED' | 'PAID';
+  createdAt?: string | null;
+  eligibleAt?: string | null;
+  paidAt?: string | null;
+  payrollPostingId?: string;
+}
+
+export async function fetchTechnicalCommissionLedger(period: string): Promise<TechnicalCommissionLedgerEntry[]> {
+  return await sendTechnicalApiRequest(`commissions?period=${encodeURIComponent(period)}`, {}, 'GET');
+}
+
 /**
  * 9. Fetch Task Lines for Authenticated Technician (My Work)
  */
 export async function fetchMyTechnicalWork(): Promise<any[]> {
   return await sendTechnicalApiRequest('my-work', {}, 'GET');
+}
+
+export function createTechnicalIdempotencyKey(scope: string): string {
+  const suffix = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${scope}:${suffix}`;
 }

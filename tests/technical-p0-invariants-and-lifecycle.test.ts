@@ -39,7 +39,7 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
       };
 
       await expect(
-        processReturnToStock(mockDb, 'WO_CUST_01', 'KHO_TONG', { uid: 'UID_STAFF_01', branchId: 'CN01' })
+        processReturnToStock(mockDb, 'WO_CUST_01', 'KHO_TONG', '356789012345678', { uid: 'UID_STAFF_01', branchId: 'CN01' })
       ).rejects.toThrow('CANNOT_RETURN_CUSTOMER_DEVICE_TO_STOCK');
     });
 
@@ -106,7 +106,7 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
       };
 
       await expect(
-        processAcceptCustody(mockDb, 'WO_01', '359999999999999', { uid: 'UID_KTV_NAM', branchId: 'CN01' })
+        processAcceptCustody(mockDb, 'WO_01', '359999999999999', { uid: 'UID_KTV_NAM', branchId: 'CN01' }, { appearance: 'GOOD', screen: 'OK', power: 'OK', biometrics: 'OK', handoverPhotoUrls: ['https://firebasestorage.googleapis.com/v0/b/test.appspot.com/o/technical-evidence%2FWO_01%2Facceptance%2Faccept.jpg?alt=media'] })
       ).rejects.toThrow('IMEI_MISMATCH');
     });
 
@@ -144,7 +144,7 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
       };
 
       await expect(
-        processAcceptCustody(mockDb, 'WO_01', '356789012345678', { uid: 'UID_KTV_UNASSIGNED', role: 'TECH', branchId: 'CN01' })
+        processAcceptCustody(mockDb, 'WO_01', '356789012345678', { uid: 'UID_KTV_UNASSIGNED', role: 'TECH', branchId: 'CN01' }, { appearance: 'GOOD', screen: 'OK', power: 'OK', biometrics: 'OK', handoverPhotoUrls: ['https://firebasestorage.googleapis.com/v0/b/test.appspot.com/o/technical-evidence%2FWO_01%2Facceptance%2Faccept.jpg?alt=media'] })
       ).rejects.toThrow('TECHNICIAN_NOT_ASSIGNED');
     });
   });

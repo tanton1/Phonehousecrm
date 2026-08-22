@@ -8,7 +8,6 @@ import {
   StaffDualWalletSummary,
   PayrollLedgerItem
 } from '../types';
-import { getLiveTechCommissionMatrix, getDeviceGroupForModel } from '../data/techCommissionMatrix';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import { getCachedOperationalConfigs } from '../services/configurationApiClient';
 
@@ -57,162 +56,13 @@ export function findStaffByIdentifier(
  * TÍNH TOÁN HOA HỒNG KỸ THUẬT TỪ PHIẾU BẢO HÀNH / SỬA CHỮA / KCS
  */
 export function calculateWarrantyTicketCommissions(
-  ticket: WarrantyTicket,
-  staffList: StaffMember[] = [],
-  policies: SalaryPolicy[] = []
+  _ticket: WarrantyTicket,
+  _staffList: StaffMember[] = [],
+  _policies: SalaryPolicy[] = []
 ): CommissionTransaction[] {
-  const transactions: CommissionTransaction[] = [];
-  if (!ticket) return transactions;
-  
-  // Tìm KTV phụ trách
-  const staff = findStaffByIdentifier(ticket.assigneeId || ticket.technician, staffList) 
-    || (staffList || []).find(s => s && (s.role === 'TECHNICIAN' || (s.role as string) === 'TECH'));
-
-  if (!staff?.id || !staff?.name) {
-    return transactions;
-  }
-
-  const nowStr = ticket.completedDate || ticket.deliveredDate || ticket.receivedDate || new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const isCompleted = ticket.status === 'ready' || ticket.status === 'delivered';
-  const txStatus: CommissionTransaction['status'] = isCompleted ? 'CONFIRMED' : 'PENDING';
-
-  // 1. Kiểm định KCS nhập kho (INBOUND_QC)
-  if (ticket.taskType === 'INBOUND_QC' || ticket.ticketNumber?.startsWith('KCS') || (ticket.issueType === 'Khác' && ticket.faultDescription?.includes('KCS'))) {
-    const kcsCommission = ticket.commissionAmount || 0;
-    transactions.push({
-      id: `COMM-QC-${ticket.id}`,
-      employeeId: staff.id,
-      employeeName: staff.name,
-      role: staff.role,
-      walletCategory: 'TECH_WALLET',
-      orderId: ticket.id,
-      orderCode: ticket.ticketNumber || `KCS-${ticket.id.slice(-6)}`,
-      productName: `KCS Kiểm Định: ${ticket.model}`,
-      imei: ticket.imei,
-      branchId: ticket.branchId || staff.branchId || 'BRANCH_1',
-      type: 'TECH_KCS',
-      baseAmount: ticket.estimatedCost || 35000,
-      profitAmount: 35000,
-      commissionRate: 100,
-      commissionAmount: kcsCommission,
-      status: txStatus,
-      policyId: 'POL_TECH_2026',
-      policyVersion: 'v2.0',
-      occurredAt: nowStr,
-      approvedAt: isCompleted ? nowStr : undefined,
-      notes: `Kiểm tra KCS nhập kho đạt tiêu chuẩn QC Phone House`,
-      sourceType: 'WARRANTY_TICKET',
-      sourceId: ticket.id
-    });
-    return transactions;
-  }
-
-  // 2. Tính toán sửa chữa dịch vụ theo Ma Trận (Nếu có check techTasks)
-  if (ticket.techTasks && ticket.techTasks.length > 0) {
-    const groupId = getDeviceGroupForModel(ticket.model);
-    const matrix = getLiveTechCommissionMatrix();
-    
-    ticket.techTasks.forEach((taskId, idx) => {
-      const taskDef = matrix.tasks.find(t => t.id === taskId);
-      if (taskDef) {
-        // rates are keyed by groupId
-        const amount = (taskDef.rates as any)[groupId] || 0;
-        if (amount > 0) {
-          transactions.push({
-            id: `COMM-TECH-${ticket.id}-${taskId}`,
-            employeeId: staff.id,
-            employeeName: staff.name,
-            role: staff.role,
-            walletCategory: 'TECH_WALLET',
-            orderId: ticket.id,
-            orderCode: ticket.ticketNumber || `BH-${ticket.id.slice(-6)}`,
-            orderItemId: `TASK-${idx + 1}`,
-            productName: `Sửa chữa: ${taskDef.name} (${ticket.model})`,
-            imei: ticket.imei,
-            branchId: ticket.branchId || staff.branchId || 'BRANCH_1',
-            type: 'TECH_REPAIR',
-            baseAmount: amount, // Flat commission
-            profitAmount: amount * 3, // Dummy
-            commissionRate: 0,
-            commissionAmount: amount,
-            status: txStatus,
-            policyId: 'POL_TECH_MATRIX_2026',
-            policyVersion: 'v3.0',
-            occurredAt: nowStr,
-            approvedAt: isCompleted ? nowStr : undefined,
-            notes: `Chi phí nhân công: ${taskDef.name} (${ticket.model})`,
-            sourceType: 'WARRANTY_TICKET',
-            sourceId: ticket.id
-          });
-        }
-      }
-    });
-    
-    return transactions;
-  }
-
-  // 3. Fallback cho các Phiếu Bảo Hành Miễn Phí (WARRANTY_FREE) cũ (nếu không check techTasks)
-  if (ticket.isWarrantyFree || ticket.repairCategory === 'WARRANTY_FREE' || ticket.taskType === 'WARRANTY') {
-    const warrantyBonus = ticket.commissionAmount || 0;
-    transactions.push({
-      id: `COMM-WR-${ticket.id}`,
-      employeeId: staff.id,
-      employeeName: staff.name,
-      role: staff.role,
-      walletCategory: 'TECH_WALLET',
-      orderId: ticket.id,
-      orderCode: ticket.ticketNumber || `BH-${ticket.id.slice(-6)}`,
-      productName: `Bảo Hành Tiêu Chuẩn: ${ticket.model} (${ticket.issueType})`,
-      imei: ticket.imei,
-      branchId: ticket.branchId || staff.branchId || 'BRANCH_1',
-      type: 'TECH_WARRANTY',
-      baseAmount: 0,
-      profitAmount: 0,
-      commissionRate: 100,
-      commissionAmount: warrantyBonus,
-      status: txStatus,
-      policyId: 'POL_TECH_2026',
-      policyVersion: 'v2.0',
-      occurredAt: nowStr,
-      approvedAt: isCompleted ? nowStr : undefined,
-      notes: `Công bảo hành máy cho khách hàng tiêu chuẩn Phone House`,
-      sourceType: 'WARRANTY_TICKET',
-      sourceId: ticket.id
-    });
-    return transactions;
-  }
-
-  // Không suy đoán hoa hồng từ loại lỗi. Task phải mang snapshot đơn giá đã cấu hình.
-  const repairCommission = ticket.commissionAmount || 0;
-  if (repairCommission <= 0) return transactions;
-
-  transactions.push({
-    id: `COMM-REP-${ticket.id}`,
-    employeeId: staff.id,
-    employeeName: staff.name,
-    role: staff.role,
-    walletCategory: 'TECH_WALLET',
-    orderId: ticket.id,
-    orderCode: ticket.ticketNumber || `SC-${ticket.id.slice(-6)}`,
-    productName: `Sửa Dịch Vụ: ${ticket.model} (${ticket.issueType})`,
-    imei: ticket.imei,
-    branchId: ticket.branchId || staff.branchId || 'BRANCH_1',
-    type: 'TECH_REPAIR',
-    baseAmount: ticket.finalCost || ticket.estimatedCost || 0,
-    profitAmount: (ticket.finalCost || ticket.estimatedCost || 0) * 0.4,
-    commissionRate: 0,
-    commissionAmount: repairCommission,
-    status: txStatus,
-    policyId: 'POL_TECH_2026',
-    policyVersion: 'v2.0',
-    occurredAt: nowStr,
-    approvedAt: isCompleted ? nowStr : undefined,
-    notes: `Hoa hồng sửa chữa theo định mức cũ (Chưa map Matrix)`,
-    sourceType: 'WARRANTY_TICKET',
-    sourceId: ticket.id
-  });
-
-  return transactions;
+  // Phiếu warrantyTickets chỉ còn phục vụ đọc/migration. Hoa hồng kỹ thuật chỉ
+  // được lấy từ commissionLedger do server snapshot theo policy/version.
+  return [];
 }
 
 
@@ -383,13 +233,8 @@ export function syncCommissionsFromAllSources(
     });
   });
 
-  // 3. Quét toàn bộ phiếu sửa chữa & KCS
-  (warrantyTickets || []).filter(Boolean).forEach(t => {
-    const ticketComms = calculateWarrantyTicketCommissions(t, validStaff, policies);
-    ticketComms.forEach(c => {
-      if (c && c.id) commissionMap.set(c.id, c);
-    });
-  });
+  // warrantyTickets là dữ liệu legacy read-only, không còn là nguồn hoa hồng.
+  void warrantyTickets;
 
   // Trả về mảng sắp xếp theo thời gian mới nhất
   return Array.from(commissionMap.values()).sort((a, b) => {
@@ -436,7 +281,8 @@ export function calculateStaffDualWallet(
   let tradeInAmount = 0;
 
   techTxs.forEach(tx => {
-    if (tx.status === 'REVERSED') return;
+    // PENDING is visible for follow-up but must not inflate the payable wallet.
+    if (tx.status === 'REVERSED' || tx.status === 'PENDING') return;
     if (tx.type === 'TECH_KCS') {
       kcsCount++;
       kcsAmount += tx.commissionAmount;

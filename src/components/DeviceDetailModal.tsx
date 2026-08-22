@@ -85,7 +85,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [newLogType, setNewLogType] = useState<DeviceHistoryLog['type']>('RESPONSIBILITY_CHANGE');
   const [newLogTitle, setNewLogTitle] = useState('');
   const [newLogDesc, setNewLogDesc] = useState('');
-  const [newLogStaff, setNewLogStaff] = useState('Nhật Tân (Admin Kho)');
+  const [newLogStaff, setNewLogStaff] = useState('');
   const [newCustodian, setNewCustodian] = useState('');
 
   if (!isOpen || !device) return null;
@@ -139,14 +139,14 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       meta?: any;
     }> = [];
 
-    // A. Initial Stock In
-    events.push({
+    // A. Initial Stock In — only render when a real source timestamp exists.
+    if (device.receivedDate) events.push({
       id: `EVT-STOCKIN-${device.id}`,
-      timestamp: device.receivedDate ? `${device.receivedDate} 09:00` : '2025-01-01 09:00',
+      timestamp: device.receivedDate,
       category: 'STOCK_IN',
       title: `Nhập kho ban đầu (${device.supplier || 'NCC Đối tác'})`,
-      description: `Máy được nhập vào hệ thống tại ${currentWarehouseInfo?.name || 'Kho Tổng'}. Giá vốn gốc: ${device.buyPrice.toLocaleString('vi-VN')} đ. Tình trạng: ${device.condition}, Pin: ${device.batteryHealth}%, Mã xuất xứ: ${device.region}.`,
-      performedBy: 'Thủ Kho Nhập (Nhật Tân)',
+      description: `Máy được nhập vào hệ thống tại ${currentWarehouseInfo?.name || 'Vị trí chưa xác định'}. ${Number(device.currentCost ?? device.buyPrice ?? 0) > 0 ? `Giá vốn ghi nhận: ${Number(device.currentCost ?? device.buyPrice).toLocaleString('vi-VN')} đ. ` : ''}Tình trạng: ${device.condition}, Pin: ${device.batteryHealth}%, Mã xuất xứ: ${device.region}.`,
+      performedBy: (device as any).createdByName || 'Không có dữ liệu người thực hiện',
       badgeText: 'NHẬP KHO',
       badgeColor: 'bg-orange-100 text-orange-800 border-orange-200',
       icon: Warehouse,
@@ -166,7 +166,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
 
       events.push({
         id: `EVT-TRF-${slip.id}`,
-        timestamp: slip.createdDate || '2025-02-01 10:00',
+        timestamp: slip.createdDate || slip.createdAt || '',
         category: 'TRANSFER',
         title: `Điều chuyển kho: ${fromName} ➔ ${toName}`,
         description: `Mã phiếu chuyển: ${slip.code}. Người tạo: ${slip.creator}. Người vận chuyển / shipper: ${slip.transporter || 'Nội bộ'}. Ghi chú: ${slip.notes || 'Điều chuyển hàng theo kế hoạch'}. Trạng thái: ${isCompleted ? 'Đã nhận tại kho đích' : 'Đang trên đường vận chuyển'}.`,
@@ -194,7 +194,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
 
       events.push({
         id: `EVT-TICK-${ticket.id}`,
-        timestamp: ticket.receivedDate ? `${ticket.receivedDate} 11:30` : '2025-02-05 14:00',
+        timestamp: ticket.receivedDate || '',
         category: 'WARRANTY',
         title: `Task Kỹ Thuật: ${taskLabel}`,
         description: `Mã phiếu: ${ticket.ticketNumber}. KTV phụ trách: ${ticket.technician}. Vấn đề/Sự cố: ${ticket.issueType} - ${ticket.faultDescription || 'Kiểm tra tổng thể'}. Thưởng hoa hồng KTV: ${ticket.commissionAmount ? `${ticket.commissionAmount.toLocaleString('vi-VN')} đ` : '0 đ'}. Trạng thái: ${ticket.status}. ${ticket.solutionNotes ? `[Giải pháp]: ${ticket.solutionNotes}` : ''}`,
@@ -217,7 +217,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
     relatedInvoices.forEach(inv => {
       events.push({
         id: `EVT-INV-${inv.id}`,
-        timestamp: inv.createdAt || '2025-02-10 16:00',
+        timestamp: inv.createdAt || inv.createdDate || '',
         category: 'SALE',
         title: `Xuất bán cho khách hàng: ${inv.customerName}`,
         description: `Mã hóa đơn: ${inv.invoiceNumber}. Số điện thoại: ${inv.customerPhone}. Giá bán: ${inv.totalAmount.toLocaleString('vi-VN')} đ. Nhân viên bán hàng: ${inv.salesPerson || 'Thu ngân'}. Thời hạn bảo hành: 12 tháng tại hệ thống.`,
@@ -258,11 +258,11 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
 
         events.push({
           id: log.id || `EVT-HIST-${Math.random()}`,
-          timestamp: log.timestamp || new Date().toISOString().slice(0, 16).replace('T', ' '),
+          timestamp: log.timestamp || '',
           category: cat,
           title: log.title,
           description: log.description,
-          performedBy: log.performedBy || 'Quản lý',
+          performedBy: log.performedBy || 'Không có dữ liệu người thực hiện',
           badgeText: log.statusBadge || (cat === 'CUSTODY' ? 'BÀN GIAO' : 'NHẬT KÝ'),
           badgeColor: cat === 'CUSTODY' ? 'bg-rose-100 text-rose-800 border-rose-200' : 'bg-zinc-100 text-zinc-800 border-zinc-200',
           icon: icon,
@@ -306,7 +306,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
     if (relatedWarrantyTickets.length > 0 && relatedWarrantyTickets[0].status !== 'ready' && relatedWarrantyTickets[0].status !== 'delivered') {
       return `KTV: ${relatedWarrantyTickets[0].technician}`;
     }
-    return currentWarehouseInfo ? `${currentWarehouseInfo.manager} (${currentWarehouseInfo.shortName})` : 'Thủ kho tổng';
+    return currentWarehouseInfo?.manager ? `${currentWarehouseInfo.manager} (${currentWarehouseInfo.shortName})` : 'Chưa có dữ liệu người chịu trách nhiệm';
   }, [device, currentWarehouseInfo, relatedWarrantyTickets]);
 
   // Handle Add New Log Event
@@ -423,7 +423,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
               <span className="text-[10px] text-orange-100 block">Vị trí kho hiện tại</span>
               <span className="font-black text-white flex items-center space-x-1 truncate mt-0.5">
                 <Warehouse className="w-3.5 h-3.5 shrink-0 text-orange-200" />
-                <span className="truncate">{currentWarehouseInfo?.shortName || device.warehouse || 'Kho Tổng'}</span>
+                <span className="truncate">{currentWarehouseInfo?.shortName || device.currentLocationId || device.warehouse || 'Chưa xác định vị trí'}</span>
               </span>
             </div>
 
@@ -560,17 +560,17 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                   </button>
 
                   <button
-                    onClick={() => setIsAddLogOpen(true)}
-                    className="text-xs bg-orange-50 hover:bg-orange-100 text-orange-700 font-black px-2.5 py-1 rounded-lg border border-orange-200 cursor-pointer flex items-center space-x-1"
+                    disabled
+                    className="text-xs bg-zinc-50 text-zinc-500 font-bold px-2.5 py-1 rounded-lg border border-zinc-200 flex items-center space-x-1"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>+ Ghi Nhật Ký / Bàn Giao</span>
+                    <span>Ledger server tự ghi lịch sử</span>
                   </button>
                 </div>
               </div>
 
               {/* Add New Log Event Form Modal/Dropdown */}
-              {isAddLogOpen && (
+              {false && isAddLogOpen && (
                 <form onSubmit={handleSaveNewLog} className="p-4 bg-orange-50/70 border border-orange-200 rounded-2xl space-y-3 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-black text-orange-950 flex items-center space-x-1.5">
@@ -1008,7 +1008,7 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
                     1
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-bold text-zinc-900">Thủ Kho Nhập Ban Đầu: Nhật Tân (Admin Kho)</div>
+                    <div className="font-bold text-zinc-900">Người nhập ban đầu: {(device as any).createdByName || 'Không có dữ liệu'}</div>
                     <div className="text-[11px] text-zinc-500">Tiếp nhận từ NCC {device.supplier || 'Đối tác'} vào ngày {device.receivedDate}</div>
                   </div>
                   <span className="text-[10px] bg-orange-50 text-orange-700 px-2 py-0.5 rounded font-bold border border-orange-200 shrink-0">

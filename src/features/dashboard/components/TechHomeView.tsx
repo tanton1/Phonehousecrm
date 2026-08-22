@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { WarrantyTicket, DeviceItem, StoreBranch, StaffMember } from '../../../types';
-import { Wrench, Clock, CheckCircle2, Award, AlertTriangle, Smartphone, Cpu, ArrowRight, Plus } from 'lucide-react';
+import { Wrench, Clock, CheckCircle2, Award, AlertTriangle, Cpu, ArrowRight, Plus, RefreshCw } from 'lucide-react';
+import { fetchMyTechnicalWork, fetchTechnicalCommissionLedger, TechnicalCommissionLedgerEntry } from '../../../services/technicalApiClient';
 
 export interface TechHomeViewProps {
   warrantyTickets: WarrantyTicket[];
@@ -17,21 +18,48 @@ export const TechHomeView: React.FC<TechHomeViewProps> = ({
   currentUser,
   onNavigateTab
 }) => {
-  const myTickets = warrantyTickets.filter(t => 
-    !currentUser || t.technician === currentUser.name || t.technician === currentUser.id
-  );
+  const [workLines, setWorkLines] = useState<any[]>([]);
+  const [commissionLedger, setCommissionLedger] = useState<TechnicalCommissionLedgerEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const pendingTickets = myTickets.filter(t => t.status === 'received' || t.status === 'inspecting' || t.status === 'repairing');
-  const waitingPartsTickets = myTickets.filter(t => t.status === 'waiting_parts');
-  const readyTickets = myTickets.filter(t => t.status === 'ready');
-  const completedTickets = myTickets.filter(t => t.status === 'delivered');
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const period = new Date().toISOString().slice(0, 7);
+      const [lines, ledger] = await Promise.all([
+        fetchMyTechnicalWork(),
+        fetchTechnicalCommissionLedger(period)
+      ]);
+      setWorkLines(Array.isArray(lines) ? lines : []);
+      setCommissionLedger(Array.isArray(ledger) ? ledger : []);
+    } catch (cause: any) {
+      setError(cause?.message || 'Không thể tải bàn kỹ thuật từ server.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Estimate Tech Commission: 15% labor cost per repaired ticket
-  const completedRevenue = completedTickets.reduce((sum, t) => sum + (t.estimatedCost || t.repairCost || 0), 0);
-  const techWalletCommission = Math.round(completedRevenue * 0.15);
+  useEffect(() => {
+    void load();
+  }, [currentUser?.id]);
+
+  const pendingTickets = useMemo(() => workLines.filter(line =>
+    !['VERIFIED', 'CANCELLED'].includes(String(line.status || ''))
+    && !['QC_PASSED', 'RETURNED_TO_STOCK', 'DELIVERED'].includes(String(line.workOrderStatus || ''))
+  ), [workLines]);
+  const waitingPartsTickets = useMemo(() => workLines.filter(line => line.status === 'WAITING_PARTS'), [workLines]);
+  const readyTickets = useMemo(() => workLines.filter(line =>
+    line.status === 'COMPLETION_REQUESTED' || line.workOrderStatus === 'QC_PASSED'
+  ), [workLines]);
+  const techWalletCommission = useMemo(() => commissionLedger
+    .filter(entry => entry.status === 'ELIGIBLE' || entry.status === 'PAID')
+    .reduce((sum, entry) => sum + Number(entry.commissionPayable ?? entry.amount ?? 0), 0), [commissionLedger]);
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
+      {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
       {/* 1. Tech Greeting & Quick Intake Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-zinc-800 via-zinc-900 to-zinc-950 p-4 sm:p-5 rounded-3xl text-white shadow-lg shadow-zinc-900/30 border border-zinc-700">
         <div>
@@ -61,6 +89,14 @@ export const TechHomeView: React.FC<TechHomeViewProps> = ({
           >
             <Cpu className="w-4 h-4" />
             <span>Bàn Thợ Chi Tiết</span>
+          </button>
+          <button
+            onClick={() => void load()}
+            disabled={loading}
+            aria-label="Làm mới dữ liệu kỹ thuật"
+            className="rounded-2xl border border-zinc-600 bg-zinc-800 p-2.5 text-zinc-200 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -138,7 +174,7 @@ export const TechHomeView: React.FC<TechHomeViewProps> = ({
             </h3>
           </div>
           <button
-            onClick={() => onNavigateTab('warranty')}
+            onClick={() => onNavigateTab('tech-workspace')}
             className="text-xs font-bold text-[#ff4b16] hover:underline flex items-center space-x-1 cursor-pointer"
           >
             <span>Mở Kanban Sửa Chữa</span>
@@ -155,28 +191,28 @@ export const TechHomeView: React.FC<TechHomeViewProps> = ({
             pendingTickets.map(ticket => (
               <div
                 key={ticket.id}
-                onClick={() => onNavigateTab('warranty')}
+                onClick={() => onNavigateTab('tech-workspace')}
                 className="p-3 bg-zinc-50/70 hover:bg-orange-50/60 border border-zinc-200/80 rounded-xl flex items-center justify-between transition-all cursor-pointer group"
               >
                 <div className="space-y-1">
                   <div className="flex items-center space-x-2">
-                    <span className="font-mono font-bold text-xs text-[#ff4b16]">{ticket.ticketNumber}</span>
+                    <span className="font-mono font-bold text-xs text-[#ff4b16]">{ticket.workOrderCode || ticket.workOrderId}</span>
                     <h5 className="text-xs font-bold text-zinc-900 group-hover:text-[#ff4b16] transition-colors">
                       {ticket.model}
                     </h5>
                     <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-orange-100 text-[#ff4b16]">
-                      {ticket.issueType}
+                      {ticket.status}
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-500">
-                    Khách: <strong className="text-zinc-700">{ticket.customerName}</strong> ({ticket.phone}) • Lỗi: {ticket.faultDescription || ticket.issueDescription || 'Chưa có mô tả'}
+                    IMEI: <strong className="font-mono text-zinc-700">{ticket.imei}</strong> · Task: {ticket.taskName || ticket.issueDescription || 'Chưa có mô tả'}
                   </p>
                 </div>
 
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    onNavigateTab('warranty');
+                    onNavigateTab('tech-workspace');
                   }}
                   className="px-3 py-1.5 bg-white border border-zinc-300 text-zinc-800 hover:border-orange-300 hover:text-[#ff4b16] font-bold text-xs rounded-lg shadow-2xs transition-colors cursor-pointer"
                 >

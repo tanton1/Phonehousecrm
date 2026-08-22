@@ -225,6 +225,7 @@ function OperationalPolicyPanel({ kind, policies, onSaved }: {
 
 const emptyTask = (): TechnicalTaskTypeConfig => ({
   id: '', taskType: '', name: '', taskCode: '', baseCommission: Number.NaN,
+  laborCostToDevice: Number.NaN, capitalizeLaborCost: true, reworkCommissionPolicy: 'NO_EXTRA_COMMISSION', requiredEvidenceTypes: ['AFTER_PHOTO', 'RESULT_NOTES'],
   normalSlaHours: Number.NaN, prioritySlaHours: Number.NaN, urgentSlaHours: Number.NaN,
   priorityMultiplier: { NORMAL: Number.NaN, PRIORITY: Number.NaN, URGENT: Number.NaN },
   requiresQc: true, isActive: true, version: ''
@@ -263,6 +264,7 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
         <label className="space-y-1 text-sm font-semibold"><span>Mã hạch toán</span><input value={draft.taskCode} onChange={e => setDraft({ ...draft, taskCode: e.target.value })} className="w-full rounded-xl border px-3 py-2.5" /></label>
         <label className="space-y-1 text-sm font-semibold md:col-span-2"><span>Tên task</span><input value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} className="w-full rounded-xl border px-3 py-2.5" /></label>
         <NumberField label="Hoa hồng cơ bản" value={draft.baseCommission} onChange={value => setDraft({ ...draft, baseCommission: value })} />
+        <NumberField label="Nhân công cộng vào giá vốn" value={draft.laborCostToDevice ?? Number.NaN} onChange={value => setDraft({ ...draft, laborCostToDevice: value })} />
         <label className="space-y-1 text-sm font-semibold"><span>Phiên bản</span><input value={draft.version} onChange={e => setDraft({ ...draft, version: e.target.value })} className="w-full rounded-xl border px-3 py-2.5" /></label>
         <NumberField label="SLA thường (giờ)" value={draft.normalSlaHours} onChange={value => setDraft({ ...draft, normalSlaHours: value })} />
         <NumberField label="SLA ưu tiên (giờ)" value={draft.prioritySlaHours ?? Number.NaN} onChange={value => setDraft({ ...draft, prioritySlaHours: value })} />
@@ -271,7 +273,7 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
         <NumberField label="Hệ số ưu tiên" value={draft.priorityMultiplier.PRIORITY} onChange={value => setDraft({ ...draft, priorityMultiplier: { ...draft.priorityMultiplier, PRIORITY: value } })} />
         <NumberField label="Hệ số khẩn" value={draft.priorityMultiplier.URGENT} onChange={value => setDraft({ ...draft, priorityMultiplier: { ...draft.priorityMultiplier, URGENT: value } })} />
       </div>
-      <div className="mt-4 flex flex-wrap gap-5"><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.requiresQc} onChange={e => setDraft({ ...draft, requiresQc: e.target.checked })} /> Bắt buộc KCS</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} /> Kích hoạt</label></div>
+      <div className="mt-4 flex flex-wrap gap-5"><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.requiresQc} onChange={e => setDraft({ ...draft, requiresQc: e.target.checked })} /> Bắt buộc KCS</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.capitalizeLaborCost !== false} onChange={e => setDraft({ ...draft, capitalizeLaborCost: e.target.checked })} /> Cộng nhân công vào giá vốn máy</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={(draft.requiredEvidenceTypes || []).includes('AFTER_PHOTO')} onChange={e => setDraft({ ...draft, requiredEvidenceTypes: e.target.checked ? [...new Set([...(draft.requiredEvidenceTypes || []), 'AFTER_PHOTO' as const, 'RESULT_NOTES' as const])] : (draft.requiredEvidenceTypes || []).filter(item => item !== 'AFTER_PHOTO') })} /> Bắt buộc ảnh sau sửa</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={e => setDraft({ ...draft, isActive: e.target.checked })} /> Kích hoạt</label></div>
       <div className="mt-5 flex items-center gap-3"><button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu task</button>{message && <span className="text-sm text-zinc-600">{message}</span>}</div>
     </section>
   </div>;

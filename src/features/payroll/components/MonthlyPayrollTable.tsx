@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { StaffMember, StoreBranch } from '../../../types';
+import React, { useEffect, useState, useMemo } from 'react';
+import { AttendanceRecord, StaffMember, StoreBranch } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
 import { DollarSign, Award, Calendar, CheckCircle2, User, Filter, ArrowDownToLine, Download } from 'lucide-react';
+import { fetchTechnicalCommissionLedger, TechnicalCommissionLedgerEntry } from '../../../services/technicalApiClient';
 
 export interface PayrollRecord {
   staffId: string;
@@ -22,6 +23,7 @@ export interface PayrollRecord {
 export interface MonthlyPayrollTableProps {
   staffList: StaffMember[];
   branches: StoreBranch[];
+  attendanceRecords?: AttendanceRecord[];
   selectedMonth?: string; // e.g. "2026-08"
   onApproveAndPayPayroll?: (month: string, records: PayrollRecord[]) => void;
 }
@@ -29,24 +31,42 @@ export interface MonthlyPayrollTableProps {
 export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
   staffList,
   branches,
-  selectedMonth = '2026-08',
+  attendanceRecords = [],
+  selectedMonth = new Date().toISOString().slice(0, 7),
   onApproveAndPayPayroll
 }) => {
   const [month, setMonth] = useState(selectedMonth);
   const [selectedBranchId, setSelectedBranchId] = useState('ALL');
+  const [technicalLedger, setTechnicalLedger] = useState<TechnicalCommissionLedgerEntry[]>([]);
+  const [ledgerError, setLedgerError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setLedgerError('');
+    void fetchTechnicalCommissionLedger(month)
+      .then(entries => { if (active) setTechnicalLedger(entries || []); })
+      .catch(error => { if (active) { setTechnicalLedger([]); setLedgerError(error?.message || 'Không thể tải sổ hoa hồng kỹ thuật.'); } });
+    return () => { active = false; };
+  }, [month]);
 
   // Compute payroll records from staff data
   const payrollRecords: PayrollRecord[] = useMemo(() => {
     return (staffList || []).filter(Boolean).map(staff => {
-      const baseSalary = staff?.baseSalary || 7_000_000;
-      const workDays = 26; // Chuẩn 26 ngày công
-      const standardWorkDays = 26;
-      const posCommission = (staff?.salesCommission || 0) + (staff?.kpiSalesBonus || 0) || (staff?.role === 'SALE' ? 3_500_000 : 500_000);
-      const techCommission = staff?.role === 'TECH' || staff?.role === 'TECH_LEAD' ? 4_200_000 : 0;
-      const allowances = 1_000_000; // Ăn trưa + gửi xe + điện thoại
-      const advances = 0; // Tạm ứng
+      const baseSalary = Number(staff?.baseSalary || 0);
+      const staffAttendance = attendanceRecords.filter(record => record.staffId === staff.id && record.date.startsWith(month));
+      const standardDates = new Set(staffAttendance.filter(record => record.attendanceStatus !== 'ON_LEAVE').map(record => record.date));
+      const actualDates = new Set(staffAttendance.filter(record => record.status !== 'ABSENT' && record.attendanceStatus !== 'ABSENT' && record.attendanceStatus !== 'ON_LEAVE' && !!record.checkInTime).map(record => record.date));
+      const standardWorkDays = standardDates.size;
+      const workDays = actualDates.size;
+      const posCommission = Number((staff as any).salesCommission || 0) + Number((staff as any).kpiSalesBonus || 0);
+      const authoritativeStaffUid = String((staff as any).authUid || staff.id);
+      const techCommission = technicalLedger
+        .filter(entry => entry.staffUid === authoritativeStaffUid && entry.status === 'ELIGIBLE' && !entry.payrollPostingId)
+        .reduce((sum, entry) => sum + Number(entry.commissionPayable ?? entry.amount ?? 0), 0);
+      const allowances = Number((staff as any).allowance || 0);
+      const advances = Number((staff as any).advanceSalaryDeductions || 0);
 
-      const proratedBase = Math.round((baseSalary / standardWorkDays) * workDays);
+      const proratedBase = standardWorkDays > 0 ? Math.round((baseSalary / standardWorkDays) * workDays) : 0;
       const netSalary = proratedBase + posCommission + techCommission + allowances - advances;
 
       const branchObj = (branches || []).find(b => b?.id === staff?.branchId);
@@ -64,10 +84,10 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
         allowances,
         advances,
         netSalary,
-        status: 'APPROVED'
+        status: 'DRAFT'
       };
     });
-  }, [staffList, branches]);
+  }, [staffList, branches, attendanceRecords, technicalLedger, month]);
 
   const filteredRecords = useMemo(() => {
     return payrollRecords.filter(r => {
@@ -82,6 +102,9 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
 
   return (
     <div className="space-y-4">
+      <div className={`rounded-xl border p-3 text-xs font-semibold ${ledgerError ? 'border-red-200 bg-red-50 text-red-700' : 'border-blue-200 bg-blue-50 text-blue-800'}`}>
+        {ledgerError || 'Hoa hồng kỹ thuật chỉ lấy từ commissionLedger trạng thái ELIGIBLE và chưa đưa vào kỳ lương; không còn số mẫu mặc định.'}
+      </div>
       {/* 1. KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-4 bg-orange-50/80 border border-orange-200/80 rounded-2xl flex items-center justify-between">

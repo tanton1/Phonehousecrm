@@ -7,29 +7,37 @@ import {
   TaskLineStatus,
   WorkOrderStatus
 } from './technicalStateMachine';
+import { calculateTechnicalTaskQuote, TechnicalPriority, TechnicalTaskTypeRecord } from './inventoryTransferService';
+import { encryptTechnicalSecret } from './technicalSecretService';
 
 export interface CreateWorkOrderLineInput {
-  taskCode: 'LV' | 'EK' | 'TP' | 'RC2.5' | 'FIX_FACE' | 'MAIN' | 'KCS' | 'OTHER';
-  taskName: string;
+  taskType: string;
+  priority?: TechnicalPriority;
   assigneeUid: string;
   assigneeName: string;
-  ratePolicyId?: string;
-  ratePolicyVersion?: string;
-  commissionAmount: number;
-  requiredParts?: Array<{ partId: string; partName: string; quantity: number }>;
 }
 
 export interface CreateWorkOrderInput {
-  deviceId: string;
+  deviceId?: string;
   imei: string;
   model: string;
   workOrderType: 'INBOUND_PREP' | 'CUSTOMER_SERVICE' | 'WARRANTY' | 'TRADE_IN_REFURB' | 'SHOP_RETURN_REWORK';
   branchId: string;
-  sourceWarehouseId?: string;
+  sourceWarehouseId: string;
+  destinationWarehouseId: string;
+  assetOwnership?: 'COMPANY' | 'CUSTOMER';
   customerName?: string;
   customerPhone?: string;
   customerApprovedQuote?: number;
   totalEstimatedCost?: number;
+  passcode?: string;
+  intakeDetails?: {
+    issueType?: string;
+    faultDescription?: string;
+    deviceAppearance?: string;
+    accessoriesIncluded?: string;
+    expectedReturnDate?: string;
+  };
   notes?: string;
   lines: CreateWorkOrderLineInput[];
 }
@@ -50,6 +58,24 @@ function canAccessBranch(user: any, targetBranchId?: string): boolean {
   return userBranchId === targetBranchId || assigned.includes(targetBranchId);
 }
 
+export function isTechnicalEvidenceUrlForWorkOrder(value: unknown, workOrderId: string): boolean {
+  try {
+    const parsed = new URL(String(value || ''));
+    if (parsed.protocol !== 'https:') return false;
+    const safeWorkOrderId = String(workOrderId || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100);
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    if (parsed.hostname === 'firebasestorage.googleapis.com') {
+      return decodedPath.includes(`/o/technical-evidence/${safeWorkOrderId}/`);
+    }
+    if (parsed.hostname === 'storage.googleapis.com') {
+      return decodedPath.includes(`/technical-evidence/${safeWorkOrderId}/`);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 1. Create Technical Work Order with Multi-Task Lines
  */
@@ -58,8 +84,12 @@ export async function processCreateWorkOrder(
   input: CreateWorkOrderInput,
   creatorUser: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
 ): Promise<{ workOrderId: string; code: string; lineIds: string[] }> {
-  if (!input.imei || input.imei.trim().length === 0) {
-    throw new Error('IMEI_REQUIRED: Bắt buộc phải có số IMEI thật để khởi tạo phiếu kỹ thuật.');
+  if (!['INBOUND_PREP', 'CUSTOMER_SERVICE', 'WARRANTY', 'TRADE_IN_REFURB', 'SHOP_RETURN_REWORK'].includes(String(input.workOrderType || ''))) {
+    throw new Error('WORK_ORDER_TYPE_INVALID');
+  }
+  if (!String(input.model || '').trim()) throw new Error('DEVICE_MODEL_REQUIRED');
+  if (!/^\d{5,15}$/.test(String(input.imei || '').trim())) {
+    throw new Error('IMEI_INVALID: IMEI/Serial phải gồm từ 5 đến 15 chữ số.');
   }
 
   if (!input.lines || input.lines.length === 0) {
@@ -69,19 +99,32 @@ export async function processCreateWorkOrder(
   const now = new Date().toISOString();
   const workOrderId = `WO_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
   const code = `SC-${now.slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
-  const branchId = input.branchId || creatorUser.branchId || 'CN01';
-  const initialLocation = input.sourceWarehouseId || 'KHO_TONG';
+  const branchId = String(input.branchId || '').trim();
+  const initialLocation = String(input.sourceWarehouseId || '').trim();
+  const destinationLocation = String(input.destinationWarehouseId || '').trim();
+  if (!branchId || !initialLocation || !destinationLocation) throw new Error('BRANCH_SOURCE_AND_DESTINATION_WAREHOUSE_REQUIRED');
+  if (new Set(input.lines.map(line => String(line.taskType || '').trim())).size !== input.lines.length || input.lines.some(line => !line.taskType || !line.assigneeUid)) {
+    throw new Error('WORK_ORDER_LINES_INVALID');
+  }
+  if (new Set(input.lines.map(line => String(line.assigneeUid || '').trim())).size !== 1) {
+    throw new Error('MULTIPLE_ASSIGNEES_REQUIRE_CUSTODY_HANDOFF: Một IMEI chỉ được có một KTV chịu trách nhiệm tại một thời điểm. Hãy tạo bàn giao KTV trước khi đổi người thực hiện.');
+  }
+  const estimatedCost = Number(input.totalEstimatedCost || 0);
+  const approvedQuote = Number(input.customerApprovedQuote || 0);
+  if (![estimatedCost, approvedQuote].every(value => Number.isFinite(value) && value >= 0)) throw new Error('WORK_ORDER_COST_ESTIMATE_INVALID');
 
   if (!canAccessBranch(creatorUser, branchId)) {
     throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền khởi tạo phiếu kỹ thuật tại chi nhánh "${branchId}".`);
   }
+
+  const encryptedPasscode = encryptTechnicalSecret(input.passcode);
 
   return await db.runTransaction(async (transaction) => {
     // 1. Invariant: Only ONE active work order per IMEI (including REWORK)
     const existingActiveOrders = await transaction.get(
       db.collection('technicalWorkOrders')
         .where('imei', '==', input.imei.trim())
-        .where('status', 'in', ['ASSIGNED', 'ACCEPTED', 'DIAGNOSING', 'IN_PROGRESS', 'TECH_COMPLETED', 'QC_PENDING', 'QC_FAILED_REWORK'])
+        .where('status', 'in', ['DRAFT', 'ASSIGNED', 'ACCEPTED', 'DIAGNOSING', 'IN_PROGRESS', 'TECH_COMPLETED', 'QC_PENDING', 'QC_FAILED_REWORK', 'QC_PASSED'])
         .limit(1)
     );
 
@@ -93,14 +136,77 @@ export async function processCreateWorkOrder(
     }
 
     // 2. Read or verify device
+    let resolvedDeviceId = String(input.deviceId || '').trim();
     let devRef: DocumentReference | null = null;
     let devData: any = null;
-    if (input.deviceId) {
-      devRef = db.collection('devices').doc(input.deviceId);
+    if (resolvedDeviceId) {
+      devRef = db.collection('devices').doc(resolvedDeviceId);
       const devSnap = await transaction.get(devRef);
       if (devSnap.exists) {
         devData = devSnap.data();
       }
+    } else {
+      const normalizedDeviceQuery = await transaction.get(db.collection('devices').where('imeiNormalized', '==', input.imei.trim()).limit(1));
+      const legacyDeviceQuery = normalizedDeviceQuery.empty
+        ? await transaction.get(db.collection('devices').where('imei', '==', input.imei.trim()).limit(1))
+        : null;
+      const matchedDevice = !normalizedDeviceQuery.empty ? normalizedDeviceQuery.docs[0] : legacyDeviceQuery?.docs?.[0];
+      if (matchedDevice) {
+        resolvedDeviceId = matchedDevice.id;
+        devRef = matchedDevice.ref;
+        devData = matchedDevice.data();
+      }
+    }
+
+    const warehouseSnap = await transaction.get(db.collection('warehouses').doc(initialLocation));
+    if (!warehouseSnap.exists) throw new Error('SOURCE_WAREHOUSE_NOT_FOUND');
+    const warehouse = warehouseSnap.data()!;
+    if (warehouse.isActive === false || String(warehouse.branchId || warehouse.owningBranchId || '') !== branchId) throw new Error('SOURCE_WAREHOUSE_BRANCH_MISMATCH');
+
+    const destinationWarehouseSnap = await transaction.get(db.collection('warehouses').doc(destinationLocation));
+    if (!destinationWarehouseSnap.exists) throw new Error('DESTINATION_TECH_WAREHOUSE_NOT_FOUND');
+    const destinationWarehouse = destinationWarehouseSnap.data()!;
+    const destinationType = String(destinationWarehouse.type || '');
+    if (destinationWarehouse.isActive === false || String(destinationWarehouse.branchId || destinationWarehouse.owningBranchId || '') !== branchId || !['TECHNICIAN_SUB', 'REPAIR_WARRANTY'].includes(destinationType)) {
+      throw new Error('DESTINATION_TECH_WAREHOUSE_INVALID');
+    }
+    const destinationCustodianUid = String(destinationWarehouse.custodianUid || destinationWarehouse.technicianUid || destinationWarehouse.technicianId || '');
+    if (destinationType === 'TECHNICIAN_SUB' && (!destinationCustodianUid || destinationCustodianUid !== input.lines[0].assigneeUid)) {
+      throw new Error('DESTINATION_TECH_WAREHOUSE_CUSTODIAN_MISMATCH');
+    }
+
+    if (devData) {
+      const linkedDeviceImei = String(devData.imeiNormalized || devData.imei || '').trim();
+      if (linkedDeviceImei !== input.imei.trim()) throw new Error('LINKED_DEVICE_IMEI_MISMATCH');
+      if (devData.branchId && !canAccessBranch(creatorUser, String(devData.branchId))) throw new Error('LINKED_DEVICE_BRANCH_FORBIDDEN');
+      if (devData.activeWorkOrderId) throw new Error('ACTIVE_WORK_ORDER_EXISTS');
+    }
+    const deviceIsCompanyInventory = !!devData && !['sold', 'warranty'].includes(String(devData.status || ''));
+    const isInternalAsset = deviceIsCompanyInventory || input.assetOwnership === 'COMPANY' || ['INBOUND_PREP', 'TRADE_IN_REFURB', 'SHOP_RETURN_REWORK'].includes(input.workOrderType);
+    if (isInternalAsset && (!resolvedDeviceId || !devData)) throw new Error('COMPANY_DEVICE_NOT_FOUND');
+    if (!isInternalAsset && (!String(input.customerName || '').trim() || !String(input.customerPhone || '').trim())) {
+      throw new Error('CUSTOMER_CONTACT_REQUIRED');
+    }
+    if (isInternalAsset) {
+      const deviceImei = String(devData?.imeiNormalized || devData?.imei || '').trim();
+      const deviceBranchId = String(devData?.branchId || '').trim();
+      const deviceLocationId = String(devData?.currentLocationId || devData?.warehouseId || devData?.warehouse || '').trim();
+      if (deviceImei !== input.imei.trim()) throw new Error('COMPANY_DEVICE_IMEI_MISMATCH');
+      if (deviceBranchId !== branchId) throw new Error('COMPANY_DEVICE_BRANCH_MISMATCH');
+      if (deviceLocationId !== initialLocation) throw new Error('COMPANY_DEVICE_LOCATION_MISMATCH');
+      if (!['in_stock', 'awaiting_technical'].includes(String(devData?.status || '')) || devData?.activeTransferId || devData?.activeWorkOrderId) {
+        throw new Error('COMPANY_DEVICE_NOT_AVAILABLE');
+      }
+      if (!['CENTRAL', 'RETAIL_STORE'].includes(String(warehouse.type || ''))) throw new Error('COMPANY_DEVICE_SOURCE_WAREHOUSE_INVALID');
+    }
+    const taskConfigs = new Map<string, TechnicalTaskTypeRecord>();
+    for (const line of input.lines) {
+      const taskType = String(line.taskType).trim();
+      const configSnap = await transaction.get(db.collection('technicalTaskTypes').doc(taskType));
+      if (!configSnap.exists) throw new Error(`TASK_TYPE_NOT_CONFIGURED: Hạng mục "${taskType}" chưa được thiết lập.`);
+      const config = { id: configSnap.id, ...configSnap.data() } as TechnicalTaskTypeRecord;
+      if (config.isActive === false) throw new Error(`TASK_TYPE_INACTIVE: Hạng mục "${config.name || taskType}" đã ngừng áp dụng.`);
+      taskConfigs.set(taskType, config);
     }
 
     // 3. Create Task Lines
@@ -109,27 +215,38 @@ export async function processCreateWorkOrder(
 
     for (let i = 0; i < input.lines.length; i++) {
       const line = input.lines[i];
+      const taskType = String(line.taskType).trim();
+      const config = taskConfigs.get(taskType)!;
+      const priority = line.priority || 'NORMAL';
+      const quote = calculateTechnicalTaskQuote(config, priority, now);
       const lineId = `WOL_${workOrderId}_${i + 1}`;
       lineIds.push(lineId);
-      totalCommission += line.commissionAmount || 0;
+      totalCommission += quote.commissionAmount;
 
       const lineDocRef = db.collection('technicalWorkOrderLines').doc(lineId);
       transaction.set(lineDocRef, {
         id: lineId,
         workOrderId,
-        deviceId: input.deviceId,
+        deviceId: resolvedDeviceId || null,
         imei: input.imei.trim(),
         model: input.model,
         branchId,
-        taskCode: line.taskCode,
-        taskName: line.taskName,
+        taskType,
+        taskCode: config.taskCode,
+        taskName: config.name,
+        priority,
         assigneeUid: line.assigneeUid,
         assigneeName: line.assigneeName,
-        ratePolicyId: line.ratePolicyId || 'STANDARD_MATRIX_V1',
-        ratePolicyVersion: line.ratePolicyVersion || '2026.1',
-        commissionAmount: line.commissionAmount || 0,
+        ratePolicyId: config.id,
+        ratePolicyVersion: config.version,
+        commissionAmount: quote.commissionAmount,
+        laborCostToDevice: quote.laborCostToDevice,
+        capitalizeLaborCost: quote.capitalizeLaborCost,
+        reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
         status: 'ASSIGNED',
-        requiredParts: line.requiredParts || [],
+        requiredParts: config.requiredPartTemplates || [],
+        requiredEvidenceTypes: config.requiredEvidenceTypes || [],
+        qcChecklistTemplateId: config.qcChecklistTemplateId || null,
         evidencePhotoUrls: [],
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
@@ -143,12 +260,21 @@ export async function processCreateWorkOrder(
         staffName: line.assigneeName,
         workOrderId,
         workOrderLineId: lineId,
+        workOrderType: input.workOrderType,
         branchId,
         imei: input.imei.trim(),
-        taskCode: line.taskCode,
-        taskName: line.taskName,
-        amount: line.commissionAmount || 0,
+        taskCode: config.taskCode,
+        taskName: config.name,
+        amount: quote.commissionAmount,
+        commissionPayable: quote.commissionAmount,
+        laborCostToDevice: quote.laborCostToDevice,
+        capitalizeToDevice: quote.capitalizeLaborCost,
+        policyId: config.id,
+        policyVersion: config.version,
+        reworkCycle: 0,
         status: 'PENDING',
+        eligibilityRequiresStockReturn: isInternalAsset,
+        eligibilityRequiresCustomerDelivery: !isInternalAsset,
         payrollPeriod: now.slice(0, 7), // YYYY-MM
         createdAt: FieldValue.serverTimestamp()
       });
@@ -159,23 +285,32 @@ export async function processCreateWorkOrder(
     const woRecord = {
       id: workOrderId,
       code,
-      deviceId: input.deviceId,
+      deviceId: resolvedDeviceId || null,
       imei: input.imei.trim(),
       model: input.model,
       workOrderType: input.workOrderType,
+      assetOwnership: isInternalAsset ? 'COMPANY' : 'CUSTOMER',
       branchId,
       sourceWarehouseId: initialLocation,
+      destinationLocationId: destinationLocation,
       status: 'ASSIGNED',
-      currentCustodianUid: creatorUser.uid,
-      currentCustodianName: creatorUser.name || 'Thủ Kho',
+      currentCustodianUid: isInternalAsset ? (devData?.currentCustodianUid || null) : creatorUser.uid,
+      currentCustodianName: isInternalAsset ? (devData?.currentCustodian || null) : (creatorUser.name || 'Nhân viên tiếp nhận'),
       currentLocationId: initialLocation,
       taskLineIds: lineIds,
       reworkCount: 0,
       customerName: input.customerName || null,
       customerPhone: input.customerPhone || null,
-      customerApprovedQuote: input.customerApprovedQuote || 0,
-      totalEstimatedCost: input.totalEstimatedCost || 0,
+      customerApprovedQuote: approvedQuote,
+      intakeDetails: input.intakeDetails || null,
+      hasPasscode: !!encryptedPasscode,
+      totalEstimatedCost: estimatedCost,
       totalActualCost: 0,
+      openingDeviceCost: isInternalAsset ? Number(devData?.currentCost ?? devData?.buyPrice ?? 0) : 0,
+      openingCostVersion: isInternalAsset ? String(devData?.costVersion || 'LEGACY_CURRENT_COST_V1') : null,
+      costPostingStatus: isInternalAsset ? 'NOT_READY' : 'NOT_APPLICABLE',
+      eligibilityRequiresStockReturn: isInternalAsset,
+      eligibilityRequiresCustomerDelivery: !isInternalAsset,
       totalCommissionAmount: totalCommission,
       notes: input.notes || '',
       createdByUid: creatorUser.uid,
@@ -184,15 +319,21 @@ export async function processCreateWorkOrder(
       updatedAt: FieldValue.serverTimestamp()
     };
     transaction.set(woRef, woRecord);
+    if (encryptedPasscode) {
+      transaction.set(db.collection('technicalSecrets').doc(workOrderId), {
+        ...encryptedPasscode,
+        workOrderId,
+        branchId,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
 
     // 5. Update Device operational status (Keep commercial status safe for warranty/customer service!)
     if (devRef && devData) {
-      const isInternalAsset = input.workOrderType === 'INBOUND_PREP' || input.workOrderType === 'TRADE_IN_REFURB';
       transaction.update(devRef, {
-        status: isInternalAsset ? 'in_repair' : devData.status || 'sold',
-        serviceStatus: 'IN_REPAIR',
-        currentCustodian: creatorUser.name || 'Thủ Kho',
-        currentCustodianUid: creatorUser.uid,
+        status: isInternalAsset ? 'awaiting_technical' : devData.status || 'sold',
+        serviceStatus: 'WAITING_TECH_ACCEPTANCE',
         technicianAssigned: input.lines[0]?.assigneeName || 'Bộ phận Kỹ thuật',
         activeWorkOrderId: workOrderId,
         updatedAt: FieldValue.serverTimestamp()
@@ -203,16 +344,17 @@ export async function processCreateWorkOrder(
     const movId = `MOV_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     transaction.set(db.collection('inventoryMovements').doc(movId), {
       id: movId,
-      deviceId: input.deviceId,
+      deviceId: resolvedDeviceId || null,
       imei: input.imei.trim(),
       branchId,
-      movementType: 'DISPATCH_TO_TECH',
+      movementType: 'TECH_INTAKE_REGISTERED',
       fromLocationId: initialLocation,
-      toLocationId: 'KHO_KTV_CHO_NHAN',
-      fromCustodianUid: creatorUser.uid,
-      toCustodianUid: input.lines[0]?.assigneeUid || creatorUser.uid,
+      toLocationId: initialLocation,
+      fromCustodianUid: isInternalAsset ? (devData?.currentCustodianUid || null) : creatorUser.uid,
+      toCustodianUid: isInternalAsset ? (devData?.currentCustodianUid || null) : creatorUser.uid,
       sourceType: 'WORK_ORDER',
       sourceId: workOrderId,
+      workOrderId,
       performedByUid: creatorUser.uid,
       occurredAt: now,
       createdAt: FieldValue.serverTimestamp()
@@ -236,10 +378,15 @@ export async function processAcceptCustody(
     power: 'OK' | 'NO_POWER';
     biometrics: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
     technicianNotes?: string;
+    handoverPhotoUrls?: string[];
   }
 ): Promise<{ success: boolean; workOrderId: string }> {
   if (!scannedImei || scannedImei.trim().length === 0) {
     throw new Error('SCANNED_IMEI_REQUIRED: Bắt buộc quét mã IMEI thực tế của máy để nhận bàn giao.');
+  }
+  const handoverPhotoUrls = preRepairInspection?.handoverPhotoUrls;
+  if (!preRepairInspection || !Array.isArray(handoverPhotoUrls) || handoverPhotoUrls.length === 0 || handoverPhotoUrls.length > 6 || handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+    throw new Error('PRE_REPAIR_INSPECTION_EVIDENCE_REQUIRED: Bắt buộc checklist và 1–6 ảnh tình trạng khi KTV nhận máy.');
   }
   
   return await db.runTransaction(async (transaction) => {
@@ -278,8 +425,21 @@ export async function processAcceptCustody(
       throw new Error(`INVALID_STATUS: Phiếu kỹ thuật đang ở trạng thái "${woData.status}", không thể xác nhận nhận máy.`);
     }
 
+    const techLocationId = String(woData.destinationLocationId || '').trim();
+    if (!techLocationId) throw new Error('DESTINATION_TECH_WAREHOUSE_REQUIRED');
+    const techWarehouseSnap = await transaction.get(db.collection('warehouses').doc(techLocationId));
+    if (!techWarehouseSnap.exists) throw new Error('DESTINATION_TECH_WAREHOUSE_NOT_FOUND');
+    const techWarehouse = techWarehouseSnap.data()!;
+    const techWarehouseBranchId = String(techWarehouse.branchId || techWarehouse.owningBranchId || '');
+    const destinationCustodianUid = String(techWarehouse.custodianUid || techWarehouse.technicianUid || techWarehouse.technicianId || '');
+    if (techWarehouse.isActive === false || techWarehouseBranchId !== String(woData.branchId || '') || !['TECHNICIAN_SUB', 'REPAIR_WARRANTY'].includes(String(techWarehouse.type || ''))) {
+      throw new Error('DESTINATION_TECH_WAREHOUSE_INVALID');
+    }
+    if (String(techWarehouse.type || '') === 'TECHNICIAN_SUB' && destinationCustodianUid !== technicianUser.uid && !['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(technicianUser.role || '').toUpperCase())) {
+      throw new Error('TECHNICIAN_WAREHOUSE_CUSTODIAN_MISMATCH');
+    }
+
     const now = new Date().toISOString();
-    const techLocationId = woData.destinationLocationId || `KHO_KTV_${technicianUser.uid.slice(0, 8).toUpperCase()}`;
 
     // Update Work Order
     transaction.update(woRef, {
@@ -316,6 +476,8 @@ export async function processAcceptCustody(
     if (woData.deviceId) {
       const devRef = db.collection('devices').doc(woData.deviceId);
       transaction.update(devRef, {
+        ...(woData.assetOwnership === 'COMPANY' ? { status: 'in_repair' } : {}),
+        serviceStatus: 'IN_REPAIR',
         currentCustodian: technicianUser.name || 'Kỹ thuật viên',
         currentCustodianUid: technicianUser.uid,
         technicianAssigned: technicianUser.name || 'Kỹ thuật viên',
@@ -334,12 +496,13 @@ export async function processAcceptCustody(
       imei: woData.imei,
       branchId: woData.branchId,
       movementType: 'TECH_ACCEPT',
-      fromLocationId: woData.currentLocationId || 'KHO_TONG',
+      fromLocationId: woData.currentLocationId || woData.sourceWarehouseId || null,
       toLocationId: techLocationId,
       fromCustodianUid: woData.currentCustodianUid,
       toCustodianUid: technicianUser.uid,
       sourceType: 'WORK_ORDER',
       sourceId: workOrderId,
+      workOrderId,
       performedByUid: technicianUser.uid,
       confirmedByUid: technicianUser.uid,
       occurredAt: now,
@@ -347,6 +510,242 @@ export async function processAcceptCustody(
     });
 
     return { success: true, workOrderId };
+  });
+}
+
+export async function processRequestTechnicalHandoff(
+  db: Firestore,
+  workOrderId: string,
+  input: {
+    targetWarehouseId: string;
+    targetTechnicianUid: string;
+    targetTechnicianName?: string;
+    scannedImei: string;
+    reason: string;
+    handoverPhotoUrls: string[];
+    idempotencyKey: string;
+  },
+  actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
+): Promise<{ handoff: any; idempotentReplay?: boolean }> {
+  const reason = String(input.reason || '').trim();
+  const targetWarehouseId = String(input.targetWarehouseId || '').trim();
+  const targetTechnicianUid = String(input.targetTechnicianUid || '').trim();
+  const key = String(input.idempotencyKey || '').trim();
+  if (!targetWarehouseId || !targetTechnicianUid || reason.length < 5) throw new Error('TECH_HANDOFF_FIELDS_REQUIRED');
+  if (key.length < 8 || key.length > 160) throw new Error('IDEMPOTENCY_KEY_REQUIRED');
+  if (!Array.isArray(input.handoverPhotoUrls) || input.handoverPhotoUrls.length < 1 || input.handoverPhotoUrls.length > 6 || input.handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+    throw new Error('TECH_HANDOFF_EVIDENCE_REQUIRED');
+  }
+  const idemId = crypto.createHash('sha256').update(`TECH_HANDOFF_REQUEST:${workOrderId}:${key}`).digest('hex');
+  const idemRef = db.collection('technicalOperationIdempotency').doc(idemId);
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  const targetWarehouseRef = db.collection('warehouses').doc(targetWarehouseId);
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) {
+      const replay = await transaction.get(db.collection('technicalCustodyHandovers').doc(String(idemSnap.data()?.handoffId || '')));
+      if (!replay.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      return { handoff: { id: replay.id, ...replay.data() }, idempotentReplay: true };
+    }
+    const [woSnap, targetWarehouseSnap, linesSnap, issuesSnap, reservationsSnap] = await Promise.all([
+      transaction.get(woRef),
+      transaction.get(targetWarehouseRef),
+      transaction.get(db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId)),
+      transaction.get(db.collection('technicalPartIssues').where('workOrderId', '==', workOrderId)),
+      transaction.get(db.collection('technicalPartReservations').where('workOrderId', '==', workOrderId))
+    ]);
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (!targetWarehouseSnap.exists) throw new Error('TARGET_TECH_WAREHOUSE_NOT_FOUND');
+    const workOrder = woSnap.data()!;
+    const targetWarehouse = targetWarehouseSnap.data()!;
+    if (String(input.scannedImei || '').trim() !== String(workOrder.imei || '').trim()) throw new Error('IMEI_MISMATCH');
+    if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    const role = String(actor.role || '').toUpperCase();
+    const mayRequest = workOrder.currentCustodianUid === actor.uid || ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(role);
+    if (!mayRequest) throw new Error('TECH_HANDOFF_REQUEST_FORBIDDEN');
+    if (workOrder.activeHandoffId) throw new Error('TECH_HANDOFF_ALREADY_PENDING');
+    if (!['ACCEPTED', 'DIAGNOSING', 'IN_PROGRESS', 'QC_FAILED_REWORK'].includes(String(workOrder.status || ''))) throw new Error('WORK_ORDER_NOT_OPEN_FOR_HANDOFF');
+    const targetWarehouseBranchId = String(targetWarehouse.branchId || targetWarehouse.owningBranchId || '');
+    const targetCustodianUid = String(targetWarehouse.custodianUid || targetWarehouse.technicianUid || targetWarehouse.technicianId || '');
+    if (targetWarehouse.isActive === false || targetWarehouse.isArchived === true || targetWarehouseBranchId !== String(workOrder.branchId || '') || String(targetWarehouse.type || '') !== 'TECHNICIAN_SUB') {
+      throw new Error('TARGET_TECH_WAREHOUSE_INVALID');
+    }
+    if (!targetCustodianUid || targetCustodianUid !== targetTechnicianUid) throw new Error('TARGET_TECHNICIAN_WAREHOUSE_MISMATCH');
+    if (targetTechnicianUid === workOrder.currentCustodianUid || targetWarehouseId === workOrder.currentLocationId) throw new Error('TECH_HANDOFF_TARGET_SAME_AS_CURRENT');
+    const openLines = linesSnap.docs.filter(doc => !['COMPLETED', 'VERIFIED', 'CANCELLED'].includes(String(doc.data().status || '')));
+    if (openLines.length === 0) throw new Error('TECH_HANDOFF_NO_OPEN_TASKS');
+    if (openLines.some(doc => String(doc.data().status || '') === 'IN_PROGRESS')) throw new Error('TECH_HANDOFF_PAUSE_ACTIVE_TASK_REQUIRED');
+    if (issuesSnap.docs.some(doc => {
+      const issue = doc.data();
+      return issue.status !== 'CANCELLED' && Number(issue.quantityIssued || 0) !== Number(issue.quantityConsumed || 0) + Number(issue.quantityReturned || 0) + Number(issue.quantityScrapped || 0);
+    })) throw new Error('TECH_HANDOFF_PART_ISSUES_NOT_SETTLED');
+    if (reservationsSnap.docs.some(doc => {
+      const reservation = doc.data();
+      return Number(reservation.quantityReserved || 0) !== Number(reservation.quantityIssued || 0) + Number(reservation.quantityCancelled || 0);
+    })) throw new Error('TECH_HANDOFF_PART_RESERVATIONS_NOT_SETTLED');
+    const now = new Date().toISOString();
+    const handoffId = `TCH_${Date.now()}_${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+    const handoff = {
+      id: handoffId,
+      workOrderId,
+      deviceId: workOrder.deviceId || null,
+      imei: workOrder.imei,
+      branchId: workOrder.branchId,
+      fromWarehouseId: workOrder.currentLocationId || workOrder.destinationLocationId || null,
+      fromTechnicianUid: workOrder.currentCustodianUid || null,
+      fromTechnicianName: workOrder.currentCustodianName || null,
+      targetWarehouseId,
+      targetTechnicianUid,
+      targetTechnicianName: String(input.targetTechnicianName || targetWarehouse.custodianName || targetWarehouse.technicianName || '').trim(),
+      reason,
+      requestPhotoUrls: input.handoverPhotoUrls,
+      requestedByUid: actor.uid,
+      requestedByName: actor.name || null,
+      requestedAt: now,
+      status: 'PENDING_ACCEPTANCE',
+      createdAt: now,
+      updatedAt: now
+    };
+    transaction.set(db.collection('technicalCustodyHandovers').doc(handoffId), handoff);
+    transaction.update(woRef, { activeHandoffId: handoffId, custodyHandoffStatus: 'PENDING_ACCEPTANCE', updatedAt: FieldValue.serverTimestamp() });
+    transaction.set(idemRef, { scope: 'TECH_HANDOFF_REQUEST', workOrderId, handoffId, createdAt: now });
+    return { handoff };
+  });
+}
+
+export async function processAcceptTechnicalHandoff(
+  db: Firestore,
+  handoffId: string,
+  input: { scannedImei: string; handoverPhotoUrls: string[]; notes?: string; idempotencyKey: string },
+  actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
+): Promise<{ handoff: any; reassignedLineIds: string[]; idempotentReplay?: boolean }> {
+  const key = String(input.idempotencyKey || '').trim();
+  if (key.length < 8 || key.length > 160) throw new Error('IDEMPOTENCY_KEY_REQUIRED');
+  const handoffRef = db.collection('technicalCustodyHandovers').doc(handoffId);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(crypto.createHash('sha256').update(`TECH_HANDOFF_ACCEPT:${handoffId}:${key}`).digest('hex'));
+  return db.runTransaction(async transaction => {
+    const idemSnap = await transaction.get(idemRef);
+    const handoffSnap = await transaction.get(handoffRef);
+    if (!handoffSnap.exists) throw new Error('TECH_HANDOFF_NOT_FOUND');
+    if (idemSnap.exists) return { handoff: { id: handoffSnap.id, ...handoffSnap.data() }, reassignedLineIds: idemSnap.data()?.reassignedLineIds || [], idempotentReplay: true };
+    const handoff = handoffSnap.data()!;
+    if (handoff.status !== 'PENDING_ACCEPTANCE') throw new Error('TECH_HANDOFF_NOT_PENDING');
+    if (handoff.targetTechnicianUid !== actor.uid) throw new Error('TECH_HANDOFF_TARGET_ONLY');
+    if (!Array.isArray(input.handoverPhotoUrls) || input.handoverPhotoUrls.length < 1 || input.handoverPhotoUrls.length > 6 || input.handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, String(handoff.workOrderId || '')))) {
+      throw new Error('TECH_HANDOFF_EVIDENCE_REQUIRED');
+    }
+    if (String(input.scannedImei || '').trim() !== String(handoff.imei || '').trim()) throw new Error('IMEI_MISMATCH');
+    const woRef = db.collection('technicalWorkOrders').doc(String(handoff.workOrderId));
+    const targetWarehouseRef = db.collection('warehouses').doc(String(handoff.targetWarehouseId));
+    const [woSnap, targetWarehouseSnap, linesSnap, commissionsSnap] = await Promise.all([
+      transaction.get(woRef),
+      transaction.get(targetWarehouseRef),
+      transaction.get(db.collection('technicalWorkOrderLines').where('workOrderId', '==', handoff.workOrderId)),
+      transaction.get(db.collection('commissionLedger').where('workOrderId', '==', handoff.workOrderId))
+    ]);
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (!targetWarehouseSnap.exists) throw new Error('TARGET_TECH_WAREHOUSE_NOT_FOUND');
+    const workOrder = woSnap.data()!;
+    const targetWarehouse = targetWarehouseSnap.data()!;
+    if (workOrder.activeHandoffId !== handoffId) throw new Error('TECH_HANDOFF_WORK_ORDER_MISMATCH');
+    if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    const targetCustodianUid = String(targetWarehouse.custodianUid || targetWarehouse.technicianUid || targetWarehouse.technicianId || '');
+    if (targetWarehouse.isActive === false || targetWarehouse.isArchived === true || String(targetWarehouse.type || '') !== 'TECHNICIAN_SUB' || targetCustodianUid !== actor.uid) {
+      throw new Error('TARGET_TECH_WAREHOUSE_INVALID');
+    }
+    const now = new Date().toISOString();
+    const reassignedLineIds: string[] = [];
+    for (const lineDoc of linesSnap.docs) {
+      const line = lineDoc.data();
+      if (['COMPLETED', 'VERIFIED', 'CANCELLED'].includes(String(line.status || ''))) continue;
+      if (line.assigneeUid !== handoff.fromTechnicianUid) continue;
+      reassignedLineIds.push(lineDoc.id);
+      transaction.update(lineDoc.ref, {
+        assigneeUid: actor.uid,
+        assigneeName: actor.name || handoff.targetTechnicianName || 'Kỹ thuật viên',
+        reassignmentHistory: [
+          ...(Array.isArray(line.reassignmentHistory) ? line.reassignmentHistory : []),
+          { handoffId, fromUid: handoff.fromTechnicianUid || null, toUid: actor.uid, acceptedAt: now }
+        ],
+        handoffAcceptedAt: now,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
+    if (reassignedLineIds.length === 0) throw new Error('TECH_HANDOFF_NO_REASSIGNABLE_TASKS');
+    for (const commissionDoc of commissionsSnap.docs) {
+      const commission = commissionDoc.data();
+      if (commission.status !== 'PENDING' || !reassignedLineIds.includes(String(commission.workOrderLineId || ''))) continue;
+      transaction.update(commissionDoc.ref, {
+        staffUid: actor.uid,
+        staffName: actor.name || handoff.targetTechnicianName || 'Kỹ thuật viên',
+        custodyHandoffId: handoffId,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
+    transaction.update(woRef, {
+      currentCustodianUid: actor.uid,
+      currentCustodianName: actor.name || handoff.targetTechnicianName || 'Kỹ thuật viên',
+      currentLocationId: handoff.targetWarehouseId,
+      destinationLocationId: handoff.targetWarehouseId,
+      activeHandoffId: FieldValue.delete(),
+      custodyHandoffStatus: 'ACCEPTED',
+      lastCustodyHandoffId: handoffId,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    if (workOrder.deviceId) {
+      transaction.update(db.collection('devices').doc(String(workOrder.deviceId)), {
+        currentCustodianUid: actor.uid,
+        currentCustodian: actor.name || handoff.targetTechnicianName || 'Kỹ thuật viên',
+        technicianAssigned: actor.name || handoff.targetTechnicianName || 'Kỹ thuật viên',
+        currentLocationId: handoff.targetWarehouseId,
+        warehouseId: handoff.targetWarehouseId,
+        warehouse: handoff.targetWarehouseId,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
+    const movementId = `MOV_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    transaction.set(db.collection('inventoryMovements').doc(movementId), {
+      id: movementId,
+      deviceId: workOrder.deviceId || null,
+      imei: workOrder.imei,
+      branchId: workOrder.branchId,
+      movementType: 'TECH_CUSTODY_HANDOFF',
+      fromLocationId: handoff.fromWarehouseId || null,
+      toLocationId: handoff.targetWarehouseId,
+      fromCustodianUid: handoff.fromTechnicianUid || null,
+      toCustodianUid: actor.uid,
+      sourceType: 'WORK_ORDER',
+      sourceId: handoff.workOrderId,
+      workOrderId: handoff.workOrderId,
+      handoffId,
+      performedByUid: actor.uid,
+      confirmedByUid: actor.uid,
+      occurredAt: now,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    const acceptedHandoff = {
+      ...handoff,
+      status: 'ACCEPTED',
+      acceptancePhotoUrls: input.handoverPhotoUrls,
+      acceptanceNotes: String(input.notes || ''),
+      acceptedByUid: actor.uid,
+      acceptedByName: actor.name || handoff.targetTechnicianName || null,
+      acceptedAt: now,
+      reassignedLineIds,
+      updatedAt: now
+    };
+    transaction.update(handoffRef, {
+      status: acceptedHandoff.status,
+      acceptancePhotoUrls: acceptedHandoff.acceptancePhotoUrls,
+      acceptanceNotes: acceptedHandoff.acceptanceNotes,
+      acceptedByUid: acceptedHandoff.acceptedByUid,
+      acceptedByName: acceptedHandoff.acceptedByName,
+      acceptedAt: now,
+      reassignedLineIds,
+      updatedAt: now
+    });
+    transaction.set(idemRef, { scope: 'TECH_HANDOFF_ACCEPT', workOrderId: handoff.workOrderId, handoffId, reassignedLineIds, createdAt: now });
+    return { handoff: acceptedHandoff, reassignedLineIds };
   });
 }
 
@@ -361,10 +760,13 @@ export async function processStartTaskLine(
 ): Promise<{ success: boolean; lineId: string }> {
   return await db.runTransaction(async (transaction) => {
     const lineRef = db.collection('technicalWorkOrderLines').doc(lineId);
-    const lineSnap = await transaction.get(lineRef);
+    const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+    const [lineSnap, woSnap] = await Promise.all([transaction.get(lineRef), transaction.get(woRef)]);
     if (!lineSnap.exists) {
       throw new Error(`LINE_NOT_FOUND: Không tìm thấy hạng mục công việc "${lineId}".`);
     }
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (woSnap.data()?.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING: Không thể bắt đầu task khi máy đang chờ bàn giao trách nhiệm.');
 
     const lineData = lineSnap.data()!;
 
@@ -392,7 +794,6 @@ export async function processStartTaskLine(
     });
 
     // Update parent work order status to IN_PROGRESS
-    const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
     transaction.update(woRef, {
       status: 'IN_PROGRESS',
       updatedAt: FieldValue.serverTimestamp()
@@ -411,7 +812,11 @@ export async function processCompleteTaskLine(
   lineId: string,
   evidencePhotoUrls: string[],
   notes: string,
-  technicianUser: { uid: string; role?: string }
+  technicianUser: { uid: string; role?: string },
+  completionMetadata: {
+    replacementSerials?: string[];
+    postRepairMetrics?: Record<string, string | number | boolean | null>;
+  } = {}
 ): Promise<{ success: boolean; lineId: string; workOrderId: string; allLinesCompleted: boolean }> {
   return await db.runTransaction(async (transaction) => {
     const lineRef = db.collection('technicalWorkOrderLines').doc(lineId);
@@ -438,15 +843,66 @@ export async function processCompleteTaskLine(
       throw new Error(transition.reason);
     }
 
+    const normalizedNotes = String(notes || '').trim();
+    if (normalizedNotes.length < 10) {
+      throw new Error('COMPLETION_NOTES_REQUIRED: Ghi chú kết quả phải có ít nhất 10 ký tự.');
+    }
+
+    if (!Array.isArray(evidencePhotoUrls) || evidencePhotoUrls.length > 8 || evidencePhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+      throw new Error('INVALID_EVIDENCE: Ảnh bằng chứng phải là tối đa 8 URL HTTPS hợp lệ.');
+    }
+
+    const requiredEvidenceTypes = Array.isArray(lineData.requiredEvidenceTypes)
+      ? lineData.requiredEvidenceTypes.map((value: unknown) => String(value).toUpperCase())
+      : [];
+    if (requiredEvidenceTypes.includes('AFTER_PHOTO') && evidencePhotoUrls.length === 0) {
+      throw new Error('AFTER_PHOTO_REQUIRED: Hạng mục này bắt buộc có ảnh sau sửa.');
+    }
+
+    const replacementSerials = Array.isArray(completionMetadata.replacementSerials)
+      ? completionMetadata.replacementSerials.map(value => String(value).trim()).filter(Boolean)
+      : [];
+    if (requiredEvidenceTypes.includes('REPLACEMENT_SERIAL') && replacementSerials.length === 0) {
+      throw new Error('REPLACEMENT_SERIAL_REQUIRED: Hạng mục này bắt buộc ghi serial linh kiện thay thế.');
+    }
+
     // Read every dependent record before the first write (Firestore transaction invariant).
     const allLinesSnap = await transaction.get(
       db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId)
     );
+    const partIssuesSnap = await transaction.get(
+      db.collection('technicalPartIssues').where('workOrderLineId', '==', lineId)
+    );
+    const partReservationsSnap = await transaction.get(
+      db.collection('technicalPartReservations').where('workOrderLineId', '==', lineId)
+    );
     const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
     const woSnap = await transaction.get(woRef);
     const woData = woSnap.exists ? woSnap.data()! : {};
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (woData.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING: Không thể hoàn thành task khi máy đang chờ bàn giao trách nhiệm.');
     const linkedTransferRef = woData.transferId ? db.collection('transfers').doc(woData.transferId) : null;
     const linkedTransferSnap = linkedTransferRef ? await transaction.get(linkedTransferRef) : null;
+
+    for (const issueDoc of partIssuesSnap.docs) {
+      const issue = issueDoc.data();
+      if (issue.status === 'CANCELLED') continue;
+      const issued = Number(issue.quantityIssued || 0);
+      const settled = Number(issue.quantityConsumed || 0)
+        + Number(issue.quantityReturned || 0)
+        + Number(issue.quantityScrapped || 0);
+      if (issued !== settled) {
+        throw new Error(`PART_ISSUE_NOT_SETTLED: Linh kiện "${issue.partName || issueDoc.id}" còn ${issued - settled} đơn vị chưa xác nhận dùng, trả hoặc hỏng.`);
+      }
+    }
+    for (const reservationDoc of partReservationsSnap.docs) {
+      const reservation = reservationDoc.data();
+      const reserved = Number(reservation.quantityReserved || 0);
+      const settled = Number(reservation.quantityIssued || 0) + Number(reservation.quantityCancelled || 0);
+      if (reserved !== settled) {
+        throw new Error(`PART_RESERVATION_NOT_SETTLED: Linh kiện "${reservation.partName || reservationDoc.id}" còn ${reserved - settled} đơn vị đang giữ trước.`);
+      }
+    }
 
     let allCompleted = true;
     for (const doc of allLinesSnap.docs) {
@@ -462,8 +918,12 @@ export async function processCompleteTaskLine(
     transaction.update(lineRef, {
       status: 'COMPLETED',
       completedAt: now,
-      evidencePhotoUrls: evidencePhotoUrls || [],
-      completionNotes: notes || '',
+      evidencePhotoUrls,
+      completionNotes: normalizedNotes,
+      completionMetadata: {
+        replacementSerials,
+        postRepairMetrics: completionMetadata.postRepairMetrics || {}
+      },
       updatedAt: FieldValue.serverTimestamp()
     });
 
@@ -519,6 +979,15 @@ export async function processQCInspection(
     const allLinesSnap = await transaction.get(
       db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId)
     );
+    const partIssuesSnap = await transaction.get(
+      db.collection('technicalPartIssues').where('workOrderId', '==', workOrderId)
+    );
+    const externalCostsSnap = await transaction.get(
+      db.collection('technicalExternalCosts').where('workOrderId', '==', workOrderId)
+    );
+    const recoveriesSnap = await transaction.get(
+      db.collection('technicalRecoveries').where('workOrderId', '==', workOrderId)
+    );
     const linkedTransferRef = woData.transferId ? db.collection('transfers').doc(woData.transferId) : null;
     const linkedTransferSnap = linkedTransferRef ? await transaction.get(linkedTransferRef) : null;
 
@@ -527,6 +996,21 @@ export async function processQCInspection(
       if (lStatus !== 'COMPLETED' && lStatus !== 'VERIFIED') {
         throw new Error(`INCOMPLETE_TASK_LINES: Hạng mục "${doc.data().taskName}" chưa hoàn thành (Trạng thái: ${lStatus}).`);
       }
+    }
+    for (const issueDoc of partIssuesSnap.docs) {
+      const issue = issueDoc.data();
+      if (issue.status === 'CANCELLED') continue;
+      const unsettled = Number(issue.quantityIssued || 0)
+        - Number(issue.quantityConsumed || 0)
+        - Number(issue.quantityReturned || 0)
+        - Number(issue.quantityScrapped || 0);
+      if (unsettled !== 0) throw new Error(`PART_ISSUES_NOT_SETTLED: Linh kiện "${issue.partName || issueDoc.id}" chưa được quyết toán.`);
+    }
+    if (externalCostsSnap.docs.some(doc => doc.data().approvalStatus === 'PENDING')) {
+      throw new Error('EXTERNAL_COSTS_PENDING_APPROVAL: Còn chi phí kỹ thuật chưa được duyệt.');
+    }
+    if (recoveriesSnap.docs.some(doc => doc.data().approvalStatus === 'PENDING')) {
+      throw new Error('RECOVERIES_PENDING_APPROVAL: Còn khoản bồi hoàn/thu hồi chưa được duyệt.');
     }
 
     // D. Strict Independence: Inspector CANNOT be the technician who repaired
@@ -548,6 +1032,10 @@ export async function processQCInspection(
         throw new Error('FAILED_REASON_REQUIRED: Bắt buộc nhập lý do không đạt KCS để KTV có căn cứ xử lý lại.');
       }
     }
+    const qcEvidenceUrls = Array.isArray(inspection.photoEvidenceUrls) ? inspection.photoEvidenceUrls : [];
+    if (qcEvidenceUrls.length < 1 || qcEvidenceUrls.length > 8 || qcEvidenceUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+      throw new Error('QC_PHOTO_EVIDENCE_REQUIRED: KCS phải có từ 1 đến 8 ảnh bằng chứng hợp lệ.');
+    }
 
     const now = new Date().toISOString();
     const inspectionId = `QC_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -566,7 +1054,7 @@ export async function processQCInspection(
       checklistResults: checklist,
       overallResult: inspection.overallResult,
       failedReason: inspection.failedReason || null,
-      photoEvidenceUrls: inspection.photoEvidenceUrls || [],
+      photoEvidenceUrls: qcEvidenceUrls,
       reworkCycle: woData.reworkCount || 0,
       inspectedAt: now,
       createdAt: FieldValue.serverTimestamp()
@@ -586,7 +1074,7 @@ export async function processQCInspection(
       // Transfer-created commissions remain PENDING until the machine is physically returned to Kho Tổng.
       for (const lineDoc of allLinesSnap.docs) {
         const commRef = db.collection('commissionLedger').doc(`COMM_${lineDoc.id}`);
-        transaction.update(commRef, woData.eligibilityRequiresStockReturn ? {
+        transaction.update(commRef, (woData.eligibilityRequiresStockReturn || woData.eligibilityRequiresCustomerDelivery) ? {
           status: 'PENDING',
           qcApprovedAt: now,
           qcApprovedByUid: inspectorUser.uid,
@@ -651,9 +1139,12 @@ export async function processQCInspection(
 export async function processReturnToStock(
   db: Firestore,
   workOrderId: string,
-  targetWarehouseId: string = 'KHO_TONG',
+  targetWarehouseId: string,
+  scannedImei: string,
   warehouseStaff: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
 ): Promise<{ success: boolean; deviceId: string }> {
+  if (!targetWarehouseId) throw new Error('TARGET_WAREHOUSE_REQUIRED');
+  if (!scannedImei?.trim()) throw new Error('SCANNED_IMEI_REQUIRED');
   return await db.runTransaction(async (transaction) => {
     const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
     const woSnap = await transaction.get(woRef);
@@ -662,6 +1153,11 @@ export async function processReturnToStock(
     }
 
     const woData = woSnap.data()!;
+
+    const targetWarehouseRef = db.collection('warehouses').doc(targetWarehouseId);
+    const targetWarehouseSnap = await transaction.get(targetWarehouseRef);
+    if (!targetWarehouseSnap.exists) throw new Error('TARGET_WAREHOUSE_NOT_FOUND');
+    const targetWarehouse = targetWarehouseSnap.data()!;
 
     const linkedTransferRef = woData.transferId ? db.collection('transfers').doc(woData.transferId) : null;
     const linkedTransferSnap = linkedTransferRef ? await transaction.get(linkedTransferRef) : null;
@@ -673,6 +1169,16 @@ export async function processReturnToStock(
 
     if (woData.status !== 'QC_PASSED') {
       throw new Error(`DEVICE_NOT_QC_PASSED: Máy phải đạt chuẩn KCS (QC_PASSED) trước khi được nhập kho sẵn sàng bán.`);
+    }
+    if (woData.costPostingStatus !== 'POSTED') {
+      throw new Error('COST_NOT_POSTED: Máy chỉ được nhập lại kho sau khi giá vốn kỹ thuật đã được chốt.');
+    }
+    if (scannedImei.trim() !== String(woData.imei || '').trim()) {
+      throw new Error('IMEI_MISMATCH: IMEI quét khi nhận lại không khớp phiếu kỹ thuật.');
+    }
+    const targetBranchId = String(targetWarehouse.branchId || targetWarehouse.owningBranchId || '');
+    if (targetWarehouse.isActive === false || targetBranchId !== String(woData.branchId || '') || !['CENTRAL', 'RETAIL_STORE'].includes(String(targetWarehouse.type || ''))) {
+      throw new Error('TARGET_WAREHOUSE_NOT_ELIGIBLE');
     }
 
     if (!canAccessBranch(warehouseStaff, woData.branchId)) {
@@ -746,6 +1252,7 @@ export async function processReturnToStock(
       toCustodianUid: warehouseStaff.uid,
       sourceType: 'WORK_ORDER',
       sourceId: workOrderId,
+      workOrderId,
       performedByUid: warehouseStaff.uid,
       confirmedByUid: warehouseStaff.uid,
       occurredAt: now,
@@ -765,6 +1272,8 @@ export async function processDeliverToCustomer(
   notes: string,
   staffUser: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
 ): Promise<{ success: boolean; workOrderId: string }> {
+  const normalizedDeliveryNotes = String(notes || '').trim();
+  if (normalizedDeliveryNotes.length < 5) throw new Error('DELIVERY_NOTES_REQUIRED');
   return await db.runTransaction(async (transaction) => {
     const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
     const woSnap = await transaction.get(woRef);
@@ -773,6 +1282,10 @@ export async function processDeliverToCustomer(
     }
 
     const woData = woSnap.data()!;
+    const isCustomerDevice = woData.assetOwnership === 'CUSTOMER' || ['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(woData.workOrderType || ''));
+    if (!isCustomerDevice) {
+      throw new Error('CUSTOMER_DELIVERY_ONLY: Máy thuộc công ty phải được Kho Tổng quét nhận và kết chuyển giá vốn, không được đi qua luồng giao khách.');
+    }
     if (woData.status !== 'QC_PASSED') {
       throw new Error(`DEVICE_NOT_QC_PASSED: Máy phải đạt chuẩn KCS (QC_PASSED) trước khi bàn giao trả khách hàng.`);
     }
@@ -788,9 +1301,24 @@ export async function processDeliverToCustomer(
       status: 'DELIVERED_TO_CUSTOMER',
       deliveredAt: now,
       deliveredByUid: staffUser.uid,
-      deliveryNotes: notes || '',
+      deliveryNotes: normalizedDeliveryNotes,
       updatedAt: FieldValue.serverTimestamp()
     });
+
+    if (woData.eligibilityRequiresCustomerDelivery || ['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(woData.workOrderType || ''))) {
+      for (const lineId of woData.taskLineIds || []) {
+        transaction.update(db.collection('commissionLedger').doc(`COMM_${lineId}`), {
+          status: 'ELIGIBLE',
+          eligibleAt: now,
+          approvedByUid: staffUser.uid,
+          customerDeliveryConfirmedAt: now,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
+    }
+
+    const transactionWithDelete = transaction as typeof transaction & { delete?: (reference: DocumentReference) => void };
+    transactionWithDelete.delete?.(db.collection('technicalSecrets').doc(workOrderId));
 
     // 2. Update Device (Keep sold / customer-owned!)
     if (woData.deviceId) {

@@ -26,6 +26,7 @@ if (getApps().length === 0) {
     const serviceAccountCredential = getServiceAccountCredential();
     adminApp = initializeApp({
       projectId: firebaseConfig.projectId,
+      storageBucket: firebaseConfig.storageBucket,
       ...(serviceAccountCredential ? { credential: serviceAccountCredential } : {})
     });
   } catch (error) {

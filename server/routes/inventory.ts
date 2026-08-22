@@ -3,7 +3,7 @@ import { Firestore } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { buildInventoryAuditReport, listInventoryDevicesForActor, processImportInventoryDevices } from '../services/inventoryDeviceService';
-import { processCancelPurchaseOrderReceipt, processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
+import { processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
 
 function sendInventoryError(res: Response, error: any) {
   const message = error?.message || 'Lỗi xử lý dữ liệu kho.';
@@ -19,8 +19,16 @@ export function createInventoryRouter(db: Firestore | null): Router {
   router.get('/devices', async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const devices = await listInventoryDevicesForActor(db, req.user!);
-      return res.json({ success: true, data: { devices, snapshotAt: new Date().toISOString() } });
+      const result = await listInventoryDevicesForActor(db, req.user!, {
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        cursor: String(req.query.cursor || '') || undefined,
+        branchId: String(req.query.branchId || '') || undefined,
+        locationId: String(req.query.locationId || '') || undefined,
+        status: String(req.query.status || '') || undefined,
+        search: String(req.query.search || '') || undefined,
+        includeSummary: String(req.query.includeSummary || 'true') !== 'false'
+      });
+      return res.json({ success: true, data: result });
     } catch (error: any) {
       return sendInventoryError(res, error);
     }
@@ -50,6 +58,16 @@ export function createInventoryRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await processCancelPurchaseOrderReceipt(db, req.params.orderId, req.user!, String(req.body?.reason || ''));
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
+  router.post('/purchase-orders/:orderId/payments', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await processPayPurchaseOrderDebt(db, req.params.orderId, req.body, req.user!);
       return res.json({ success: true, data: result });
     } catch (error: any) {
       return sendInventoryError(res, error);

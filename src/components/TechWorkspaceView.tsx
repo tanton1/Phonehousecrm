@@ -6,38 +6,36 @@ import {
 } from 'lucide-react';
 import { TechKanbanBoard } from './TechKanbanBoard';
 import { StaffHRView } from './StaffHRView';
-import { UserAccount, WarrantyTicket, DeviceItem, CommissionTransaction, StoreBranch } from '../types';
-import { calculateStaffDualWallet, calculateWarrantyTicketCommissions } from '../utils/commissionEngine';
+import { UserAccount, WarrantyTicket, DeviceItem, CommissionTransaction, StoreBranch, WarehouseInfo } from '../types';
+import { calculateStaffDualWallet } from '../utils/commissionEngine';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
-import { fetchMyTechnicalWork } from '../services/technicalApiClient';
+import { fetchMyTechnicalWork, fetchPendingTechnicalHandoffs, fetchTechnicalCommissionLedger, requestAcceptTechnicalHandoff, TechnicalCommissionLedgerEntry } from '../services/technicalApiClient';
+import { TechnicalWorkOrderDrawer } from './TechnicalWorkOrderDrawer';
+import { uploadTechnicalEvidence } from '../services/technicalEvidenceService';
 
 interface TechWorkspaceViewProps {
-  tasks: WarrantyTicket[];
   devices: DeviceItem[];
   branches?: StoreBranch[];
+  warehouses?: WarehouseInfo[];
   currentUser?: UserAccount | null;
   onCheckIn?: (time: string) => void;
   onCheckOut?: (time: string) => void;
   onOpenCheckIn?: () => void;
   attendanceRecord?: import('../types').AttendanceRecord;
-  commissions?: CommissionTransaction[];
   onSyncCommissions?: () => void;
-  onUpdateTaskStatus?: (task: WarrantyTicket, status: WarrantyTicket['status']) => Promise<void> | void;
   onOpenRepairIntake?: () => void;
 }
 
 export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ 
-  tasks, 
   devices, 
   branches = [],
+  warehouses = [],
   currentUser, 
   onCheckIn, 
   onCheckOut, 
   onOpenCheckIn,
   attendanceRecord,
-  commissions = [],
   onSyncCommissions,
-  onUpdateTaskStatus,
   onOpenRepairIntake
 }) => {
   const [activeTab, setActiveTab] = useState<'KANBAN' | 'INVENTORY' | 'KPI' | 'HR'>('KANBAN');
@@ -45,12 +43,62 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [assignedWorkLines, setAssignedWorkLines] = useState<any[]>([]);
   const [assignedWorkError, setAssignedWorkError] = useState('');
+  const [selectedTechnicalTask, setSelectedTechnicalTask] = useState<WarrantyTicket | null>(null);
+  const [ledgerCommissions, setLedgerCommissions] = useState<CommissionTransaction[]>([]);
+  const [pendingHandoffs, setPendingHandoffs] = useState<any[]>([]);
+  const [selectedHandoff, setSelectedHandoff] = useState<any | null>(null);
+  const [handoffScan, setHandoffScan] = useState('');
+  const [handoffNotes, setHandoffNotes] = useState('');
+  const [handoffFiles, setHandoffFiles] = useState<File[]>([]);
+
+  const mapLedgerEntry = (entry: TechnicalCommissionLedgerEntry): CommissionTransaction => {
+    const workOrderType = String(entry.workOrderType || '');
+    const type = workOrderType === 'WARRANTY'
+      ? 'TECH_WARRANTY'
+      : workOrderType === 'INBOUND_PREP' ? 'TECH_KCS'
+        : workOrderType === 'TRADE_IN_REFURB' ? 'TRADEIN_BONUS' : 'TECH_REPAIR';
+    const status = entry.status === 'ELIGIBLE' ? 'CONFIRMED'
+      : entry.status === 'CANCELLED' ? 'REVERSED'
+        : entry.status === 'PAID' ? 'PAID' : 'PENDING';
+    return {
+      id: entry.id,
+      employeeId: entry.staffUid,
+      employeeName: entry.staffName,
+      role: 'TECHNICIAN',
+      walletCategory: 'TECH_WALLET',
+      orderId: entry.workOrderId,
+      orderCode: entry.workOrderId,
+      orderItemId: entry.workOrderLineId,
+      productName: entry.taskName || entry.taskCode || 'Task kỹ thuật',
+      imei: entry.imei,
+      branchId: entry.branchId,
+      type,
+      baseAmount: 0,
+      profitAmount: 0,
+      commissionRate: 0,
+      commissionAmount: Number(entry.commissionPayable ?? entry.amount ?? 0),
+      status,
+      policyId: entry.policyId || 'TECH_TASK_POLICY',
+      policyVersion: entry.policyVersion || 'UNVERSIONED',
+      occurredAt: entry.eligibleAt || entry.createdAt || new Date().toISOString(),
+      approvedAt: entry.eligibleAt || undefined,
+      sourceType: 'TECHNICAL_WORK_ORDER',
+      sourceId: entry.workOrderId
+    };
+  };
 
   const loadAssignedWork = async () => {
     setIsSyncing(true);
     try {
-      const lines = await fetchMyTechnicalWork();
+      const period = new Date().toISOString().slice(0, 7);
+      const [lines, ledger, handoffs] = await Promise.all([
+        fetchMyTechnicalWork(),
+        fetchTechnicalCommissionLedger(period),
+        fetchPendingTechnicalHandoffs()
+      ]);
       setAssignedWorkLines(Array.isArray(lines) ? lines : []);
+      setLedgerCommissions((ledger || []).map(mapLedgerEntry));
+      setPendingHandoffs(Array.isArray(handoffs) ? handoffs : []);
       setAssignedWorkError('');
     } catch (error: any) {
       setAssignedWorkError(error?.message || 'Không thể tải công việc được giao từ kho.');
@@ -64,19 +112,14 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   }, [currentUser?.id]);
 
   // Active tech staff identification
-  const currentStaffId = currentUser?.id || 'STAFF_004';
+  const currentStaffId = currentUser?.id || '';
   const staffMember = (INITIAL_STAFF_MEMBERS || []).find(s => s?.id === currentStaffId || s?.name === currentUser?.displayName) 
-    || (INITIAL_STAFF_MEMBERS || []).find(s => s?.role === 'TECHNICIAN') 
-    || INITIAL_STAFF_MEMBERS[0]
-    || { id: 'STAFF_004', name: 'Kỹ Thuật Viên', role: 'TECHNICIAN', branchId: 'CN01' };
+    || { id: currentStaffId, name: currentUser?.displayName || 'Kỹ thuật viên', role: 'TECHNICIAN', branchId: currentUser?.branchId || '' } as any;
 
   // Automated Tech Wallet Calculation using Phase 3 Engine
   const dualWallet = useMemo(() => {
-    // Generate real-time commissions from tickets if not provided or empty
-    const directTicketCommissions = (tasks || []).flatMap(t => calculateWarrantyTicketCommissions(t, INITIAL_STAFF_MEMBERS));
-    const mergedCommissions = commissions && commissions.length > 0 ? commissions : directTicketCommissions;
-    return calculateStaffDualWallet(staffMember?.id || 'STAFF_004', mergedCommissions, INITIAL_STAFF_MEMBERS);
-  }, [staffMember, commissions, tasks]);
+    return calculateStaffDualWallet(staffMember?.id || currentStaffId, ledgerCommissions, [staffMember as any]);
+  }, [staffMember, currentStaffId, ledgerCommissions]);
 
   const techWallet = dualWallet.techWallet;
 
@@ -93,17 +136,39 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   }, [techWallet.transactions, walletFilter]);
 
   // Today specific metrics
-  const todayTasks = tasks.filter(t => {
-    const isMine = t.technician === currentUser?.displayName || t.assigneeId === staffMember.id;
-    return isMine;
-  });
-  const todayCompletedCount = todayTasks.filter(t => t.status === 'ready' || t.status === 'delivered').length;
+  const todayCompletedCount = assignedWorkLines.filter(line =>
+    ['COMPLETED', 'VERIFIED', 'QC_PASSED', 'RETURNED_TO_STOCK', 'DELIVERED_TO_CUSTOMER'].includes(String(line.status || line.workOrderStatus || ''))
+  ).length;
 
   const handleManualSync = async () => {
     if (onSyncCommissions) {
       onSyncCommissions();
     }
     await loadAssignedWork();
+  };
+
+  const acceptSelectedHandoff = async () => {
+    if (!selectedHandoff) return;
+    setIsSyncing(true);
+    setAssignedWorkError('');
+    try {
+      if (handoffFiles.length < 1) throw new Error('Bắt buộc chụp ảnh khi nhận bàn giao.');
+      const handoverPhotoUrls = await uploadTechnicalEvidence(selectedHandoff.workOrderId, 'handoff-accept', handoffFiles);
+      await requestAcceptTechnicalHandoff(selectedHandoff.id, {
+        scannedImei: handoffScan,
+        handoverPhotoUrls,
+        notes: handoffNotes.trim()
+      });
+      setSelectedHandoff(null);
+      setHandoffScan('');
+      setHandoffNotes('');
+      setHandoffFiles([]);
+      await loadAssignedWork();
+    } catch (cause: any) {
+      setAssignedWorkError(cause?.message || 'Không thể nhận bàn giao KTV.');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const assignedDevices = useMemo(() => {
@@ -146,8 +211,8 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
       receivedDate: line.createdAt || '',
       expectedReturnDate: line.deadlineAt || ''
     })) as unknown as WarrantyTicket[];
-    return [...technicalTasks, ...tasks];
-  }, [assignedWorkLines, tasks, currentUser?.displayName]);
+    return technicalTasks;
+  }, [assignedWorkLines, currentUser?.displayName]);
 
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
@@ -241,16 +306,14 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                   </div>
                 </div>
               </div>
+              {pendingHandoffs.length > 0 && <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-blue-900">Có {pendingHandoffs.length} máy đang chờ bạn nhận trách nhiệm</p><div className="mt-2 flex flex-wrap gap-2">{pendingHandoffs.map(handoff => <button key={handoff.id} onClick={() => { setSelectedHandoff(handoff); setHandoffScan(''); setHandoffNotes(''); setHandoffFiles([]); }} className="rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm"><strong className="block text-blue-800">{handoff.imei} · {handoff.targetTechnicianName || 'KTV nhận'}</strong><span className="text-zinc-500">Từ {handoff.fromTechnicianName || 'KTV trước'} · {handoff.reason}</span></button>)}</div></div>}
               {(assignedWorkLines.length > 0 || assignedWorkError) && <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-3"><div><p className="text-xs font-black uppercase tracking-wide text-orange-900">Máy kho đã chuyển cho tôi: {assignedWorkLines.length} hạng mục</p><p className="text-[11px] text-orange-700">Đã đưa thẳng vào các cột Kanban bên dưới theo trạng thái thực tế.</p>{assignedWorkError && <p className="mt-1 text-xs font-semibold text-rose-600">{assignedWorkError}</p>}</div><button onClick={handleManualSync} className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /></button></div>}
               <div className="flex-1 min-h-0 bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden">
                 <TechKanbanBoard 
                   tasks={kanbanTasks}
-                  onTaskClick={(t) => console.log('View task', t)}
+                  onTaskClick={setSelectedTechnicalTask}
                   onRefresh={handleManualSync}
                   currentUserRole={currentUser?.role}
-                  onLegacyStatusChange={async (task, status) => {
-                    if (onUpdateTaskStatus) await onUpdateTaskStatus(task, status);
-                  }}
                 />
               </div>
             </div>
@@ -491,6 +554,8 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
           <span className="text-[10px]">Chấm Công</span>
         </button>
       </div>
+      {selectedHandoff && <div className="fixed inset-0 z-[155] grid place-items-center bg-black/60 p-4" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedHandoff(null); }}><section className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-zinc-900">Nhận bàn giao từ KTV khác</h3><p className="mt-1 text-xs text-zinc-500">IMEI {selectedHandoff.imei} · từ {selectedHandoff.fromTechnicianName || 'KTV trước'}</p></div><button onClick={() => setSelectedHandoff(null)} className="rounded-lg px-2 py-1 text-zinc-500">✕</button></div><div className="mt-4 space-y-3"><input value={handoffScan} onChange={event => setHandoffScan(event.target.value.replace(/\D/g, '').slice(0, 15))} placeholder="Quét IMEI thực nhận" className="h-11 w-full rounded-xl border px-3 font-mono text-sm"/><textarea value={handoffNotes} onChange={event => setHandoffNotes(event.target.value)} rows={3} placeholder="Tình trạng nhận máy và ghi chú" className="w-full rounded-xl border p-3 text-sm"/><label className="block rounded-xl border border-dashed p-4 text-xs font-bold">Ảnh máy lúc nhận trách nhiệm<input type="file" accept="image/*" multiple onChange={event => setHandoffFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/></label><button disabled={isSyncing || handoffScan.length < 5 || handoffFiles.length < 1} onClick={() => void acceptSelectedHandoff()} className="w-full rounded-xl bg-blue-700 py-3 text-sm font-black text-white disabled:opacity-40">Quét nhận và chịu trách nhiệm</button></div></section></div>}
+      <TechnicalWorkOrderDrawer task={selectedTechnicalTask} warehouses={warehouses} currentUser={currentUser} onClose={() => setSelectedTechnicalTask(null)} onRefresh={handleManualSync} />
     </div>
   );
 };

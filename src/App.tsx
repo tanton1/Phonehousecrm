@@ -19,7 +19,6 @@ import {
   StoreBranch,
   WarehouseInfo,
   StoreSettings,
-  SparePart,
   PurchaseOrder,
   StaffMember,
   AttendanceRecord,
@@ -48,6 +47,7 @@ import { WarehouseTransfersView } from './components/WarehouseTransfersView';
 import { MasterCatalogView } from './components/MasterCatalogView';
 import { MasterCatalogItem } from './types';
 import { ProductsView } from './components/ProductsView';
+import { TechnicalSparePartsView } from './components/TechnicalSparePartsView';
 import { InvoicesView } from './components/InvoicesView';
 import { InstallmentReconciliationView } from './components/InstallmentReconciliationView';
 import { UserManagementView } from './components/UserManagementView';
@@ -66,7 +66,6 @@ import { fetchOperationalConfigs, fetchSystemSetupStatus } from './services/conf
 import { testFirestoreConnection, auth } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
-  subscribeToDevices,
   updateDeviceInFirestore,
   deleteDeviceFromFirestore,
   subscribeToLeads,
@@ -76,12 +75,7 @@ import {
   addTradeInToFirestore,
   updateTradeInInFirestore,
   subscribeToWarrantyTickets,
-  addWarrantyTicketToFirestore,
-  updateWarrantyTicketInFirestore,
   subscribeToInvoices,
-  addInvoiceToFirestore,
-  updateInvoiceInFirestore,
-  deleteInvoiceFromFirestore,
   cancelInvoiceInFirestore,
   subscribeToUsers,
   addUserToFirestore,
@@ -114,12 +108,8 @@ import {
   restoreWarehouseFromFirestore,
   subscribeToStoreSettings,
   saveStoreSettingsToFirestore,
-  subscribeToSpareParts,
-  updateSparePartInFirestore,
   subscribeToPurchaseOrders,
-  addPurchaseOrderToFirestore,
   updatePurchaseOrderInFirestore,
-  deletePurchaseOrderFromFirestore,
   subscribeToCatalog,
   addCatalogItemToFirestore,
   updateCatalogItemInFirestore,
@@ -138,10 +128,14 @@ import { requestServerCheckIn, requestServerCheckOut } from './services/attendan
 import {
   createInventoryIdempotencyKey,
   fetchInventoryDevices,
+  type InventoryDeviceSummary,
   requestImportInventoryDevices,
   requestReceivePurchaseOrder,
-  requestCancelPurchaseOrder
+  requestCancelPurchaseOrder,
+  requestPayPurchaseOrderDebt
 } from './services/inventoryApiClient';
+import { requestInstallmentDisbursement, requestSettlePartnerDebt, type PartnerDebtSettlementDirection } from './services/financeApiClient';
+import { requestUpdateInvoiceNote } from './services/posApiClient';
 
 const BUSINESS_DATA_RESET_MARKER = 'phonehouse_business_data_reset_2026_08_21_v1';
 const BUSINESS_CACHE_KEYS = [
@@ -165,6 +159,8 @@ const BUSINESS_CACHE_KEYS = [
 ] as const;
 
 function clearLegacyBusinessCacheOnce() {
+  // Device documents may contain role-restricted cost fields from older builds.
+  localStorage.removeItem('istore_devices');
   if (localStorage.getItem(BUSINESS_DATA_RESET_MARKER) === 'done') return;
   BUSINESS_CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
   localStorage.setItem(BUSINESS_DATA_RESET_MARKER, 'done');
@@ -181,10 +177,8 @@ export default function App() {
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ADMIN');
 
   // Persistence State
-  const [devices, setDevices] = useState<DeviceItem[]>(() => {
-    const saved = localStorage.getItem('istore_devices');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [devices, setDevices] = useState<DeviceItem[]>([]);
+  const [inventorySummary, setInventorySummary] = useState<InventoryDeviceSummary | undefined>();
 
   const [leads, setLeads] = useState<Lead[]>(() => {
     const saved = localStorage.getItem('istore_leads');
@@ -261,8 +255,6 @@ export default function App() {
     const saved = localStorage.getItem('phonehouse_warehouses');
     return saved ? JSON.parse(saved) : [];
   });
-
-  const [spareParts, setSpareParts] = useState<SparePart[]>([]);
 
   const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
     const saved = localStorage.getItem('phonehouse_store_settings');
@@ -602,7 +594,6 @@ export default function App() {
     testFirestoreConnection().then((ok) => {
       setIsFirebaseConnected(ok);
     });
-    let unsubDevices = () => {};
     let unsubLeads = () => {};
     let unsubTradeIns = () => {};
     let unsubWarranty = () => {};
@@ -621,10 +612,6 @@ export default function App() {
     let unsubAttendance = () => {};
 
     // 2. Setup real-time Firestore subscriptions. An empty snapshot is authoritative.
-
-    unsubDevices = subscribeToDevices((remoteDevices) => {
-      setDevices(remoteDevices || []);
-    });
 
     unsubLeads = subscribeToLeads((remoteLeads) => {
       setLeads(remoteLeads || []);
@@ -712,7 +699,6 @@ export default function App() {
 
     return () => {
       unsubAuth();
-      unsubDevices();
       unsubLeads();
       unsubTradeIns();
       unsubWarranty();
@@ -759,6 +745,7 @@ export default function App() {
     if (!currentUser) return;
     const snapshot = await fetchInventoryDevices(currentUser);
     setDevices(snapshot.devices || []);
+    setInventorySummary(snapshot.summary);
   }, [currentUser]);
 
   useEffect(() => {
@@ -767,13 +754,16 @@ export default function App() {
     const refresh = async () => {
       try {
         const snapshot = await fetchInventoryDevices(currentUser);
-        if (active) setDevices(snapshot.devices || []);
+        if (active) {
+          setDevices(snapshot.devices || []);
+          setInventorySummary(snapshot.summary);
+        }
       } catch (error) {
         console.warn('[Inventory snapshot notice]', error);
       }
     };
     void refresh();
-    const timer = window.setInterval(refresh, 15_000);
+    const timer = window.setInterval(refresh, 60_000);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -788,18 +778,6 @@ export default function App() {
       console.warn(`localStorage full or quota exceeded for ${key}:`, e);
     }
   }, []);
-
-  // Sync to localStorage as offline cache
-  useEffect(() => {
-    // Strip heavy base64 images for localStorage cache to preserve browser quota
-    const sanitizedDevices = devices.map(d => {
-      if (d.images && d.images.some(img => img.startsWith('data:'))) {
-        return { ...d, images: undefined };
-      }
-      return d;
-    });
-    safeSetLocalStorage('istore_devices', sanitizedDevices);
-  }, [devices, safeSetLocalStorage]);
 
   useEffect(() => {
     safeSetLocalStorage('istore_leads', leads);
@@ -973,67 +951,9 @@ export default function App() {
     updateTradeInInFirestore(tradeIn);
   };
 
-  const handleAddWarrantyTicket = async (ticket: WarrantyTicket) => {
-    await addWarrantyTicketToFirestore(ticket);
-    setWarrantyTickets(previous => [ticket, ...previous.filter(item => item.id !== ticket.id)]);
-  };
-
-  const handleUpdateWarrantyTicket = async (ticket: WarrantyTicket) => {
-    await updateWarrantyTicketInFirestore(ticket);
-    setWarrantyTickets(previous => previous.map(item => item.id === ticket.id ? ticket : item));
-  };
-
   const handleCreateInvoice = (invoice: SalesInvoice) => {
-    setInvoices([invoice, ...invoices]);
-    addInvoiceToFirestore(invoice);
-
-    // Luôn lưu hoặc cập nhật thông tin khách hàng khi phát sinh hóa đơn mới
-    const phoneToUse = invoice.customerPhone || invoice.phone || '';
-    if (phoneToUse) {
-      const existingPartner = partners.find(p => p.phone === phoneToUse);
-      const debtIncrease = (invoice.installmentDisbursementStatus === 'PENDING' && invoice.installmentExpectedAmount) ? invoice.installmentExpectedAmount : 0;
-      
-      if (existingPartner) {
-        const newTx = debtIncrease > 0 ? {
-          id: `TX-${Date.now().toString().slice(-6)}`,
-          date: new Date().toISOString().split('T')[0],
-          type: 'DEBT_INCREASE' as const,
-          amount: debtIncrease,
-          note: `Mua trả góp đơn ${invoice.invoiceCode}`,
-          referenceId: invoice.id,
-          referenceCode: invoice.invoiceCode,
-          referenceType: 'INVOICE' as const
-        } : null;
-        handleUpdatePartner({
-          ...existingPartner,
-          type: existingPartner.type === 'SUPPLIER' ? 'BOTH' : existingPartner.type, // Nếu đang là NCC mà mua hàng thì thành BOTH
-          outstandingDebt: (existingPartner.outstandingDebt || 0) + debtIncrease,
-          totalSpent: (existingPartner.totalSpent || 0) + invoice.finalAmount,
-          debtTransactions: newTx ? [newTx, ...(existingPartner.debtTransactions || [])] : existingPartner.debtTransactions
-        });
-      } else {
-        const newTx = debtIncrease > 0 ? {
-          id: `TX-${Date.now().toString().slice(-6)}`,
-          date: new Date().toISOString().split('T')[0],
-          type: 'DEBT_INCREASE' as const,
-          amount: debtIncrease,
-          note: `Mua trả góp đơn ${invoice.invoiceCode}`,
-          referenceId: invoice.id,
-          referenceCode: invoice.invoiceCode,
-          referenceType: 'INVOICE' as const
-        } : null;
-        handleAddPartner({
-          id: `PARTNER-${Date.now()}`,
-          type: 'CUSTOMER',
-          name: invoice.customerName,
-          phone: phoneToUse,
-          outstandingDebt: debtIncrease,
-          totalSpent: invoice.finalAmount,
-          debtTransactions: newTx ? [newTx] : [],
-          createdAt: new Date().toISOString()
-        });
-      }
-    }
+    // Compatibility callback only. The POS server transaction owns every write.
+    setInvoices(previous => [invoice, ...previous.filter(item => item.id !== invoice.id)]);
   };
 
   const handlePOSCheckoutSuccess = (
@@ -1073,9 +993,10 @@ export default function App() {
     }
   };
 
-  const handleUpdateInvoice = (invoice: SalesInvoice) => {
-    setInvoices(invoices.map(inv => (inv.id === invoice.id ? invoice : inv)));
-    updateInvoiceInFirestore(invoice);
+  const handleUpdateInvoiceNote = async (invoiceId: string, notes: string) => {
+    const invoice = await requestUpdateInvoiceNote(invoiceId, notes);
+    setInvoices(previous => previous.map(item => item.id === invoice.id ? invoice : item));
+    return invoice;
   };
 
   const handleCancelInvoice = async (invoice: SalesInvoice, reason: string) => {
@@ -1214,11 +1135,6 @@ export default function App() {
       console.error('Lỗi khi hủy hóa đơn:', err);
       alert(`Không thể hủy hóa đơn: ${err?.message || 'Lỗi không xác định'}`);
     }
-  };
-
-  const handleDeleteInvoice = (invoiceId: string) => {
-    setInvoices(invoices.filter(inv => inv.id !== invoiceId));
-    deleteInvoiceFromFirestore(invoiceId);
   };
 
   const handleAddUser = (newUser: UserAccount) => {
@@ -1409,174 +1325,7 @@ export default function App() {
     const receipt = await requestReceivePurchaseOrder(order, currentUser);
     setPurchaseOrders(prev => [receipt.order, ...prev.filter(item => item.id !== receipt.order.id)]);
     mergeImportedDevices(receipt.devices);
-    return;
-
-    /* Luồng cũ phía dưới được giữ tạm để đối chiếu migration; không còn được thực thi.
-       Trước đây phiếu được ghi trước quỹ/công nợ/IMEI nên có thể sinh phiếu ảo. */
-    setPurchaseOrders(prev => [order, ...prev]);
-    await addPurchaseOrderToFirestore(order);
-
-    // 1. Ghi nhận Lịch sử Giao dịch & Công nợ của Nhà Cung Cấp (NCC)
-    const supplier = partners.find(p => p.id === order.supplierId || (p.name && order.supplierName && p.name.trim().toLowerCase() === order.supplierName.trim().toLowerCase()));
-    
-    const buyTx: PartnerDebtTransaction = {
-      id: `TX-BUY-${Date.now().toString().slice(-6)}`,
-      date: order.orderDate,
-      type: 'DEBT_INCREASE',
-      amount: order.totalAmount,
-      note: `Nhập hàng phiếu ${order.code}`,
-      referenceId: order.code || order.id
-    };
-
-    const newTxs: PartnerDebtTransaction[] = [buyTx];
-
-    if (order.paidAmount > 0) {
-      const payTx: PartnerDebtTransaction = {
-        id: `TX-PAY-${Date.now().toString().slice(-6)}`,
-        date: order.orderDate,
-        type: 'PAYMENT',
-        amount: order.paidAmount,
-        note: `Thanh toán ngay phiếu nhập ${order.code}`,
-        referenceId: order.code || order.id
-      };
-      newTxs.unshift(payTx);
-    }
-
-    if (supplier) {
-      const updatedDebt = Math.max(0, (supplier.outstandingDebt || 0) + order.totalAmount - order.paidAmount);
-      handleUpdatePartner({
-        ...supplier,
-        outstandingDebt: updatedDebt,
-        debtTransactions: [...newTxs, ...(supplier.debtTransactions || [])]
-      });
-    } else if (order.supplierName) {
-      // Tự tạo NCC mới nếu chưa có trong danh sách
-      const newSupplier: Partner = {
-        id: order.supplierId || `SUP-${Date.now()}`,
-        name: order.supplierName,
-        phone: order.supplierPhone || '',
-        type: 'SUPPLIER',
-        outstandingDebt: Math.max(0, order.totalAmount - order.paidAmount),
-        debtTransactions: newTxs,
-        createdAt: order.orderDate || new Date().toISOString().split('T')[0]
-      };
-      handleAddPartner(newSupplier);
-    }
-
-    // 2. Nếu có thanh toán tiền ngay cho NCC -> Sinh Phiếu Chi ở Sổ Quỹ
-    if (order.paidAmount > 0) {
-      const targetFund = (order.fundId ? funds.find(f => f.id === order.fundId) : null) || 
-                         funds.find(f => f.type === order.paymentMethod) || null;
-      if (targetFund) {
-        const cashTx: CashTransaction = {
-          id: `CTX-${Date.now()}`,
-          code: `PC-${Date.now().toString().slice(-6)}`,
-          date: order.orderDate || new Date().toISOString().split('T')[0],
-          type: 'PAYMENT',
-          category: 'INVENTORY_PURCHASE',
-          categoryName: 'Chi nhập hàng iPhone mới / Like New',
-          amount: order.paidAmount,
-          fundId: targetFund.id,
-          fundType: targetFund.type,
-          fundName: targetFund.name,
-          partnerId: supplier?.id || order.supplierId,
-          partnerName: order.supplierName,
-          partnerType: 'SUPPLIER',
-          partnerPhone: order.supplierPhone,
-          referenceCode: order.code,
-          notes: `Thanh toán phiếu nhập ${order.code} - NCC ${order.supplierName}`,
-          creator: order.creatorName || (currentUser ? currentUser.displayName : 'Hệ thống'),
-          branchId: activeBranchId || currentUser?.branchId,
-          status: 'COMPLETED'
-        };
-        handleAddCashTransaction(cashTx);
-      }
-    }
-
-    // 3. Nếu chọn autoCreateDevices và phiếu đã hoàn tất -> Tự động thêm DeviceItem vào kho
-    if (autoCreateDevices && order.status === 'COMPLETED') {
-      const newDevicesToAdd: DeviceItem[] = [];
-      order.items.forEach((item, itemIdx) => {
-        if (item.type === 'device') {
-          const count = item.quantity || (item.imeiList && item.imeiList.length) || 1;
-          for (let i = 0; i < count; i++) {
-            const imei = item.imeiList && item.imeiList[i] 
-              ? item.imeiList[i] 
-              : `35${Math.floor(1000000000000 + Math.random() * 9000000000000)}`;
-            
-            const newDevice: DeviceItem = {
-              id: `DEV-IMP-${Date.now()}-${itemIdx}-${i}`,
-              imei,
-              serialNo: `SN-${Date.now().toString().slice(-6)}${i}`,
-              model: item.modelOrName,
-              color: item.color || 'Titan Tự Nhiên',
-              storage: item.storage || '128GB',
-              condition: (item.condition as any) || 'New Seal',
-              region: item.region || 'VN/A (Chính hãng)',
-              batteryHealth: item.batteryHealth || 100,
-              buyPrice: item.importPrice,
-              sellPrice: item.expectedSellPrice || Math.round(item.importPrice * 1.15),
-              status: 'in_stock',
-              branchId: order.branchId || warehouses.find(location => String(location.id) === String(order.warehouseId))?.branchId || (scopedBranchId !== 'ALL' ? scopedBranchId : currentUser?.branchId),
-              currentLocationId: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
-              warehouseId: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
-              warehouse: String(order.warehouseId || resolvedCurrentBranch.warehouseId || ''),
-              supplier: order.supplierName,
-              supplierId: order.supplierId,
-              receivedDate: order.orderDate,
-              warrantyPeriodMonths: 12,
-              icloudStatus: 'Clean / Đã Thoát',
-              screenStatus: 'Zin Màn Keng',
-              notes: `Nhập tự động từ phiếu ${order.code}`
-            };
-            newDevicesToAdd.push(newDevice);
-          }
-        } else if ((item as any).type === 'accessory' || (item as any).type === 'product') {
-          const qty = item.quantity || 1;
-          setProducts(prevProducts => {
-            const existing = prevProducts.find(p => p.name.trim().toLowerCase() === item.modelOrName.trim().toLowerCase() || (p.sku && p.sku === item.modelOrName));
-            if (existing) {
-              const updated: ProductItem = {
-                ...existing,
-                stockQuantity: (existing.stockQuantity || 0) + qty,
-                buyPrice: item.importPrice || existing.buyPrice
-              };
-              updateProductInFirestore(updated);
-              return prevProducts.map(p => p.id === existing.id ? updated : p);
-            } else {
-              const newProd: ProductItem = {
-                id: `PROD-${Date.now()}-${itemIdx}`,
-                name: item.modelOrName,
-                category: 'Phụ kiện',
-                sku: `ACC-${Date.now().toString().slice(-6)}`,
-                brand: 'PhoneHouse / Apple',
-                stockQuantity: qty,
-                minStockLevel: 5,
-                buyPrice: item.importPrice,
-                sellPrice: item.expectedSellPrice || Math.round(item.importPrice * 1.3),
-                status: 'active'
-              };
-              addProductToFirestore(newProd);
-              return [newProd, ...prevProducts];
-            }
-          });
-        }
-      });
-
-      if (newDevicesToAdd.length > 0) {
-        if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn.');
-        const destination = resolveImportDestination(newDevicesToAdd[0]);
-        const result = await requestImportInventoryDevices({
-          ...destination,
-          sourceType: 'PURCHASE_ORDER',
-          sourceId: order.id,
-          idempotencyKey: `purchase-order:${order.id}`,
-          devices: newDevicesToAdd
-        }, currentUser);
-        mergeImportedDevices(result.devices);
-      }
-    }
-    /* end legacy purchase-order flow */
+    return receipt.order;
   };
 
   const handleUpdatePurchaseOrder = (updatedOrder: PurchaseOrder) => {
@@ -1616,115 +1365,60 @@ export default function App() {
   };
 
   
-  const handleAutoPayDebt = (partnerId: string, amount: number, direction: 'PAYMENT' | 'RECEIPT') => {
-    let remainingAmount = amount;
+  const handleSettlePartnerDebt = async (input: {
+    partnerId: string;
+    amount: number;
+    fundId: string;
+    direction: PartnerDebtSettlementDirection;
+    note: string;
+    idempotencyKey: string;
+  }) => {
+    const result = await requestSettlePartnerDebt(input);
+    setPartners(previous => previous.map(partner => partner.id === result.partner.id ? result.partner : partner));
+    setFunds(previous => previous.map(fund => fund.id === result.fund.id ? result.fund : fund));
+    setCashTransactions(previous => [result.cashTransaction, ...previous.filter(transaction => transaction.id !== result.cashTransaction.id)]);
 
-    if (direction === 'PAYMENT') {
-      // Payment to Supplier -> reduce debt on Purchase Orders
-      setPurchaseOrders(prev => {
-        const sortedOrders = [...prev]
-          .filter(o => o.supplierId === partnerId && o.debtAmount > 0)
-          .sort((a, b) => new Date(a.orderDate).getTime() - new Date(b.orderDate).getTime());
-
-        const updatedOrdersMap = new Map();
-        for (const order of sortedOrders) {
-          if (remainingAmount <= 0) break;
-          const toPay = Math.min(order.debtAmount, remainingAmount);
-          remainingAmount -= toPay;
-          const newDebt = order.debtAmount - toPay;
-          const newPaid = (order.paidAmount || 0) + toPay;
-          updatedOrdersMap.set(order.id, {
-            ...order,
-            debtAmount: newDebt,
-            paidAmount: newPaid,
-            paymentStatus: newDebt === 0 ? 'PAID' : 'PARTIAL'
-          });
-        }
-
-        return prev.map(o => updatedOrdersMap.has(o.id) ? updatedOrdersMap.get(o.id) : o);
-      });
-    } else {
-      // Receipt from Customer -> reduce debt on Invoices
-      setInvoices(prev => {
-        const sortedInvoices = [...prev]
-          .filter(i => i.customerId === partnerId && i.debtAmount > 0)
-          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-        const updatedInvoicesMap = new Map();
-        for (const invoice of sortedInvoices) {
-          if (remainingAmount <= 0) break;
-          const toPay = Math.min(invoice.debtAmount, remainingAmount);
-          remainingAmount -= toPay;
-          const newDebt = invoice.debtAmount - toPay;
-          const newPaid = (invoice.paidAmount || 0) + toPay;
-          updatedInvoicesMap.set(invoice.id, {
-            ...invoice,
-            debtAmount: newDebt,
-            paidAmount: newPaid,
-            paymentStatus: newDebt === 0 ? 'PAID' : 'PARTIAL'
-          });
-        }
-
-        return prev.map(i => updatedInvoicesMap.has(i.id) ? updatedInvoicesMap.get(i.id) : i);
-      });
-    }
+    const purchaseUpdates = new Map(result.allocations.filter(item => item.sourceType === 'PURCHASE_ORDER').map(item => [item.sourceId, item]));
+    const invoiceUpdates = new Map(result.allocations.filter(item => item.sourceType === 'INVOICE').map(item => [item.sourceId, item]));
+    setPurchaseOrders(previous => previous.map(order => {
+      const update = purchaseUpdates.get(order.id);
+      return update ? { ...order, paidAmount: update.paidAmount, debtAmount: update.remainingDebt, paymentStatus: update.paymentStatus } : order;
+    }));
+    setInvoices(previous => previous.map(invoice => {
+      const update = invoiceUpdates.get(invoice.id);
+      return update ? { ...invoice, paidAmount: update.paidAmount, debtAmount: update.remainingDebt, paymentStatus: update.paymentStatus } : invoice;
+    }));
+    return result.partner;
   };
 
-  const handlePaySupplierDebt = (orderId: string, supplierId: string, amount: number, fundId: string, note: string) => {
+  const handleInstallmentDisbursement = async (input: {
+    invoiceId: string;
+    fundId: string;
+    receivedAmount: number;
+    feeAmount: number;
+    note: string;
+    idempotencyKey: string;
+  }) => {
+    const result = await requestInstallmentDisbursement(input);
+    setInvoices(previous => previous.map(invoice => invoice.id === result.invoice.id ? result.invoice : invoice));
+    setFunds(previous => previous.map(fund => fund.id === result.fund.id ? result.fund : fund));
+    setPartners(previous => previous.map(partner => partner.id === result.financePartner.id ? result.financePartner : partner));
+    setCashTransactions(previous => [
+      ...result.cashTransactions,
+      ...previous.filter(transaction => !result.cashTransactions.some(created => created.id === transaction.id))
+    ]);
+  };
+
+  const handlePaySupplierDebt = async (orderId: string, _supplierId: string, amount: number, fundId: string, note: string, idempotencyKey: string) => {
+    if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn. Chưa ghi nhận thanh toán.');
     const targetFund = funds.find(f => f.id === fundId);
     if (!targetFund) {
-      alert(`Lỗi kế toán: Không tìm thấy Quỹ thanh toán có mã ${fundId}. Giao dịch bị hủy.`);
-      return;
+      throw new Error(`Không tìm thấy quỹ thanh toán ${fundId}.`);
     }
-    const supplier = partners.find(p => p.id === supplierId && (p.type === 'SUPPLIER' || p.type === 'BOTH'));
-    if (!supplier) {
-      alert(`Lỗi kế toán: Không tìm thấy Nhà Cung Cấp hợp lệ có mã ${supplierId}. Giao dịch bị hủy.`);
-      return;
-    }
-
-    // 1. Thêm CashTransaction ở Sổ Quỹ (handleAddCashTransaction sẽ tự trừ quỹ)
-    if (targetFund) {
-      const cashTx: CashTransaction = {
-        id: `CTX-PAY-${Date.now()}`,
-        code: `PC-${Date.now().toString().slice(-6)}`,
-        date: new Date().toISOString().split('T')[0],
-        type: 'PAYMENT',
-        category: 'SUPPLIER_DEBT_PAY',
-        categoryName: 'Chi thanh toán nợ Nhà Cung Cấp',
-        amount,
-        fundId: targetFund.id,
-        fundType: targetFund.type,
-        fundName: targetFund.name,
-        partnerId: supplier?.id || supplierId,
-        partnerName: supplier?.name || 'Nhà Cung Cấp',
-        partnerType: 'SUPPLIER',
-        referenceCode: orderId,
-        notes: note || `Thanh toán nợ NCC ${supplier?.name || ''}`,
-        creator: currentUser ? currentUser.displayName : 'Admin PhoneHouse',
-        branchId: activeBranchId || currentUser?.branchId,
-        status: 'COMPLETED'
-      };
-      handleAddCashTransaction(cashTx);
-    }
-
-    // 2. Giảm công nợ NCC & ghi lịch sử
-    if (supplier) {
-      const newTx: PartnerDebtTransaction = {
-        id: `TX-DEBT-PAY-${Date.now().toString().slice(-6)}`,
-        date: new Date().toISOString().split('T')[0],
-        type: 'PAYMENT',
-        amount,
-        note: note || `Trả nợ phiếu nhập hàng ${orderId}`,
-        referenceId: orderId,
-        referenceCode: purchaseOrders.find(order => order.id === orderId)?.code || orderId,
-        referenceType: 'PURCHASE_ORDER'
-      };
-      handleUpdatePartner({
-        ...supplier,
-        outstandingDebt: Math.max(0, (supplier.outstandingDebt || 0) - amount),
-        debtTransactions: [newTx, ...(supplier.debtTransactions || [])]
-      });
-    }
+    const method = targetFund.type === 'CASH' ? 'CASH' : 'BANK_TRANSFER';
+    const result = await requestPayPurchaseOrderDebt(orderId, [{ fundId, method, amount }], note, currentUser, idempotencyKey);
+    setPurchaseOrders(prev => prev.map(order => order.id === orderId ? result.order : order));
+    return result.order;
   };
 
   const handleUpdateDeviceStatus = (
@@ -1883,6 +1577,7 @@ export default function App() {
           <InventoryView
             catalogItems={catalogItems}
             currentUser={currentUser}
+            serverSummary={inventorySummary}
             devices={devices}
             branches={branches}
             warehouses={warehouses}
@@ -1933,7 +1628,7 @@ export default function App() {
           />
         )}
 
-        {(activeTab === 'products' || activeTab === 'spare-parts') && (
+        {activeTab === 'products' && (
           <ProductsView
             products={products}
             onAddProduct={(p) => {
@@ -2123,12 +1818,6 @@ export default function App() {
             onSelectTicket={(ticket) => {
               alert(`Chi tiết phiếu ${ticket.ticketNumber}:\nKhách: ${ticket.customerName} (${ticket.phone})\nMáy: ${ticket.model}\nLỗi: ${ticket.faultDescription || ticket.issueType}\nKTV: ${ticket.technician || 'Chưa gán'}`);
             }}
-            onUpdateTicketStatus={async (ticketId, newStatus) => {
-              const t = warrantyTickets.find(w => w.id === ticketId);
-              if (t) {
-                await handleUpdateWarrantyTicket({ ...t, status: newStatus });
-              }
-            }}
             onOpenCreateModal={() => setIsRepairIntakeOpen(true)}
           />
         )}
@@ -2161,34 +1850,23 @@ export default function App() {
 
         {activeTab === 'invoices' && (
           <InvoicesView
-            currentUser={currentUser}
-            branches={branches}
             invoices={filteredInvoices}
             devices={filteredDevices}
             onNavigateToPOS={() => {
               setPosPreSelectedDevice(null);
               setActiveTab('pos');
             }}
-            onUpdateInvoice={handleUpdateInvoice}
+            onUpdateInvoiceNote={handleUpdateInvoiceNote}
             onCancelInvoice={handleCancelInvoice}
-            onDeleteInvoice={handleDeleteInvoice}
             initialSelectedInvoiceId={linkedInvoiceId}
           />
         )}
 
         {activeTab === 'installments' && (
           <InstallmentReconciliationView
-            currentUser={currentUser}
-            branches={branches}
             invoices={filteredInvoices}
             funds={funds}
-            partners={partners}
-            onUpdateInvoice={handleUpdateInvoice}
-            onAddTransaction={handleAddCashTransaction}
-            onUpdateFunds={(updatedFunds) => {
-              setFunds(updatedFunds);
-            }}
-            onUpdatePartner={handleUpdatePartner}
+            onConfirmDisbursement={handleInstallmentDisbursement}
           />
         )}
 
@@ -2216,7 +1894,8 @@ export default function App() {
             onAddPartner={handleAddPartner}
             onUpdatePartner={handleUpdatePartner}
             onDeletePartner={handleDeletePartner}
-            onAddTransaction={handleAddCashTransaction}
+            onSettleDebt={handleSettlePartnerDebt}
+            onOpenInstallmentReconciliation={() => setActiveTab('installments')}
             funds={funds}
             onOpenReference={handleOpenDebtReference}
           />
@@ -2245,6 +1924,10 @@ export default function App() {
             onRestoreWarehouse={handleRestoreWarehouse}
             onSaveSettings={handleSaveStoreSettings}
           />
+        )}
+
+        {activeTab === 'spare-parts' && (
+          <TechnicalSparePartsView warehouses={warehouses} currentUser={currentUser} />
         )}
 
         {activeTab === 'more' && (
@@ -2318,25 +2001,21 @@ export default function App() {
           <MonthlyPayrollTable
             staffList={users as any}
             branches={branches}
-            selectedMonth="2026-08"
-            onApproveAndPayPayroll={(month, records) => {
-              alert(`Đã duyệt và thanh toán bảng lương tháng ${month} cho ${records.length} nhân sự thành công!`);
-            }}
+            attendanceRecords={attendanceRecords}
+            selectedMonth={new Date().toISOString().slice(0, 7)}
           />
         )}
 
         {activeTab === 'tech-workspace' && (
           <TechWorkspaceView
-            tasks={filteredWarrantyTickets}
             currentUser={currentUser}
             devices={filteredDevices}
             branches={branches}
+            warehouses={warehouses}
             onCheckIn={handleCheckIn}
             onCheckOut={handleCheckOut}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
             attendanceRecord={currentAttendance}
-            attendanceRecords={attendanceRecords}
-            onUpdateTaskStatus={async (task, status) => handleUpdateWarrantyTicket({ ...task, status })}
             onOpenRepairIntake={() => setIsRepairIntakeOpen(true)}
           />
         )}
@@ -2378,9 +2057,11 @@ export default function App() {
         isOpen={isRepairIntakeOpen}
         onClose={() => setIsRepairIntakeOpen(false)}
         branches={branches}
+        warehouses={warehouses}
+        devices={devices}
         users={users}
         currentUser={currentUser}
-        onCreate={handleAddWarrantyTicket}
+        onCreated={async () => { setActiveTab('tech-workspace'); }}
       />
 
       {/* Floating AI Copilot Button */}

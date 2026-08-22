@@ -40,8 +40,64 @@ export function createInventoryIdempotencyKey(scope: string): string {
   return `${scope}:${suffix}`;
 }
 
-export async function fetchInventoryDevices(currentUser?: UserAccount): Promise<{ devices: DeviceItem[]; snapshotAt: string }> {
-  return sendInventoryRequest('devices', 'GET', undefined, currentUser);
+export interface InventoryDeviceSummary {
+  totalCount: number;
+  availableCount: number;
+  reservedCount: number;
+  technicalCount: number;
+  inTransitCount: number;
+  soldCount: number;
+}
+
+export interface InventoryDevicePage {
+  devices: DeviceItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  snapshotAt: string;
+  summary?: InventoryDeviceSummary;
+}
+
+export async function fetchInventoryDevicePage(
+  options: {
+    limit?: number;
+    cursor?: string;
+    branchId?: string;
+    locationId?: string;
+    status?: string;
+    search?: string;
+    includeSummary?: boolean;
+  } = {},
+  currentUser?: UserAccount
+): Promise<InventoryDevicePage> {
+  const params = new URLSearchParams();
+  params.set('limit', String(Math.min(500, Math.max(1, options.limit || 100))));
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.branchId) params.set('branchId', options.branchId);
+  if (options.locationId) params.set('locationId', options.locationId);
+  if (options.status) params.set('status', options.status);
+  if (options.search) params.set('search', options.search);
+  params.set('includeSummary', options.includeSummary === false ? 'false' : 'true');
+  return sendInventoryRequest(`devices?${params.toString()}`, 'GET', undefined, currentUser);
+}
+
+export async function fetchInventoryDevices(currentUser?: UserAccount): Promise<{
+  devices: DeviceItem[];
+  snapshotAt: string;
+  summary?: InventoryDeviceSummary;
+}> {
+  const devicesById = new Map<string, DeviceItem>();
+  let cursor: string | undefined;
+  let summary: InventoryDeviceSummary | undefined;
+  let snapshotAt = new Date().toISOString();
+  for (let pageNumber = 0; pageNumber < 100; pageNumber++) {
+    const page = await fetchInventoryDevicePage({ limit: 500, cursor, includeSummary: pageNumber === 0 }, currentUser);
+    page.devices.forEach(device => devicesById.set(device.id, device));
+    if (pageNumber === 0) summary = page.summary;
+    snapshotAt = page.snapshotAt || snapshotAt;
+    if (!page.hasMore || !page.nextCursor) return { devices: [...devicesById.values()], snapshotAt, summary };
+    cursor = page.nextCursor;
+  }
+  throw new Error('INVENTORY_PAGINATION_LIMIT_EXCEEDED: Dữ liệu vượt 50.000 máy; cần lọc theo chi nhánh hoặc kho.');
 }
 
 export async function requestImportInventoryDevices(
@@ -71,6 +127,20 @@ export async function requestCancelPurchaseOrder(
   currentUser?: UserAccount
 ): Promise<{ order: PurchaseOrder; removedDeviceIds: string[]; idempotentReplay?: boolean }> {
   return sendInventoryRequest(`purchase-orders/${encodeURIComponent(orderId)}/cancel`, 'POST', { reason }, currentUser);
+}
+
+export async function requestPayPurchaseOrderDebt(
+  orderId: string,
+  paymentAllocations: Array<{ fundId: string; method: 'CASH' | 'BANK_TRANSFER'; amount: number }>,
+  note: string,
+  currentUser?: UserAccount,
+  idempotencyKey?: string
+): Promise<{ order: PurchaseOrder; paymentTransactionIds: string[]; idempotentReplay?: boolean }> {
+  return sendInventoryRequest(`purchase-orders/${encodeURIComponent(orderId)}/payments`, 'POST', {
+    paymentAllocations,
+    note,
+    idempotencyKey: idempotencyKey || createInventoryIdempotencyKey(`purchase-payment:${orderId}`)
+  }, currentUser);
 }
 
 export async function fetchInventoryAudit(currentUser?: UserAccount): Promise<{

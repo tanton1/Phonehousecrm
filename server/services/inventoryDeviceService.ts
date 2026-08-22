@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { FieldValue, Firestore } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, Firestore } from 'firebase-admin/firestore';
 
 export interface InventoryActor {
   uid: string;
@@ -187,6 +187,33 @@ export async function processImportInventoryDevices(
         updatedAt: now
       };
       transaction.set(deviceRef, device);
+      transaction.set(db.collection('deviceFinancials').doc(deviceId), {
+        deviceId,
+        imei: normalizedImei,
+        branchId: input.branchId,
+        acquisitionCost: currentCost,
+        technicalAddedCost: 0,
+        currentCost,
+        costVersion: `${input.sourceType}_V1`,
+        calculatedAt: now,
+        createdAt: now,
+        updatedAt: now
+      });
+      transaction.set(db.collection('deviceCostEvents').doc(`DCE_ACQ_${deviceId}`), {
+        id: `DCE_ACQ_${deviceId}`,
+        deviceId,
+        imei: normalizedImei,
+        branchId: input.branchId,
+        eventType: 'ACQUISITION',
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+        costBefore: 0,
+        amount: currentCost,
+        costAfter: currentCost,
+        costVersion: `${input.sourceType}_V1`,
+        createdByUid: actor.uid,
+        createdAt: now
+      });
       transaction.set(registryRef, { imei: normalizedImei, deviceId, branchId: input.branchId, createdAt: now, createdByUid: actor.uid });
       const movementId = `MOV_STOCK_IN_${Date.now()}_${index + 1}_${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
       transaction.set(db.collection('inventoryMovements').doc(movementId), {
@@ -211,19 +238,144 @@ export async function processImportInventoryDevices(
   });
 }
 
-export async function listInventoryDevicesForActor(db: Firestore, actor: InventoryActor): Promise<any[]> {
-  const role = String(actor.role || '').toUpperCase();
-  let docs: any[] = [];
-  if (role === 'ADMIN' || role === 'REGIONAL_MANAGER') {
-    docs = (await db.collection('devices').limit(2500).get()).docs;
-  } else {
-    const branchIds = [...new Set([actor.branchId, ...(actor.assignedBranchIds || [])].filter(Boolean))] as string[];
-    const snapshots = await Promise.all(branchIds.map(branchId => db.collection('devices').where('branchId', '==', branchId).limit(1500).get()));
-    const byId = new Map<string, any>();
-    snapshots.forEach(snapshot => snapshot.docs.forEach(doc => byId.set(doc.id, doc)));
-    docs = [...byId.values()];
+export interface InventoryDeviceListOptions {
+  limit?: number;
+  cursor?: string;
+  branchId?: string;
+  locationId?: string;
+  status?: string;
+  search?: string;
+  includeSummary?: boolean;
+}
+
+export interface InventoryDeviceListResult {
+  devices: any[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  snapshotAt: string;
+  summary?: {
+    totalCount: number;
+    availableCount: number;
+    reservedCount: number;
+    technicalCount: number;
+    inTransitCount: number;
+    soldCount: number;
+  };
+}
+
+export function encodeInventoryCursor(documentId: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, id: documentId }), 'utf8').toString('base64url');
+}
+
+export function decodeInventoryCursor(cursor: string): string {
+  try {
+    if (!cursor || cursor.length > 500) throw new Error('INVALID_CURSOR');
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    const id = String(parsed?.id || '');
+    if (parsed?.v !== 1 || !id || id.length > 500 || /[\r\n]/.test(id)) throw new Error('INVALID_CURSOR');
+    return id;
+  } catch {
+    throw new Error('INVENTORY_CURSOR_INVALID');
   }
-  return docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+function redactInventoryDevice(documentId: string, data: any, mayViewCost: boolean): any {
+  const device = { id: documentId, ...data } as any;
+  if (mayViewCost) return device;
+  const {
+    buyPrice: _buyPrice,
+    supplierUnitPrice: _supplierUnitPrice,
+    acquisitionCost: _acquisitionCost,
+    allocatedDiscountAmount: _allocatedDiscountAmount,
+    allocatedShippingFee: _allocatedShippingFee,
+    allocatedVatAmount: _allocatedVatAmount,
+    allocatedOtherFees: _allocatedOtherFees,
+    currentCost: _currentCost,
+    costVersion: _costVersion,
+    costCalculatedAt: _costCalculatedAt,
+    supplier: _supplier,
+    supplierId: _supplierId,
+    ...visibleDevice
+  } = device;
+  return { ...visibleDevice, costRestricted: true };
+}
+
+export async function listInventoryDevicesForActor(
+  db: Firestore,
+  actor: InventoryActor,
+  options: InventoryDeviceListOptions = {}
+): Promise<InventoryDeviceListResult> {
+  const role = String(actor.role || '').toUpperCase();
+  const mayViewCost = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(role);
+  const pageLimit = Math.min(500, Math.max(1, Number.isFinite(Number(options.limit)) ? Math.floor(Number(options.limit)) : 100));
+  const requestedBranchId = String(options.branchId || '').trim();
+  const requestedLocationId = String(options.locationId || '').trim();
+  const requestedStatus = String(options.status || '').trim();
+  const search = normalizeImei(options.search || '');
+  if (requestedBranchId && !canAccessBranch(actor, requestedBranchId)) throw new Error('INVENTORY_BRANCH_FORBIDDEN');
+  if (search && !/^\d{5,15}$/.test(search)) throw new Error('INVENTORY_SEARCH_REQUIRES_EXACT_IMEI');
+  const actorBranchIds = [...new Set([actor.branchId, ...(actor.assignedBranchIds || [])].filter(Boolean))] as string[];
+  if (role !== 'ADMIN' && role !== 'REGIONAL_MANAGER' && !requestedBranchId && actorBranchIds.length === 0) {
+    return {
+      devices: [], nextCursor: null, hasMore: false, snapshotAt: new Date().toISOString(),
+      ...(options.includeSummary === false ? {} : { summary: { totalCount: 0, availableCount: 0, reservedCount: 0, technicalCount: 0, inTransitCount: 0, soldCount: 0 } })
+    };
+  }
+
+  const buildScopeQuery = (): any => {
+    let query: any = db.collection('devices');
+    if (requestedBranchId) query = query.where('branchId', '==', requestedBranchId);
+    else if (role !== 'ADMIN' && role !== 'REGIONAL_MANAGER') {
+      if (actorBranchIds.length === 1) query = query.where('branchId', '==', actorBranchIds[0]);
+      else if (actorBranchIds.length <= 30) query = query.where('branchId', 'in', actorBranchIds);
+      else throw new Error('INVENTORY_BRANCH_SCOPE_TOO_LARGE');
+    }
+    if (requestedLocationId) query = query.where('currentLocationId', '==', requestedLocationId);
+    if (search) query = query.where('imeiNormalized', '==', search);
+    return query;
+  };
+  let listQuery = buildScopeQuery();
+  if (requestedStatus) listQuery = listQuery.where('status', '==', requestedStatus);
+  listQuery = listQuery.orderBy(FieldPath.documentId());
+  if (options.cursor) listQuery = listQuery.startAfter(decodeInventoryCursor(options.cursor));
+  const pageSnapshot = await listQuery.limit(pageLimit + 1).get();
+  const hasMore = pageSnapshot.docs.length > pageLimit;
+  const docs = pageSnapshot.docs.slice(0, pageLimit);
+  const lastDocumentId = docs.length > 0 ? docs[docs.length - 1].id : null;
+  const result: InventoryDeviceListResult = {
+    devices: docs.map(doc => redactInventoryDevice(doc.id, doc.data(), mayViewCost)),
+    nextCursor: hasMore && lastDocumentId ? encodeInventoryCursor(lastDocumentId) : null,
+    hasMore,
+    snapshotAt: new Date().toISOString()
+  };
+  if (options.includeSummary !== false) {
+    const countForStatus = async (status?: string): Promise<number> => {
+      let query = buildScopeQuery();
+      if (status) query = query.where('status', '==', status);
+      const snapshot = await query.count().get();
+      return Number(snapshot.data().count || 0);
+    };
+    const [totalCount, availableCount, reservedCount, awaitingTechnicalCount, inRepairCount, legacyRepairingCount, warrantyCount, inTransitCount, soldCount] = await Promise.all([
+      countForStatus(),
+      countForStatus('in_stock'),
+      countForStatus('reserved'),
+      countForStatus('awaiting_technical'),
+      countForStatus('in_repair'),
+      countForStatus('repairing'),
+      countForStatus('warranty'),
+      countForStatus('in_transit'),
+      countForStatus('sold')
+    ]);
+    result.summary = {
+      totalCount,
+      availableCount,
+      reservedCount,
+      technicalCount: awaitingTechnicalCount + inRepairCount + legacyRepairingCount + warrantyCount,
+      inTransitCount,
+      soldCount
+    };
+  }
+  return result;
 }
 
 export async function buildInventoryAuditReport(db: Firestore) {

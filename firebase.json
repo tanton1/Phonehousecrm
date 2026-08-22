@@ -2,7 +2,11 @@
   "firestore": [
     {
       "database": "ai-studio-iphoneshopcrmbui-b0e785b1-25cf-4fc4-b7b5-9795da0731f7",
-      "rules": "firestore.rules"
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
     }
-  ]
+  ],
+  "storage": {
+    "rules": "storage.rules"
+  }
 }

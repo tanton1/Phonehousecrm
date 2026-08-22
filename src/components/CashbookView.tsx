@@ -1440,7 +1440,6 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                         <>
                           <optgroup label="Danh mục Thu chuẩn">
                             <option value="SALES_REVENUE">Thu tiền bán lẻ iPhone, Phụ kiện (POS)</option>
-                            <option value="CUSTOMER_DEBT_COLLECT">Thu nợ khách hàng / Giải ngân trả góp</option>
                             <option value="TRADEIN_DIFF_COLLECT">Thu tiền chênh lệch Trade-in thu cũ đổi mới</option>
                             <option value="DEPOSIT">Thu tiền đặt cọc giữ máy</option>
                             <option value="REPAIR_SERVICE">Thu phí dịch vụ sửa chữa / Thay linh kiện</option>
@@ -1460,7 +1459,6 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                         <>
                           <optgroup label="Danh mục Chi chuẩn">
                             <option value="INVENTORY_PURCHASE">Chi nhập hàng iPhone / Phụ kiện từ NCC</option>
-                            <option value="SUPPLIER_DEBT_PAY">Chi thanh toán nợ Nhà Cung Cấp</option>
                             <option value="TRADEIN_BUYBACK">Chi tiền mua lại máy cũ khách Trade-in</option>
                             <option value="STORE_RENT">Chi tiền thuê mặt bằng showroom</option>
                             <option value="SALARY_BONUS">Chi lương, thưởng, hoa hồng nhân viên</option>
@@ -2047,6 +2045,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         isOpen={isCreatePartnerModalOpen}
         onClose={() => setIsCreatePartnerModalOpen(false)}
         defaultType={modalType === 'RECEIPT' ? 'CUSTOMER' : 'SUPPLIER'}
+        branchId={selectedBranchId !== 'ALL' ? selectedBranchId : currentUser?.branchId || ''}
         onSavePartner={async (newPartner) => {
           if (onAddPartner) {
             await onAddPartner(newPartner);

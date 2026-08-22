@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { processCancelPurchaseOrderReceipt, validatePurchaseReceiptInput } from '../server/services/purchaseOrderReceiptService';
+import { allocatePurchaseLandedCosts, assertPurchaseDeviceCanBeCancelled, processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, validatePurchaseReceiptInput } from '../server/services/purchaseOrderReceiptService';
 import { imeiRegistryId } from '../server/services/inventoryDeviceService';
 
 const actor = { uid: 'ADMIN_01', name: 'Admin', role: 'ADMIN', branchId: 'CN01' };
@@ -46,9 +46,73 @@ describe('Atomic supplier purchase receipt validation', () => {
     expect(() => validatePurchaseReceiptInput({ order: validOrder({ items: [{ ...shortItem, imeiList: ['1234'] }] }) }, actor)).toThrow('IMEI_INVALID');
     expect(() => validatePurchaseReceiptInput({ order: validOrder({ items: [{ ...shortItem, imeiList: ['1234567890123456'] }] }) }, actor)).toThrow('IMEI_INVALID');
   });
+
+  it('rejects a total that does not equal IMEI cost minus discount plus fees', () => {
+    expect(() => validatePurchaseReceiptInput({ order: validOrder({
+      totalAmount: 1,
+      paidAmount: 1,
+      debtAmount: 0
+    }) }, actor)).toThrow('PURCHASE_TOTAL_MISMATCH');
+    const validAdjusted = validatePurchaseReceiptInput({ order: validOrder({
+      discountAmount: 1_000_000,
+      shippingFee: 500_000,
+      totalAmount: 19_500_000,
+      paidAmount: 19_500_000,
+      debtAmount: 0
+    }) }, actor);
+    expect(validAdjusted.totalAmount).toBe(19_500_000);
+    expect(validAdjusted.devices[0]).toMatchObject({
+      buyPrice: 20_000_000,
+      allocatedDiscountAmount: 1_000_000,
+      allocatedShippingFee: 500_000,
+      acquisitionCost: 19_500_000
+    });
+  });
+
+  it('allocates every landed-cost component to IMEIs and preserves the exact order total', () => {
+    const allocations = allocatePurchaseLandedCosts([
+      { imei: '12345', buyPrice: 10_000_000 },
+      { imei: '12346', buyPrice: 20_000_000 },
+      { imei: '12347', buyPrice: 30_000_000 }
+    ], {
+      discountAmount: 3_000_001,
+      shippingFee: 1_000_001,
+      vatAmount: 600_001,
+      otherFees: 300_001
+    });
+    expect(allocations.reduce((sum, item) => sum + item.discountAmount, 0)).toBe(3_000_001);
+    expect(allocations.reduce((sum, item) => sum + item.shippingFee, 0)).toBe(1_000_001);
+    expect(allocations.reduce((sum, item) => sum + item.vatAmount, 0)).toBe(600_001);
+    expect(allocations.reduce((sum, item) => sum + item.otherFees, 0)).toBe(300_001);
+    expect(allocations.reduce((sum, item) => sum + item.acquisitionCost, 0)).toBe(58_900_002);
+    expect(allocations.map(item => item.supplierUnitPrice)).toEqual([10_000_000, 20_000_000, 30_000_000]);
+  });
+
+  it('shares landed fees deterministically when all supplier unit prices are zero', () => {
+    const allocations = allocatePurchaseLandedCosts([
+      { imei: '12345', buyPrice: 0 },
+      { imei: '12346', buyPrice: 0 }
+    ], { discountAmount: 0, shippingFee: 101, vatAmount: 0, otherFees: 0 });
+    expect(allocations.map(item => item.acquisitionCost)).toEqual([51, 50]);
+  });
 });
 
 describe('Purchase receipt cancellation rollback', () => {
+  it('does not delete an IMEI that returned to its original warehouse after technical or transfer activity', () => {
+    const device = {
+      id: 'DEV_01', imei: '12345', status: 'in_stock', currentLocationId: 'KHO_CN01',
+      acquisitionCost: 10_000_000, currentCost: 10_000_000, costVersion: 'PURCHASE_LANDED_COST_V1'
+    };
+    const receiptMovement = { movementType: 'STOCK_RECEIPT', sourceType: 'PURCHASE_ORDER', sourceId: 'PO_01' };
+    expect(() => assertPurchaseDeviceCanBeCancelled(device, 'KHO_CN01', 'PO_01', [receiptMovement], [
+      { eventType: 'ACQUISITION', sourceType: 'PURCHASE_ORDER', sourceId: 'PO_01' }
+    ])).not.toThrow();
+    expect(() => assertPurchaseDeviceCanBeCancelled(device, 'KHO_CN01', 'PO_01', [receiptMovement, {
+      movementType: 'TECHNICAL_RETURN', sourceType: 'TECHNICAL_WORK_ORDER', sourceId: 'WO_01'
+    }], [])).toThrow('PURCHASE_CANCEL_DEVICE_HAS_LIFECYCLE');
+    expect(() => assertPurchaseDeviceCanBeCancelled({ ...device, currentCost: 10_500_000 }, 'KHO_CN01', 'PO_01', [receiptMovement], [])).toThrow('PURCHASE_CANCEL_DEVICE_HAS_LIFECYCLE');
+  });
+
   it('removes untouched received devices and reverses supplier/fund ledgers atomically', async () => {
     type Ref = { kind: 'ref'; col: string; id: string };
     type Query = { kind: 'query'; col: string; field: string; value: unknown };
@@ -59,8 +123,14 @@ describe('Purchase receipt cancellation rollback', () => {
       imeiRegistry: { [imeiRegistryId('12345')]: { imei: '12345', deviceId: 'DEV_01' } },
       inventoryMovements: { MOV_01: { id: 'MOV_01', sourceId: 'PO_01', movementType: 'STOCK_RECEIPT' } },
       partners: { SUP_01: { id: 'SUP_01', outstandingDebt: 0, totalPurchasedFrom: 20_000_000, debtTransactions: [{ referenceId: 'PO_01' }] } },
-      funds: { FUND_CN01: { id: 'FUND_CN01', currentBalance: 80_000_000, totalExpense: 20_000_000 } },
-      cashTransactions: { PAY_01: { id: 'PAY_01', referenceCode: 'PN-000001', fundId: 'FUND_CN01', amount: 20_000_000, status: 'COMPLETED' } }
+      funds: {
+        FUND_CN01: { id: 'FUND_CN01', currentBalance: 95_000_000, totalExpense: 5_000_000 },
+        BANK_CN01: { id: 'BANK_CN01', currentBalance: 85_000_000, totalExpense: 15_000_000 }
+      },
+      cashTransactions: {
+        PAY_01: { id: 'PAY_01', referenceCode: 'PN-000001', fundId: 'FUND_CN01', amount: 5_000_000, status: 'COMPLETED' },
+        PAY_02: { id: 'PAY_02', referenceCode: 'PN-000001', fundId: 'BANK_CN01', amount: 15_000_000, status: 'COMPLETED' }
+      }
     };
     Object.entries(seed).forEach(([collection, docs]) => Object.entries(docs).forEach(([id, value]) => data.set(`${collection}/${id}`, { ...value })));
     const ref = (col: string, id: string): Ref => ({ kind: 'ref', col, id });
@@ -88,8 +158,57 @@ describe('Purchase receipt cancellation rollback', () => {
     expect(data.has(`imeiRegistry/${imeiRegistryId('12345')}`)).toBe(false);
     expect(data.get('inventoryMovements/MOV_01')).toMatchObject({ movementType: 'STOCK_RECEIPT_CANCELLED', reversed: true });
     expect(data.get('funds/FUND_CN01')).toMatchObject({ currentBalance: 100_000_000, totalExpense: 0 });
+    expect(data.get('funds/BANK_CN01')).toMatchObject({ currentBalance: 100_000_000, totalExpense: 0 });
     expect(data.get('partners/SUP_01')).toMatchObject({ outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
     expect(data.get('cashTransactions/PAY_01').status).toBe('CANCELLED');
+    expect(data.get('cashTransactions/PAY_02').status).toBe('CANCELLED');
     expect(data.get('purchaseOrders/PO_01')).toMatchObject({ status: 'CANCELLED', inventoryPostingStatus: 'REVERSED' });
+  });
+});
+
+describe('Purchase supplier-debt payment transaction', () => {
+  it('updates the order, supplier, two funds and cash ledger once', async () => {
+    type Ref = { kind: 'ref'; col: string; id: string };
+    const data = new Map<string, any>();
+    const seed: Record<string, Record<string, any>> = {
+      purchaseOrders: { PO_01: { ...validOrder({ paidAmount: 0, debtAmount: 20_000_000, fundId: '' }), inventoryPostingStatus: 'POSTED' } },
+      partners: { SUP_01: { id: 'SUP_01', outstandingDebt: 20_000_000, debtTransactions: [] } },
+      funds: {
+        FUND_CN01: { id: 'FUND_CN01', branchId: 'CN01', type: 'CASH', name: 'TM CN01', currentBalance: 50_000_000, totalExpense: 0, isActive: true },
+        BANK_CN01: { id: 'BANK_CN01', branchId: 'CN01', type: 'BANK', name: 'NH CN01', currentBalance: 30_000_000, totalExpense: 0, isActive: true }
+      }
+    };
+    Object.entries(seed).forEach(([collection, docs]) => Object.entries(docs).forEach(([id, value]) => data.set(`${collection}/${id}`, { ...value })));
+    const ref = (col: string, id: string): Ref => ({ kind: 'ref', col, id });
+    const snap = (target: Ref) => ({ id: target.id, ref: target, exists: data.has(`${target.col}/${target.id}`), data: () => data.get(`${target.col}/${target.id}`) });
+    const db: any = {
+      collection: (col: string) => ({ doc: (id: string) => ref(col, id) }),
+      runTransaction: async (callback: any) => callback({
+        get: async (target: Ref) => snap(target),
+        set: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...value }),
+        update: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...data.get(`${target.col}/${target.id}`), ...value })
+      })
+    };
+    const input = {
+      idempotencyKey: 'PAYMENT-REQUEST-01',
+      note: 'Thanh toán đợt 2',
+      paymentAllocations: [
+        { fundId: 'FUND_CN01', method: 'CASH' as const, amount: 5_000_000 },
+        { fundId: 'BANK_CN01', method: 'BANK_TRANSFER' as const, amount: 10_000_000 }
+      ]
+    };
+
+    const result = await processPayPurchaseOrderDebt(db, 'PO_01', input, actor);
+    expect(result.order).toMatchObject({ paidAmount: 15_000_000, debtAmount: 5_000_000, paymentStatus: 'PARTIAL' });
+    expect(data.get('partners/SUP_01').outstandingDebt).toBe(5_000_000);
+    expect(data.get('funds/FUND_CN01')).toMatchObject({ currentBalance: 45_000_000, totalExpense: 5_000_000 });
+    expect(data.get('funds/BANK_CN01')).toMatchObject({ currentBalance: 20_000_000, totalExpense: 10_000_000 });
+    expect(result.paymentTransactionIds).toHaveLength(2);
+    result.paymentTransactionIds.forEach(id => expect(data.get(`cashTransactions/${id}`)).toMatchObject({ purchaseOrderId: 'PO_01', status: 'COMPLETED' }));
+
+    const replay = await processPayPurchaseOrderDebt(db, 'PO_01', input, actor);
+    expect(replay.idempotentReplay).toBe(true);
+    expect(data.get('partners/SUP_01').outstandingDebt).toBe(5_000_000);
+    expect(data.get('funds/FUND_CN01').currentBalance).toBe(45_000_000);
   });
 });

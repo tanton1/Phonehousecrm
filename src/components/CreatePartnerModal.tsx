@@ -8,6 +8,7 @@ interface CreatePartnerModalProps {
   defaultType?: PartnerType;
   initialPhone?: string;
   initialName?: string;
+  branchId?: string;
   onSavePartner: (partner: Partner) => void | Promise<void>;
 }
 
@@ -17,6 +18,7 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
   defaultType = 'CUSTOMER',
   initialPhone = '',
   initialName = '',
+  branchId = '',
   onSavePartner
 }) => {
   const [partnerType, setPartnerType] = useState<PartnerType>(defaultType);
@@ -54,6 +56,10 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
       alert('Vui lòng nhập số điện thoại liên hệ!');
       return;
     }
+    if (!branchId || branchId === 'ALL') {
+      alert('Vui lòng chọn một chi nhánh cụ thể trước khi tạo đối tác.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -65,6 +71,7 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
         address: address.trim() || undefined,
         taxCode: taxCode.trim() || undefined,
         type: partnerType,
+        branchId,
         outstandingDebt: 0,
         createdAt: new Date().toISOString().split('T')[0],
         notes: notes.trim() ? `[${group}] ${notes.trim()}` : `[${group}] Tạo từ form nhanh`

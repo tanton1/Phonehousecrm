@@ -61,6 +61,10 @@ service cloud.firestore {
       return isAdmin() || isManager() || (isActiveUser() && (hasRole('TECH_LEAD') || hasRole('TECH')));
     }
 
+    function canViewCost() {
+      return isAdmin() || isManager() || (isActiveUser() && hasRole('ACCOUNTANT'));
+    }
+
     // 5. Multi-tenant Branch Isolation (Requires active user)
     function canAccessBranch(branchId) {
       return isAdmin() || (
@@ -111,22 +115,27 @@ service cloud.firestore {
     // 3. Operational Collections - Strict Server Authority Protection
     // DEVICES: Sensitive state machine (status, sellPrice, branchId, soldInvoiceId, reservedUntil) is Server Authoritative Only!
     match /devices/{deviceId} {
-      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canManageInventory() && canAccessBranch(request.resource.data.branchId);
+      // Operational clients use /api/inventory/devices, which redacts cost by role.
+      // Firestore cannot redact individual fields, so raw reads are cost-authorized only.
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow create: if false; // IMEI registry + cost opening entry must be created by the Inventory API transaction.
       allow update: if isAuthenticated() && canManageInventory() &&
         canAccessBranch(resource.data.branchId) && 
         canAccessBranch(request.resource.data.branchId) &&
         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'currentLocationId', 'warehouseId', 'warehouse',
           'activeTransferId', 'transferLockId', 'activeWorkOrderId', 'transferState',
-          'currentCustodianUid', 'currentCost', 'costVersion', 'costCalculatedAt'
+          'currentCustodianUid', 'currentCost', 'costVersion', 'costCalculatedAt',
+          'imei', 'imeiNormalized', 'serialNo', 'buyPrice', 'supplierId',
+          'inventorySourceId', 'inventorySourceType', 'receivedDate',
+          'history', 'currentCustodian', 'technicianAssigned'
         ]) &&
         request.resource.data.status == resource.data.status &&
         request.resource.data.sellPrice == resource.data.sellPrice &&
         request.resource.data.branchId == resource.data.branchId &&
         (!('soldInvoiceId' in request.resource.data) || request.resource.data.soldInvoiceId == resource.data.soldInvoiceId) &&
         (!('reservedUntil' in request.resource.data) || request.resource.data.reservedUntil == resource.data.reservedUntil);
-      allow delete: if isAdmin();
+      allow delete: if false; // Cancellation/reversal must also release imeiRegistry on the server.
     }
 
     // Canonical IMEI registry and write idempotency are server-only invariants.
@@ -174,21 +183,52 @@ service cloud.firestore {
     }
 
     match /warrantyTickets/{ticketId} {
-      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
-      allow update: if isAuthenticated() && 
-        canAccessBranch(resource.data.branchId) && 
-        canAccessBranch(request.resource.data.branchId);
-      allow delete: if isAdmin() || isManager();
+      allow read: if isAdmin() || isManager() || (
+        isActiveUser() && resource.data.assigneeId == request.auth.uid && canAccessBranch(resource.data.branchId)
+      );
+      allow write: if false; // Legacy compatibility view only; new repairs use the Technical API.
     }
 
     match /partners/{partnerId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId);
+      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId) &&
+        request.resource.data.outstandingDebt == 0 &&
+        (!('debtTransactions' in request.resource.data) || request.resource.data.debtTransactions.size() == 0) &&
+        (!('totalPurchasedFrom' in request.resource.data) || request.resource.data.totalPurchasedFrom == 0) &&
+        (!('totalSalesTo' in request.resource.data) || request.resource.data.totalSalesTo == 0) &&
+        (!('totalSpent' in request.resource.data) || request.resource.data.totalSpent == 0);
       allow update: if isAuthenticated() && 
         canAccessBranch(resource.data.branchId) && 
-        canAccessBranch(request.resource.data.branchId);
+        canAccessBranch(request.resource.data.branchId) &&
+        request.resource.data.branchId == resource.data.branchId &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'outstandingDebt', 'debtTransactions', 'totalPurchasedFrom', 'totalSalesTo',
+          'totalSpent', 'lastInvoiceId', 'lastPurchaseDate'
+        ]);
       allow delete: if isAdmin();
+    }
+
+    match /partnerDebtSettlements/{settlementId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /partnerDebtSettlementRequests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /installmentDisbursements/{disbursementId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /installmentDisbursementRequests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /invoiceEvents/{eventId} {
+      allow read: if isAuthenticated() && isActiveUser() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
     }
 
     // 4. Inventory, Warehouse Transfers & Stock Balances (Server Authoritative Writes)
@@ -237,8 +277,19 @@ service cloud.firestore {
 
     match /purchaseOrders/{orderId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create, update: if isAuthenticated() && canManageInventory() && canAccessBranch(request.resource.data.branchId);
-      allow delete: if isAdmin();
+      allow create, delete: if false;
+      allow update: if isAuthenticated() && canManageInventory() &&
+        canAccessBranch(resource.data.branchId) &&
+        request.resource.data.branchId == resource.data.branchId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['notes', 'history', 'updatedAt']);
+    }
+
+    match /purchaseOrderSequences/{sequenceId} {
+      allow read, write: if false;
+    }
+
+    match /purchasePaymentIdempotency/{operationId} {
+      allow read, write: if false;
     }
 
     match /products/{productId} {
@@ -248,9 +299,9 @@ service cloud.firestore {
     }
 
     match /spareParts/{partId} {
-      allow read: if isAuthenticated() && isActiveUser();
-      allow create, update: if canManageTechnicalStock();
-      allow delete: if isAdmin();
+      // KTV reads the redacted canonical projection through /api/technical/parts.
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false; // Stock and cost are server-authoritative through Part Ledger APIs.
     }
 
     match /repairServices/{serviceId} {
@@ -318,6 +369,40 @@ service cloud.firestore {
     match /sopTemplates/{templateId} {
       allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin() || isManager();
+    }
+
+    match /dailyShiftChecklists/{checklistId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow create: if isActiveUser() &&
+        (isManager() || request.resource.data.staffId == request.auth.uid) &&
+        (!('branchId' in request.resource.data) || canAccessBranch(request.resource.data.branchId));
+      allow update: if isActiveUser() &&
+        (!('branchId' in resource.data) || canAccessBranch(resource.data.branchId)) &&
+        (!('branchId' in request.resource.data) || canAccessBranch(request.resource.data.branchId)) && (
+          isManager() || (
+            resource.data.staffId == request.auth.uid &&
+            request.resource.data.staffId == resource.data.staffId &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'isCompleted', 'completedAt', 'completedBy', 'note', 'photoProofUrl'
+            ])
+          )
+        );
+      allow delete: if isManager() && (!('branchId' in resource.data) || canAccessBranch(resource.data.branchId));
+    }
+
+    match /leaveRequests/{requestId} {
+      allow read: if isManager() || (isActiveUser() && resource.data.staffId == request.auth.uid);
+      allow create: if isActiveUser() && request.resource.data.staffId == request.auth.uid && request.resource.data.status == 'PENDING';
+      allow update: if isManager() || (
+        isActiveUser() && resource.data.staffId == request.auth.uid &&
+        request.resource.data.staffId == resource.data.staffId &&
+        resource.data.status == 'PENDING' && request.resource.data.status == 'PENDING' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'type', 'startDate', 'endDate', 'totalDays', 'reason',
+          'swapWithStaffId', 'swapWithStaffName', 'swapDate'
+        ])
+      );
+      allow delete: if false;
     }
 
     match /shiftHandover/{handoverId} {
@@ -405,17 +490,22 @@ service cloud.firestore {
 
     // 9. Technical & Work Order Collections (Server-Authoritative Only via /api/technical/...)
     match /technicalWorkOrders/{woId} {
-      allow read: if isAdmin() || (isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.currentCustodianUid == request.auth.uid));
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Strict Single Writer: Only Server Technical API (/api/technical/...)
     }
 
     match /technicalWorkOrderLines/{lineId} {
-      allow read: if isAdmin() || (isActiveUser() && (resource.data.assigneeUid == request.auth.uid || isManager()));
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Strict Single Writer: Only Server Technical API
     }
 
+    match /technicalCustodyHandovers/{handoffId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
     match /inventoryMovements/{movId} {
-      allow read: if isAuthenticated() && isActiveUser();
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Immutable Audit Ledger: Only Server Admin SDK
     }
 
@@ -430,13 +520,68 @@ service cloud.firestore {
     }
 
     match /technicalPartReservations/{resId} {
-      allow read: if isAuthenticated() && isActiveUser();
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Strict Single Writer: Only Server Parts Issue API
     }
 
-    // Default Fallback: Only Active Admin
+    match /technicalPartIssues/{issueId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /sparePartMovements/{movementId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /sparePartReceipts/{receiptId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /sparePartLots/{lotId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /technicalExternalCosts/{costId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /technicalRecoveries/{recoveryId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /technicalCostPostings/{postingId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /deviceCostEvents/{eventId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /deviceFinancials/{deviceId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /technicalSecrets/{workOrderId} {
+      allow read, write: if false;
+    }
+
+    match /technicalOperationIdempotency/{operationId} {
+      allow read, write: if false;
+    }
+
+    // Default fallback is deny-by-default. Admin SDK server calls bypass rules;
+    // no browser role, including ADMIN, may bypass a collection's server-only contract.
     match /{document=**} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+      allow write: if false;
     }
   }
 }

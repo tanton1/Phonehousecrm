@@ -43,6 +43,7 @@ import {
   PartnerDebtTransaction,
   StoreBranch
 } from '../types';
+import { createPartnerDebtIdempotencyKey, type PartnerDebtSettlementDirection } from '../services/financeApiClient';
 
 interface PartnersViewProps {
   partners: Partner[];
@@ -53,8 +54,15 @@ interface PartnersViewProps {
   onUpdatePartner: (partner: Partner) => void;
   onDeletePartner: (partnerId: string) => void;
   funds: import('../types').FundAccount[];
-  onAddTransaction: (tx: import('../types').CashTransaction) => void;
-  onAutoPayDebt?: (partnerId: string, amount: number, direction: 'PAYMENT' | 'RECEIPT') => void;
+  onSettleDebt: (input: {
+    partnerId: string;
+    amount: number;
+    fundId: string;
+    direction: PartnerDebtSettlementDirection;
+    note: string;
+    idempotencyKey: string;
+  }) => Promise<Partner>;
+  onOpenInstallmentReconciliation?: () => void;
   onOpenReference?: (transaction: PartnerDebtTransaction) => void;
 }
 
@@ -64,13 +72,14 @@ type SortOptionType = 'NEWEST' | 'OLDEST' | 'AMOUNT_ASC' | 'AMOUNT_DESC' | 'NAME
 export const PartnersView: React.FC<PartnersViewProps> = ({
   partners,
   devices = [],
+  branches = [],
   initialTab = 'ALL',
   onAddPartner,
   onUpdatePartner,
   onDeletePartner,
   funds,
-  onAddTransaction,
-  onAutoPayDebt,
+  onSettleDebt,
+  onOpenInstallmentReconciliation,
   onOpenReference
 }) => {
   // Navigation & Filtering
@@ -103,6 +112,9 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   const [settleNote, setSettleNote] = useState('');
   const [settleFundId, setSettleFundId] = useState('');
   const [settleDirection, setSettleDirection] = useState<'RECEIPT' | 'PAYMENT'>('RECEIPT');
+  const [settleIdempotencyKey, setSettleIdempotencyKey] = useState('');
+  const [isDebtSubmitting, setIsDebtSubmitting] = useState(false);
+  const [debtSubmitError, setDebtSubmitError] = useState('');
 
   // AI Loyalty & Retention Simulation
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
@@ -110,6 +122,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
 
   // Form State
   const [formData, setFormData] = useState<Partial<Partner>>({
+    branchId: '',
     type: 'CUSTOMER',
     name: '',
     phone: '',
@@ -151,12 +164,18 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   
   // Outstanding Receivables (Phải thu từ khách) & Payables (Phải trả NCC)
   const totalReceivables = partners
-    .filter(p => p.type === 'CUSTOMER' || (p.type === 'BOTH' && p.outstandingDebt > 0))
+    .filter(p => p.type === 'CUSTOMER' || p.type === 'BOTH' || p.supplierCategory === 'FINANCE_PARTNER')
     .reduce((sum, p) => sum + (p.outstandingDebt || 0), 0);
 
   const totalPayables = partners
-    .filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH')
+    .filter(p => (p.type === 'SUPPLIER' || p.type === 'BOTH') && p.supplierCategory !== 'FINANCE_PARTNER')
     .reduce((sum, p) => sum + (p.outstandingDebt || 0), 0);
+
+  const eligibleDebtFunds = funds.filter(fund =>
+    fund.isActive !== false && !fund.isArchived &&
+    ['CASH', 'BANK'].includes(fund.type) &&
+    Boolean(debtActionPartner?.branchId) && fund.branchId === debtActionPartner?.branchId
+  );
 
   // Filtered & Sorted list
   const filteredPartners = useMemo(() => {
@@ -212,6 +231,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   const handleOpenAdd = (type: PartnerType = 'SUPPLIER') => {
     setEditingPartner(null);
     setFormData({
+      branchId: branches.find(branch => branch.isActive !== false)?.id || '',
       type,
       name: '',
       phone: '',
@@ -239,8 +259,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
 
   const handleSavePartner = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.phone) {
-      alert('Vui lòng nhập đầy đủ tên và số điện thoại đối tác!');
+    if (!formData.name || !formData.phone || !formData.branchId) {
+      alert('Vui lòng nhập tên, số điện thoại và chi nhánh quản lý đối tác!');
       return;
     }
 
@@ -266,12 +286,13 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         name: formData.name!,
         phone: formData.phone!,
         type: formData.type || 'SUPPLIER',
+        branchId: formData.branchId,
         email: formData.email,
         address: formData.address,
         taxCode: formData.taxCode,
         customerTier: formData.customerTier,
         supplierCategory: formData.supplierCategory,
-        outstandingDebt: Number(formData.outstandingDebt) || 0,
+        outstandingDebt: 0,
         creditLimit: Number(formData.creditLimit) || 10000000,
         favoriteModel: formData.favoriteModel,
         notes: formData.notes,
@@ -303,67 +324,56 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   };
 
   const handleOpenDebtSettle = (partner: Partner) => {
+    if (partner.supplierCategory === 'FINANCE_PARTNER') {
+      if (onOpenInstallmentReconciliation) onOpenInstallmentReconciliation();
+      else alert('Công nợ công ty tài chính phải đối soát tại trang Giải ngân trả góp.');
+      return;
+    }
+    const direction = partner.type === 'SUPPLIER' ? 'PAYMENT' : 'RECEIPT';
+    const eligibleFunds = funds.filter(fund =>
+      fund.isActive !== false && !fund.isArchived &&
+      ['CASH', 'BANK'].includes(fund.type) &&
+      (!partner.branchId || fund.branchId === partner.branchId)
+    );
     setDebtActionPartner(partner);
     setSettleAmount(partner.outstandingDebt || 0);
     setSettleNote(`Thanh toán đối soát công nợ ngày ${new Date().toLocaleDateString('vi-VN')}`);
-    setSettleFundId(funds.find(f => f.type === 'BANK')?.id || funds[0]?.id || '');
-    setSettleDirection(partner.type === 'SUPPLIER' ? 'PAYMENT' : 'RECEIPT');
+    setSettleFundId(eligibleFunds.find(f => f.type === 'BANK')?.id || eligibleFunds[0]?.id || '');
+    setSettleDirection(direction);
+    setSettleIdempotencyKey(createPartnerDebtIdempotencyKey(partner.id));
+    setDebtSubmitError('');
     setIsDebtModalOpen(true);
   };
 
-  const handleConfirmDebtSettle = (e: React.FormEvent) => {
+  const handleConfirmDebtSettle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!debtActionPartner) return;
+    setDebtSubmitError('');
+    if (!Number.isSafeInteger(settleAmount) || settleAmount <= 0) return setDebtSubmitError('Số tiền phải là số nguyên VND lớn hơn 0.');
+    if (settleAmount > Number(debtActionPartner.outstandingDebt || 0)) return setDebtSubmitError('Số tiền không được lớn hơn dư nợ hiện tại.');
+    if (!debtActionPartner.branchId) return setDebtSubmitError('Đối tác chưa được định danh chi nhánh. Hãy cập nhật chi nhánh trước khi đối soát.');
+    const fund = funds.find(item => item.id === settleFundId);
+    if (!fund) return setDebtSubmitError('Vui lòng chọn tài khoản tiền của chi nhánh.');
+    if (fund.branchId !== debtActionPartner.branchId) return setDebtSubmitError('Tài khoản tiền và đối tác phải thuộc cùng chi nhánh.');
+    if (settleDirection === 'PAYMENT' && Number(fund.currentBalance || 0) < settleAmount) return setDebtSubmitError('Số dư tài khoản không đủ để thanh toán.');
 
-    const remaining = Math.max(0, (debtActionPartner.outstandingDebt || 0) - settleAmount);
-    
-    // Ghi nhận vào sổ quỹ
-    const fund = funds.find(f => f.id === settleFundId);
-    if (fund) {
-      const isReceipt = settleDirection === 'RECEIPT';
-      const cashTx: import('../types').CashTransaction = {
-        id: `TX-${Date.now()}`,
-        code: `${isReceipt ? 'PT' : 'PC'}-${Math.floor(1000 + Math.random() * 9000)}`,
-        type: isReceipt ? 'RECEIPT' : 'PAYMENT',
-        category: isReceipt ? 'CUSTOMER_DEBT_COLLECT' : 'SUPPLIER_DEBT_PAY',
-        categoryName: isReceipt ? 'Thu nợ khách hàng' : 'Chi trả nợ NCC',
-        amount: settleAmount,
-        branchId: fund.branchId,
-        fundId: fund.id,
-        fundType: fund.type,
-        fundName: fund.name,
-        date: new Date().toLocaleString('sv-SE').replace(' ', 'T'), // YYYY-MM-DDTHH:mm
+    setIsDebtSubmitting(true);
+    try {
+      const updated = await onSettleDebt({
         partnerId: debtActionPartner.id,
-        partnerName: debtActionPartner.name,
-        creator: 'Nhật Tân (Admin)',
-        notes: settleNote,
-        status: 'COMPLETED'
-      };
-      onAddTransaction(cashTx);
+        amount: settleAmount,
+        fundId: settleFundId,
+        direction: settleDirection,
+        note: settleNote,
+        idempotencyKey: settleIdempotencyKey
+      });
+      if (selectedPartner?.id === updated.id) setSelectedPartner(updated);
+      setIsDebtModalOpen(false);
+    } catch (error: any) {
+      setDebtSubmitError(error?.message || 'Không thể đối soát công nợ. Không có dữ liệu nào được thay đổi.');
+    } finally {
+      setIsDebtSubmitting(false);
     }
-
-    const newTx: any = {
-      id: `TX-${Date.now().toString().slice(-6)}`,
-      date: new Date().toISOString().split('T')[0],
-      type: 'PAYMENT',
-      amount: settleAmount,
-      note: settleNote
-    };
-
-    const updated: Partner = {
-      ...debtActionPartner,
-      outstandingDebt: remaining,
-      debtTransactions: [newTx, ...(debtActionPartner.debtTransactions || [])]
-    };
-
-    onUpdatePartner(updated);
-    if (onAutoPayDebt) {
-      onAutoPayDebt(debtActionPartner.id, settleAmount, settleDirection === 'RECEIPT' ? 'RECEIPT' : 'PAYMENT');
-    }
-    if (selectedPartner?.id === updated.id) {
-      setSelectedPartner(updated);
-    }
-    setIsDebtModalOpen(false);
   };
 
   const handleGenerateAiRecommendation = (partner: Partner) => {
@@ -920,6 +930,20 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                 </div>
               </div>
 
+              {debtActionPartner.type === 'BOTH' ? (
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 mb-1">Loại đối soát</label>
+                  <div className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-100 p-1">
+                    <button type="button" onClick={() => setSettleDirection('RECEIPT')} className={`rounded-lg px-3 py-2 text-xs font-black ${settleDirection === 'RECEIPT' ? 'bg-emerald-600 text-white' : 'text-zinc-600'}`}>Thu nợ khách</button>
+                    <button type="button" onClick={() => setSettleDirection('PAYMENT')} className={`rounded-lg px-3 py-2 text-xs font-black ${settleDirection === 'PAYMENT' ? 'bg-rose-600 text-white' : 'text-zinc-600'}`}>Trả nợ NCC</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
+                  {settleDirection === 'PAYMENT' ? 'Nghiệp vụ: Chi trả công nợ nhà cung cấp' : 'Nghiệp vụ: Thu công nợ khách hàng'}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">
                   Số tiền thanh toán đối soát (VND) <span className="text-rose-500">*</span>
@@ -942,10 +966,12 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                   onChange={(e) => setSettleFundId(e.target.value)}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500 focus:outline-none mb-3"
                 >
-                  {funds.map(f => (
+                  <option value="">-- Chọn tài khoản cùng chi nhánh --</option>
+                  {eligibleDebtFunds.map(f => (
                     <option key={f.id} value={f.id}>{f.name}</option>
                   ))}
                 </select>
+                {eligibleDebtFunds.length === 0 && <p className="text-[11px] font-bold text-rose-600">Chi nhánh này chưa có tài khoản tiền mặt/ngân hàng đang hoạt động.</p>}
               </div>
 
               <div>
@@ -960,12 +986,15 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                 />
               </div>
 
+              {debtSubmitError && <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{debtSubmitError}</div>}
+
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 rounded-2xl text-white font-bold text-sm bg-rose-600 hover:bg-rose-700 shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
+                  disabled={isDebtSubmitting || eligibleDebtFunds.length === 0}
+                  className="w-full py-3 rounded-2xl text-white font-bold text-sm bg-rose-600 hover:bg-rose-700 shadow-lg shadow-rose-600/30 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  ✓ Xác Nhận Trừ Nợ & Cập Nhật Sổ Quỹ
+                  {isDebtSubmitting ? 'Đang ghi transaction...' : '✓ Xác Nhận Trừ Nợ & Cập Nhật Sổ Quỹ'}
                 </button>
               </div>
             </form>
@@ -1043,15 +1072,33 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">
-                    Công nợ ban đầu (VND)
+                    Dư nợ hiện tại (chỉ đọc)
                   </label>
                   <input
                     type="number"
                     value={formData.outstandingDebt || 0}
-                    onChange={(e) => setFormData(prev => ({ ...prev, outstandingDebt: Number(e.target.value) }))}
-                    className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs text-zinc-900 focus:ring-2 focus:ring-orange-500 focus:outline-none"
+                    readOnly
+                    disabled
+                    className="w-full px-3 py-2 bg-zinc-100 border border-zinc-200 rounded-xl text-xs text-zinc-500"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-zinc-700 mb-1">
+                  Chi nhánh quản lý <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  required
+                  disabled={Boolean(editingPartner)}
+                  value={formData.branchId || ''}
+                  onChange={(event) => setFormData(previous => ({ ...previous, branchId: event.target.value }))}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                >
+                  <option value="">-- Chọn chi nhánh --</option>
+                  {branches.filter(branch => branch.isActive !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                </select>
+                <p className="mt-1 text-[10px] text-zinc-500">Công nợ và tài khoản thanh toán phải cùng chi nhánh; chi nhánh không đổi sau khi tạo.</p>
               </div>
 
               <div>

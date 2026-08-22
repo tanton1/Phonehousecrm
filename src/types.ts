@@ -201,6 +201,12 @@ export interface TechnicalTaskTypeConfig {
   name: string;
   taskCode: string;
   baseCommission: number;
+  laborCostToDevice?: number;
+  capitalizeLaborCost?: boolean;
+  reworkCommissionPolicy?: 'NO_EXTRA_COMMISSION' | 'REPEAT_COMMISSION' | 'MANAGER_APPROVAL';
+  requiredEvidenceTypes?: Array<'BEFORE_PHOTO' | 'AFTER_PHOTO' | 'RESULT_NOTES' | 'REPLACEMENT_SERIAL'>;
+  requiredPartTemplates?: Array<{ partId?: string; sku?: string; quantity: number }>;
+  qcChecklistTemplateId?: string;
   normalSlaHours: number;
   prioritySlaHours?: number;
   urgentSlaHours: number;
@@ -315,9 +321,21 @@ export interface PurchaseOrder {
   subTotal: number;
   discountAmount?: number;
   shippingFee?: number;
+  vatAmount?: number;
+  otherFees?: number;
   totalAmount: number; // Tổng giá trị phiếu nhập sau chiết khấu + ship
   paidAmount: number; // Tiền đã trả cho NCC
   debtAmount: number; // Tiền nợ NCC còn lại (totalAmount - paidAmount)
+  paymentAllocations?: Array<{
+    id: string;
+    fundId: string;
+    fundName?: string;
+    method: 'CASH' | 'BANK_TRANSFER';
+    amount: number;
+    createdAt?: string;
+    createdByUid?: string;
+  }>;
+  inventoryPostingStatus?: 'POSTED' | 'REVERSED';
   notes?: string;
   attachments?: string[];
   history?: ActionLogEntry[];
@@ -1030,8 +1048,15 @@ export interface SalesInvoice {
   createdAt?: string;
   createdDate?: string;
   notes?: string;
-  installmentDisbursementStatus?: 'PENDING' | 'DISBURSED';
+  installmentDisbursementStatus?: 'PENDING' | 'DISBURSED' | 'CANCELLED';
   installmentExpectedAmount?: number;
+  installmentFinanceAmount?: number;
+  installmentFinancePartnerId?: string;
+  installmentReceivedAmount?: number;
+  installmentFeeAmount?: number;
+  installmentDisbursementId?: string;
+  installmentDisbursedAt?: string;
+  installmentDisbursedByUid?: string;
   installmentContractCode?: string;
   paymentFundId?: string;
   paymentTransactionId?: string;
@@ -1190,6 +1215,15 @@ export interface PartnerDebtTransaction {
   referenceId?: string; // Invoice ID or PO ID
   referenceCode?: string;
   referenceType?: 'INVOICE' | 'PURCHASE_ORDER' | 'PAYMENT' | 'MANUAL';
+  direction?: 'PAYMENT' | 'RECEIPT';
+  fundId?: string;
+  cashTransactionId?: string;
+  allocatedReferences?: Array<{
+    sourceType: 'PURCHASE_ORDER' | 'INVOICE';
+    sourceId: string;
+    sourceCode: string;
+    amount: number;
+  }>;
 }
 
 export interface Partner {
@@ -1453,7 +1487,7 @@ export interface CommissionTransaction {
   occurredAt: string;
   approvedAt?: string;
   notes?: string;
-  sourceType?: 'INVOICE' | 'WARRANTY_TICKET' | 'TRADEIN' | 'MANUAL';
+  sourceType?: 'INVOICE' | 'WARRANTY_TICKET' | 'TECHNICAL_WORK_ORDER' | 'TRADEIN' | 'MANUAL';
   sourceId?: string;
 }
 

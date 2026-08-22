@@ -9,6 +9,7 @@ import {
   updateProfile
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App singleton
@@ -17,6 +18,7 @@ export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getA
 // CRITICAL: The app will break without firebaseConfig.firestoreDatabaseId
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export enum OperationType {

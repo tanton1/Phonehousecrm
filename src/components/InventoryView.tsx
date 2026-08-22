@@ -69,6 +69,7 @@ import { UniformEntryForm } from './UniformEntryForm';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal';
 import { DeviceDetailModal } from './DeviceDetailModal';
+import type { InventoryDeviceSummary } from '../services/inventoryApiClient';
 
 interface InventoryViewProps {
   devices: DeviceItem[];
@@ -94,6 +95,7 @@ interface InventoryViewProps {
   onAddPartner?: (partner: Partner) => void;
   catalogItems?: import('../types').MasterCatalogItem[];
   currentUser?: UserAccount | null;
+  serverSummary?: InventoryDeviceSummary;
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
@@ -119,7 +121,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   onUpdatePartner,
   onAddPartner,
   catalogItems = [],
-  currentUser
+  currentUser,
+  serverSummary
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeries, setSelectedSeries] = useState('ALL');
@@ -139,6 +142,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'IN_STOCK_ONLY' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
+  const getDeviceCost = (device: DeviceItem): number => Number(device.currentCost ?? device.buyPrice ?? (device as any).costPrice ?? 0);
 
   // 1. Accurate Device to Branch Resolver (No Guessing / No Silent Branch 0 Fallback)
   const getDeviceBranchInfo = (dev: DeviceItem): { id: string; name: string; shortName: string } => {
@@ -148,11 +152,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       if (b) return { id: b.id, name: b.name, shortName: b.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
     }
     // B. Match warehouseId linked to branch or parent warehouse
-    if (dev.warehouse) {
-      const b = branches.find(item => item.warehouseId === dev.warehouse || item.id === dev.warehouse);
+    const locationId = dev.currentLocationId || dev.warehouseId || dev.warehouse;
+    if (locationId) {
+      const b = branches.find(item => item.warehouseId === locationId || item.id === locationId);
       if (b) return { id: b.id, name: b.name, shortName: b.name.replace(/^Phone\s*House\s*/i, '').replace(/^PhoneHouse\s*/i, '').trim() };
       
-      const w = warehouses.find(item => item.id === dev.warehouse);
+      const w = warehouses.find(item => item.id === locationId);
       if (w) {
         if (w.parentWarehouseId) {
           const pb = branches.find(item => item.id === w.parentWarehouseId || item.warehouseId === w.parentWarehouseId);
@@ -213,15 +218,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // P1.5 Fix: Accurate Financial Calculations with Missing Cost Exclusion
   const validCostDevices = useMemo(() => {
-    return inStockDevices.filter(d => (d.buyPrice || (d as any).costPrice || 0) > 0);
+    return inStockDevices.filter(d => getDeviceCost(d) > 0);
   }, [inStockDevices]);
 
   const missingCostDevices = useMemo(() => {
-    return inStockDevices.filter(d => !(d.buyPrice || (d as any).costPrice) || (d.buyPrice || (d as any).costPrice || 0) <= 0);
+    return inStockDevices.filter(d => getDeviceCost(d) <= 0);
   }, [inStockDevices]);
 
   const totalStockCostValue = useMemo(() => {
-    return validCostDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+    return validCostDevices.reduce((sum, d) => sum + getDeviceCost(d), 0);
   }, [validCostDevices]);
 
   const totalStockSellingValue = useMemo(() => {
@@ -230,7 +235,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
   // Potential profit calculated ONLY over devices with authoritative cost to avoid artificial inflation
   const potentialGrossProfit = useMemo(() => {
-    return validCostDevices.reduce((sum, d) => sum + Math.max(0, (d.sellPrice || 0) - (d.buyPrice || (d as any).costPrice || 0)), 0);
+    return validCostDevices.reduce((sum, d) => sum + (d.sellPrice || 0) - getDeviceCost(d), 0);
   }, [validCostDevices]);
 
   // Aging Stock (> 30 days)
@@ -239,13 +244,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     d.setDate(d.getDate() - 30);
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(d);
   }, []);
+  const sevenDaysAgoStr = useMemo(() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 7);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(date);
+  }, []);
 
   const agingDevices = useMemo(() => {
     return inStockDevices.filter(d => d.receivedDate && d.receivedDate < thirtyDaysAgoStr);
   }, [inStockDevices, thirtyDaysAgoStr]);
 
   const agingStockCost = useMemo(() => {
-    return agingDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+    return agingDevices.reduce((sum, d) => sum + getDeviceCost(d), 0);
   }, [agingDevices]);
 
   // Condition breakdown
@@ -318,12 +328,12 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       if (quickFilter === 'IN_STOCK_ONLY' && d.status !== 'in_stock') return false;
       if (quickFilter === 'HIGH_BATTERY' && (d.batteryHealth || 0) < 90) return false;
       if (quickFilter === 'LIKE_NEW' && !d.condition.includes('99%')) return false;
-      if (quickFilter === 'NEW_ARRIVALS' && !d.condition.includes('New Seal')) return false;
+      if (quickFilter === 'NEW_ARRIVALS' && (!d.receivedDate || d.receivedDate < sevenDaysAgoStr)) return false;
       if (quickFilter === 'AGING_STOCK' && (!d.receivedDate || d.receivedDate >= thirtyDaysAgoStr)) return false;
 
       return matchesSearch && matchesSeries && matchesStatus && matchesCondition && matchesChartModel;
     });
-  }, [branchScopedDevices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, quickFilter, thirtyDaysAgoStr]);
+  }, [branchScopedDevices, searchTerm, selectedSeries, selectedStatus, selectedCondition, selectedChartModel, quickFilter, thirtyDaysAgoStr, sevenDaysAgoStr]);
 
   // Group devices by Model + Storage + Color
   const groupedDevices = useMemo(() => {
@@ -353,8 +363,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           devices: [],
           minPrice: d.sellPrice,
           maxPrice: d.sellPrice,
-          minCost: d.buyPrice || 0,
-          maxCost: d.buyPrice || 0,
+          minCost: getDeviceCost(d),
+          maxCost: getDeviceCost(d),
           inStockCount: 0,
           totalCount: 0,
           branchBreakdown: {}
@@ -366,8 +376,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       
       if (d.sellPrice < groups[key].minPrice) groups[key].minPrice = d.sellPrice;
       if (d.sellPrice > groups[key].maxPrice) groups[key].maxPrice = d.sellPrice;
-      if (d.buyPrice && d.buyPrice < groups[key].minCost) groups[key].minCost = d.buyPrice;
-      if (d.buyPrice && d.buyPrice > groups[key].maxCost) groups[key].maxCost = d.buyPrice;
+      const currentCost = getDeviceCost(d);
+      if (currentCost > 0 && (groups[key].minCost <= 0 || currentCost < groups[key].minCost)) groups[key].minCost = currentCost;
+      if (currentCost > 0 && currentCost > groups[key].maxCost) groups[key].maxCost = currentCost;
       
       if (d.status === 'in_stock') {
         groups[key].inStockCount += 1;
@@ -437,6 +448,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     }
     return num.toLocaleString('vi-VN') + ' đ';
   };
+  const authoritativeAvailableCount = selectedBranchId === 'ALL' && serverSummary
+    ? serverSummary.availableCount
+    : inStockDevices.length;
 
   return (
     <div className="w-full space-y-3.5 sm:space-y-4 pb-20">
@@ -449,11 +463,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               Quản Lý Kho IMEI
             </h1>
             <span className="bg-orange-50 text-[#ff4b16] border border-orange-200 text-xs font-black px-2.5 py-0.5 rounded-full">
-              {inStockDevices.length} máy sẵn sàng
+              {authoritativeAvailableCount} máy sẵn sàng
             </span>
           </div>
           <p className="text-[11px] sm:text-xs text-zinc-500 font-medium mt-0.5">
-            Dữ liệu định danh 100% thời gian thực theo từng cây IMEI.
+            Server xác nhận {selectedBranchId === 'ALL' && serverSummary ? serverSummary.totalCount : devices.length} tài sản trong phạm vi đang xem.
           </p>
         </div>
 
@@ -542,7 +556,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             </span>
           </div>
           <div className="text-xl sm:text-2xl font-black font-mono tracking-tight text-zinc-950 flex items-baseline space-x-1">
-            <span>{inStockDevices.length}</span>
+            <span>{authoritativeAvailableCount}</span>
             <span className="text-xs font-sans text-zinc-400 font-medium">máy</span>
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 font-medium truncate pt-0.5 border-t border-zinc-100">
@@ -801,7 +815,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           {[
             { id: 'ALL', label: 'Tất cả' },
             { id: 'IN_STOCK_ONLY', label: '⚡ Sẵn hàng xuất quầy' },
-            { id: 'NEW_ARRIVALS', label: '🔥 New Seal' },
+            { id: 'NEW_ARRIVALS', label: '🔥 Mới về 7 ngày' },
             { id: 'LIKE_NEW', label: '✨ Like New 99%' },
             { id: 'HIGH_BATTERY', label: '🔋 Pin Trâu (≥90%)' },
             { id: 'AGING_STOCK', label: '⏳ Tồn lâu (>30N)' }
@@ -931,7 +945,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       </div>
                       {showCostPrice && (
                         <div className="text-[10px] text-zinc-400 font-mono truncate">
-                          Vốn: {(device.buyPrice || 0).toLocaleString('vi-VN')} đ
+                          Vốn: {getDeviceCost(device).toLocaleString('vi-VN')} đ
                         </div>
                       )}
                     </div>
@@ -1143,7 +1157,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                 </div>
                                 {showCostPrice && (
                                   <div className="text-[10px] text-zinc-400 font-mono truncate">
-                                    Vốn: {(device.buyPrice || 0).toLocaleString('vi-VN')} đ
+                                    Vốn: {getDeviceCost(device).toLocaleString('vi-VN')} đ
                                   </div>
                                 )}
                               </div>

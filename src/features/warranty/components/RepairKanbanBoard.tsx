@@ -20,7 +20,6 @@ export interface RepairKanbanBoardProps {
   branches: StoreBranch[];
   selectedBranchId?: string;
   onSelectTicket: (ticket: WarrantyTicket) => void;
-  onUpdateTicketStatus: (ticketId: string, newStatus: WarrantyTicket['status']) => Promise<void> | void;
   onOpenCreateModal: () => void;
 }
 
@@ -38,7 +37,6 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
   branches,
   selectedBranchId,
   onSelectTicket,
-  onUpdateTicketStatus,
   onOpenCreateModal
 }) => {
   const [issueFilter, setIssueFilter] = useState('ALL');
@@ -50,21 +48,12 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
     return matchBranch && matchIssue;
   });
 
-  const nextStageMap: Record<string, WarrantyTicket['status'] | null> = {
-    received: 'inspecting',
-    inspecting: 'repairing',
-    waiting_parts: 'repairing',
-    repairing: 'ready',
-    ready: 'delivered',
-    delivered: null
-  };
-  const nextStageLabels: Record<string, string> = {
-    received: 'Bắt đầu thẩm định', inspecting: 'Bắt đầu sửa', waiting_parts: 'Đã có linh kiện',
-    repairing: 'Sửa xong · Gửi KCS', ready: 'Đã giao khách'
-  };
-
   return (
     <div className="space-y-3 sm:space-y-4">
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+        <p className="font-black uppercase tracking-wide">Dữ liệu phiếu sửa cũ · chỉ đọc</p>
+        <p className="mt-1">Không thể chuyển trạng thái tại đây để tránh bỏ qua quét IMEI, đối soát linh kiện, KCS và chốt giá vốn. Phiếu tiếp nhận mới sẽ tự động đi vào Bảng Điều Phối Kỹ Thuật chuẩn.</p>
+      </div>
       {/* 1. Top Header & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
         <div className="flex items-center space-x-2.5">
@@ -171,7 +160,6 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
                   </div>
                 ) : (
                   stageTickets.map(ticket => {
-                    const nextStage = nextStageMap[ticket.status];
                     return (
                       <div
                         key={ticket.id}
@@ -201,28 +189,13 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
                           <p className="line-clamp-2 text-zinc-600">{ticket.faultDescription}</p>
                         </div>
 
-                        {/* Passcode & Next Stage Action */}
+                        {/* Legacy records are intentionally read-only. */}
                         <div className="pt-1.5 border-t border-zinc-100 flex items-center justify-between text-[10px]">
                           <div className="flex items-center space-x-1 text-zinc-500">
                             <User className="w-3 h-3 text-zinc-400" />
                             <span>KTV: <strong className="text-zinc-700">{ticket.technician || 'Chưa gán'}</strong></span>
                           </div>
-
-                          <div className="flex items-center gap-1">
-                          {(ticket.status === 'inspecting' || ticket.status === 'repairing') && <button type="button" onClick={(e) => { e.stopPropagation(); onUpdateTicketStatus(ticket.id, 'waiting_parts'); }} className="px-2 py-1 bg-amber-50 text-amber-700 font-bold rounded-lg text-[10px]">Chờ LK</button>}
-                          {nextStage && <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onUpdateTicketStatus(ticket.id, nextStage);
-                              }}
-                              className="px-2 py-1 bg-zinc-100 hover:bg-orange-100 text-zinc-700 hover:text-[#ff4b16] font-bold rounded-lg transition-colors flex items-center space-x-1 cursor-pointer active:scale-95 text-[10px]"
-                              title="Chuyển sang giai đoạn tiếp theo"
-                            >
-                              <span>{nextStageLabels[ticket.status] || 'Chuyển bước'} ➔</span>
-                            </button>
-                          }
-                          </div>
+                          <span className="rounded-md bg-zinc-100 px-2 py-1 font-bold text-zinc-500">Chỉ xem</span>
                         </div>
                       </div>
                     );
