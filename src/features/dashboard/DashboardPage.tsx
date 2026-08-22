@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem, Lead, WarrantyTicket, FundAccount, Partner, StoreBranch, StaffMember, UserAccount } from '../../types';
+import { invoiceDateTime } from '../../utils/dateValue';
 import { 
   Phone, 
   Bell, 
@@ -230,7 +231,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
       if (inv.status === 'cancelled') return false;
-      const invDate = inv.createdAt ? inv.createdAt.split('T')[0] : dateRanges.todayStr;
+      const invDate = invoiceDateTime(inv.createdAt, dateRanges.todayStr).split('T')[0];
       
       if (dateFilter === 'today') {
         return invDate === dateRanges.todayStr;
@@ -324,9 +325,10 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
       hours.forEach(h => hourMap.set(h, 0));
 
       filteredInvoices.forEach(inv => {
-        if (inv.createdAt) {
+        const createdAt = invoiceDateTime(inv.createdAt);
+        if (createdAt) {
           try {
-            const timePart = inv.createdAt.split('T')[1] || '';
+            const timePart = createdAt.split('T')[1] || '';
             const hNum = parseInt(timePart.split(':')[0] || '10', 10);
             const matched = hours.find(hr => Math.abs(parseInt(hr, 10) - hNum) <= 1) || '14h';
             hourMap.set(matched, (hourMap.get(matched) || 0) + ((inv.finalAmount || inv.totalAmount || 0) / 1_000_000));
@@ -365,8 +367,9 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
       });
 
       filteredInvoices.forEach(inv => {
-        if (inv.createdAt) {
-          const invDate = inv.createdAt.split('T')[0];
+        const createdAt = invoiceDateTime(inv.createdAt);
+        if (createdAt) {
+          const invDate = createdAt.split('T')[0];
           const target = dayEntries.find(d => d.key === invDate);
           if (target) {
             target.val += (inv.finalAmount || inv.totalAmount || 0) / 1_000_000;
@@ -394,9 +397,10 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
     });
 
     filteredInvoices.forEach(inv => {
-      if (inv.createdAt) {
+      const createdAt = invoiceDateTime(inv.createdAt);
+      if (createdAt) {
         try {
-          const datePart = inv.createdAt.split('T')[0];
+          const datePart = createdAt.split('T')[0];
           const dayStr = datePart.split('-')[2] ? datePart.split('-')[2].padStart(2, '0') : '01';
           const dNum = parseInt(dayStr, 10);
           const matchedDay = sampleDays.find(d => Math.abs(d - dNum) <= 1) || 1;

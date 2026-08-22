@@ -48,6 +48,7 @@ import {
   LeadQuote
 } from '../types';
 import { RepairServiceItem } from '../data/initialData';
+import { invoiceDateTime } from '../utils/dateValue';
 
 // Firestore Collection Names Constants
 const DEVICES_COL = 'devices';
@@ -282,7 +283,14 @@ export function subscribeToInvoices(onData: (invoices: SalesInvoice[]) => void) 
     (snapshot) => {
       const items: SalesInvoice[] = [];
       snapshot.forEach((doc) => {
-        items.push(doc.data() as SalesInvoice);
+        const data = doc.data() as any;
+        items.push({
+          ...data,
+          id: data.id || doc.id,
+          // Server writes use FieldValue.serverTimestamp(). Normalize it at the
+          // client boundary so every invoice view receives a safe ISO string.
+          createdAt: invoiceDateTime(data.createdAt, data.createdDate || '')
+        } as SalesInvoice);
       });
       onData(items);
     },

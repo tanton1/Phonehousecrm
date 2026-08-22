@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem } from '../types';
+import { invoiceDateTime } from '../utils/dateValue';
 import { ActivityLog } from "./ActivityLog";
 import { DocumentHeader } from './shared/DocumentHeader';
 import { StatusBadge } from './shared/StatusBadge';
@@ -283,7 +284,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     const groups: { [key: string]: SalesInvoice[] } = {};
 
     filteredInvoices.forEach(inv => {
-      const rawDate = (inv.createdDate || inv.createdAt || '2026-08-14').split(' ')[0];
+      const rawDate = invoiceDateTime(inv.createdDate || inv.createdAt, '2026-08-14').split(' ')[0];
       
       // Compute friendly date header matching screenshot uppercase format
       let header = rawDate;
@@ -1266,7 +1267,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   {invoiceList.map((inv) => {
                     const summary = getInvoiceSummary(inv);
                     const invoiceCode = inv.invoiceCode || inv.id;
-                    const timeSnippet = (inv.createdDate || inv.createdAt || '14/08/2026 14:13').split(' ')[1] || '14:13';
+                    const createdText = invoiceDateTime(inv.createdDate || inv.createdAt, '2026-08-14T14:13:00');
+                    const timeSnippet = (createdText.includes('T') ? createdText.split('T')[1] : createdText.split(' ')[1])?.slice(0, 5) || '14:13';
                     const customerName = inv.customerName || 'Khách Vãng Lai';
                     const amount = inv.finalAmount || inv.totalAmount || 0;
                     const st = inv.status || 'completed';
