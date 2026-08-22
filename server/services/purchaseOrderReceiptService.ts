@@ -4,6 +4,12 @@ import { imeiRegistryId, normalizeImei, InventoryActor } from './inventoryDevice
 
 interface ReceiptDeviceDraft {
   imei: string;
+  /** Optional Product Master references; legacy receipts may not have them. */
+  catalogItemId?: string;
+  catalogModelId?: string;
+  catalogModelCode?: string;
+  productFamilyCode?: string;
+  catalogGroupCode?: string;
   model: string;
   storage?: string;
   color?: string;
@@ -81,6 +87,12 @@ export interface PurchasePaymentAllocationInput {
 function canAccessBranch(actor: InventoryActor, branchId: string): boolean {
   const role = String(actor.role || '').toUpperCase();
   return role === 'ADMIN' || role === 'REGIONAL_MANAGER' || actor.branchId === branchId || (actor.assignedBranchIds || []).includes(branchId);
+}
+
+/** Keep optional Product Master references safe for Firestore writes. */
+function optionalCatalogReference(value: unknown): string | undefined {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
 }
 
 function allocateWholeVndAmount(totalAmount: number, weights: number[]): number[] {
@@ -175,6 +187,11 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
     for (const imei of imeis) {
       deviceDrafts.push({
         imei,
+        ...(optionalCatalogReference(item.catalogItemId) ? { catalogItemId: optionalCatalogReference(item.catalogItemId) } : {}),
+        ...(optionalCatalogReference(item.catalogModelId) ? { catalogModelId: optionalCatalogReference(item.catalogModelId) } : {}),
+        ...(optionalCatalogReference(item.catalogModelCode) ? { catalogModelCode: optionalCatalogReference(item.catalogModelCode) } : {}),
+        ...(optionalCatalogReference(item.productFamilyCode) ? { productFamilyCode: optionalCatalogReference(item.productFamilyCode) } : {}),
+        ...(optionalCatalogReference(item.catalogGroupCode) ? { catalogGroupCode: optionalCatalogReference(item.catalogGroupCode) } : {}),
         model: String(item.modelOrName || '').trim(),
         storage: item.storage || '',
         color: item.color || '',
@@ -225,6 +242,11 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
     totalAmount, paidAmount, debtAmount, adjustments,
     devices: devices.map(device => ({
       imei: device.imei,
+      catalogItemId: device.catalogItemId,
+      catalogModelId: device.catalogModelId,
+      catalogModelCode: device.catalogModelCode,
+      productFamilyCode: device.productFamilyCode,
+      catalogGroupCode: device.catalogGroupCode,
       model: device.model,
       storage: device.storage,
       color: device.color,
@@ -368,6 +390,11 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
         imei: draft.imei,
         imeiNormalized: draft.imei,
         serialNo: draft.imei,
+        ...(draft.catalogItemId ? { catalogItemId: draft.catalogItemId } : {}),
+        ...(draft.catalogModelId ? { catalogModelId: draft.catalogModelId } : {}),
+        ...(draft.catalogModelCode ? { catalogModelCode: draft.catalogModelCode } : {}),
+        ...(draft.productFamilyCode ? { productFamilyCode: draft.productFamilyCode } : {}),
+        ...(draft.catalogGroupCode ? { catalogGroupCode: draft.catalogGroupCode } : {}),
         model: draft.model,
         storage: draft.storage || '',
         color: draft.color || '',

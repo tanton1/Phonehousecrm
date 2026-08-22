@@ -374,9 +374,27 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           || remoteCatalogItems.find(c => c.id === item.catalogItemId)
           || catalogItems.find(c => c.id === item.catalogItemId);
         const imeis = item.imeisInput.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
+        // Product Master references are optional so legacy/manual receipt
+        // payloads remain valid. Only include concrete values: Firestore does
+        // not accept undefined document fields.
+        const catalogReference = (value: unknown) => {
+          const normalized = String(value || '').trim();
+          return normalized || undefined;
+        };
+        const catalogFamilyCode = catalogReference(
+          catalogItem?.productFamilyCode || (catalogItem as any)?.familyCode
+        );
+        const catalogGroupCode = catalogReference(
+          catalogItem?.catalogGroupCode || catalogItem?.categoryCode
+        );
         return {
           id: `POI-${Date.now()}-${idx}`,
           type: 'device' as const,
+          ...(catalogReference(catalogItem?.id) ? { catalogItemId: catalogReference(catalogItem?.id) } : {}),
+          ...(catalogReference(catalogItem?.modelId) ? { catalogModelId: catalogReference(catalogItem?.modelId) } : {}),
+          ...(catalogReference(catalogItem?.modelCode) ? { catalogModelCode: catalogReference(catalogItem?.modelCode) } : {}),
+          ...(catalogFamilyCode ? { productFamilyCode: catalogFamilyCode } : {}),
+          ...(catalogGroupCode ? { catalogGroupCode } : {}),
           modelOrName: catalogItem?.name || item.searchQuery || 'Thiết bị',
           color: catalogItem?.color,
           storage: catalogItem?.storage,

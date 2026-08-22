@@ -6,11 +6,24 @@ import {
   listCatalogItems,
   processCatalogBulkCreate,
   processCatalogClone,
-  processRollbackCatalogOperation
+  processRollbackCatalogOperation,
+  processCreateCatalogDictionary,
+  processUpdateCatalogDictionary,
+  previewIphoneCatalogSeed,
+  processIphoneCatalogSeed,
+  processDeleteCatalogDictionary,
+  processDeleteCatalogModel
 } from '../server/services/catalogService';
 
 type Ref = { col: string; id: string; get: () => Promise<any> };
 type Query = { col: string; field: string; value: unknown; limit: (_count: number) => Query; get: () => Promise<any> };
+
+function containsUndefined(value: any): boolean {
+  if (value === undefined) return true;
+  if (Array.isArray(value)) return value.some(containsUndefined);
+  if (value && typeof value === 'object') return Object.values(value).some(containsUndefined);
+  return false;
+}
 
 function createCatalogDb(seed: Record<string, Record<string, any>>) {
   const data = new Map<string, any>();
@@ -44,12 +57,16 @@ function createCatalogDb(seed: Record<string, Record<string, any>>) {
         ? target.get()
         : read((target as Ref).col, (target as Ref).id),
       set: (target: Ref, value: any, options?: { merge?: boolean }) => {
+        if (containsUndefined(value)) throw new Error('FIRESTORE_UNDEFINED_VALUE');
         const key = `${target.col}/${target.id}`;
         data.set(key, options?.merge ? { ...(data.get(key) || {}), ...value } : { ...value });
       },
       update: (target: Ref, value: any) => {
         const key = `${target.col}/${target.id}`;
         data.set(key, { ...(data.get(key) || {}), ...value });
+      },
+      delete: (target: Ref) => {
+        data.delete(`${target.col}/${target.id}`);
       }
     })
   };
@@ -115,6 +132,26 @@ describe('Product Master & deterministic catalog SKU engine', () => {
       }
     });
     await expect(previewCatalogBulk(store.db, screenMatrixInput())).rejects.toThrow('CATALOG_CATEGORY_CODE_NOT_CONFIGURED:MH');
+  });
+
+  it('omits optional dictionary parentId on create, normal edit, and explicit removal', async () => {
+    const store = createCatalogDb({});
+    const created = await processCreateCatalogDictionary(store.db, {
+      dictionaryType: 'ATTRIBUTE', key: 'UNIT', code: 'CUM', name: 'Cụm'
+    }, actor);
+    expect(created).not.toHaveProperty('parentId');
+    expect(store.get('catalogDictionaries', created.id)).not.toHaveProperty('parentId');
+
+    const renamed = await processUpdateCatalogDictionary(store.db, created.id, { name: 'Cụm linh kiện' }, actor);
+    expect(renamed).not.toHaveProperty('parentId');
+    expect(store.get('catalogDictionaries', created.id)).not.toHaveProperty('parentId');
+
+    store.set('catalogDictionaries', 'DICT_CHILD', {
+      id: 'DICT_CHILD', dictionaryType: 'ATTRIBUTE', key: 'QUALITY', code: 'OLED', name: 'OLED', parentId: 'DICT_ROOT', active: true
+    });
+    const cleared = await processUpdateCatalogDictionary(store.db, 'DICT_CHILD', { parentId: '' }, actor);
+    expect(cleared).not.toHaveProperty('parentId');
+    expect(store.get('catalogDictionaries', 'DICT_CHILD')).not.toHaveProperty('parentId');
   });
 
   it('creates a deterministic master SKU and treats an automatic retry as idempotent', async () => {
@@ -206,5 +243,55 @@ describe('Product Master & deterministic catalog SKU engine', () => {
 
     const aliasSearch = await listCatalogItems(store.db, { limit: 50, kind: 'PART', search: '15pm gx' });
     expect(aliasSearch.items.map(item => item.sku)).toContain('MH-IP15PM-GX-OLED');
+  });
+
+  it('previews and confirms the editable iPhone setup without creating stock, IMEI or sellable SKU rows', async () => {
+    const store = createCatalogDb({});
+    const preview = await previewIphoneCatalogSeed(store.db);
+    expect(preview).toMatchObject({
+      create: expect.any(Number),
+      summary: {
+        brand: { create: 7 },
+        family: { create: 1 },
+        model: { create: 35 }
+      },
+      guarantees: { createsInventory: false, createsImei: false, createsSku: false }
+    });
+
+    const created = await processIphoneCatalogSeed(store.db, { confirmed: true }, actor);
+    expect(created).toMatchObject({ totalCreated: preview.create, idempotentReplay: false });
+    expect(store.values('catalogItems')).toHaveLength(0);
+    expect(store.values('products')).toHaveLength(0);
+    expect(store.values('spareParts')).toHaveLength(0);
+    expect(store.values('devices')).toHaveLength(0);
+    expect(store.values('catalogDictionaries')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dictionaryType: 'FAMILY', code: 'IPHONE', name: 'iPhone' }),
+      expect.objectContaining({ dictionaryType: 'CATEGORY', code: 'MH', name: 'Màn hình' }),
+      expect.objectContaining({ dictionaryType: 'TEMPLATE', code: 'TPL-MH', name: 'Màn hình' })
+    ]));
+    expect(store.values('catalogModels')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ modelCode: 'IP8P', modelName: 'iPhone 8 Plus', familyCode: 'IPHONE' }),
+      expect.objectContaining({ modelCode: 'IP17PM', modelName: 'iPhone 17 Pro Max', aliases: expect.arrayContaining(['17PM', '17PRM']) })
+    ]));
+
+    const replay = await processIphoneCatalogSeed(store.db, { confirmed: true }, actor);
+    expect(replay).toMatchObject({ totalCreated: 0, idempotentReplay: true });
+  });
+
+  it('deletes unused iPhone setup records and changes used records to Ngừng dùng', async () => {
+    const store = createCatalogDb({});
+    await processIphoneCatalogSeed(store.db, { confirmed: true }, actor);
+
+    const deleted = await processDeleteCatalogDictionary(store.db, 'ATTR_DEF_RAM', actor);
+    expect(deleted).toMatchObject({ deleted: true, archived: false });
+    expect(store.get('catalogDictionaries', 'ATTR_DEF_RAM')).toBeUndefined();
+
+    const archived = await processDeleteCatalogDictionary(store.db, 'CAT_GROUP_SCREEN', actor);
+    expect(archived).toMatchObject({ deleted: false, archived: true });
+    expect(store.get('catalogDictionaries', 'CAT_GROUP_SCREEN')).toMatchObject({ active: false, lifecycleStatus: 'ARCHIVED' });
+
+    const removedModel = await processDeleteCatalogModel(store.db, 'MODEL_APP_IP17PM', actor);
+    expect(removedModel).toMatchObject({ deleted: true, archived: false });
+    expect(store.get('catalogModels', 'MODEL_APP_IP17PM')).toBeUndefined();
   });
 });

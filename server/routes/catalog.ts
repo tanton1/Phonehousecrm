@@ -14,13 +14,17 @@ import {
   processCatalogBulkCreate,
   processCatalogClone,
   processCatalogImport,
+  processDeleteCatalogDictionary,
+  processDeleteCatalogModel,
+  processIphoneCatalogSeed,
   processRollbackCatalogOperation,
   processCreateCatalogDictionary,
   processCreateCatalogItem,
   processCreateCatalogModel,
   processUpdateCatalogDictionary,
   processUpdateCatalogItem,
-  processUpdateCatalogModel
+  processUpdateCatalogModel,
+  previewIphoneCatalogSeed
 } from '../services/catalogService';
 
 const READ_ROLES = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] as const;
@@ -121,6 +125,26 @@ export function createCatalogRouter(db: Firestore | null): Router {
     }
   });
 
+  /** A read-only preview. Only ADMIN can turn this into setup records. */
+  router.get('/iphone-seed/preview', requireRole(...READ_ROLES), async (_req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await previewIphoneCatalogSeed(db) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  /** Explicit Admin confirmation. The request body must be { confirmed: true }. */
+  router.post('/iphone-seed/confirm', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.status(201).json({ success: true, data: await processIphoneCatalogSeed(db, req.body, req.user!) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
   router.post('/models', requireRole(...WRITE_ROLES), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
@@ -139,6 +163,15 @@ export function createCatalogRouter(db: Firestore | null): Router {
     }
   });
 
+  router.delete('/models/:modelId', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processDeleteCatalogModel(db, req.params.modelId, req.user!) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
   router.post('/dictionaries', requireRole(...WRITE_ROLES), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
@@ -152,6 +185,15 @@ export function createCatalogRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       return res.json({ success: true, data: await processUpdateCatalogDictionary(db, req.params.dictionaryId, req.body, req.user!) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.delete('/dictionaries/:dictionaryId', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processDeleteCatalogDictionary(db, req.params.dictionaryId, req.user!) });
     } catch (error: any) {
       return sendError(res, error);
     }

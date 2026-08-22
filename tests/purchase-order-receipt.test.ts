@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allocatePurchaseLandedCosts, assertPurchaseDeviceCanBeCancelled, processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, validatePurchaseReceiptInput } from '../server/services/purchaseOrderReceiptService';
+import { allocatePurchaseLandedCosts, assertPurchaseDeviceCanBeCancelled, processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, processPurchaseOrderReceipt, validatePurchaseReceiptInput } from '../server/services/purchaseOrderReceiptService';
 import { imeiRegistryId } from '../server/services/inventoryDeviceService';
 
 const actor = { uid: 'ADMIN_01', name: 'Admin', role: 'ADMIN', branchId: 'CN01' };
@@ -40,11 +40,87 @@ describe('Atomic supplier purchase receipt validation', () => {
     }) }, actor)).toThrow('DUPLICATE_IMEI_IN_REQUEST');
   });
 
+  it('keeps parts and accessories out of the serialized-device receipt path', () => {
+    expect(() => validatePurchaseReceiptInput({ order: validOrder({
+      items: [{ ...validOrder().items[0], type: 'product' }]
+    }) }, actor)).toThrow('PURCHASE_ITEM_TYPE_UNSUPPORTED');
+  });
+
   it('accepts numeric IMEI/serial identifiers from 5 through 15 digits', () => {
     const shortItem = { ...validOrder().items[0], imeiList: ['12345'] };
     expect(validatePurchaseReceiptInput({ order: validOrder({ items: [shortItem] }) }, actor).devices[0].imei).toBe('12345');
     expect(() => validatePurchaseReceiptInput({ order: validOrder({ items: [{ ...shortItem, imeiList: ['1234'] }] }) }, actor)).toThrow('IMEI_INVALID');
     expect(() => validatePurchaseReceiptInput({ order: validOrder({ items: [{ ...shortItem, imeiList: ['1234567890123456'] }] }) }, actor)).toThrow('IMEI_INVALID');
+  });
+
+  it('preserves optional Product Master references for each received device', () => {
+    const receipt = validatePurchaseReceiptInput({ order: validOrder({
+      items: [{
+        ...validOrder().items[0],
+        catalogItemId: 'CAT_IP15PM_256_NAT',
+        catalogModelId: 'MODEL_IP15PM',
+        catalogModelCode: 'IP15PM',
+        productFamilyCode: 'IPHONE',
+        catalogGroupCode: 'PHONE_USED'
+      }]
+    }) }, actor);
+
+    expect(receipt.devices[0]).toMatchObject({
+      catalogItemId: 'CAT_IP15PM_256_NAT',
+      catalogModelId: 'MODEL_IP15PM',
+      catalogModelCode: 'IP15PM',
+      productFamilyCode: 'IPHONE',
+      catalogGroupCode: 'PHONE_USED'
+    });
+  });
+
+  it('persists Product Master references from the purchase order onto the created device', async () => {
+    type Ref = { kind: 'ref'; col: string; id: string };
+    type Query = { kind: 'query' };
+    const data = new Map<string, any>();
+    const ref = (col: string, id: string): Ref => ({ kind: 'ref', col, id });
+    const snap = (target: Ref) => ({ id: target.id, ref: target, exists: data.has(`${target.col}/${target.id}`), data: () => data.get(`${target.col}/${target.id}`) });
+    const db: any = {
+      collection: (col: string) => ({
+        doc: (id: string) => ref(col, id),
+        where: () => ({ kind: 'query', limit: () => ({ kind: 'query' } as Query) } as Query & { limit: () => Query })
+      }),
+      runTransaction: async (callback: any) => callback({
+        get: async (target: Ref | Query) => target.kind === 'query' ? { empty: true, docs: [] } : snap(target),
+        set: (target: Ref, value: any, options?: { merge?: boolean }) => {
+          const key = `${target.col}/${target.id}`;
+          data.set(key, options?.merge ? { ...data.get(key), ...value } : { ...value });
+        },
+        update: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...data.get(`${target.col}/${target.id}`), ...value })
+      })
+    };
+    data.set('warehouses/KHO_CN01', { id: 'KHO_CN01', branchId: 'CN01', name: 'Kho CN01', isActive: true });
+    data.set('partners/SUP_01', { id: 'SUP_01', name: 'NCC 01', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
+    data.set('funds/FUND_CN01', { id: 'FUND_CN01', name: 'Tiền mặt CN01', branchId: 'CN01', type: 'CASH', currentBalance: 30_000_000, totalExpense: 0, isActive: true });
+
+    await processPurchaseOrderReceipt(db, {
+      order: validOrder({
+        items: [{
+          ...validOrder().items[0],
+          catalogItemId: 'CAT_IP15PM_256_NAT',
+          catalogModelId: 'MODEL_IP15PM',
+          catalogModelCode: 'IP15PM',
+          productFamilyCode: 'IPHONE',
+          catalogGroupCode: 'PHONE_USED'
+        }]
+      })
+    }, actor);
+
+    const createdDevice = [...data.entries()].find(([key]) => key.startsWith('devices/'))?.[1];
+    expect(createdDevice).toMatchObject({
+      catalogItemId: 'CAT_IP15PM_256_NAT',
+      catalogModelId: 'MODEL_IP15PM',
+      catalogModelCode: 'IP15PM',
+      productFamilyCode: 'IPHONE',
+      catalogGroupCode: 'PHONE_USED',
+      model: 'iPhone 15 Pro'
+    });
+    expect(data.get('purchaseOrders/PO_01').items[0]).toMatchObject({ catalogItemId: 'CAT_IP15PM_256_NAT', catalogModelCode: 'IP15PM' });
   });
 
   it('rejects a total that does not equal IMEI cost minus discount plus fees', () => {

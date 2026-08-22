@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { Firestore } from 'firebase-admin/firestore';
 import { AuthenticatedUser } from '../middleware/authenticateFirebase';
+import { getIphoneCatalogSeed, IPHONE_SEED_VERSION } from '../data/iphoneCatalogSeed';
 
 /**
  * Product Master is deliberately separate from physical stock.  This service
@@ -9,7 +10,8 @@ import { AuthenticatedUser } from '../middleware/authenticateFirebase';
  * inventory projections and are never created here.
  */
 export type CatalogCategory = 'DEVICE' | 'PART' | 'ACCESSORY';
-export type CatalogDictionaryType = 'BRAND' | 'CATEGORY' | 'ATTRIBUTE' | 'TEMPLATE';
+export type CatalogCatalogKind = CatalogCategory | 'SERVICE';
+export type CatalogDictionaryType = 'BRAND' | 'FAMILY' | 'CATEGORY' | 'ATTRIBUTE' | 'TEMPLATE';
 
 export interface CatalogModelRecord {
   id: string;
@@ -17,12 +19,17 @@ export interface CatalogModelRecord {
   brandName: string;
   seriesCode?: string;
   seriesName?: string;
+  /** Product family is setup data. It is independent from the Brand. */
+  familyId?: string;
+  familyCode?: string;
+  familyName?: string;
   modelCode: string;
   modelName: string;
   releaseYear?: number;
   aliases: string[];
   searchTokens: string[];
   active: boolean;
+  lifecycleStatus?: 'ACTIVE' | 'ARCHIVED';
   createdAt: string;
   updatedAt: string;
   createdByUid: string;
@@ -36,6 +43,13 @@ export interface CatalogDictionaryRecord {
   code: string;
   name: string;
   parentId?: string;
+  kind?: CatalogCatalogKind;
+  familyId?: string;
+  familyCode?: string;
+  groupId?: string;
+  groupCode?: string;
+  /** Simple screen configuration, e.g. group kind or template attributes. */
+  config?: Record<string, unknown>;
   aliases: string[];
   active: boolean;
   createdAt: string;
@@ -284,6 +298,35 @@ function asString(value: unknown) {
   return String(value ?? '').trim();
 }
 
+/**
+ * Firestore rejects an `undefined` value at any depth. Optional catalog
+ * fields are intentionally omitted instead of enabling the global
+ * ignoreUndefinedProperties switch, which would hide accidental bad writes
+ * in unrelated modules.
+ */
+function compactFirestoreData<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.filter(item => item !== undefined).map(item => compactFirestoreData(item)) as T;
+  }
+  if (value && typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype === Object.prototype || prototype === null) {
+      const compacted: Record<string, unknown> = {};
+      Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
+        if (item !== undefined) compacted[key] = compactFirestoreData(item);
+      });
+      return compacted as T;
+    }
+  }
+  return value;
+}
+
+function setCatalogDocument(transaction: any, ref: any, data: Record<string, unknown>, options?: any) {
+  const compacted = compactFirestoreData(data);
+  if (options === undefined) transaction.set(ref, compacted);
+  else transaction.set(ref, compacted, options);
+}
+
 /** Converts a configured code to its canonical representation. */
 export function normalizeCatalogCode(value: unknown): string {
   const code = asString(value).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -357,6 +400,13 @@ function assertCatalogCategory(value: unknown): CatalogCategory {
   const category = asString(value).toUpperCase();
   if (!['DEVICE', 'PART', 'ACCESSORY'].includes(category)) throw new Error('CATALOG_CATEGORY_INVALID');
   return category as CatalogCategory;
+}
+
+function normalizeCatalogKind(value: unknown): CatalogCatalogKind | undefined {
+  const kind = asString(value).toUpperCase();
+  if (!kind) return undefined;
+  if (!['DEVICE', 'PART', 'ACCESSORY', 'SERVICE'].includes(kind)) throw new Error('CATALOG_GROUP_KIND_INVALID');
+  return kind as CatalogCatalogKind;
 }
 
 function safeDocId(prefix: string, source: string) {
@@ -957,7 +1007,7 @@ async function initializeOperation(db: Firestore | any, operationKey: string, pa
       updatedAt: createdAt,
       createdByUid: actor.uid
     };
-    transaction.set(ref, data);
+    setCatalogDocument(transaction, ref, data);
     result = { replay: false, data: { id: ref.id, ...data } };
   });
   return { ref, ...result };
@@ -967,7 +1017,7 @@ async function finishOperation(db: Firestore | any, ref: any, result: any, actor
   await db.runTransaction(async (transaction: any) => {
     const current = await transaction.get(ref);
     if (!current.exists) return;
-    transaction.set(ref, {
+    setCatalogDocument(transaction, ref, {
       ...current.data(),
       status: 'COMPLETED',
       result,
@@ -998,7 +1048,7 @@ async function createCatalogDraft(
     }
     const legacyItemId = legacySkuIndex.get(draft.skuNormalized);
     if (legacyItemId) {
-      transaction.set(registryRef, {
+      setCatalogDocument(transaction, registryRef, {
         sku: draft.sku,
         skuNormalized: draft.skuNormalized,
         catalogItemId: legacyItemId,
@@ -1012,7 +1062,7 @@ async function createCatalogDraft(
     if (itemSnap.exists) {
       const current = itemSnap.data();
       if (normalizeCatalogSku(current?.sku || '') !== draft.skuNormalized) throw new Error('CATALOG_ITEM_ID_COLLISION');
-      transaction.set(registryRef, {
+      setCatalogDocument(transaction, registryRef, {
         sku: draft.sku,
         skuNormalized: draft.skuNormalized,
         catalogItemId: itemSnap.id,
@@ -1032,8 +1082,8 @@ async function createCatalogDraft(
       createdByUid: actor.uid,
       updatedByUid: actor.uid
     };
-    transaction.set(itemRef, item);
-    transaction.set(registryRef, {
+    setCatalogDocument(transaction, itemRef, item);
+    setCatalogDocument(transaction, registryRef, {
       sku: draft.sku,
       skuNormalized: draft.skuNormalized,
       catalogItemId: draft.id,
@@ -1304,7 +1354,7 @@ export async function processUpdateCatalogItem(db: Firestore | any, itemId: stri
       updatedAt: nowIso(),
       updatedByUid: actor.uid
     };
-    transaction.set(ref, updated, { merge: false });
+    setCatalogDocument(transaction, ref, updated, { merge: false });
   });
   return updated;
 }
@@ -1326,7 +1376,7 @@ export async function processArchiveCatalogItem(db: Firestore | any, itemId: str
       updatedAt: nowIso(),
       updatedByUid: actor.uid
     };
-    transaction.set(ref, archived, { merge: false });
+    setCatalogDocument(transaction, ref, archived, { merge: false });
   });
   return archived;
 }
@@ -1394,7 +1444,7 @@ export async function processRollbackCatalogOperation(db: Firestore | any, rawOp
         return;
       }
       const archivedAt = nowIso();
-      transaction.set(itemRef, {
+      setCatalogDocument(transaction, itemRef, {
         ...item,
         status: 'inactive',
         lifecycleStatus: 'ARCHIVED',
@@ -1421,7 +1471,7 @@ export async function processRollbackCatalogOperation(db: Firestore | any, rawOp
   await db.runTransaction(async (transaction: any) => {
     const current = await transaction.get(operationRef);
     if (!current.exists) throw new Error('CATALOG_OPERATION_NOT_FOUND');
-    transaction.set(operationRef, {
+    setCatalogDocument(transaction, operationRef, {
       ...current.data(),
       status: blocked.length ? 'ROLLBACK_PARTIAL' : 'ROLLED_BACK',
       rollbackResult: response,
@@ -1447,6 +1497,9 @@ function normalizeModelInput(input: any) {
     brandName,
     seriesCode: asString(input?.seriesCode) ? normalizeCatalogCode(input.seriesCode) : undefined,
     seriesName: asString(input?.seriesName) || undefined,
+    familyId: asString(input?.familyId) || undefined,
+    familyCode: asString(input?.familyCode) ? normalizeCatalogCode(input.familyCode) : undefined,
+    familyName: asString(input?.familyName) || undefined,
     modelCode,
     modelName,
     releaseYear,
@@ -1482,8 +1535,8 @@ export async function processCreateCatalogModel(db: Firestore | any, input: any,
       createdByUid: actor.uid,
       updatedByUid: actor.uid
     };
-    transaction.set(ref, model);
-    transaction.set(registryRef, { brandCode: draft.brandCode, modelCode: draft.modelCode, modelId: draft.id, createdAt: timestamp, createdByUid: actor.uid });
+    setCatalogDocument(transaction, ref, model);
+    setCatalogDocument(transaction, registryRef, { brandCode: draft.brandCode, modelCode: draft.modelCode, modelId: draft.id, createdAt: timestamp, createdByUid: actor.uid });
     result = { model, idempotentReplay: false };
   });
   return result;
@@ -1508,6 +1561,9 @@ export async function processUpdateCatalogModel(db: Firestore | any, modelId: st
       brandName,
       seriesName: input?.seriesName === undefined ? current.seriesName : asString(input.seriesName),
       seriesCode: input?.seriesCode === undefined ? current.seriesCode : normalizeCatalogCode(input.seriesCode),
+      familyId: input?.familyId === undefined ? current.familyId : asString(input.familyId) || undefined,
+      familyCode: input?.familyCode === undefined ? current.familyCode : (asString(input.familyCode) ? normalizeCatalogCode(input.familyCode) : undefined),
+      familyName: input?.familyName === undefined ? current.familyName : asString(input.familyName) || undefined,
       releaseYear,
       aliases,
       searchTokens: buildCatalogAliases(aliases),
@@ -1515,24 +1571,36 @@ export async function processUpdateCatalogModel(db: Firestore | any, modelId: st
       updatedAt: nowIso(),
       updatedByUid: actor.uid
     };
-    transaction.set(ref, updated, { merge: false });
+    setCatalogDocument(transaction, ref, updated, { merge: false });
   });
   return updated;
 }
 
 function normalizeDictionaryInput(input: any) {
   const dictionaryType = asString(input?.dictionaryType).toUpperCase() as CatalogDictionaryType;
-  if (!['BRAND', 'CATEGORY', 'ATTRIBUTE', 'TEMPLATE'].includes(dictionaryType)) throw new Error('CATALOG_DICTIONARY_TYPE_INVALID');
+  if (!['BRAND', 'FAMILY', 'CATEGORY', 'ATTRIBUTE', 'TEMPLATE'].includes(dictionaryType)) throw new Error('CATALOG_DICTIONARY_TYPE_INVALID');
   const code = normalizeCatalogCode(input?.code);
   const key = asString(input?.key) || code;
   const name = requireNonEmpty(input?.name, 'CATALOG_DICTIONARY_NAME_REQUIRED');
+  const parentId = asString(input?.parentId);
+  const kind = normalizeCatalogKind(input?.kind);
+  const familyId = asString(input?.familyId);
+  const familyCode = asString(input?.familyCode) ? normalizeCatalogCode(input.familyCode) : undefined;
+  const groupId = asString(input?.groupId);
+  const groupCode = asString(input?.groupCode) ? normalizeCatalogCode(input.groupCode) : undefined;
   return {
     id: asString(input?.id) || safeDocId('DICT', `${dictionaryType}-${key}-${code}`),
     dictionaryType,
     key,
     code,
     name,
-    parentId: asString(input?.parentId) || undefined,
+    ...(parentId ? { parentId } : {}),
+    ...(kind ? { kind } : {}),
+    ...(familyId ? { familyId } : {}),
+    ...(familyCode ? { familyCode } : {}),
+    ...(groupId ? { groupId } : {}),
+    ...(groupCode ? { groupCode } : {}),
+    ...(input?.config && typeof input.config === 'object' && !Array.isArray(input.config) ? { config: compactFirestoreData(input.config) } : {}),
     aliases: uniqueStrings([name, code, ...(Array.isArray(input?.aliases) ? input.aliases : [])]),
     active: input?.active !== false
   };
@@ -1556,7 +1624,7 @@ export async function processCreateCatalogDictionary(db: Firestore | any, input:
       createdByUid: actor.uid,
       updatedByUid: actor.uid
     };
-    transaction.set(ref, dictionary);
+    setCatalogDocument(transaction, ref, dictionary);
   });
   return dictionary;
 }
@@ -1569,18 +1637,43 @@ export async function processUpdateCatalogDictionary(db: Firestore | any, dictio
     const snap = await transaction.get(ref);
     if (!snap.exists) throw new Error('CATALOG_DICTIONARY_NOT_FOUND');
     const current = { id: snap.id, ...snap.data() };
+    const {
+      parentId: _currentParentId,
+      config: currentConfig,
+      kind: currentKind,
+      familyId: currentFamilyId,
+      familyCode: currentFamilyCode,
+      groupId: currentGroupId,
+      groupCode: currentGroupCode,
+      ...currentWithoutParentId
+    } = current;
     const name = input?.name === undefined ? current.name : requireNonEmpty(input.name, 'CATALOG_DICTIONARY_NAME_REQUIRED');
+    const parentId = input?.parentId === undefined ? asString(current.parentId) : asString(input.parentId);
     const aliases = uniqueStrings([name, current.code, ...(Array.isArray(input?.aliases) ? input.aliases : current.aliases || [])]);
+    const config = input?.config === undefined
+      ? currentConfig
+      : (input.config && typeof input.config === 'object' && !Array.isArray(input.config) ? compactFirestoreData(input.config) : undefined);
+    const kind = input?.kind === undefined ? currentKind : normalizeCatalogKind(input.kind);
+    const familyId = input?.familyId === undefined ? currentFamilyId : asString(input.familyId) || undefined;
+    const familyCode = input?.familyCode === undefined ? currentFamilyCode : (asString(input.familyCode) ? normalizeCatalogCode(input.familyCode) : undefined);
+    const groupId = input?.groupId === undefined ? currentGroupId : asString(input.groupId) || undefined;
+    const groupCode = input?.groupCode === undefined ? currentGroupCode : (asString(input.groupCode) ? normalizeCatalogCode(input.groupCode) : undefined);
     updated = {
-      ...current,
+      ...currentWithoutParentId,
       name,
-      parentId: input?.parentId === undefined ? current.parentId : asString(input.parentId) || undefined,
+      ...(parentId ? { parentId } : {}),
+      ...(kind ? { kind } : {}),
+      ...(familyId ? { familyId } : {}),
+      ...(familyCode ? { familyCode } : {}),
+      ...(groupId ? { groupId } : {}),
+      ...(groupCode ? { groupCode } : {}),
+      ...(config ? { config } : {}),
       aliases,
       active: input?.active === undefined ? current.active !== false : input.active === true,
       updatedAt: nowIso(),
       updatedByUid: actor.uid
     };
-    transaction.set(ref, updated, { merge: false });
+    setCatalogDocument(transaction, ref, updated, { merge: false });
   });
   return updated;
 }
@@ -1832,6 +1925,288 @@ export async function processCatalogClone(db: Firestore | any, input: CatalogClo
     }
   }));
   return processCatalogImport(db, { operationKey, rows }, actor);
+}
+
+type SeedSection = 'brand' | 'family' | 'group' | 'attribute' | 'template' | 'model';
+
+function catalogDictionaryIdentity(record: any) {
+  let code: string;
+  try { code = normalizeCatalogCode(record?.code); } catch { code = `RAW-${normalizeText(record?.code) || 'EMPTY'}`; }
+  return [
+    asString(record?.dictionaryType).toUpperCase(),
+    asString(record?.key).toUpperCase(),
+    code
+  ].join('::');
+}
+
+function catalogModelIdentity(record: any) {
+  let brandCode: string;
+  let modelCode: string;
+  try { brandCode = normalizeCatalogCode(record?.brandCode); } catch { brandCode = `RAW-${normalizeText(record?.brandCode) || 'EMPTY'}`; }
+  try { modelCode = normalizeCatalogCode(record?.modelCode); } catch { modelCode = `RAW-${normalizeText(record?.modelCode) || 'EMPTY'}`; }
+  return [brandCode, modelCode].join('::');
+}
+
+function assertCatalogAdmin(actor: AuthenticatedUser) {
+  if (asString(actor?.role).toUpperCase() !== 'ADMIN') throw new Error('CATALOG_ADMIN_REQUIRED');
+}
+
+function seedSectionForDictionary(record: any): SeedSection {
+  const type = asString(record?.dictionaryType).toUpperCase();
+  if (type === 'BRAND') return 'brand';
+  if (type === 'FAMILY') return 'family';
+  if (type === 'CATEGORY') return 'group';
+  if (type === 'TEMPLATE') return 'template';
+  return 'attribute';
+}
+
+function makeSeedSummary() {
+  return {
+    brand: { total: 0, existing: 0, create: 0 },
+    family: { total: 0, existing: 0, create: 0 },
+    group: { total: 0, existing: 0, create: 0 },
+    attribute: { total: 0, existing: 0, create: 0 },
+    template: { total: 0, existing: 0, create: 0 },
+    model: { total: 0, existing: 0, create: 0 }
+  } satisfies Record<SeedSection, { total: number; existing: number; create: number }>;
+}
+
+function remapSeedReferences(value: any, idMap: Map<string, string>, key?: string): any {
+  if (Array.isArray(value)) return value.map(item => remapSeedReferences(item, idMap));
+  if (!value || typeof value !== 'object') {
+    const referenceKeys = new Set(['parentId', 'familyId', 'groupId', 'parentGroupId', 'attributeId', 'templateId']);
+    return key && referenceKeys.has(key) && typeof value === 'string' ? (idMap.get(value) || value) : value;
+  }
+  const mapped: Record<string, unknown> = {};
+  Object.entries(value).forEach(([childKey, childValue]) => {
+    mapped[childKey] = remapSeedReferences(childValue, idMap, childKey);
+  });
+  return mapped;
+}
+
+/**
+ * Shows exactly what the Admin confirmation will add. The seed is intentionally
+ * definitions-only: catalogItems, products, spareParts, devices and IMEI are
+ * never read or written here.
+ */
+export async function previewIphoneCatalogSeed(db: Firestore | any) {
+  const seed = getIphoneCatalogSeed();
+  const [existingDictionaries, existingModels] = await Promise.all([
+    listCollection(db, DICTIONARIES_COLLECTION),
+    listCollection(db, MODELS_COLLECTION)
+  ]);
+  const dictionaryIndex = new Map(existingDictionaries.map(item => [catalogDictionaryIdentity(item), item]));
+  const modelIndex = new Map(existingModels.map(item => [catalogModelIdentity(item), item]));
+  const summary = makeSeedSummary();
+  const records: Array<{ section: SeedSection; id: string; code: string; name: string; status: 'EXISTS' | 'CREATE' }> = [];
+
+  seed.dictionaries.forEach(record => {
+    const section = seedSectionForDictionary(record);
+    const existing = dictionaryIndex.get(catalogDictionaryIdentity(record));
+    summary[section].total += 1;
+    summary[section][existing ? 'existing' : 'create'] += 1;
+    records.push({ section, id: existing?.id || record.id, code: record.code, name: record.name, status: existing ? 'EXISTS' : 'CREATE' });
+  });
+  seed.models.forEach(model => {
+    const existing = modelIndex.get(catalogModelIdentity(model));
+    summary.model.total += 1;
+    summary.model[existing ? 'existing' : 'create'] += 1;
+    records.push({ section: 'model', id: existing?.id || model.id, code: model.modelCode, name: model.modelName, status: existing ? 'EXISTS' : 'CREATE' });
+  });
+
+  const total = Object.values(summary).reduce((result, section) => result + section.total, 0);
+  const create = Object.values(summary).reduce((result, section) => result + section.create, 0);
+  return {
+    version: IPHONE_SEED_VERSION,
+    title: 'Danh mục iPhone chuẩn',
+    records,
+    summary,
+    total,
+    create,
+    existing: total - create,
+    alreadyInitialized: create === 0,
+    guarantees: {
+      createsInventory: false,
+      createsImei: false,
+      createsSku: false,
+      preservesExisting: true
+    }
+  };
+}
+
+/** Admin confirmation for the iPhone starter catalog. It is safe to retry. */
+export async function processIphoneCatalogSeed(db: Firestore | any, input: any, actor: AuthenticatedUser) {
+  assertCatalogAdmin(actor);
+  if (input?.confirmed !== true) throw new Error('CATALOG_IPHONE_SEED_CONFIRMATION_REQUIRED');
+
+  const seed = getIphoneCatalogSeed();
+  const [existingDictionaries, existingModels] = await Promise.all([
+    listCollection(db, DICTIONARIES_COLLECTION),
+    listCollection(db, MODELS_COLLECTION)
+  ]);
+  const dictionaryIndex = new Map(existingDictionaries.map(item => [catalogDictionaryIdentity(item), item]));
+  const modelIndex = new Map(existingModels.map(item => [catalogModelIdentity(item), item]));
+  const idMap = new Map<string, string>();
+  seed.dictionaries.forEach(record => {
+    const existing = dictionaryIndex.get(catalogDictionaryIdentity(record));
+    idMap.set(record.id, existing?.id || record.id);
+  });
+
+  const created = makeSeedSummary();
+  const existing = makeSeedSummary();
+  for (const record of seed.dictionaries) {
+    const section = seedSectionForDictionary(record);
+    const duplicate = dictionaryIndex.get(catalogDictionaryIdentity(record));
+    if (duplicate) {
+      existing[section].total += 1;
+      continue;
+    }
+    const seedRecord = remapSeedReferences(record, idMap);
+    await processCreateCatalogDictionary(db, seedRecord, actor);
+    dictionaryIndex.set(catalogDictionaryIdentity(record), { id: record.id, ...seedRecord });
+    created[section].total += 1;
+  }
+
+  for (const model of seed.models) {
+    const duplicate = modelIndex.get(catalogModelIdentity(model));
+    if (duplicate) {
+      existing.model.total += 1;
+      continue;
+    }
+    const seedModel = {
+      ...model,
+      familyId: idMap.get('CAT_FAMILY_IPHONE') || 'CAT_FAMILY_IPHONE',
+      familyCode: 'IPHONE',
+      familyName: 'iPhone'
+    };
+    await processCreateCatalogModel(db, seedModel, actor);
+    modelIndex.set(catalogModelIdentity(model), { id: model.id, ...seedModel });
+    created.model.total += 1;
+  }
+
+  const totalCreated = Object.values(created).reduce((result, section) => result + section.total, 0);
+  const totalExisting = Object.values(existing).reduce((result, section) => result + section.total, 0);
+  return {
+    version: IPHONE_SEED_VERSION,
+    created,
+    existing,
+    totalCreated,
+    totalExisting,
+    idempotentReplay: totalCreated === 0,
+    guarantees: {
+      createsInventory: false,
+      createsImei: false,
+      createsSku: false,
+      preservesExisting: true
+    }
+  };
+}
+
+function hasIdInValue(value: unknown, id: string): boolean {
+  if (value === id) return true;
+  if (Array.isArray(value)) return value.some(item => hasIdInValue(item, id));
+  if (value && typeof value === 'object') return Object.values(value as Record<string, unknown>).some(item => hasIdInValue(item, id));
+  return false;
+}
+
+async function catalogDictionaryLinks(db: Firestore | any, dictionary: any) {
+  const [dictionaries, models, items] = await Promise.all([
+    listCollection(db, DICTIONARIES_COLLECTION),
+    listCollection(db, MODELS_COLLECTION),
+    listCollection(db, CATALOG_COLLECTION)
+  ]);
+  const linkedGroups = dictionaries.filter(item => item.id !== dictionary.id && (item.parentId === dictionary.id || hasIdInValue(item.config, dictionary.id)));
+  const code = asString(dictionary.code);
+  const modelLinks = asString(dictionary.dictionaryType).toUpperCase() === 'BRAND'
+    ? models.filter(model => asString(model.brandCode) === code)
+    : [];
+  const itemLinks = items.filter(item =>
+    item.categoryCode === code || item.brandCode === code || item.unitCode === code || item.subCategoryId === dictionary.id ||
+    (Array.isArray(item.skuSegments) && item.skuSegments.some((segment: any) => asString(segment?.code) === code))
+  );
+  return [
+    { collection: 'catalogDictionaries', count: linkedGroups.length },
+    { collection: 'catalogModels', count: modelLinks.length },
+    { collection: 'catalogItems', count: itemLinks.length }
+  ].filter(link => link.count > 0);
+}
+
+/** Deletes an unused setup row. Used rows are safely changed to Ngừng dùng. */
+export async function processDeleteCatalogDictionary(db: Firestore | any, dictionaryId: string, actor: AuthenticatedUser) {
+  assertCatalogAdmin(actor);
+  const ref = db.collection(DICTIONARIES_COLLECTION).doc(asString(dictionaryId));
+  const currentSnap = await ref.get();
+  if (!currentSnap.exists) throw new Error('CATALOG_DICTIONARY_NOT_FOUND');
+  const current = { id: currentSnap.id, ...currentSnap.data() };
+  const links = await catalogDictionaryLinks(db, current);
+  let result: any;
+  await db.runTransaction(async (transaction: any) => {
+    const latest = await transaction.get(ref);
+    if (!latest.exists) throw new Error('CATALOG_DICTIONARY_NOT_FOUND');
+    if (links.length) {
+      const archived = {
+        id: latest.id,
+        ...latest.data(),
+        active: false,
+        lifecycleStatus: 'ARCHIVED',
+        archivedAt: nowIso(),
+        archivedByUid: actor.uid,
+        updatedAt: nowIso(),
+        updatedByUid: actor.uid
+      };
+      setCatalogDocument(transaction, ref, archived, { merge: false });
+      result = { id: latest.id, deleted: false, archived: true, links };
+      return;
+    }
+    if (typeof transaction.delete !== 'function') throw new Error('CATALOG_DELETE_UNAVAILABLE');
+    transaction.delete(ref);
+    result = { id: latest.id, deleted: true, archived: false, links: [] };
+  });
+  return result;
+}
+
+async function catalogModelLinks(db: Firestore | any, modelId: string) {
+  const [items, registry] = await Promise.all([
+    listCollection(db, CATALOG_COLLECTION),
+    listCollection(db, MODEL_REGISTRY_COLLECTION)
+  ]);
+  return {
+    itemLinks: items.filter(item => item.modelId === modelId || (Array.isArray(item.compatibleModelIds) && item.compatibleModelIds.includes(modelId))),
+    registry: registry.filter(item => item.modelId === modelId)
+  };
+}
+
+/** Deletes an unused Model. A model used by a SKU is kept as Ngừng dùng. */
+export async function processDeleteCatalogModel(db: Firestore | any, modelId: string, actor: AuthenticatedUser) {
+  assertCatalogAdmin(actor);
+  const ref = db.collection(MODELS_COLLECTION).doc(asString(modelId));
+  const currentSnap = await ref.get();
+  if (!currentSnap.exists) throw new Error('CATALOG_MODEL_NOT_FOUND');
+  const links = await catalogModelLinks(db, asString(modelId));
+  let result: any;
+  await db.runTransaction(async (transaction: any) => {
+    const latest = await transaction.get(ref);
+    if (!latest.exists) throw new Error('CATALOG_MODEL_NOT_FOUND');
+    if (links.itemLinks.length) {
+      setCatalogDocument(transaction, ref, {
+        id: latest.id,
+        ...latest.data(),
+        active: false,
+        lifecycleStatus: 'ARCHIVED',
+        archivedAt: nowIso(),
+        archivedByUid: actor.uid,
+        updatedAt: nowIso(),
+        updatedByUid: actor.uid
+      }, { merge: false });
+      result = { id: latest.id, deleted: false, archived: true, links: [{ collection: 'catalogItems', count: links.itemLinks.length }] };
+      return;
+    }
+    if (typeof transaction.delete !== 'function') throw new Error('CATALOG_DELETE_UNAVAILABLE');
+    transaction.delete(ref);
+    links.registry.forEach(entry => transaction.delete(db.collection(MODEL_REGISTRY_COLLECTION).doc(entry.id)));
+    result = { id: latest.id, deleted: true, archived: false, links: [] };
+  });
+  return result;
 }
 
 export async function getCatalogBootstrap(db: Firestore | any, options?: { limit?: number }) {

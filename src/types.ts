@@ -322,6 +322,15 @@ export type PurchasePaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID';
 export interface PurchaseOrderItem {
   id: string;
   type: 'device' | 'product';
+  /**
+   * Optional Product Master references. Older purchase orders only keep the
+   * display fields below, so these are intentionally additive.
+   */
+  catalogItemId?: string;
+  catalogModelId?: string;
+  catalogModelCode?: string;
+  productFamilyCode?: string;
+  catalogGroupCode?: string;
   modelOrName: string; // e.g. "iPhone 16 Pro Max 256GB Titan Sa Mạc"
   color?: string;
   storage?: string;
@@ -415,6 +424,9 @@ export interface MasterCatalogItem {
   /** Canonical model reference. `model` stays for legacy purchase forms. */
   modelId?: string;
   modelCode?: string;
+  /** Optional setup-owned grouping references used when a device is received. */
+  productFamilyCode?: string;
+  catalogGroupCode?: string;
   model?: string;
   storage?: string;
   color?: string;
@@ -528,6 +540,12 @@ export interface DeviceItem {
   branchId?: string;
   imei: string;
   serialNo: string;
+  /** Optional Product Master references retained from the purchase receipt. */
+  catalogItemId?: string;
+  catalogModelId?: string;
+  catalogModelCode?: string;
+  productFamilyCode?: string;
+  catalogGroupCode?: string;
   model: string;
   storage: string;
   color: string;
