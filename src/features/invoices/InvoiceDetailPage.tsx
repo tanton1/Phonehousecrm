@@ -5,6 +5,8 @@ import { InvoiceHistoryTab } from './InvoiceHistoryTab';
 import { InvoiceRefundDialog } from './InvoiceRefundDialog';
 import { StatusBadge } from '../../shared/ui/StatusBadge/StatusBadge';
 import { Button } from '../../shared/ui/Button/Button';
+import { invoiceDateTime } from '../../utils/dateValue';
+import { formatVnd, getInvoiceLines } from '../../utils/invoicePresentation';
 import { 
   Receipt, 
   Printer, 
@@ -46,6 +48,7 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
   if (!isOpen || !invoice) return null;
 
   const branchObj = branches.find(b => b.id === invoice.branchId);
+  const displayItems = getInvoiceLines(invoice);
 
   const handleExecuteRefund = async (inv: SalesInvoice, fundId: string, reason: string) => {
     setIsRefunding(true);
@@ -77,7 +80,7 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
                   <StatusBadge status={invoice.status || 'completed'} />
                 </div>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Ngày lập: <span className="font-mono text-zinc-300">{invoice.createdAt || invoice.createdDate || 'N/A'}</span> • Chi nhánh: <span className="font-bold text-orange-300">{branchObj?.name || invoice.branch || 'Toàn Hệ Thống'}</span>
+                  Ngày lập: <span className="font-mono text-zinc-300">{invoiceDateTime(invoice.createdAt || invoice.createdDate, 'N/A')}</span> • Chi nhánh: <span className="font-bold text-orange-300">{branchObj?.name || invoice.branch || 'Toàn Hệ Thống'}</span>
                 </p>
               </div>
             </div>
@@ -145,7 +148,7 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
                   : 'border-transparent text-zinc-500 hover:text-zinc-800'
               }`}
             >
-              Sản Phẩm & Bảo Hành ({invoice.devices?.length || 0})
+              Sản Phẩm & Bảo Hành ({displayItems.length})
             </button>
 
             <button
@@ -175,63 +178,36 @@ export const InvoiceDetailPage: React.FC<InvoiceDetailPageProps> = ({
           <div className="flex-1 overflow-y-auto p-5 space-y-4 pb-20 sm:pb-6">
             {activeTab === 'ITEMS' && (
               <div className="space-y-3">
-                {/* Devices */}
                 <div className="space-y-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Máy iPhone Bán Ra</h4>
-                  {invoice.devices && invoice.devices.length > 0 ? (
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Sản phẩm xuất bán</h4>
+                  {displayItems.length > 0 ? (
                     <div className="space-y-2">
-                      {invoice.devices.map((dev, idx) => (
+                      {displayItems.map((item, idx) => (
                         <div
                           key={idx}
                           className="p-3 bg-zinc-50 border border-zinc-200/80 rounded-2xl flex items-center justify-between text-xs"
                         >
                           <div className="flex items-center space-x-2.5">
-                            <div className="w-8 h-8 rounded-xl bg-orange-100 text-[#ff4b16] flex items-center justify-center shrink-0">
-                              <Smartphone className="w-4 h-4" />
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${item.type === 'device' ? 'bg-orange-100 text-[#ff4b16]' : 'bg-blue-50 text-blue-600'}`}>
+                              {item.type === 'device' ? <Smartphone className="w-4 h-4" /> : <Package className="w-4 h-4" />}
                             </div>
                             <div>
-                              <h5 className="font-semibold text-zinc-800">{dev.model}</h5>
+                              <h5 className="font-semibold text-zinc-800">{item.name}</h5>
                               <p className="text-[11px] text-zinc-500 font-mono">
-                                IMEI: <span className="font-semibold text-zinc-700">{dev.imei}</span> • {dev.color || 'Đen'} • {dev.storage || '128GB'}
+                                {item.imei ? <>IMEI: <span className="font-semibold text-zinc-700">{item.imei}</span> • </> : null}{item.color || '—'} • {item.storage || '—'} • SL {item.quantity}
                               </p>
                             </div>
                           </div>
                           <span className="font-semibold font-mono text-zinc-900">
-                            {(dev.price || 0).toLocaleString('vi-VN')}đ
+                            {formatVnd(item.totalPrice)}đ
                           </span>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-xs text-zinc-400 italic">Không có máy trong hóa đơn này</p>
+                    <p className="text-xs text-zinc-400 italic">Không có sản phẩm trong hóa đơn này</p>
                   )}
                 </div>
-
-                {/* Accessories */}
-                {invoice.accessories && invoice.accessories.length > 0 && (
-                  <div className="space-y-2 pt-2 border-t border-zinc-100">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Phụ Kiện Đi Kèm</h4>
-                    <div className="space-y-2">
-                      {invoice.accessories.map((acc, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 bg-zinc-50 border border-zinc-200/80 rounded-2xl flex items-center justify-between text-xs"
-                        >
-                          <div className="flex items-center space-x-2.5">
-                            <Package className="w-4 h-4 text-blue-600 shrink-0" />
-                            <div>
-                              <h5 className="font-bold text-zinc-900">{acc.name}</h5>
-                              <span className="text-[10px] text-zinc-500 font-mono">Số lượng: {acc.quantity || 1}</span>
-                            </div>
-                          </div>
-                          <span className="font-bold font-mono text-zinc-800">
-                            {((acc.price || 0) * (acc.quantity || 1)).toLocaleString('vi-VN')}đ
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* Warranty Package */}
                 <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-2xl flex items-center justify-between text-xs">

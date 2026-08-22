@@ -749,15 +749,25 @@ export async function executeAtomicCheckout(
       items: [
         ...loadedDevices.map(d => ({
           model: d.data.model,
+          name: d.data.model,
           imei: d.data.imei,
           price: d.authoritativePrice,
+          unitPrice: d.authoritativePrice,
+          quantity: 1,
+          totalPrice: d.authoritativePrice,
+          type: 'device',
           color: d.data.color,
           storage: d.data.storage
         })),
         ...loadedAccessories.map(a => ({
           model: a.data.name,
+          name: a.data.name,
           imei: '',
           price: a.authoritativePrice,
+          unitPrice: a.authoritativePrice,
+          quantity: a.quantity,
+          totalPrice: a.authoritativePrice * a.quantity,
+          type: 'accessory',
           color: '',
           storage: ''
         }))
@@ -792,6 +802,7 @@ export async function executeAtomicCheckout(
       retailPricePolicyId: retailPricing?.policyId || null,
       retailPricePolicyVersion: retailPricing?.version || null,
       totalAmount: subTotal,
+      subTotal,
       discountAmount: authoritativeDiscount,
       tradeInDeduction: authoritativeTradeInDeduction,
       tradeInDeviceId: loadedTradeIn?.id || null,

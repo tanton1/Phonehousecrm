@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem } from '../types';
 import { invoiceDateTime } from '../utils/dateValue';
+import { asInvoiceMoney, formatVnd, getInvoiceFinalAmount, getInvoiceLines, getInvoiceSubtotal } from '../utils/invoicePresentation';
 import { ActivityLog } from "./ActivityLog";
 import { DocumentHeader } from './shared/DocumentHeader';
 import { StatusBadge } from './shared/StatusBadge';
@@ -200,9 +201,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       const code = (inv.invoiceCode || inv.id).toLowerCase();
       const name = (inv.customerName || '').toLowerCase();
       const phone = (inv.customerPhone || inv.phone || '').toLowerCase();
-      const imeiMatch = inv.imeiList?.some(imei => imei.includes(query)) ||
-        inv.items?.some((it: any) => it.imei?.includes(query)) ||
-        inv.detailedItems?.some(it => it.imei?.includes(query));
+      const imeiMatch = inv.imeiList?.some(imei => String(imei || '').includes(query)) ||
+        inv.items?.some((it: any) => String(it.imei || '').includes(query)) ||
+        inv.detailedItems?.some(it => String(it.imei || '').includes(query));
       const modelMatch = inv.items?.some((it: any) => (it.model || it.name)?.toLowerCase().includes(query)) ||
         inv.detailedItems?.some(it => it.model?.toLowerCase().includes(query));
 
@@ -217,17 +218,21 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         if (statusFilter === 'pending' && invStatus !== 'pending') return false;
         if (statusFilter === 'delivering' && invStatus !== 'delivering') return false;
         if (statusFilter === 'cancelled' && invStatus !== 'cancelled') return false;
-        if (statusFilter === 'installment' && !inv.paymentMethod.includes('Trả góp')) return false;
+        if (statusFilter === 'installment') {
+          const paymentMethod = (inv.paymentMethod || '').toLowerCase();
+          if (!paymentMethod.includes('trả góp') && !paymentMethod.includes('installment')) return false;
+        }
       }
 
       // 3. Time Filter
       if (timeFilter === 'all') return true;
       
-      const dateStr = inv.createdDate || inv.createdAt || '';
+      const dateStr = invoiceDateTime(inv.createdDate || inv.createdAt, '');
       if (!dateStr) return true;
 
       // Parse invoice date
-      const invDate = new Date(dateStr.split(' ')[0]);
+      const invDate = new Date(dateStr.replace('T', ' ').split(' ')[0]);
+      if (Number.isNaN(invDate.getTime())) return true;
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -263,12 +268,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   }, [filteredInvoices]);
 
   const netRevenue = useMemo(() => {
-    return validInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+    return validInvoices.reduce((sum, inv) => sum + getInvoiceFinalAmount(inv), 0);
   }, [validInvoices]);
 
   const paidRevenue = useMemo(() => {
     return validInvoices.reduce((sum, inv) => {
-      const paid = inv.paidAmount !== undefined ? inv.paidAmount : (inv.finalAmount || inv.totalAmount || 0);
+      const paid = inv.paidAmount !== undefined ? asInvoiceMoney(inv.paidAmount) : getInvoiceFinalAmount(inv);
       return sum + paid;
     }, 0);
   }, [validInvoices]);
@@ -284,7 +289,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     const groups: { [key: string]: SalesInvoice[] } = {};
 
     filteredInvoices.forEach(inv => {
-      const rawDate = invoiceDateTime(inv.createdDate || inv.createdAt, '2026-08-14').split(' ')[0];
+      const rawDate = invoiceDateTime(inv.createdDate || inv.createdAt, '2026-08-14').replace('T', ' ').split(' ')[0];
       
       // Compute friendly date header matching screenshot uppercase format
       let header = rawDate;
@@ -332,7 +337,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         const qty = it.quantity || 1;
         totalItems += qty;
         const details = [it.storage, it.color].filter(Boolean).join(' - ');
-        const label = `${it.name.toUpperCase()}${details ? ` - ${details}` : ''} x${qty}`;
+        const label = `${String(it.name || 'Sản phẩm').toUpperCase()}${details ? ` - ${details}` : ''} x${qty}`;
         itemNames.push(label);
       });
     } 
@@ -360,7 +365,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         inv.accessories.forEach(a => {
           const qty = a.quantity || 1;
           totalItems += qty;
-          itemNames.push(`${a.name.toUpperCase()} x${qty}`);
+          itemNames.push(`${String(a.name || 'Phụ kiện').toUpperCase()} x${qty}`);
         });
       }
     }
@@ -394,80 +399,20 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const renderInvoiceDetail = (selectedInvoice: SalesInvoice) => {
     const summary = getInvoiceSummary(selectedInvoice);
     const invoiceCode = selectedInvoice.invoiceCode || selectedInvoice.id;
-    const rawDate = selectedInvoice.createdDate || selectedInvoice.createdAt || '— Chưa xác định';
+    const rawDate = invoiceDateTime(selectedInvoice.createdDate || selectedInvoice.createdAt, '— Chưa xác định');
     const customerPhone = selectedInvoice.customerPhone || selectedInvoice.phone || '— Chưa có SĐT';
     const customerName = selectedInvoice.customerName || 'Khách lẻ vãng lai';
     const statusKey = selectedInvoice.status || 'completed';
     const currentStatusConfig = STATUS_CONFIG[statusKey] || STATUS_CONFIG.completed;
 
-    // Normalize items for detailed breakdown
-    interface UnifiedItem {
-      sku: string;
-      name: string;
-      quantity: number;
-      unitPrice: number;
-      totalPrice: number;
-      imei?: string;
-      color?: string;
-      storage?: string;
-      type: 'phone' | 'accessory' | 'service' | 'tradein' | 'device' | 'repair';
-    }
-
-    let displayItems: UnifiedItem[] = [];
-
-    if (selectedInvoice.items && selectedInvoice.items.length > 0) {
-      displayItems = selectedInvoice.items.map((it: any, i: number) => ({
-        sku: it.imei ? `IMEI-${it.imei.slice(-6)}` : `SP00${5950 + i}`,
-        name: it.name || it.model || 'Sản phẩm Apple',
-        quantity: it.quantity || 1,
-        unitPrice: it.unitPrice || it.price || 0,
-        totalPrice: it.totalPrice || (it.unitPrice ? it.unitPrice * (it.quantity || 1) : it.price || 0),
-        imei: it.imei,
-        color: it.color,
-        storage: it.storage,
-        type: (it.type as 'phone' | 'accessory') || (it.imei ? 'phone' : 'accessory')
-      }));
-    } else if (selectedInvoice.detailedItems && selectedInvoice.detailedItems.length > 0) {
-      displayItems = selectedInvoice.detailedItems.map((it, i) => ({
-        sku: it.sku || (it.imei ? `IMEI-${it.imei.slice(-6)}` : `SP00${5950 + i}`),
-        name: it.name,
-        quantity: it.quantity || 1,
-        unitPrice: it.unitPrice,
-        totalPrice: it.totalPrice,
-        imei: it.imei,
-        color: it.color,
-        storage: it.storage,
-        type: it.type || (it.imei ? 'phone' : 'accessory')
-      }));
-    } else {
-      const devItems: UnifiedItem[] = (selectedInvoice.devices || []).map((d, i) => ({
-        sku: d.imei ? `IMEI-${d.imei.slice(-6)}` : `SP00${5950 + i}`,
-        name: `${d.model} ${d.storage || ''} ${d.color ? `(${d.color})` : ''}`.trim(),
-        quantity: 1,
-        unitPrice: d.price,
-        totalPrice: d.price,
-        imei: d.imei,
-        color: d.color,
-        storage: d.storage,
-        type: 'phone'
-      }));
-
-      const accItems: UnifiedItem[] = (selectedInvoice.accessories || []).map((a, i) => ({
-        sku: `PK00${1200 + i}`,
-        name: a.name,
-        quantity: a.quantity || 1,
-        unitPrice: a.price / (a.quantity || 1) || a.price,
-        totalPrice: a.price,
-        type: 'accessory'
-      }));
-
-      displayItems = [...devItems, ...accItems];
-    }
+    const displayItems = getInvoiceLines(selectedInvoice);
+    const subTotal = getInvoiceSubtotal(selectedInvoice, displayItems);
+    const finalAmount = getInvoiceFinalAmount(selectedInvoice, subTotal);
 
     const totalQty = displayItems.reduce((sum, it) => sum + (it.quantity || 1), 0);
 
     return (
-      <div className="w-full flex flex-col min-h-full space-y-4 pb-20">
+      <div className="w-full flex flex-col min-h-full space-y-4 pb-28 sm:pb-24">
         {/* Firestore Sync Toast Notification */}
         {syncToast && (
           <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 backdrop-blur-md text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 animate-fadeIn border border-white/10">
@@ -557,37 +502,39 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             }
           />
 
-        <div className="p-4 sm:p-5 space-y-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold text-sm shadow-sm shadow-orange-500/20">
-              <UserIcon className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="font-bold text-zinc-900 text-sm sm:text-base">
-                  {customerName}
-                </h3>
-                <span className="text-[10px] font-bold bg-orange-100/70 text-[#ff4b16] px-2 py-0.5 rounded-md border border-orange-200/60">
-                  Khách thân thiết
-                </span>
+        <section className="mx-4 rounded-2xl border border-orange-100 bg-gradient-to-br from-white to-orange-50/70 p-4 shadow-sm sm:mx-5 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center space-x-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold text-sm shadow-sm shadow-orange-500/20">
+                <UserIcon className="w-4 h-4" />
               </div>
-              <p className="text-xs text-zinc-500 font-mono flex items-center gap-1.5 mt-0.5">
-                <Phone className="w-3 h-3 text-[#ff4b16]" />
-                <span>{customerPhone}</span>
-              </p>
+              <div className="min-w-0">
+                <div className="flex items-center space-x-2">
+                  <h3 className="truncate font-bold text-zinc-900 text-sm sm:text-base">
+                    {customerName}
+                  </h3>
+                  <span className="shrink-0 text-[10px] font-bold bg-orange-100/70 text-[#ff4b16] px-2 py-0.5 rounded-md border border-orange-200/60">
+                    Khách thân thiết
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-500 font-mono flex items-center gap-1.5 mt-0.5">
+                  <Phone className="w-3 h-3 text-[#ff4b16]" />
+                  <span>{customerPhone}</span>
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => handleCopy(customerPhone, 'phone')}
+              className="shrink-0 p-2 rounded-xl text-zinc-400 hover:text-[#ff4b16] hover:bg-orange-100 transition-colors cursor-pointer"
+              title="Sao chép SĐT"
+            >
+              <Copy className="w-4 h-4" />
+            </button>
           </div>
-          <button 
-            onClick={() => handleCopy(customerPhone, 'phone')}
-            className="p-2 rounded-xl text-zinc-400 hover:text-[#ff4b16] hover:bg-orange-50 transition-colors cursor-pointer"
-            title="Sao chép SĐT"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
-        </div>
+        </section>
 
         {/* 3. Line Items Breakdown List */}
-        <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-2xs divide-y divide-zinc-100 overflow-hidden">
+        <section className="mx-4 overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm divide-y divide-zinc-100 sm:mx-5">
           <div className="px-4 py-2.5 bg-zinc-50/80 flex items-center justify-between border-b border-zinc-200/60">
             <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5">
               <Package className="w-3.5 h-3.5 text-orange-600" />
@@ -602,7 +549,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             <div key={idx} className="p-3.5 sm:p-4 flex items-start justify-between gap-3 hover:bg-zinc-50/60 transition-colors">
               <div className="flex items-start space-x-3">
                 <div className="w-8 h-8 rounded-xl bg-orange-50/80 border border-orange-100 text-orange-600 flex items-center justify-center shrink-0 mt-0.5">
-                  {item.type === 'phone' ? (
+                  {item.type === 'device' ? (
                     <Smartphone className="w-4 h-4" />
                   ) : (
                     <Package className="w-4 h-4" />
@@ -629,27 +576,27 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   </div>
 
                   <div className="text-xs text-zinc-500 font-mono">
-                    {item.unitPrice.toLocaleString('vi-VN')}đ x {item.quantity || 1}
+                    {formatVnd(item.unitPrice)}đ x {item.quantity || 1}
                   </div>
                 </div>
               </div>
 
               {/* Line item subtotal */}
               <div className="text-right font-semibold text-zinc-800 text-xs sm:text-sm font-mono shrink-0">
-                {item.totalPrice.toLocaleString('vi-VN')}đ
+                {formatVnd(item.totalPrice)}đ
               </div>
             </div>
           ))}
-        </div>
+        </section>
 
         {/* 4. Financial & Payment Summary Card with Soft Brand Gradient */}
-        <div className="bg-gradient-to-br from-white via-orange-50/20 to-white rounded-2xl p-3.5 sm:p-4 border border-orange-200/60 shadow-2xs space-y-2.5 text-xs sm:text-sm">
+        <section className="mx-4 space-y-2.5 rounded-2xl border border-orange-200/60 bg-gradient-to-br from-white via-orange-50/20 to-white p-3.5 text-xs shadow-sm sm:mx-5 sm:p-4 sm:text-sm">
           <div className="flex justify-between items-center py-1">
             <span className="text-zinc-600 flex items-center space-x-1.5 font-normal">
               <span>Tổng tiền hàng ({totalQty} món)</span>
             </span>
             <span className="font-semibold text-zinc-800 font-mono">
-              {(selectedInvoice.totalAmount || selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ
+              {formatVnd(subTotal)}đ
             </span>
           </div>
 
@@ -660,7 +607,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 <span>Giảm giá Voucher / Khuyến mãi</span>
               </span>
               <span className="font-semibold font-mono">
-                -{(selectedInvoice.discountAmount || 0).toLocaleString('vi-VN')}đ
+                -{formatVnd(selectedInvoice.discountAmount)}đ
               </span>
             </div>
           )}
@@ -672,7 +619,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 <span>Trừ tiền Thu cũ đổi mới</span>
               </span>
               <span className="font-semibold font-mono">
-                -{(selectedInvoice.tradeInDiscount || selectedInvoice.tradeInDeduction || 0).toLocaleString('vi-VN')}đ
+                -{formatVnd(selectedInvoice.tradeInDiscount ?? selectedInvoice.tradeInDeduction)}đ
               </span>
             </div>
           )}
@@ -680,7 +627,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           <div className="pt-2 border-t border-orange-200/50 flex justify-between items-center text-sm sm:text-base font-semibold">
             <span className="text-zinc-900 font-bold">Tổng thanh toán</span>
             <span className="text-[#ff4b16] font-mono text-base sm:text-lg font-black">
-              {selectedInvoice.finalAmount.toLocaleString('vi-VN')}đ
+              {formatVnd(finalAmount)}đ
             </span>
           </div>
 
@@ -703,7 +650,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       {sp.fundName || (sp.method === 'CASH' ? 'Tiền mặt tại két' : sp.method === 'BANK' ? 'Chuyển khoản VietQR' : sp.method === 'CREDIT' ? 'Công nợ ghi sổ' : 'Trả góp')}
                     </span>
                     <span className="font-mono font-bold text-zinc-900">
-                      {Number(sp.amount || 0).toLocaleString('vi-VN')}đ
+                      {formatVnd(sp.amount)}đ
                     </span>
                   </div>
                 ))}
@@ -718,7 +665,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </span>
               </span>
               <span className="font-bold text-zinc-900 font-mono">
-                {(selectedInvoice.paidAmount ?? selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ
+                {formatVnd(selectedInvoice.paidAmount ?? finalAmount)}đ
               </span>
             </div>
           )}
@@ -750,19 +697,19 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </div>
                 <div>
                   <span className="text-orange-700 block font-normal">Trả trước:</span>
-                  <span className="font-semibold font-mono">{selectedInvoice.installmentDetails.downPayment.toLocaleString('vi-VN')}đ</span>
+                  <span className="font-semibold font-mono">{formatVnd(selectedInvoice.installmentDetails.downPayment)}đ</span>
                 </div>
                 <div>
                   <span className="text-orange-700 block font-normal">Mỗi tháng:</span>
-                  <span className="font-semibold text-orange-800 font-mono">{selectedInvoice.installmentDetails.monthlyPayment.toLocaleString('vi-VN')}đ</span>
+                  <span className="font-semibold text-orange-800 font-mono">{formatVnd(selectedInvoice.installmentDetails.monthlyPayment)}đ</span>
                 </div>
               </div>
             </div>
           )}
-        </div>
+        </section>
 
         {/* 5. Notes Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs space-y-2">
+        <section className="mx-4 space-y-2 rounded-2xl border border-zinc-200/80 bg-white p-3.5 shadow-sm sm:mx-5 sm:p-4">
           <div className="flex justify-between items-center">
             <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
               Ghi chú đơn hàng
@@ -809,17 +756,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               {selectedInvoice.notes || 'Chưa có ghi chú kèm theo.'}
             </p>
           )}
-        </div>
+        </section>
 
         {/* 6a. Activity Log / History Card */}
         {selectedInvoice.history && selectedInvoice.history.length > 0 && (
-          <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs">
+          <div className="mx-4 rounded-2xl border border-zinc-200/80 bg-white p-3.5 shadow-sm sm:mx-5 sm:p-4">
             <ActivityLog logs={selectedInvoice.history} className="space-y-2.5" />
           </div>
         )}
 
         {/* 6. Metadata Details Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs grid grid-cols-2 gap-3 sm:gap-4 text-xs">
+        <section className="mx-4 grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200/80 bg-white p-3.5 text-xs shadow-sm sm:mx-5 sm:gap-4 sm:p-4">
           <div>
             <span className="text-zinc-400 block text-[11px] font-normal">Bảng giá</span>
             <span className="font-medium text-zinc-800 mt-0.5 block">
@@ -861,10 +808,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               🏢 {selectedInvoice.warehouseName || (selectedInvoice.warehouseId === 'KHO_XSTORE' ? 'Kho Xstore (Đống Đa)' : selectedInvoice.warehouseId === 'KHO_TONG' ? 'Kho Tổng (Hà Nội)' : 'Kho PhoneHouse (Cầu Giấy)')}
             </span>
           </div>
-        </div>
+        </section>
 
         {/* 7. Sticky Bottom Action Bar (Docked above bottom menu on mobile) */}
-        <div className="fixed bottom-16 lg:bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 py-2.5 px-4 z-40 shadow-lg">
+        <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 px-4 pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] z-40 shadow-[0_-12px_30px_rgba(24,24,27,0.12)]">
           <div className="max-w-2xl mx-auto grid grid-cols-2 gap-3">
             <button
               onClick={() => setIsPrintModalOpen(true)}
@@ -925,10 +872,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <div>
                         <div className="font-medium">{it.name}</div>
                         {it.imei && <div className="text-[10px] text-zinc-600">IMEI: {it.imei}</div>}
-                        <div className="text-[10px] text-zinc-500">{it.unitPrice.toLocaleString('vi-VN')}đ x {it.quantity || 1}</div>
+                        <div className="text-[10px] text-zinc-500">{formatVnd(it.unitPrice)}đ x {it.quantity || 1}</div>
                       </div>
                       <div className="font-semibold font-mono">
-                        {it.totalPrice.toLocaleString('vi-VN')}đ
+                        {formatVnd(it.totalPrice)}đ
                       </div>
                     </div>
                   ))}
@@ -937,30 +884,30 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 <div className="space-y-1 text-[11px] pt-1">
                   <div className="flex justify-between font-medium text-zinc-600">
                     <span>Tổng tiền niêm yết:</span>
-                    <span>{(selectedInvoice.totalAmount || selectedInvoice.finalAmount).toLocaleString('vi-VN')}đ</span>
+                    <span>{formatVnd(subTotal)}đ</span>
                   </div>
 
                   {(selectedInvoice.discountAmount || 0) > 0 && (
                     <div className="flex justify-between text-rose-600">
                       <span>- Giảm giá Voucher:</span>
-                      <span>-{(selectedInvoice.discountAmount || 0).toLocaleString('vi-VN')}đ</span>
+                       <span>-{formatVnd(selectedInvoice.discountAmount)}đ</span>
                     </div>
                   )}
 
                   {((selectedInvoice.tradeInDiscount || (selectedInvoice as any).tradeInDeduction || 0) > 0) && (
                     <div className="flex justify-between text-orange-600 font-bold">
                       <span>- Trừ Thu Cũ ({(selectedInvoice as any).tradeInModel || 'Thu cũ đổi mới'}):</span>
-                      <span>-{((selectedInvoice.tradeInDiscount || (selectedInvoice as any).tradeInDeduction || 0)).toLocaleString('vi-VN')}đ</span>
+                       <span>-{formatVnd(selectedInvoice.tradeInDiscount ?? (selectedInvoice as any).tradeInDeduction)}đ</span>
                     </div>
                   )}
 
                   <div className="flex justify-between font-bold text-sm text-zinc-900 pt-1 border-t border-zinc-200">
                     <span>Khách Cần Thanh Toán:</span>
-                    <span>{selectedInvoice.finalAmount.toLocaleString('vi-VN')}đ</span>
+                    <span>{formatVnd(finalAmount)}đ</span>
                   </div>
                   <div className="flex justify-between text-[10px] text-zinc-500 pt-0.5">
                     <span>Phương thức:</span>
-                    <span>{selectedInvoice.paymentMethod}</span>
+                     <span>{selectedInvoice.paymentMethod || 'Chưa xác định'}</span>
                   </div>
                   {selectedInvoice.warrantyPackage && (
                     <div className="text-[10px] text-zinc-700 bg-white p-1.5 rounded border border-zinc-200 mt-1">
@@ -1018,7 +965,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               <div className="p-4 bg-orange-50/50 rounded-2xl border border-orange-100 flex flex-col items-center space-y-3">
                 <div className="w-48 h-48 bg-white p-2.5 rounded-2xl shadow-md border border-orange-200 flex flex-col items-center justify-center relative">
                   <img
-                    src={`https://api.vietqr.io/image/970422-0909123456-compact2.jpg?amount=${selectedInvoice.finalAmount}&addInfo=THANH%20TOAN%20${invoiceCode}&accountName=PHONE%20HOUSE`}
+                    src={`https://api.vietqr.io/image/970422-0909123456-compact2.jpg?amount=${finalAmount}&addInfo=THANH%20TOAN%20${invoiceCode}&accountName=PHONE%20HOUSE`}
                     alt="VietQR Phone House"
                     className="w-full h-full object-contain rounded-lg"
                     onError={(e) => {
@@ -1036,7 +983,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 <div className="w-full bg-white p-2.5 rounded-xl border border-zinc-200 text-left text-xs space-y-1 font-mono">
                   <div className="flex justify-between">
                     <span className="text-zinc-500 font-normal">Số tiền:</span>
-                    <span className="font-semibold text-orange-600">{selectedInvoice.finalAmount.toLocaleString('vi-VN')} đ</span>
+                    <span className="font-semibold text-orange-600">{formatVnd(finalAmount)} đ</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500 font-normal">Nội dung:</span>
@@ -1062,23 +1009,27 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   // RENDER: INVOICES LIST VIEW
   // ----------------------------------------------------
   return (
-    <div className="w-full space-y-3 sm:space-y-3.5 pb-24 relative animate-fadeIn">
-      {/* 1. Header: "Hóa đơn" + badge "5 đơn" + "+ POS" button */}
-      <div className="flex items-center justify-between gap-2 pt-0.5">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900 tracking-tight">
-            Hóa đơn
-          </h1>
-          <span className="text-xs font-semibold text-orange-600 bg-orange-100/90 px-2.5 py-0.5 rounded-full">
-            {filteredInvoices.length} đơn
-          </span>
+    <div className="relative w-full space-y-4 pb-28 animate-fadeIn">
+      <section className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-5 text-white shadow-xl sm:p-6">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-orange-500/25 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-64 rounded-full bg-amber-300/10 blur-3xl" />
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-orange-300"><Receipt className="h-4 w-4" /> Sổ bán hàng</div>
+            <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Quản lý hóa đơn</h1>
+            <p className="mt-1.5 max-w-xl text-sm text-zinc-300">Tra cứu nhanh chứng từ, dòng tiền và lịch sử bán hàng theo thời gian thực.</p>
+          </div>
+          <button type="button" onClick={onNavigateToPOS} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-orange-950/40 transition hover:bg-orange-400 active:scale-[0.98]"><Plus className="h-4 w-4" /> Lên đơn tại POS</button>
         </div>
-
-        
-      </div>
+        <div className="relative mt-5 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/15 py-3 backdrop-blur-sm">
+          <div className="px-3"><p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Hiển thị</p><p className="mt-1 text-lg font-black">{filteredInvoices.length}</p></div>
+          <div className="px-3"><p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Đã hoàn tất</p><p className="mt-1 text-lg font-black text-emerald-300">{validInvoices.length}</p></div>
+          <div className="px-3"><p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Công nợ</p><p className="mt-1 truncate text-sm font-black text-amber-200">{formatVnd(debtRevenue)}đ</p></div>
+        </div>
+      </section>
 
       {/* 2. Filter Bar (Segmented Pills & Filter Button) */}
-      <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+      <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm scrollbar-none">
         <button
           onClick={() => setStatusFilter('all')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${
@@ -1164,14 +1115,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       </div>
 
       {/* 3. Search Bar with Barcode Scanner Icon */}
-      <div className="relative w-full">
+      <div className="relative w-full rounded-2xl border border-zinc-200 bg-white p-1.5 shadow-sm">
         <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Tìm mã HĐ, khách, SĐT, IMEI..."
-          className="w-full pl-8 pr-8 py-1.5 text-xs bg-white border border-zinc-200/90 rounded-2xl focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all font-normal text-zinc-800 shadow-2xs"
+          className="w-full rounded-xl border-0 bg-zinc-50 py-2.5 pl-9 pr-9 text-sm font-medium text-zinc-800 outline-none transition focus:bg-white focus:ring-2 focus:ring-orange-300"
         />
         <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-1.5">
           {searchQuery ? (
@@ -1195,37 +1146,37 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       </div>
 
       {/* 4. 3 Clean Financial KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <div className="text-xs font-bold text-zinc-500 mb-1">Doanh Thu Thuần (Net)</div>
           <div className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 tracking-tight">
-            {netRevenue.toLocaleString('vi-VN')} <span className="text-xs font-sans font-bold">đ</span>
+            {formatVnd(netRevenue)} <span className="text-xs font-sans font-bold">đ</span>
           </div>
           <div className="text-[11px] text-zinc-400 mt-1">
             {validInvoices.length} hóa đơn hợp lệ
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs">
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm">
           <div className="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span>Đã Thu Thực Tế</span>
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono text-emerald-700 tracking-tight">
-            {paidRevenue.toLocaleString('vi-VN')} <span className="text-xs font-sans font-bold">đ</span>
+            {formatVnd(paidRevenue)} <span className="text-xs font-sans font-bold">đ</span>
           </div>
           <div className="text-[11px] text-zinc-400 mt-1">
             Tiền mặt, VietQR & Chuyển khoản
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs">
+        <div className="rounded-2xl border border-amber-100 bg-amber-50/45 p-4 shadow-sm">
           <div className="text-xs font-bold text-amber-700 mb-1 flex items-center gap-1">
             <Clock className="w-3.5 h-3.5" />
             <span>Chờ Thu / Công Nợ</span>
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono text-amber-700 tracking-tight">
-            {debtRevenue.toLocaleString('vi-VN')} <span className="text-xs font-sans font-bold">đ</span>
+            {formatVnd(debtRevenue)} <span className="text-xs font-sans font-bold">đ</span>
           </div>
           <div className="text-[11px] text-zinc-400 mt-1">
             Đơn trả góp 0% & Công nợ khách
@@ -1263,7 +1214,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </div>
 
                 {/* Invoices in this Date Group */}
-                <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-2xs divide-y divide-zinc-100 overflow-hidden">
+                <div className="space-y-2">
                   {invoiceList.map((inv) => {
                     const summary = getInvoiceSummary(inv);
                     const invoiceCode = inv.invoiceCode || inv.id;
@@ -1279,15 +1230,15 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <div
                         key={inv.id}
                         onClick={() => setSelectedInvoice(inv)}
-                        className={`p-3 sm:p-3.5 flex items-center justify-between hover:bg-orange-50/40 cursor-pointer transition-all group ${
-                          selectedInvoice?.id === inv.id ? 'bg-orange-50/70 border-l-4 border-l-[#FF4B16]' : ''
+                        className={`group flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-3.5 shadow-sm transition-all sm:p-4 ${
+                          selectedInvoice?.id === inv.id ? 'border-orange-400 bg-orange-50 shadow-orange-100' : 'border-zinc-200 bg-white hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md'
                         }`}
                       >
                         {/* Left: Time, Customer, Status, Product */}
                         <div className="space-y-1 min-w-0 flex-1 pr-3">
                           {/* Code, Time & Customer Name */}
                           <div className="flex items-center space-x-2">
-                            <span className="text-xs font-bold text-zinc-900 font-mono">
+                            <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-black text-zinc-900 font-mono group-hover:bg-orange-100 group-hover:text-orange-700">
                               {invoiceCode}
                             </span>
                             <span className="text-[11px] text-zinc-400 font-mono">
@@ -1326,8 +1277,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         {/* Right: Amount, Currency and Chevron */}
                         <div className="text-right shrink-0 flex items-center space-x-1">
                           <div className="flex flex-col items-end justify-center">
-                            <div className="text-sm sm:text-base font-bold text-zinc-900 font-mono tracking-tight group-hover:text-orange-600 transition-colors">
-                              {amount.toLocaleString('vi-VN')}đ
+                            <div className="text-sm sm:text-base font-black text-zinc-900 font-mono tracking-tight group-hover:text-orange-600 transition-colors">
+                              {formatVnd(amount)}đ
                             </div>
                             <span className="text-[10px] text-zinc-400 font-normal">VNĐ</span>
                           </div>
@@ -1345,15 +1296,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
       {/* 6. Desktop Right Drawer & Mobile Sheet for Invoice Detail */}
       {selectedInvoice && (
-        <div className="fixed inset-0 z-50 overflow-hidden flex justify-end animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-stretch sm:justify-end animate-in fade-in duration-200">
           {/* Backdrop overlay */}
           <div 
             className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" 
             onClick={() => setSelectedInvoice(null)}
           />
           {/* Drawer / Sheet Panel */}
-          <div className="relative w-full sm:w-[600px] lg:w-[680px] bg-[#FAFAFA] h-full shadow-2xl flex flex-col z-50 border-l border-zinc-200 overflow-y-auto">
-            {renderInvoiceDetail(selectedInvoice)}
+          <div className="relative z-50 flex h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-[2rem] border border-zinc-200 bg-[#FAFAFA] shadow-2xl sm:h-full sm:w-[640px] sm:rounded-none sm:border-y-0 sm:border-r-0 sm:border-l lg:w-[720px]">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {renderInvoiceDetail(selectedInvoice)}
+            </div>
           </div>
         </div>
       )}

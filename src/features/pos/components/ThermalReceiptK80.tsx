@@ -1,5 +1,7 @@
 import React from 'react';
 import { Printer, CheckCircle, Smartphone, QrCode, ShieldCheck } from 'lucide-react';
+import { invoiceDateTime } from '../../../utils/dateValue';
+import { asInvoiceMoney, getInvoiceFinalAmount, getInvoiceLines, getInvoiceSubtotal } from '../../../utils/invoicePresentation';
 
 export interface ReceiptItem {
   id: string;
@@ -22,12 +24,15 @@ export interface ThermalReceiptProps {
     creatorName?: string;
     customerName?: string;
     customerPhone?: string;
-    items: ReceiptItem[];
-    subTotal: number;
-    discountAmount: number;
-    tradeInDeduction: number;
-    finalAmount: number;
-    paymentMethod: string;
+    items?: ReceiptItem[];
+    detailedItems?: ReceiptItem[];
+    totalAmount?: number;
+    subTotal?: number;
+    discountAmount?: number;
+    tradeInDeduction?: number;
+    tradeInDiscount?: number;
+    finalAmount?: number;
+    paymentMethod?: string;
     downPayment?: number;
     financeAmount?: number;
     financePartnerName?: string;
@@ -41,18 +46,25 @@ export const ThermalReceiptK80: React.FC<ThermalReceiptProps> = ({ invoice, onCl
     window.print();
   };
 
-  const formattedDate = invoice.createdAt
-    ? new Date(invoice.createdAt).toLocaleString('vi-VN', {
+  const receiptItems = getInvoiceLines(invoice);
+  const subTotal = getInvoiceSubtotal(invoice, receiptItems);
+  const discountAmount = asInvoiceMoney(invoice.discountAmount);
+  const tradeInDeduction = asInvoiceMoney(invoice.tradeInDeduction ?? invoice.tradeInDiscount);
+  const finalAmount = getInvoiceFinalAmount(invoice, Math.max(0, subTotal - discountAmount - tradeInDeduction));
+  const createdAt = invoiceDateTime(invoice.createdAt, '');
+  const createdAtDate = createdAt ? new Date(createdAt) : null;
+  const formattedDate = createdAtDate && !Number.isNaN(createdAtDate.getTime())
+    ? createdAtDate.toLocaleString('vi-VN', {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit'
       })
-    : new Date().toLocaleString('vi-VN');
+    : (createdAt || new Date().toLocaleString('vi-VN'));
 
   // Dynamic VietQR payment URL for BANK method
-  const qrBankUrl = `https://api.vietqr.io/image/970422-0905123456-compact2.jpg?amount=${invoice.finalAmount}&addInfo=${encodeURIComponent(invoice.invoiceCode)}&accountName=PHONEHOUSE%20RETAIL`;
+  const qrBankUrl = `https://api.vietqr.io/image/970422-0905123456-compact2.jpg?amount=${finalAmount}&addInfo=${encodeURIComponent(invoice.invoiceCode)}&accountName=PHONEHOUSE%20RETAIL`;
 
   // Warranty lookup QR code
   const qrWarrantyUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(`https://phonehouse.vn/warranty?code=${invoice.invoiceCode}`)}`;
@@ -136,12 +148,12 @@ export const ThermalReceiptK80: React.FC<ThermalReceiptProps> = ({ invoice, onCl
               </div>
 
               <div className="space-y-2">
-                {invoice.items.map((item, idx) => (
+                {receiptItems.map((item, idx) => (
                   <div key={idx} className="space-y-0.5">
                     <div className="grid grid-cols-12 font-sans font-medium text-[10.5px]">
                       <div className="col-span-6 leading-tight">{item.name}</div>
                       <div className="col-span-2 text-center font-mono">x{item.quantity}</div>
-                      <div className="col-span-4 text-right font-mono font-bold">{item.totalPrice.toLocaleString('vi-VN')}</div>
+                      <div className="col-span-4 text-right font-mono font-bold">{asInvoiceMoney(item.totalPrice).toLocaleString('vi-VN')}</div>
                     </div>
                     {item.imei && (
                       <div className="text-[9px] text-slate-600 font-mono pl-1 flex items-center gap-1">
@@ -158,26 +170,26 @@ export const ThermalReceiptK80: React.FC<ThermalReceiptProps> = ({ invoice, onCl
             <div className="py-2.5 border-b border-dashed border-slate-400 space-y-1 text-[10px]">
               <div className="flex justify-between">
                 <span className="text-slate-600">Tổng tiền hàng:</span>
-                <span className="font-mono">{invoice.subTotal.toLocaleString('vi-VN')} đ</span>
+                <span className="font-mono">{subTotal.toLocaleString('vi-VN')} đ</span>
               </div>
 
-              {invoice.discountAmount > 0 && (
+              {discountAmount > 0 && (
                 <div className="flex justify-between text-rose-600">
                   <span>Chiết khấu / Voucher:</span>
-                  <span className="font-mono">-{invoice.discountAmount.toLocaleString('vi-VN')} đ</span>
+                  <span className="font-mono">-{discountAmount.toLocaleString('vi-VN')} đ</span>
                 </div>
               )}
 
-              {invoice.tradeInDeduction > 0 && (
+              {tradeInDeduction > 0 && (
                 <div className="flex justify-between text-indigo-600">
                   <span>Trừ thu cũ đổi mới:</span>
-                  <span className="font-mono">-{invoice.tradeInDeduction.toLocaleString('vi-VN')} đ</span>
+                  <span className="font-mono">-{tradeInDeduction.toLocaleString('vi-VN')} đ</span>
                 </div>
               )}
 
               <div className="flex justify-between text-xs font-bold pt-1.5 border-t border-slate-300">
                 <span>THANH TOÁN:</span>
-                <span className="font-mono text-emerald-700">{invoice.finalAmount.toLocaleString('vi-VN')} đ</span>
+                <span className="font-mono text-emerald-700">{finalAmount.toLocaleString('vi-VN')} đ</span>
               </div>
 
               <div className="flex justify-between text-[9px] text-slate-600 pt-0.5">
