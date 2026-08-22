@@ -35,7 +35,6 @@ import {
   ChatConversation,
   ChatMessage,
   PurchaseOrder,
-  MasterCatalogItem,
   AttendanceRecord,
   ShiftHandoverReport,
   SOPTemplateItem,
@@ -69,7 +68,6 @@ const CASH_TRANSACTIONS_COL = 'cashTransactions';
 const REPAIR_SERVICES_COL = 'repairServices';
 const CHAT_CONVERSATIONS_COL = 'chatConversations';
 const PURCHASE_ORDERS_COL = 'purchaseOrders';
-const CATALOG_COL = 'catalogItems';
 const ATTENDANCE_COL = 'attendance';
 const SHIFT_HANDOVER_COL = 'shiftHandover';
 const SOP_TEMPLATES_COL = 'sopTemplates';
@@ -992,45 +990,6 @@ export async function deletePurchaseOrderFromFirestore(id: string) {
   const path = `${PURCHASE_ORDERS_COL}/${id}`;
   try {
     const docRef = doc(db, PURCHASE_ORDERS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
-// ----------------- MASTER CATALOG -----------------
-export function subscribeToCatalog(onData: (items: MasterCatalogItem[]) => void) {
-  const colRef = collection(db, CATALOG_COL);
-  return onSnapshot(colRef, (snapshot) => {
-    const data = snapshot.docs.map(doc => doc.data() as MasterCatalogItem);
-    onData(data);
-  }, (error) => handleFirestoreError(error, OperationType.LIST, CATALOG_COL));
-}
-
-export async function addCatalogItemToFirestore(item: MasterCatalogItem) {
-  const path = `${CATALOG_COL}/${item.id}`;
-  try {
-    const docRef = doc(db, CATALOG_COL, item.id);
-    await setDoc(docRef, cleanDataForFirestore(item));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateCatalogItemInFirestore(item: MasterCatalogItem) {
-  const path = `${CATALOG_COL}/${item.id}`;
-  try {
-    const docRef = doc(db, CATALOG_COL, item.id);
-    await setDoc(docRef, cleanDataForFirestore(item), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteCatalogItemFromFirestore(id: string) {
-  const path = `${CATALOG_COL}/${id}`;
-  try {
-    const docRef = doc(db, CATALOG_COL, id);
     await deleteDoc(docRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);

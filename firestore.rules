@@ -414,7 +414,35 @@ service cloud.firestore {
 
     match /catalogItems/{itemId} {
       allow read: if isAuthenticated() && isActiveUser();
-      allow write: if isAdmin() || isManager();
+      // Product Master is written only through /api/catalog.  The API claims
+      // a normalized SKU registry in the same server-side operation; allowing
+      // browser writes here would re-introduce duplicate SKU race conditions.
+      allow write: if false;
+    }
+
+    // Master data and unique-SKU registry are deliberately server-authoritative.
+    // They are not inventory balances; keeping them out of the client SDK also
+    // prevents users from bypassing the deterministic SKU engine.
+    match /catalogModels/{modelId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow write: if false;
+    }
+
+    match /catalogDictionaries/{dictionaryId} {
+      allow read: if isAuthenticated() && isActiveUser();
+      allow write: if false;
+    }
+
+    match /catalogSkuRegistry/{skuId} {
+      allow read, write: if false;
+    }
+
+    match /catalogModelCodeRegistry/{modelCodeId} {
+      allow read, write: if false;
+    }
+
+    match /catalogBulkOperations/{operationId} {
+      allow read, write: if false;
     }
 
     // 8. Verifiable CRM Collections (Lead Care Activities, Appointments, Quotes, Evidence, Customer Ledger)

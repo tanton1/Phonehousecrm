@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
 import { 
   Search, Check, Box, X, Store, Hash, DollarSign, Plus, Trash2, MapPin, ChevronDown,
@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
+import { catalogApi } from '../services/catalogApiClient';
 
 interface UniformEntryFormProps {
   isOpen: boolean;
@@ -44,6 +45,37 @@ interface FormValues {
   amountPaid: number;
 }
 
+/**
+ * Product Master carries generated aliases/search tokens so staff can use the
+ * short terms they actually say at the counter (for example "15pm gx").
+ * Keep this matching local and defensive because older catalog rows only have
+ * a name and SKU.
+ */
+const normalizeCatalogSearch = (value: unknown) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd')
+  .toLocaleLowerCase('vi-VN')
+  .trim();
+
+const matchesCatalogSearch = (item: MasterCatalogItem, query: string) => {
+  const normalizedQuery = normalizeCatalogSearch(query);
+  if (!normalizedQuery) return true;
+
+  const searchableValues = [
+    item.name,
+    item.sku,
+    item.posShortName,
+    item.model,
+    item.modelCode,
+    item.brand,
+    ...(item.aliases || []),
+    ...(item.searchTokens || [])
+  ];
+
+  return searchableValues.some(value => normalizeCatalogSearch(value).includes(normalizedQuery));
+};
+
 export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   isOpen,
   onClose,
@@ -61,8 +93,14 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const [isCreateSupplierModalOpen, setIsCreateSupplierModalOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'CATALOG' | 'ITEMS' | 'PAYMENT'>('ITEMS');
   const [catalogSearch, setCatalogSearch] = useState('');
-  const [catalogSeriesFilter, setCatalogSeriesFilter] = useState('ALL');
   const [activeSearchRowIndex, setActiveSearchRowIndex] = useState<number | null>(null);
+  const [remoteCatalogItems, setRemoteCatalogItems] = useState<MasterCatalogItem[]>([]);
+  const [catalogNextCursor, setCatalogNextCursor] = useState<string | undefined>();
+  const [catalogHasMore, setCatalogHasMore] = useState(false);
+  const [catalogLoadState, setCatalogLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [catalogLoadError, setCatalogLoadError] = useState<string | null>(null);
+  const [selectedCatalogItems, setSelectedCatalogItems] = useState<Record<string, MasterCatalogItem>>({});
+  const catalogRequestVersion = useRef(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
@@ -87,6 +125,78 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const watchBranchId = useWatch({ control, name: "branchId" });
   const watchWarehouseId = useWatch({ control, name: "warehouseId" });
   const [selectedFundId, setSelectedFundId] = useState<string>('');
+
+  const activeRowSearch = activeSearchRowIndex === null
+    ? ''
+    : String(watchItems[activeSearchRowIndex]?.searchQuery || '');
+  const effectiveCatalogSearch = activeSearchRowIndex === null ? catalogSearch : activeRowSearch;
+
+  const loadCatalogPage = useCallback(async (search: string, cursor?: string, append = false) => {
+    const requestVersion = ++catalogRequestVersion.current;
+    setCatalogLoadState('loading');
+    setCatalogLoadError(null);
+
+    try {
+      const page = await catalogApi.listItems({
+        limit: 50,
+        cursor,
+        search: normalizeCatalogSearch(search),
+        kind: 'DEVICE',
+        activeOnly: true
+      });
+
+      if (requestVersion !== catalogRequestVersion.current) return;
+
+      setRemoteCatalogItems(current => {
+        if (!append) return page.items;
+        const byId = new Map(current.map(item => [item.id, item]));
+        page.items.forEach(item => byId.set(item.id, item));
+        return [...byId.values()];
+      });
+      setCatalogNextCursor(page.nextCursor);
+      setCatalogHasMore(page.hasMore);
+      setCatalogLoadState('ready');
+    } catch (error: any) {
+      if (requestVersion !== catalogRequestVersion.current) return;
+      // A previous page remains useful after a failed "load more" request. Only
+      // surface the legacy prop as a temporary safety fallback when no server
+      // page is available at all.
+      if (!append) {
+        setRemoteCatalogItems([]);
+        setCatalogNextCursor(undefined);
+        setCatalogHasMore(false);
+      }
+      setCatalogLoadState('error');
+      setCatalogLoadError(error?.message || 'Không thể tải Danh mục SKU từ máy chủ.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) {
+      catalogRequestVersion.current += 1;
+      return;
+    }
+
+    const delay = effectiveCatalogSearch.trim() ? 300 : 0;
+    const timer = window.setTimeout(() => {
+      void loadCatalogPage(effectiveCatalogSearch);
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [isOpen, effectiveCatalogSearch, loadCatalogPage]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setCatalogSearch('');
+    setActiveSearchRowIndex(null);
+    setSelectedCatalogItems({});
+  }, [isOpen]);
+
+  const loadMoreCatalogItems = () => {
+    if (!catalogNextCursor || catalogLoadState === 'loading') return;
+    void loadCatalogPage(effectiveCatalogSearch, catalogNextCursor, true);
+  };
+
   const suppliers = useMemo(() => partners.filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH'), [partners]);
   const branchWarehouses = useMemo(
     () => warehouses.filter(warehouse => warehouse.branchId === watchBranchId && isWarehouseActive(warehouse)),
@@ -159,16 +269,25 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const actualPaidAmount = watchPaymentMethod === 'DEBT' ? 0 : Math.min(rawAmountPaid, totalAmount);
   const remainingDebtAmount = Math.max(0, totalAmount - actualPaidAmount);
 
+  const isUsingCatalogFallback = catalogLoadState === 'error' && remoteCatalogItems.length === 0;
+  const availableCatalogItems = isUsingCatalogFallback ? catalogItems : remoteCatalogItems;
+
   const filteredCatalogItems = useMemo(() => {
-    const q = catalogSearch.toLowerCase().trim();
-    return catalogItems.filter(item => {
-      const matchQuery = !q || item.name.toLowerCase().includes(q) || item.sku.toLowerCase().includes(q);
-      const matchSeries = catalogSeriesFilter === 'ALL' || item.name.includes(catalogSeriesFilter);
-      return matchQuery && matchSeries;
+    const query = effectiveCatalogSearch.trim();
+    return availableCatalogItems.filter(item => {
+      // Phiếu nhập IMEI chỉ nhận Product Master nhóm máy. Linh kiện/phụ kiện
+      // được quản lý bằng tồn theo kho, không thể trở thành một dòng máy có IMEI.
+      if (item.category !== 'DEVICE' || item.lifecycleStatus === 'ARCHIVED' || item.status === 'inactive') return false;
+      return matchesCatalogSearch(item, query);
     });
-  }, [catalogItems, catalogSearch, catalogSeriesFilter]);
+  }, [availableCatalogItems, effectiveCatalogSearch]);
+
+  const rememberSelectedCatalogItem = (item: MasterCatalogItem) => {
+    setSelectedCatalogItems(current => ({ ...current, [item.id]: item }));
+  };
 
   const handleSelectCatalogItemForNewRow = (item: MasterCatalogItem) => {
+    rememberSelectedCatalogItem(item);
     if (fields.length === 1 && !watchItems[0]?.catalogItemId && !watchItems[0]?.imeisInput) {
       setValue('items.0.catalogItemId', item.id);
       setValue('items.0.searchQuery', item.name);
@@ -185,6 +304,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   };
 
   const handleSelectCatalogItemForRow = (index: number, item: MasterCatalogItem) => {
+    rememberSelectedCatalogItem(item);
     setValue(`items.${index}.catalogItemId`, item.id);
     setValue(`items.${index}.searchQuery`, item.name);
     setValue(`items.${index}.buyPrice`, item.defaultImportPrice || 0);
@@ -250,7 +370,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       }
       
       const orderItems = data.items.map((item, idx) => {
-        const catalogItem = catalogItems.find(c => c.id === item.catalogItemId);
+        const catalogItem = selectedCatalogItems[item.catalogItemId]
+          || remoteCatalogItems.find(c => c.id === item.catalogItemId)
+          || catalogItems.find(c => c.id === item.catalogItemId);
         const imeis = item.imeisInput.split(/[\n,]+/).map(i => i.trim()).filter(i => i.length > 0);
         return {
           id: `POI-${Date.now()}-${idx}`,
@@ -397,7 +519,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
               </h3>
             </div>
             <span className="text-[10px] font-mono text-zinc-500">
-              {filteredCatalogItems.length} model
+              {catalogLoadState === 'loading' ? 'Đang tải…' : `${filteredCatalogItems.length} SKU`}
             </span>
           </div>
 
@@ -407,25 +529,28 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
               type="text"
               placeholder="Tìm Model, SKU, dung lượng..."
               value={catalogSearch}
-              onChange={e => setCatalogSearch(e.target.value)}
+              onFocus={() => setActiveSearchRowIndex(null)}
+              onChange={e => {
+                setActiveSearchRowIndex(null);
+                setCatalogSearch(e.target.value);
+              }}
               className="w-full h-10 pl-9 pr-3 bg-white border border-zinc-200 rounded-xl text-xs font-medium text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-[#ff4b16]"
             />
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px] font-semibold">
-            {['ALL', '16', '15', '14', '13', '12'].map(s => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setCatalogSeriesFilter(s)}
-                className={`px-2.5 py-1 rounded-lg shrink-0 transition-colors cursor-pointer ${
-                  catalogSeriesFilter === s ? 'bg-zinc-900 text-white' : 'bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-100'
-                }`}
-              >
-                {s === 'ALL' ? 'Tất cả' : `iPhone ${s}`}
-              </button>
-            ))}
-          </div>
+          {catalogLoadState === 'loading' && (
+            <div className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-zinc-500 bg-zinc-50 border border-zinc-100 rounded-lg">
+              <span className="inline-block w-3 h-3 rounded-full border-2 border-orange-200 border-t-[#ff4b16] animate-spin" />
+              Đang tải Product Master đang hoạt động…
+            </div>
+          )}
+
+          {catalogLoadState === 'error' && (
+            <div className="px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 bg-amber-50 border border-amber-200 rounded-lg">
+              {catalogLoadError || 'Không thể tải danh mục từ máy chủ.'}
+              {isUsingCatalogFallback && catalogItems.length > 0 && ' Đang hiển thị dữ liệu tạm trên thiết bị; vui lòng kiểm tra kết nối trước khi lưu.'}
+            </div>
+          )}
 
           <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
             {filteredCatalogItems.length === 0 ? (
@@ -463,6 +588,17 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 </div>
               ))
             )}
+
+            {catalogHasMore && !isUsingCatalogFallback && (
+              <button
+                type="button"
+                onClick={loadMoreCatalogItems}
+                disabled={catalogLoadState === 'loading'}
+                className="w-full py-2 text-xs font-semibold text-[#ff4b16] border border-orange-200 bg-orange-50/60 hover:bg-orange-100 rounded-xl disabled:opacity-50 disabled:cursor-wait transition-colors"
+              >
+                {catalogLoadState === 'loading' ? 'Đang tải thêm…' : 'Tải thêm 50 SKU'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -496,11 +632,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
               const unitPrice = Number(watchItems[index]?.buyPrice) || 0;
               const rowTotal = itemCount * unitPrice;
 
-              const rowMatches = currentQuery.trim().length >= 1
-                ? catalogItems.filter(c => 
-                    c.name.toLowerCase().includes(currentQuery.toLowerCase().trim()) ||
-                    c.sku.toLowerCase().includes(currentQuery.toLowerCase().trim())
-                  ).slice(0, 5)
+              const rowMatches = activeSearchRowIndex === index && currentQuery.trim().length >= 1
+                ? filteredCatalogItems.slice(0, 5)
                 : [];
 
               return (
@@ -521,7 +654,13 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                         />
                       </div>
 
-                      {activeSearchRowIndex === index && rowMatches.length > 0 && (
+                      {activeSearchRowIndex === index && currentQuery.trim().length >= 1 && catalogLoadState === 'loading' && (
+                        <div className="absolute top-10 left-0 right-0 z-40 px-3 py-2 bg-white rounded-xl shadow-xl border border-zinc-200 text-[11px] text-zinc-500">
+                          Đang tìm SKU trên máy chủ…
+                        </div>
+                      )}
+
+                      {activeSearchRowIndex === index && catalogLoadState !== 'loading' && rowMatches.length > 0 && (
                         <div className="absolute top-10 left-0 right-0 z-40 bg-white rounded-2xl shadow-xl border border-zinc-200 py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100 max-h-52 overflow-y-auto">
                           <div className="px-3 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
                             <span>Gợi ý mã SKU:</span>
@@ -554,6 +693,12 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                               </div>
                             </div>
                           ))}
+                        </div>
+                      )}
+
+                      {activeSearchRowIndex === index && currentQuery.trim().length >= 1 && catalogLoadState !== 'loading' && rowMatches.length === 0 && catalogLoadState !== 'error' && (
+                        <div className="absolute top-10 left-0 right-0 z-40 px-3 py-2 bg-white rounded-xl shadow-xl border border-zinc-200 text-[11px] text-zinc-500">
+                          Không tìm thấy Product Master đang hoạt động.
                         </div>
                       )}
                     </div>

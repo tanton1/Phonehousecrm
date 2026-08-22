@@ -176,6 +176,12 @@ import { createInventoryRouter } from './server/routes/inventory';
 app.use('/api/inventory', createInventoryRouter(adminDb));
 
 // -------------------------------------------------------------
+// 6C. PRODUCT MASTER, MODEL DICTIONARY & DETERMINISTIC SKU ENGINE
+// -------------------------------------------------------------
+import { createCatalogRouter } from './server/routes/catalog';
+app.use('/api/catalog', createCatalogRouter(adminDb));
+
+// -------------------------------------------------------------
 // 7. ADMIN MANAGEMENT ROUTER (NETWORK ENROLL, AUDIT)
 // -------------------------------------------------------------
 import { createAdminRouter } from './server/routes/admin';

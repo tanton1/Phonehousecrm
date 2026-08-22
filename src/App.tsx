@@ -45,7 +45,6 @@ import { PurchaseOrdersView } from './components/PurchaseOrdersView';
 import { InventoryView } from './components/InventoryView';
 import { WarehouseTransfersView } from './components/WarehouseTransfersView';
 import { MasterCatalogView } from './components/MasterCatalogView';
-import { MasterCatalogItem } from './types';
 import { PartsInventoryHub } from './components/PartsInventoryHub';
 import { InvoicesView } from './components/InvoicesView';
 import { InstallmentReconciliationView } from './components/InstallmentReconciliationView';
@@ -109,10 +108,6 @@ import {
   saveStoreSettingsToFirestore,
   subscribeToPurchaseOrders,
   updatePurchaseOrderInFirestore,
-  subscribeToCatalog,
-  addCatalogItemToFirestore,
-  updateCatalogItemInFirestore,
-  deleteCatalogItemFromFirestore,
   subscribeToAttendance,
   addAttendanceRecordToFirestore,
   updateAttendanceRecordInFirestore,
@@ -147,7 +142,6 @@ const BUSINESS_CACHE_KEYS = [
   'istore_partners',
   'phonehouse_funds',
   'phonehouse_cash_transactions',
-  'phonehouse_catalog',
   'phonehouse_products',
   'phonehouse_transfers',
   'phonehouse_purchase_orders',
@@ -160,6 +154,9 @@ const BUSINESS_CACHE_KEYS = [
 function clearLegacyBusinessCacheOnce() {
   // Device documents may contain role-restricted cost fields from older builds.
   localStorage.removeItem('istore_devices');
+  // Product Master is now paginated through the server API; never keep a full
+  // catalog copy in each browser after upgrading.
+  localStorage.removeItem('phonehouse_catalog');
   if (localStorage.getItem(BUSINESS_DATA_RESET_MARKER) === 'done') return;
   BUSINESS_CACHE_KEYS.forEach((key) => localStorage.removeItem(key));
   localStorage.setItem(BUSINESS_DATA_RESET_MARKER, 'done');
@@ -220,15 +217,6 @@ export default function App() {
   });
 
   
-  const [catalogItems, setCatalogItems] = useState<MasterCatalogItem[]>(() => {
-    const saved = localStorage.getItem('phonehouse_catalog');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed;
-    }
-    return [];
-  });
-
   const [products, setProducts] = useState<ProductItem[]>(() => {
     const saved = localStorage.getItem('phonehouse_products');
     if (saved) return JSON.parse(saved);
@@ -607,7 +595,6 @@ export default function App() {
     let unsubWarehouses = () => {};
     let unsubStoreSettings = () => {};
     let unsubPurchaseOrders = () => {};
-    let unsubCatalog = () => {};
     let unsubAttendance = () => {};
 
     // 2. Setup real-time Firestore subscriptions. An empty snapshot is authoritative.
@@ -672,10 +659,6 @@ export default function App() {
       setPurchaseOrders(remoteOrders || []);
     });
 
-    unsubCatalog = subscribeToCatalog((remoteCatalog) => {
-      setCatalogItems(remoteCatalog || []);
-    });
-
     const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
       setFirebaseUid(fbUser?.uid || null);
       setAuthReady(true);
@@ -712,7 +695,6 @@ export default function App() {
       unsubWarehouses();
       unsubStoreSettings();
       unsubPurchaseOrders();
-      unsubCatalog();
     };
   }, []);
 
@@ -813,10 +795,6 @@ export default function App() {
   useEffect(() => {
     safeSetLocalStorage('phonehouse_products', products);
   }, [products, safeSetLocalStorage]);
-
-  useEffect(() => {
-    safeSetLocalStorage('phonehouse_catalog', catalogItems);
-  }, [catalogItems, safeSetLocalStorage]);
 
   useEffect(() => {
     safeSetLocalStorage('phonehouse_attendance', attendanceRecords);
@@ -1342,22 +1320,6 @@ export default function App() {
     }
   };
 
-  // Master Catalog Handlers
-  const handleAddCatalogItem = (newItem: MasterCatalogItem) => {
-    setCatalogItems(prev => [newItem, ...prev]);
-    addCatalogItemToFirestore(newItem);
-  };
-
-  const handleUpdateCatalogItem = (updatedItem: MasterCatalogItem) => {
-    setCatalogItems(prev => prev.map(c => c.id === updatedItem.id ? updatedItem : c));
-    updateCatalogItemInFirestore(updatedItem);
-  };
-
-  const handleDeleteCatalogItem = (itemId: string) => {
-    setCatalogItems(prev => prev.filter(c => c.id !== itemId));
-    deleteCatalogItemFromFirestore(itemId);
-  };
-
   const handleUpdateProduct = (updatedProduct: ProductItem) => {
     setProducts(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
     updateProductInFirestore(updatedProduct);
@@ -1563,7 +1525,6 @@ export default function App() {
             branches={branches}
             selectedBranchId={selectedBranchId}
             currentUser={currentUser}
-            catalogItems={catalogItems}
             onAddPurchaseOrder={handleAddPurchaseOrder}
             onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
             onDeletePurchaseOrder={handleDeletePurchaseOrder}
@@ -1574,7 +1535,6 @@ export default function App() {
 
         {activeTab === 'inventory' && (
           <InventoryView
-            catalogItems={catalogItems}
             currentUser={currentUser}
             serverSummary={inventorySummary}
             devices={devices}
@@ -1619,12 +1579,7 @@ export default function App() {
         )}
 
         {activeTab === 'master-catalog' && (
-          <MasterCatalogView
-            items={catalogItems}
-            onAddItem={handleAddCatalogItem}
-            onUpdateItem={handleUpdateCatalogItem}
-            onDeleteItem={handleDeleteCatalogItem}
-          />
+          <MasterCatalogView />
         )}
 
         {(activeTab === 'products' || activeTab === 'spare-parts') && (

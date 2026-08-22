@@ -397,9 +397,14 @@ export interface CatalogSubCategory {
 
 export interface MasterCatalogItem {
   id: string;
+  masterVersion?: number;
+  lifecycleStatus?: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   sku: string;
+  /** Normalized server-issued SKU used for duplicate prevention. */
+  skuNormalized?: string;
   name: string;
   category: CatalogCategory;
+  categoryName?: string;
   parentCategoryId?: CatalogCategory;
   subCategory?: string; // e.g. "iPhone 16 Series", "Màn Hình OLED/Zin", "Củ Sạc & Cáp Nhanh"
   subCategoryId?: string;
@@ -407,6 +412,9 @@ export interface MasterCatalogItem {
   unit?: string; // Chiếc, Bộ, Cụm, Hộp...
   barcode?: string;
   // Specifications
+  /** Canonical model reference. `model` stays for legacy purchase forms. */
+  modelId?: string;
+  modelCode?: string;
   model?: string;
   storage?: string;
   color?: string;
@@ -414,6 +422,30 @@ export interface MasterCatalogItem {
   region?: string;
   imageUrl?: string;
   compatibleModels?: string[]; // For parts/accessories
+  /** Stable model references used by compatibility and technical task rules. */
+  compatibleModelIds?: string[];
+  compatibleModelCodes?: string[];
+  /** Search material is deterministic and does not participate in SKU generation. */
+  aliases?: string[];
+  searchTokens?: string[];
+  posShortName?: string;
+  /** Codes are supplied through the catalog dictionary, never inferred at checkout. */
+  categoryCode?: string;
+  brandCode?: string;
+  unitCode?: string;
+  manufacturerCode?: string;
+  qualityCode?: string;
+  storageCode?: string;
+  colorCode?: string;
+  attributes?: Record<string, string>;
+  skuSegments?: Array<{ key?: string; code: string; label?: string }>;
+  templateId?: string;
+  skuRuleVersion?: string;
+  sourceOperationId?: string;
+  createdAt?: string;
+  createdByUid?: string;
+  updatedAt?: string;
+  updatedByUid?: string;
   // Default Pricing
   defaultImportPrice: number;
   defaultRetailPrice: number;
@@ -426,8 +458,42 @@ export interface MasterCatalogItem {
   status?: 'active' | 'inactive';
 }
 
+/**
+ * Product Master is deliberately independent from stock balances and IMEIs.
+ * Model records are referenced by catalog items, technical part compatibility
+ * and future pricing policies; no values here are pre-seeded in application code.
+ */
+export interface CatalogModelMaster {
+  id: string;
+  brandName: string;
+  brandCode: string;
+  seriesName?: string;
+  seriesCode?: string;
+  modelName: string;
+  modelCode: string;
+  releaseYear?: number | null;
+  aliases?: string[];
+  active?: boolean;
+  status?: 'ACTIVE' | 'INACTIVE';
+}
+
+export interface CatalogDictionaryEntry {
+  id: string;
+  scope: 'CATEGORY' | 'BRAND' | 'ATTRIBUTE';
+  dictionaryType?: string;
+  key?: string;
+  group?: string;
+  label: string;
+  code: string;
+  aliases?: string[];
+  active?: boolean;
+  status?: 'ACTIVE' | 'INACTIVE';
+}
+
 export interface ProductItem {
   id: string;
+  /** Optional bridge while legacy POS stock is progressively linked to Product Master. */
+  productMasterId?: string;
   sku: string;
   name: string;
   category: 'Phụ kiện' | 'Linh kiện' | 'Dịch vụ';

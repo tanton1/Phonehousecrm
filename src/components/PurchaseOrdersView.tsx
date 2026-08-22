@@ -76,7 +76,8 @@ interface PurchaseOrdersViewProps {
   onAddCashTransaction?: (tx: import('../types').CashTransaction) => void;
   onUpdatePartner?: (partner: Partner) => void;
   onAddPartner?: (partner: Partner) => void;
-  catalogItems: MasterCatalogItem[];
+  /** Temporary compatibility fallback used only if the catalog API is unavailable. */
+  catalogItems?: MasterCatalogItem[];
   initialSelectedOrderId?: string | null;
 }
 
