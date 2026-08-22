@@ -95,6 +95,13 @@ const csv = (value: string) => value.split(',').map(item => item.trim()).filter(
 
 const codeLabel = (value?: string) => value?.trim().toUpperCase().replace(/\s+/g, '-') || '';
 
+const searchableText = (value: unknown) => String(value || '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/đ/g, 'd')
+  .replace(/Đ/g, 'd')
+  .toLowerCase();
+
 const money = (value?: number) => new Intl.NumberFormat('vi-VN').format(Number(value || 0));
 
 const statusMeta: Record<CatalogPreviewItem['status'], { label: string; className: string }> = {
@@ -232,6 +239,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
   const [bulkKind, setBulkKind] = useState<CatalogItemKind>('PART');
   const [bulkCategoryName, setBulkCategoryName] = useState('');
   const [bulkCategoryCode, setBulkCategoryCode] = useState('');
+  const [bulkCategorySearch, setBulkCategorySearch] = useState('');
   const [bulkUnit, setBulkUnit] = useState<CodeValue | null>(null);
   const [bulkModelIds, setBulkModelIds] = useState<string[]>([]);
   const [bulkManufacturerValues, setBulkManufacturerValues] = useState<CodeValue[]>([]);
@@ -348,6 +356,12 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
       : scoped;
     return (matching.length || strictGroup ? matching : scoped).map(entry => ({ id: entry.id, label: entry.label, code: entry.code }));
   };
+  const bulkCategoryOptions = useMemo(() => {
+    const query = searchableText(bulkCategorySearch).trim();
+    return dictionaryForScope('CATEGORY')
+      .filter(entry => !entry.kind || entry.kind === bulkKind)
+      .filter(entry => !query || searchableText([entry.label, entry.code, ...(entry.aliases || [])].join(' ')).includes(query));
+  }, [dictionaries, bulkCategorySearch, bulkKind]);
 
   const selectedModels = useMemo(() => activeModels.filter(model => bulkModelIds.includes(model.id)), [activeModels, bulkModelIds]);
 
@@ -1241,11 +1255,11 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
                   {(Object.keys(CATEGORY_META) as CatalogItemKind[]).map(kind => {
                     const meta = CATEGORY_META[kind];
                     const Icon = meta.icon;
-                    return <button key={kind} type="button" onClick={() => { setBulkKind(kind); setPreview(null); }} className={`rounded-xl border p-2 text-left transition ${bulkKind === kind ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-100' : 'border-zinc-200 hover:bg-zinc-50'}`}><Icon className={`h-4 w-4 ${bulkKind === kind ? 'text-orange-600' : 'text-zinc-400'}`} /><p className="mt-1 text-xs font-black">{meta.label}</p><p className="mt-0.5 text-[9px] leading-3 text-zinc-500">{meta.description}</p></button>;
+                    return <button key={kind} type="button" onClick={() => { setBulkKind(kind); setBulkCategoryCode(''); setBulkCategoryName(''); setBulkCategorySearch(''); setPreview(null); }} className={`rounded-xl border p-2 text-left transition ${bulkKind === kind ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-100' : 'border-zinc-200 hover:bg-zinc-50'}`}><Icon className={`h-4 w-4 ${bulkKind === kind ? 'text-orange-600' : 'text-zinc-400'}`} /><p className="mt-1 text-xs font-black">{meta.label}</p><p className="mt-0.5 text-[9px] leading-3 text-zinc-500">{meta.description}</p></button>;
                   })}
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <div><FieldLabel required>Nhóm hàng</FieldLabel><Select value={bulkCategoryCode} onChange={event => { const selected = dictionaryForScope('CATEGORY').find(entry => codeLabel(entry.code) === event.target.value); setBulkCategoryCode(selected?.code || ''); setBulkCategoryName(selected?.label || ''); setPreview(null); }}><option value="">Chọn nhóm hàng</option>{dictionaryForScope('CATEGORY').map(entry => <option key={entry.id} value={codeLabel(entry.code)}>{entry.label} · {entry.code}</option>)}</Select></div>
+                  <div><FieldLabel required>Nhóm hàng</FieldLabel><Input value={bulkCategorySearch} onChange={event => setBulkCategorySearch(event.target.value)} placeholder="Tìm nhanh: màn, pin, ốp, sạc..." className="mb-1.5" /><Select value={bulkCategoryCode} onChange={event => { const selected = bulkCategoryOptions.find(entry => codeLabel(entry.code) === event.target.value); setBulkCategoryCode(selected?.code || ''); setBulkCategoryName(selected?.label || ''); setPreview(null); }}><option value="">{bulkCategoryOptions.length ? 'Chọn nhóm hàng' : 'Không tìm thấy nhóm phù hợp'}</option>{bulkCategoryOptions.map(entry => <option key={entry.id} value={codeLabel(entry.code)}>{entry.label} · {entry.code}</option>)}</Select><p className="mt-1 text-[10px] text-zinc-500">{bulkCategoryOptions.length} nhóm phù hợp với loại hàng đang chọn.</p></div>
                   <div><FieldLabel required hint="Mã được dùng để tạo SKU">Mã nhóm hàng</FieldLabel><Input readOnly value={bulkCategoryCode} placeholder="Chọn nhóm hàng bên trái" className="bg-zinc-50 font-mono text-zinc-600" /></div>
                 </div>
                 <div className="mt-2"><FieldLabel required>Đơn vị tính</FieldLabel><Select value={bulkUnit?.code || ''} onChange={event => { const option = dictionaryOptionsFor('ATTRIBUTE', 'UNIT', true).find(item => item.code === event.target.value); setBulkUnit(option || null); setPreview(null); }}><option value="">Chọn đơn vị từ Bộ từ điển</option>{dictionaryOptionsFor('ATTRIBUTE', 'UNIT', true).map(option => <option key={option.id} value={option.code}>{option.label} · {option.code}</option>)}</Select></div>
@@ -1376,6 +1390,9 @@ function BulkMatrixSelectionPanel({
 }) {
   const selectedSet = new Set(selected);
   const newRows = preview.items.filter(row => row.status === 'NEW');
+  const existingRows = preview.items.filter(row => row.status === 'EXISTS');
+  const conflictRows = preview.items.filter(row => row.status === 'CONFLICT');
+  const invalidRows = preview.items.filter(row => row.status === 'INVALID');
   const cellLabel = (row: CatalogPreviewItem) => [
     row.storageName,
     row.colorName,
@@ -1389,7 +1406,7 @@ function BulkMatrixSelectionPanel({
       <div className="flex flex-col gap-3 border-b border-orange-100 bg-orange-50/60 p-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-black text-orange-950">Ma trận biến thể — chọn từng ô trước khi tạo</p>
-          <p className="mt-0.5 text-[11px] leading-4 text-orange-800">{selected.length} / {newRows.length} SKU mới được chọn. SKU trùng, lỗi hoặc gần trùng không thể tick.</p>
+          <p className="mt-0.5 text-[11px] leading-4 text-orange-800">Đã chọn <b>{selected.length}</b> mã để tạo · Có thể tạo <b>{newRows.length}</b> · Đã có <b>{existingRows.length}</b>{conflictRows.length ? ` · Cần kiểm tra ${conflictRows.length}` : ''}{invalidRows.length ? ` · Thiếu thông tin ${invalidRows.length}` : ''}.</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <button type="button" onClick={onSelectAll} className="rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-orange-800 hover:bg-orange-100">Chọn tất cả</button>

@@ -296,8 +296,18 @@ function previewItemFromDraft(raw: any, status: CatalogPreviewItem['status'], re
 function normalizePreview(raw: any): CatalogPreviewResult {
   if (Array.isArray(raw?.items) && typeof raw?.summary?.createable === 'number') return raw as CatalogPreviewResult;
   const existing = new Map<string, any>((raw?.existing || []).map((item: any) => [String(item?.sku || ''), item]));
+  const nearDuplicate = new Map<string, any>((raw?.nearDuplicates || []).map((item: any) => [String(item?.sku || ''), item]));
   const candidates = Array.isArray(raw?.candidates) ? raw.candidates : (Array.isArray(raw?.items) ? raw.items : []);
-  const candidateItems = candidates.map((candidate: any) => previewItemFromDraft(candidate, existing.has(String(candidate?.sku || '')) ? 'EXISTS' : 'NEW', existing.get(String(candidate?.sku || ''))?.reason));
+  const candidateItems = candidates.map((candidate: any) => {
+    const sku = String(candidate?.sku || '');
+    const conflict = nearDuplicate.get(sku);
+    const matched = existing.get(sku);
+    return previewItemFromDraft(
+      candidate,
+      conflict ? 'CONFLICT' : (matched ? 'EXISTS' : 'NEW'),
+      conflict?.similarTo ? `Gần giống ${conflict.similarTo}` : matched?.reason
+    );
+  });
   const existingOnly = [...existing.entries()]
     .filter(([sku]) => !candidateItems.some(item => item.sku === sku))
     .map(([sku, item]) => previewItemFromDraft({ sku }, 'EXISTS', item?.reason));
@@ -305,12 +315,16 @@ function normalizePreview(raw: any): CatalogPreviewResult {
   const invalidItems = invalid.map((item: any, index: number) => previewItemFromDraft({ clientKey: `invalid-${item?.index ?? index}`, sku: item?.sku || '' }, 'INVALID', item?.error || 'Dòng không hợp lệ'));
   const conflicts = Array.isArray(raw?.nearDuplicates) ? raw.nearDuplicates : [];
   const conflictItems = conflicts.map((item: any, index: number) => previewItemFromDraft(item, 'CONFLICT', item?.similarTo ? `Gần giống ${item.similarTo}` : 'SKU gần giống'));
-  const items = [...candidateItems, ...existingOnly, ...conflictItems, ...invalidItems];
+  // `nearDuplicates` are normally candidates themselves, so their status is
+  // updated above instead of rendering a second copy of the same SKU.
+  const unrepresentedConflicts = conflictItems.filter(conflict => !candidateItems.some(candidate => candidate.sku === conflict.sku));
+  const items = [...candidateItems, ...existingOnly, ...unrepresentedConflicts, ...invalidItems];
   return {
     items,
     summary: {
       requested: Number(raw?.totalCount ?? raw?.summary?.total ?? items.length),
-      createable: Number(raw?.newCount ?? raw?.summary?.new ?? candidateItems.filter((item: CatalogPreviewItem) => item.status === 'NEW').length),
+      // Only rows that the matrix can actually select are counted as ready.
+      createable: candidateItems.filter((item: CatalogPreviewItem) => item.status === 'NEW').length,
       existing: Number(raw?.existingCount ?? raw?.summary?.existing ?? existingOnly.length),
       conflicts: Number(raw?.duplicateCount ?? raw?.summary?.duplicateInRequest ?? conflictItems.length),
       invalid: Number(raw?.summary?.invalid ?? invalidItems.length)
