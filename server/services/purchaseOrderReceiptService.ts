@@ -25,6 +25,23 @@ interface ReceiptDeviceDraft {
   acquisitionCost: number;
 }
 
+/** A quantity-based item received from a supplier.  It is deliberately
+ * separate from `ReceiptDeviceDraft`: it has no IMEI and is posted to a
+ * location balance (accessory) or a part/lot ledger (technical part). */
+interface ReceiptStockItemDraft {
+  catalogItemId: string;
+  category: 'PART' | 'ACCESSORY';
+  sku: string;
+  name: string;
+  catalogGroupCode?: string;
+  modelCode?: string;
+  compatibleModels: string[];
+  quantity: number;
+  unitCost: number;
+  expectedSellPrice: number;
+  notes?: string;
+}
+
 export interface PurchaseCostAdjustments {
   discountAmount: number;
   shippingFee: number;
@@ -75,6 +92,7 @@ export interface ValidatedPurchaseReceipt {
   debtAmount: number;
   adjustments: PurchaseCostAdjustments;
   devices: ReceiptDeviceDraft[];
+  stockItems: ReceiptStockItemDraft[];
   payloadHash: string;
 }
 
@@ -93,6 +111,15 @@ function canAccessBranch(actor: InventoryActor, branchId: string): boolean {
 function optionalCatalogReference(value: unknown): string | undefined {
   const normalized = String(value || '').trim();
   return normalized || undefined;
+}
+
+function deterministicId(prefix: string, value: string, length = 24): string {
+  return `${prefix}_${crypto.createHash('sha256').update(value).digest('hex').slice(0, length).toUpperCase()}`;
+}
+
+/** Firestore rejects `undefined`. Keep optional receipt snapshots clean. */
+function withoutUndefined<T extends Record<string, any>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as T;
 }
 
 function allocateWholeVndAmount(totalAmount: number, weights: number[]): number[] {
@@ -179,8 +206,37 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
 
   const deviceDrafts: Array<Omit<ReceiptDeviceDraft,
     'allocatedDiscountAmount' | 'allocatedShippingFee' | 'allocatedVatAmount' | 'allocatedOtherFees' | 'acquisitionCost'>> = [];
+  const stockItems: ReceiptStockItemDraft[] = [];
   if (!Array.isArray(order.items) || order.items.length === 0) throw new Error('PURCHASE_ITEMS_REQUIRED');
   for (const item of order.items) {
+    if (item.type === 'product') {
+      const catalogItemId = String(item.catalogItemId || '').trim();
+      const category = String(item.catalogCategory || '').toUpperCase();
+      const quantity = Number(item.quantity);
+      const unitCost = Number(item.importPrice);
+      const expectedSellPrice = Number(item.expectedSellPrice ?? item.importPrice);
+      if (!catalogItemId || !['PART', 'ACCESSORY'].includes(category)) throw new Error('PURCHASE_STOCK_ITEM_CATALOG_REQUIRED');
+      if (!Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 10000) throw new Error('PURCHASE_STOCK_ITEM_QUANTITY_INVALID');
+      if (!Number.isSafeInteger(unitCost) || unitCost < 0 || !Number.isSafeInteger(expectedSellPrice) || expectedSellPrice < 0) {
+        throw new Error('PURCHASE_STOCK_ITEM_PRICE_INVALID');
+      }
+      const totalAmount = Number(item.totalAmount);
+      if (!Number.isSafeInteger(totalAmount) || totalAmount !== quantity * unitCost) throw new Error('PURCHASE_STOCK_ITEM_TOTAL_INVALID');
+      stockItems.push(withoutUndefined({
+        catalogItemId,
+        category: category as ReceiptStockItemDraft['category'],
+        sku: String(item.sku || '').trim().toUpperCase(),
+        name: String(item.modelOrName || '').trim(),
+        catalogGroupCode: optionalCatalogReference(item.catalogGroupCode),
+        modelCode: optionalCatalogReference(item.catalogModelCode),
+        compatibleModels: Array.isArray(item.compatibleModels) ? item.compatibleModels.map((value: unknown) => String(value).trim()).filter(Boolean) : [],
+        quantity,
+        unitCost,
+        expectedSellPrice,
+        notes: optionalCatalogReference(item.notes)
+      }));
+      continue;
+    }
     if (item.type !== 'device') throw new Error('PURCHASE_ITEM_TYPE_UNSUPPORTED');
     const imeis = Array.isArray(item.imeiList) ? item.imeiList.map(normalizeImei).filter(Boolean) : [];
     if (imeis.length !== Number(item.quantity || 0)) throw new Error('PURCHASE_ITEM_QUANTITY_MISMATCH');
@@ -203,7 +259,8 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
       });
     }
   }
-  if (deviceDrafts.length === 0 || deviceDrafts.length > 100) throw new Error('PURCHASE_DEVICE_COUNT_INVALID');
+  if (deviceDrafts.length + stockItems.reduce((sum, item) => sum + item.quantity, 0) === 0) throw new Error('PURCHASE_ITEMS_REQUIRED');
+  if (deviceDrafts.length > 100) throw new Error('PURCHASE_DEVICE_COUNT_INVALID');
   if (deviceDrafts.some(device => !/^\d{5,15}$/.test(device.imei))) throw new Error('IMEI_INVALID: Mã IMEI/Serial phải gồm từ 5 đến 15 chữ số.');
   if (new Set(deviceDrafts.map(device => device.imei)).size !== deviceDrafts.length) throw new Error('DUPLICATE_IMEI_IN_REQUEST');
   if (deviceDrafts.some(device =>
@@ -212,7 +269,8 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
     !Number.isSafeInteger(device.sellPrice) || device.sellPrice < 0 ||
     !Number.isFinite(device.batteryHealth) || Number(device.batteryHealth) < 0 || Number(device.batteryHealth) > 100
   )) throw new Error('PURCHASE_DEVICE_DATA_INVALID');
-  const calculatedTotal = deviceDrafts.reduce((sum, device) => sum + device.buyPrice, 0);
+  const calculatedTotal = deviceDrafts.reduce((sum, device) => sum + device.buyPrice, 0)
+    + stockItems.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
   if (Math.abs(calculatedTotal - Number(order.subTotal ?? calculatedTotal)) > 1) throw new Error('PURCHASE_ITEM_TOTAL_MISMATCH');
   const discountAmount = Number(order.discountAmount || 0);
   const shippingFee = Number(order.shippingFee || 0);
@@ -226,8 +284,14 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
   }
   const calculatedNetTotal = calculatedTotal - discountAmount + shippingFee + vatAmount + otherFees;
   if (Math.abs(calculatedNetTotal - totalAmount) > 1) throw new Error('PURCHASE_TOTAL_MISMATCH');
+  // Quantity stock uses a receipt-cost snapshot.  Do not silently smear a
+  // freight/discount adjustment over stock that has no allocation view yet.
+  // The existing IMEI flow keeps its landed-cost allocation engine unchanged.
+  if (stockItems.length > 0 && (discountAmount || shippingFee || vatAmount || otherFees)) {
+    throw new Error('PURCHASE_STOCK_ITEM_ADJUSTMENTS_UNSUPPORTED');
+  }
   const adjustments = { discountAmount, shippingFee, vatAmount, otherFees };
-  const allocatedCosts = allocatePurchaseLandedCosts(deviceDrafts, adjustments);
+  const allocatedCosts = deviceDrafts.length > 0 ? allocatePurchaseLandedCosts(deviceDrafts, adjustments) : [];
   const devices: ReceiptDeviceDraft[] = deviceDrafts.map((device, index) => ({
     ...device,
     allocatedDiscountAmount: allocatedCosts[index].discountAmount,
@@ -256,15 +320,29 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
       buyPrice: device.buyPrice,
       sellPrice: device.sellPrice,
       acquisitionCost: device.acquisitionCost
+    })),
+    stockItems: stockItems.map(item => ({
+      catalogItemId: item.catalogItemId,
+      category: item.category,
+      sku: item.sku,
+      name: item.name,
+      catalogGroupCode: item.catalogGroupCode,
+      modelCode: item.modelCode,
+      compatibleModels: item.compatibleModels,
+      quantity: item.quantity,
+      unitCost: item.unitCost,
+      expectedSellPrice: item.expectedSellPrice,
+      notes: item.notes
     }))
   })).digest('hex');
-  return { order, branchId, warehouseId, supplierId, fundId, totalAmount, paidAmount, debtAmount, adjustments, devices, payloadHash };
+  return { order, branchId, warehouseId, supplierId, fundId, totalAmount, paidAmount, debtAmount, adjustments, devices, stockItems, payloadHash };
 }
 
 export async function processPurchaseOrderReceipt(db: Firestore, input: any, actor: InventoryActor): Promise<{
   order: any;
   devices: any[];
   importedCount: number;
+  stockItemCount?: number;
   idempotentReplay?: boolean;
 }> {
   const receipt = validatePurchaseReceiptInput(input, actor);
@@ -308,6 +386,63 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
       if (fund.type !== expectedFundType) throw new Error('PURCHASE_FUND_TYPE_MISMATCH');
     }
 
+    if (new Set(receipt.stockItems.map(item => item.catalogItemId)).size !== receipt.stockItems.length) {
+      throw new Error('PURCHASE_STOCK_ITEM_DUPLICATE');
+    }
+    const stockTargets = receipt.stockItems.map(item => {
+      const catalogRef = db.collection('catalogItems').doc(item.catalogItemId);
+      const productId = deterministicId('PRD', item.catalogItemId);
+      const partId = deterministicId('SP', `${receipt.branchId}:${receipt.warehouseId}:${item.catalogItemId}`);
+      const lotId = deterministicId('SPL', `${partId}:${receipt.order.id}`);
+      return {
+        item,
+        catalogRef,
+        productId,
+        productRef: db.collection('products').doc(productId),
+        balanceRef: db.collection('inventoryBalances').doc(`${receipt.branchId}_${receipt.warehouseId}_${productId}`),
+        partId,
+        partRef: db.collection('spareParts').doc(partId),
+        lotId,
+        lotRef: db.collection('sparePartLots').doc(lotId)
+      };
+    });
+    // Every read is deliberately completed before this transaction starts its
+    // first write.  This matters on Firestore and keeps purchase posting
+    // atomic for the order, stock, supplier debt and fund.
+    const stockSnapshots = await Promise.all(stockTargets.map(async target => ({
+      catalogSnap: await transaction.get(target.catalogRef),
+      productSnap: target.item.category === 'ACCESSORY' ? await transaction.get(target.productRef) : null,
+      balanceSnap: target.item.category === 'ACCESSORY' ? await transaction.get(target.balanceRef) : null,
+      partSnap: target.item.category === 'PART' ? await transaction.get(target.partRef) : null,
+      lotSnap: target.item.category === 'PART' ? await transaction.get(target.lotRef) : null
+    })));
+    const resolvedStockItems = stockTargets.map((target, index) => {
+      const catalogSnap = stockSnapshots[index].catalogSnap;
+      if (!catalogSnap.exists) throw new Error(`PURCHASE_STOCK_ITEM_NOT_FOUND: ${target.item.catalogItemId}`);
+      const master = catalogSnap.data()!;
+      const masterCategory = String(master.category || '').toUpperCase();
+      if (master.lifecycleStatus === 'ARCHIVED' || master.status === 'inactive' || !['PART', 'ACCESSORY'].includes(masterCategory)) {
+        throw new Error(`PURCHASE_STOCK_ITEM_INACTIVE: ${target.item.catalogItemId}`);
+      }
+      if (masterCategory !== target.item.category) throw new Error('PURCHASE_STOCK_ITEM_CATEGORY_MISMATCH');
+      if (target.item.category === 'PART' && String(warehouse.type || '') !== 'CENTRAL') {
+        throw new Error('PURCHASE_PART_RECEIPT_MUST_BE_CENTRAL');
+      }
+      const sku = String(master.sku || target.item.sku || '').trim().toUpperCase();
+      const name = String(master.name || target.item.name || '').trim();
+      if (!sku || !name) throw new Error('PURCHASE_STOCK_ITEM_MASTER_INVALID');
+      return {
+        ...target,
+        master,
+        sku,
+        name,
+        catalogGroupCode: optionalCatalogReference(master.catalogGroupCode || master.categoryCode || target.item.catalogGroupCode),
+        modelCode: optionalCatalogReference(master.modelCode || target.item.modelCode),
+        compatibleModels: Array.isArray(master.compatibleModels) ? master.compatibleModels.map(String) : target.item.compatibleModels,
+        snapshots: stockSnapshots[index]
+      };
+    });
+
     const registrySnaps: any[] = [];
     const deviceSnaps: any[] = [];
     const normalizedQueries: any[] = [];
@@ -340,7 +475,8 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
       fundId: receipt.paidAmount > 0 ? receipt.fundId : null,
       fundName: receipt.paidAmount > 0 ? fund.name || '' : null,
       totalAmount: receipt.totalAmount,
-      subTotal: receipt.devices.reduce((sum, device) => sum + device.buyPrice, 0),
+      subTotal: receipt.devices.reduce((sum, device) => sum + device.buyPrice, 0)
+        + receipt.stockItems.reduce((sum, item) => sum + item.quantity * item.unitCost, 0),
       discountAmount: receipt.adjustments.discountAmount,
       shippingFee: receipt.adjustments.shippingFee,
       vatAmount: receipt.adjustments.vatAmount,
@@ -368,7 +504,23 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
         createdAt: now,
         createdByUid: actor.uid
       }] : [],
-      totalQuantity: receipt.devices.length,
+      totalQuantity: receipt.devices.length + receipt.stockItems.reduce((sum, item) => sum + item.quantity, 0),
+      receiptKind: receipt.devices.length > 0 && receipt.stockItems.length > 0 ? 'MIXED' : receipt.stockItems.length > 0 ? 'STOCK_ITEM' : 'DEVICE',
+      stockReceiptLines: resolvedStockItems.map(target => withoutUndefined({
+        catalogItemId: target.item.catalogItemId,
+        category: target.item.category,
+        sku: target.sku,
+        name: target.name,
+        productId: target.item.category === 'ACCESSORY' ? target.productId : undefined,
+        balanceId: target.item.category === 'ACCESSORY' ? target.balanceRef.id : undefined,
+        partId: target.item.category === 'PART' ? target.partId : undefined,
+        lotId: target.item.category === 'PART' ? target.lotId : undefined,
+        quantity: target.item.quantity,
+        unitCost: target.item.unitCost,
+        totalCost: target.item.quantity * target.item.unitCost,
+        catalogGroupCode: target.catalogGroupCode,
+        modelCode: target.modelCode
+      })),
       receiptPayloadHash: receipt.payloadHash,
       inventoryPostingStatus: 'POSTED',
       createdAt: now,
@@ -488,6 +640,186 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
       createdDevices.push(device);
     });
 
+    const createdStockItems: any[] = [];
+    resolvedStockItems.forEach((target, index) => {
+      const { item, master, snapshots } = target;
+      const movementId = `MOV_STOCK_ITEM_RECEIPT_${receipt.order.id}_${index + 1}`;
+      if (item.category === 'ACCESSORY') {
+        const existingProduct = snapshots.productSnap?.exists ? snapshots.productSnap.data()! : null;
+        const existingBalance = snapshots.balanceSnap?.exists ? snapshots.balanceSnap.data()! : null;
+        const product = withoutUndefined({
+          ...(existingProduct || {}),
+          id: target.productId,
+          productMasterId: item.catalogItemId,
+          sku: target.sku,
+          name: target.name,
+          category: 'Phụ kiện',
+          brand: String(master.brand || existingProduct?.brand || 'Chưa gán'),
+          catalogGroupCode: target.catalogGroupCode,
+          catalogModelCode: target.modelCode,
+          buyPrice: item.unitCost,
+          sellPrice: item.expectedSellPrice,
+          retailPrice: item.expectedSellPrice,
+          stockQuantity: Number(existingProduct?.stockQuantity || 0) + item.quantity,
+          minStockLevel: Number(existingProduct?.minStockLevel || master.minStockLevel || 0),
+          status: existingProduct?.status || 'active',
+          unit: master.unit || existingProduct?.unit || 'Cái',
+          warehouse: receipt.warehouseId,
+          compatibleModels: target.compatibleModels,
+          createdAt: existingProduct?.createdAt || now,
+          updatedAt: now
+        });
+        const balance = {
+          ...(existingBalance || {}),
+          id: target.balanceRef.id,
+          productId: target.productId,
+          productMasterId: item.catalogItemId,
+          sku: target.sku,
+          name: target.name,
+          branchId: receipt.branchId,
+          warehouseId: receipt.warehouseId,
+          onHand: Number(existingBalance?.onHand || 0) + item.quantity,
+          available: Number(existingBalance?.available ?? existingBalance?.onHand ?? 0) + item.quantity,
+          updatedAt: now,
+          createdAt: existingBalance?.createdAt || now
+        };
+        transaction.set(target.productRef, product);
+        transaction.set(target.balanceRef, balance);
+        transaction.set(db.collection('inventoryMovements').doc(movementId), withoutUndefined({
+          id: movementId,
+          itemType: 'ACCESSORY',
+          productId: target.productId,
+          productMasterId: item.catalogItemId,
+          sku: target.sku,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          branchId: receipt.branchId,
+          movementType: 'STOCK_RECEIPT',
+          fromLocationId: null,
+          toLocationId: receipt.warehouseId,
+          sourceType: 'PURCHASE_ORDER',
+          sourceId: receipt.order.id,
+          performedByUid: actor.uid,
+          occurredAt: now,
+          createdAt: now
+        }));
+        createdStockItems.push({ id: target.productId, category: item.category, quantity: item.quantity, sku: target.sku });
+        return;
+      }
+
+      const existingPart = snapshots.partSnap?.exists ? snapshots.partSnap.data()! : null;
+      const existingLot = snapshots.lotSnap?.exists ? snapshots.lotSnap.data()! : null;
+      const currentStock = Number(existingPart?.stockQuantity || 0);
+      const nextStock = currentStock + item.quantity;
+      const currentAverageCost = Number(existingPart?.currentAverageCost ?? existingPart?.costPrice ?? 0);
+      const nextAverageCost = nextStock > 0 ? Math.round((currentStock * currentAverageCost + item.quantity * item.unitCost) / nextStock) : item.unitCost;
+      const lotStock = Number(existingLot?.stockQuantity || 0) + item.quantity;
+      const costVersion = `PURCHASE_PART_RECEIPT_${receipt.order.id}`;
+      const part = withoutUndefined({
+        ...(existingPart || {}),
+        id: target.partId,
+        productMasterId: item.catalogItemId,
+        sku: target.sku,
+        name: target.name,
+        category: String(target.catalogGroupCode || master.subCategory || 'KHAC'),
+        catalogGroupCode: target.catalogGroupCode,
+        catalogModelCode: target.modelCode,
+        branchId: receipt.branchId,
+        warehouseId: receipt.warehouseId,
+        stockQuantity: nextStock,
+        reservedQuantity: Number(existingPart?.reservedQuantity || 0),
+        currentAverageCost: nextAverageCost,
+        costPrice: nextAverageCost,
+        costVersion,
+        compatibleModels: [...new Set([...(Array.isArray(existingPart?.compatibleModels) ? existingPart.compatibleModels : []), ...target.compatibleModels])],
+        isActive: existingPart?.isActive !== false,
+        createdAt: existingPart?.createdAt || now,
+        updatedAt: now
+      });
+      const lot = withoutUndefined({
+        ...(existingLot || {}),
+        id: target.lotId,
+        lotCode: `PO-${receipt.order.id}`,
+        partId: target.partId,
+        productMasterId: item.catalogItemId,
+        sku: target.sku,
+        branchId: receipt.branchId,
+        warehouseId: receipt.warehouseId,
+        supplierId: receipt.supplierId,
+        sourceType: 'PART_PURCHASE',
+        sourceId: receipt.order.id,
+        sourceCode: serverOrderCode,
+        stockQuantity: lotStock,
+        reservedQuantity: Number(existingLot?.reservedQuantity || 0),
+        unitCost: item.unitCost,
+        costVersion,
+        receivedAt: now,
+        createdAt: existingLot?.createdAt || now,
+        updatedAt: now
+      });
+      const partReceiptId = `SPR_PO_${receipt.order.id}_${index + 1}`;
+      const partMovementId = `SPM_PO_${receipt.order.id}_${index + 1}`;
+      transaction.set(target.partRef, part);
+      transaction.set(target.lotRef, lot);
+      transaction.set(db.collection('sparePartReceipts').doc(partReceiptId), withoutUndefined({
+        id: partReceiptId,
+        partId: target.partId,
+        lotId: target.lotId,
+        sku: target.sku,
+        partName: target.name,
+        branchId: receipt.branchId,
+        warehouseId: receipt.warehouseId,
+        quantity: item.quantity,
+        unitCostSnapshot: item.unitCost,
+        totalCost: item.quantity * item.unitCost,
+        supplierId: receipt.supplierId,
+        sourceType: 'PART_PURCHASE',
+        sourceId: receipt.order.id,
+        sourceCode: serverOrderCode,
+        note: item.notes || '',
+        receivedByUid: actor.uid,
+        receivedAt: now,
+        createdAt: now
+      }));
+      transaction.set(db.collection('sparePartMovements').doc(partMovementId), withoutUndefined({
+        id: partMovementId,
+        movementType: 'RECEIPT',
+        partId: target.partId,
+        lotId: target.lotId,
+        warehouseId: receipt.warehouseId,
+        branchId: receipt.branchId,
+        quantity: item.quantity,
+        unitCostSnapshot: item.unitCost,
+        sourceType: 'PURCHASE_ORDER',
+        sourceId: receipt.order.id,
+        receiptId: partReceiptId,
+        actorUid: actor.uid,
+        note: item.notes || '',
+        occurredAt: now,
+        createdAt: now
+      }));
+      transaction.set(db.collection('inventoryMovements').doc(movementId), withoutUndefined({
+        id: movementId,
+        itemType: 'PART',
+        partId: target.partId,
+        lotId: target.lotId,
+        productMasterId: item.catalogItemId,
+        sku: target.sku,
+        quantity: item.quantity,
+        unitCost: item.unitCost,
+        branchId: receipt.branchId,
+        movementType: 'STOCK_RECEIPT',
+        fromLocationId: null,
+        toLocationId: receipt.warehouseId,
+        sourceType: 'PURCHASE_ORDER',
+        sourceId: receipt.order.id,
+        performedByUid: actor.uid,
+        occurredAt: now,
+        createdAt: now
+      }));
+      createdStockItems.push({ id: target.partId, category: item.category, quantity: item.quantity, sku: target.sku });
+    });
+
     const supplier = supplierSnap.data()!;
     const debtTransactions = [
       ...(receipt.paidAmount > 0 ? [{ id: `TX_PAY_${receipt.order.id}`, date: receipt.order.orderDate || now.slice(0, 10), type: 'PAYMENT', amount: receipt.paidAmount, note: `Thanh toán ngay phiếu nhập ${serverOrderCode}`, referenceId: receipt.order.id, referenceCode: serverOrderCode, referenceType: 'PURCHASE_ORDER', fundId: receipt.fundId }] : []),
@@ -536,7 +868,13 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
     }
 
     transaction.set(orderRef, normalizedOrder);
-    return { order: normalizedOrder, devices: createdDevices, importedCount: createdDevices.length };
+    return {
+      order: normalizedOrder,
+      devices: createdDevices,
+      importedCount: createdDevices.length + receipt.stockItems.reduce((sum, item) => sum + item.quantity, 0),
+      stockItemCount: receipt.stockItems.reduce((sum, item) => sum + item.quantity, 0),
+      stockItems: createdStockItems
+    };
   });
 }
 
@@ -733,6 +1071,28 @@ export async function processCancelPurchaseOrderReceipt(
       fundSnapshots.set(fundId, await transaction.get(db.collection('funds').doc(fundId)));
     }
 
+    const stockReceiptLines = Array.isArray(order.stockReceiptLines) ? order.stockReceiptLines : [];
+    const stockCancellationSnapshots = await Promise.all(stockReceiptLines.map(async (line: any, index: number) => {
+      const category = String(line?.category || '').toUpperCase();
+      const productId = String(line?.productId || '').trim();
+      const balanceId = String(line?.balanceId || '').trim();
+      const partId = String(line?.partId || '').trim();
+      const lotId = String(line?.lotId || '').trim();
+      return {
+        line,
+        index,
+        category,
+        productRef: productId ? db.collection('products').doc(productId) : null,
+        balanceRef: balanceId ? db.collection('inventoryBalances').doc(balanceId) : null,
+        partRef: partId ? db.collection('spareParts').doc(partId) : null,
+        lotRef: lotId ? db.collection('sparePartLots').doc(lotId) : null,
+        productSnap: productId ? await transaction.get(db.collection('products').doc(productId)) : null,
+        balanceSnap: balanceId ? await transaction.get(db.collection('inventoryBalances').doc(balanceId)) : null,
+        partSnap: partId ? await transaction.get(db.collection('spareParts').doc(partId)) : null,
+        lotSnap: lotId ? await transaction.get(db.collection('sparePartLots').doc(lotId)) : null
+      };
+    }));
+
     const lifecycleMovements = new Map<string, any>();
     const lifecycleCostEvents = new Map<string, any>();
     for (const deviceDoc of devicesSnap.docs) {
@@ -754,6 +1114,26 @@ export async function processCancelPurchaseOrderReceipt(
     if ([...fundSnapshots.values()].some(snapshot => !snapshot.exists)) {
       throw new Error('PURCHASE_CANCEL_FINANCE_LINK_MISSING');
     }
+    stockCancellationSnapshots.forEach(target => {
+      const quantity = Number(target.line?.quantity || 0);
+      if (!Number.isSafeInteger(quantity) || quantity <= 0) throw new Error('PURCHASE_CANCEL_STOCK_LINE_INVALID');
+      if (target.category === 'ACCESSORY') {
+        if (!target.productSnap?.exists || !target.balanceSnap?.exists) throw new Error('PURCHASE_CANCEL_ACCESSORY_LINK_MISSING');
+        if (Number(target.productSnap.data()?.stockQuantity || 0) < quantity || Number(target.balanceSnap.data()?.onHand || 0) < quantity) {
+          throw new Error('PURCHASE_CANCEL_ACCESSORY_ALREADY_USED');
+        }
+        return;
+      }
+      if (target.category === 'PART') {
+        if (!target.partSnap?.exists || !target.lotSnap?.exists) throw new Error('PURCHASE_CANCEL_PART_LINK_MISSING');
+        const lot = target.lotSnap.data()!;
+        if (Number(target.partSnap.data()?.stockQuantity || 0) < quantity || Number(lot.stockQuantity || 0) < quantity || Number(lot.reservedQuantity || 0) > 0) {
+          throw new Error('PURCHASE_CANCEL_PART_ALREADY_USED');
+        }
+        return;
+      }
+      throw new Error('PURCHASE_CANCEL_STOCK_CATEGORY_INVALID');
+    });
 
     const now = new Date().toISOString();
     const removedDeviceIds: string[] = [];
@@ -779,6 +1159,34 @@ export async function processCancelPurchaseOrderReceipt(
       });
       removedDeviceIds.push(deviceDoc.id);
     }
+    stockCancellationSnapshots.forEach(target => {
+      const quantity = Number(target.line.quantity);
+      const lineIndex = Number(target.index) + 1;
+      if (target.category === 'ACCESSORY') {
+        const product = target.productSnap.data()!;
+        const balance = target.balanceSnap.data()!;
+        transaction.update(target.productRef, {
+          stockQuantity: Number(product.stockQuantity || 0) - quantity,
+          updatedAt: now
+        });
+        transaction.update(target.balanceRef, {
+          onHand: Number(balance.onHand || 0) - quantity,
+          available: Math.max(0, Number(balance.available ?? balance.onHand ?? 0) - quantity),
+          updatedAt: now
+        });
+      } else {
+        const part = target.partSnap.data()!;
+        const lot = target.lotSnap.data()!;
+        transaction.update(target.partRef, { stockQuantity: Number(part.stockQuantity || 0) - quantity, updatedAt: now });
+        transaction.update(target.lotRef, { stockQuantity: Number(lot.stockQuantity || 0) - quantity, updatedAt: now });
+        transaction.set(db.collection('sparePartReceipts').doc(`SPR_PO_${normalizedOrderId}_${lineIndex}`), {
+          cancellationStatus: 'CANCELLED', cancelledAt: now, cancelledByUid: actor.uid, cancellationReason: reason || 'Hủy phiếu nhập hàng'
+        }, { merge: true });
+        transaction.set(db.collection('sparePartMovements').doc(`SPM_PO_${normalizedOrderId}_${lineIndex}`), {
+          reversed: true, reversedAt: now, reversedByUid: actor.uid, reversalReason: reason || 'Hủy phiếu nhập hàng'
+        }, { merge: true });
+      }
+    });
     movementsSnap.docs.forEach(movementDoc => transaction.update(movementDoc.ref, {
       movementType: 'STOCK_RECEIPT_CANCELLED',
       reversed: true,

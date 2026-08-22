@@ -1297,7 +1297,7 @@ export default function App() {
   const handleAddPurchaseOrder = async (order: PurchaseOrder, autoCreateDevices: boolean) => {
     if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn. Phiếu chưa được tạo.');
     if (!autoCreateDevices || order.status !== 'COMPLETED') {
-      throw new Error('Phiếu nhập kho chỉ được ghi khi đã hoàn tất và có danh sách IMEI đầy đủ.');
+      throw new Error('Phiếu nhập kho chỉ được ghi khi đã hoàn tất và có danh sách hàng đầy đủ.');
     }
     const receipt = await requestReceivePurchaseOrder(order, currentUser);
     setPurchaseOrders(prev => [receipt.order, ...prev.filter(item => item.id !== receipt.order.id)]);
@@ -1579,7 +1579,14 @@ export default function App() {
         )}
 
         {activeTab === 'master-catalog' && (
-          <MasterCatalogView />
+          <MasterCatalogView
+            currentUser={currentUser}
+            partners={partners}
+            branches={branches}
+            warehouses={warehouses}
+            funds={funds}
+            onAddPurchaseOrder={handleAddPurchaseOrder}
+          />
         )}
 
         {(activeTab === 'products' || activeTab === 'spare-parts') && (

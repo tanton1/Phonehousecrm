@@ -331,6 +331,13 @@ export interface PurchaseOrderItem {
   catalogModelCode?: string;
   productFamilyCode?: string;
   catalogGroupCode?: string;
+  /** Product Master kind for quantity-based goods.  Machines continue to use
+   * `type: 'device'` and an IMEI list. */
+  catalogCategory?: 'PART' | 'ACCESSORY';
+  /** Snapshot fields for quantity-based receipts; the server verifies the
+   * Product Master before it posts stock. */
+  sku?: string;
+  compatibleModels?: string[];
   modelOrName: string; // e.g. "iPhone 16 Pro Max 256GB Titan Sa Mạc"
   color?: string;
   storage?: string;
@@ -506,6 +513,9 @@ export interface ProductItem {
   id: string;
   /** Optional bridge while legacy POS stock is progressively linked to Product Master. */
   productMasterId?: string;
+  /** Additive Product Master snapshot for fast POS/search/reporting. */
+  catalogGroupCode?: string;
+  catalogModelCode?: string;
   sku: string;
   name: string;
   category: 'Phụ kiện' | 'Linh kiện' | 'Dịch vụ';

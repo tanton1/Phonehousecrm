@@ -40,10 +40,26 @@ describe('Atomic supplier purchase receipt validation', () => {
     }) }, actor)).toThrow('DUPLICATE_IMEI_IN_REQUEST');
   });
 
-  it('keeps parts and accessories out of the serialized-device receipt path', () => {
+  it('accepts catalog-linked parts and accessories as quantity-based receipt lines', () => {
+    const receipt = validatePurchaseReceiptInput({ order: validOrder({
+      totalAmount: 800_000,
+      subTotal: 800_000,
+      paidAmount: 800_000,
+      items: [{
+        id: 'ITEM_PART', type: 'product', catalogItemId: 'CAT_PIN_IP15PM', catalogCategory: 'PART',
+        sku: 'PIN-IP15PM-PIS', modelOrName: 'Pin iPhone 15 Pro Max Pisen', quantity: 2,
+        importPrice: 400_000, expectedSellPrice: 600_000, totalAmount: 800_000
+      }]
+    }) }, actor);
+    expect(receipt.devices).toHaveLength(0);
+    expect(receipt.stockItems[0]).toMatchObject({ catalogItemId: 'CAT_PIN_IP15PM', category: 'PART', quantity: 2, unitCost: 400_000 });
+  });
+
+  it('rejects a quantity item unless it is linked to a part or accessory master', () => {
     expect(() => validatePurchaseReceiptInput({ order: validOrder({
-      items: [{ ...validOrder().items[0], type: 'product' }]
-    }) }, actor)).toThrow('PURCHASE_ITEM_TYPE_UNSUPPORTED');
+      totalAmount: 100, subTotal: 100, paidAmount: 100,
+      items: [{ id: 'ITEM_BAD', type: 'product', modelOrName: 'Hàng không rõ', quantity: 1, importPrice: 100, totalAmount: 100 }]
+    }) }, actor)).toThrow('PURCHASE_STOCK_ITEM_CATALOG_REQUIRED');
   });
 
   it('accepts numeric IMEI/serial identifiers from 5 through 15 digits', () => {
@@ -121,6 +137,43 @@ describe('Atomic supplier purchase receipt validation', () => {
       model: 'iPhone 15 Pro'
     });
     expect(data.get('purchaseOrders/PO_01').items[0]).toMatchObject({ catalogItemId: 'CAT_IP15PM_256_NAT', catalogModelCode: 'IP15PM' });
+  });
+
+  it('posts a part receipt with its purchase order, supplier ledger and part lot in one transaction', async () => {
+    type Ref = { kind: 'ref'; col: string; id: string };
+    type Query = { kind: 'query' };
+    const data = new Map<string, any>();
+    const ref = (col: string, id: string): Ref => ({ kind: 'ref', col, id });
+    const snap = (target: Ref) => ({ id: target.id, ref: target, exists: data.has(`${target.col}/${target.id}`), data: () => data.get(`${target.col}/${target.id}`) });
+    const db: any = {
+      collection: (col: string) => ({
+        doc: (id: string) => ref(col, id),
+        where: () => ({ kind: 'query', limit: () => ({ kind: 'query' } as Query) } as Query & { limit: () => Query })
+      }),
+      runTransaction: async (callback: any) => callback({
+        get: async (target: Ref | Query) => target.kind === 'query' ? { empty: true, docs: [] } : snap(target),
+        set: (target: Ref, value: any, options?: { merge?: boolean }) => {
+          const key = `${target.col}/${target.id}`;
+          data.set(key, options?.merge ? { ...data.get(key), ...value } : { ...value });
+        },
+        update: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...data.get(`${target.col}/${target.id}`), ...value })
+      })
+    };
+    data.set('warehouses/KHO_CN01', { id: 'KHO_CN01', branchId: 'CN01', name: 'Kho tổng CN01', isActive: true, type: 'CENTRAL' });
+    data.set('partners/SUP_01', { id: 'SUP_01', name: 'NCC 01', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
+    data.set('funds/FUND_CN01', { id: 'FUND_CN01', name: 'Tiền mặt CN01', branchId: 'CN01', type: 'CASH', currentBalance: 1_000_000, totalExpense: 0, isActive: true });
+    data.set('catalogItems/CAT_PIN_IP15PM', { id: 'CAT_PIN_IP15PM', sku: 'PIN-IP15PM-PIS', name: 'Pin iPhone 15 Pro Max Pisen', category: 'PART', catalogGroupCode: 'PIN', compatibleModels: ['iPhone 15 Pro Max'], defaultImportPrice: 400_000 });
+
+    const order = validOrder({
+      id: 'PO_PART_01', totalAmount: 800_000, subTotal: 800_000, paidAmount: 800_000, debtAmount: 0,
+      items: [{ id: 'PART_LINE', type: 'product', catalogItemId: 'CAT_PIN_IP15PM', catalogCategory: 'PART', sku: 'PIN-IP15PM-PIS', modelOrName: 'Pin iPhone 15 Pro Max Pisen', quantity: 2, importPrice: 400_000, expectedSellPrice: 600_000, totalAmount: 800_000 }]
+    });
+    const result = await processPurchaseOrderReceipt(db, { order }, actor);
+    expect(result).toMatchObject({ importedCount: 2, stockItemCount: 2 });
+    expect([...data.entries()].find(([key]) => key.startsWith('spareParts/'))?.[1]).toMatchObject({ stockQuantity: 2, sku: 'PIN-IP15PM-PIS', category: 'PIN' });
+    expect([...data.entries()].find(([key]) => key.startsWith('sparePartLots/'))?.[1]).toMatchObject({ stockQuantity: 2, unitCost: 400_000 });
+    expect(data.get('purchaseOrders/PO_PART_01')).toMatchObject({ receiptKind: 'STOCK_ITEM', inventoryPostingStatus: 'POSTED', totalQuantity: 2 });
+    expect(data.get('partners/SUP_01')).toMatchObject({ totalPurchasedFrom: 800_000 });
   });
 
   it('rejects a total that does not equal IMEI cost minus discount plus fees', () => {

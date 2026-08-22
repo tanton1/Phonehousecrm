@@ -14,6 +14,7 @@ import {
   Layers,
   ListFilter,
   Package,
+  PackagePlus,
   Plus,
   Power,
   RefreshCw,
@@ -27,8 +28,9 @@ import {
   Headphones,
   X
 } from 'lucide-react';
-import { MasterCatalogItem } from '../types';
+import { FundAccount, MasterCatalogItem, Partner, PurchaseOrder, StoreBranch, UserAccount, WarehouseInfo } from '../types';
 import { DeviceImageThumbnail } from './DeviceImageThumbnail';
+import { StockItemPurchaseEntryForm } from './StockItemPurchaseEntryForm';
 import {
   catalogApi,
   CatalogBootstrap,
@@ -45,6 +47,12 @@ import {
 
 interface CatalogCenterViewProps {
   items: MasterCatalogItem[];
+  currentUser?: UserAccount | null;
+  partners?: Partner[];
+  branches?: StoreBranch[];
+  warehouses?: WarehouseInfo[];
+  funds?: FundAccount[];
+  onAddPurchaseOrder?: (order: PurchaseOrder, postToInventory: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
 }
 
 type CenterTab = 'CATALOG' | 'MODELS' | 'BULK' | 'TOOLS';
@@ -191,7 +199,15 @@ function Select({ className = '', children, ...props }: React.SelectHTMLAttribut
  * browser-wide Firestore subscription. New master data and generated SKUs are
  * also sent to that same server API, which owns uniqueness and audit.
  */
-export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _items }) => {
+export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
+  items: _items,
+  currentUser,
+  partners = [],
+  branches = [],
+  warehouses = [],
+  funds = [],
+  onAddPurchaseOrder
+}) => {
   const [activeTab, setActiveTab] = useState<CenterTab>('CATALOG');
   const [bootstrap, setBootstrap] = useState<CatalogBootstrap | null>(null);
   const [loadingBootstrap, setLoadingBootstrap] = useState(true);
@@ -206,6 +222,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
   const [catalogPage, setCatalogPage] = useState<CatalogListResult | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
+  const [stockReceiptOpen, setStockReceiptOpen] = useState(false);
   const catalogRequestId = useRef(0);
 
   const [isModelFormOpen, setIsModelFormOpen] = useState(false);
@@ -928,7 +945,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
   );
 
   return (
-    <div className="space-y-4 pb-24 text-zinc-900 animate-fadeIn">
+    <div className="space-y-3 pb-24 text-zinc-900 animate-fadeIn">
       {notice && (
         <div className="fixed right-4 top-4 z-[80] flex max-w-sm items-center gap-2 rounded-2xl bg-zinc-950 px-4 py-3 text-xs font-bold text-white shadow-2xl">
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
@@ -936,43 +953,50 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
         </div>
       )}
 
-      <section className="overflow-hidden rounded-3xl border border-orange-200 bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 text-white shadow-lg">
-        <div className="relative p-4 sm:p-6">
+      <section className="overflow-hidden rounded-2xl border border-orange-200 bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 text-white shadow-lg">
+        <div className="relative p-3.5 sm:p-5">
           <div className="pointer-events-none absolute -right-10 -top-14 h-48 w-48 rounded-full bg-orange-500/20 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-20 left-1/3 h-36 w-36 rounded-full bg-amber-400/10 blur-3xl" />
-          <div className="relative flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="relative flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div className="max-w-3xl">
               <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-orange-300/30 bg-orange-400/10 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-orange-200">
                 <Database className="h-3.5 w-3.5" /> DANH MỤC HÀNG HÓA · KHÔNG PHẢI TỒN KHO
               </div>
-              <h1 className="text-xl font-black tracking-tight sm:text-2xl">Danh mục hàng hóa</h1>
-              <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-300 sm:text-sm">
+              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Danh mục hàng hóa</h1>
+              <p className="mt-0.5 max-w-2xl text-[11px] leading-4 text-zinc-300 sm:text-sm sm:leading-5">
                 Chọn nhóm hàng, thương hiệu, model và thuộc tính. Hệ thống tự sinh mã hàng, còn tồn kho và IMEI được quản lý riêng.
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:flex sm:gap-3">
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center">
-                <div className="text-lg font-black text-white">{itemStats.DEVICE}</div>
+            <div className="grid grid-cols-3 gap-1.5 sm:flex sm:gap-3">
+              <div className="rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-center">
+                <div className="text-base font-black text-white">{itemStats.DEVICE}</div>
                 <div className="text-[10px] font-bold text-zinc-400">SKU máy</div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center">
-                <div className="text-lg font-black text-white">{itemStats.PART}</div>
+              <div className="rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-center">
+                <div className="text-base font-black text-white">{itemStats.PART}</div>
                 <div className="text-[10px] font-bold text-zinc-400">SKU linh kiện</div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center">
-                <div className="text-lg font-black text-white">{itemStats.ACCESSORY}</div>
+              <div className="rounded-xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-center">
+                <div className="text-base font-black text-white">{itemStats.ACCESSORY}</div>
                 <div className="text-[10px] font-bold text-zinc-400">SKU phụ kiện</div>
               </div>
             </div>
           </div>
         </div>
-        <div className="relative flex gap-1 overflow-x-auto border-t border-white/10 bg-black/10 px-2 py-2 sm:px-4">
+        <div className="relative flex gap-1 overflow-x-auto border-t border-white/10 bg-black/10 px-2 py-1.5 sm:px-4 sm:py-2">
           <TabButton tab="CATALOG" icon={Package}>Hàng đã tạo</TabButton>
           <TabButton tab="MODELS" icon={Layers}>Nhóm hàng &amp; Model</TabButton>
           <TabButton tab="BULK" icon={Sparkles}>Tạo hàng loạt</TabButton>
           <TabButton tab="TOOLS" icon={ClipboardPaste}>Nhân bản &amp; Excel</TabButton>
         </div>
       </section>
+
+      {onAddPurchaseOrder && (
+        <section className="flex flex-col gap-2 rounded-2xl border border-orange-200 bg-orange-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0"><p className="text-xs font-black text-orange-950">Đã có mã hàng? Nhập kho ngay</p><p className="mt-0.5 text-[11px] text-orange-800/80">Linh kiện, phụ kiện, nhà cung cấp, quỹ và công nợ sẽ cùng nằm trong Phiếu nhập hàng.</p></div>
+          <button type="button" onClick={() => setStockReceiptOpen(true)} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-orange-600 px-3.5 py-2.5 text-xs font-black text-white shadow-sm hover:bg-orange-700"><PackagePlus className="h-4 w-4" /> Nhập linh kiện / phụ kiện</button>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-indigo-50 p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1115,7 +1139,25 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
               <EmptyState icon={Package} title="Chưa có mã hàng phù hợp" description="Thiết lập nhóm hàng, thương hiệu, Model và thuộc tính; sau đó tạo hàng loạt để sinh SKU không trùng." action={<button type="button" onClick={() => setActiveTab('MODELS')} className="rounded-xl bg-zinc-950 px-3 py-2 text-xs font-bold text-white">Thiết lập danh mục</button>} />
             ) : (
               <>
-                <div className="overflow-x-auto">
+                <div className="divide-y divide-zinc-100 md:hidden">
+                  {catalogItems.map(item => {
+                    const category = CATEGORY_META[item.category];
+                    const Icon = category.icon;
+                    return (
+                      <article key={item.id} className="p-3">
+                        <div className="flex items-start gap-2.5">
+                          <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${category.tone}`}><Icon className="h-4 w-4" /></span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-xs font-black text-zinc-800">{item.name}</p><p className="mt-0.5 truncate text-[10px] text-zinc-500">{item.brand || 'Chưa gán thương hiệu'}{item.model ? ` · ${item.model}` : ''}</p></div><span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${category.tone}`}>{category.label}</span></div>
+                            <div className="mt-2 flex items-center justify-between gap-2"><button type="button" onClick={() => void navigator.clipboard?.writeText(item.sku)} className="min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[10px] font-black text-zinc-700 active:bg-orange-50">{item.sku}</button><div className="flex shrink-0 gap-1"><IconButton label={`Sửa ${item.name}`} onClick={() => setCatalogItemEdit({ ...item, aliases: item.aliases || [] })} className="h-8 w-8 rounded-lg border border-zinc-200 text-zinc-500"><Edit3 className="h-3.5 w-3.5" /></IconButton><IconButton label={`Ngừng dùng ${item.name}`} onClick={() => void handleArchiveCatalogItem(item)} className="h-8 w-8 rounded-lg border border-zinc-200 text-rose-500"><Trash2 className="h-3.5 w-3.5" /></IconButton></div></div>
+                            {(item.aliases?.length || item.subCategory) ? <p className="mt-1.5 truncate text-[10px] text-zinc-400">{item.subCategory || ''}{item.subCategory && item.aliases?.length ? ' · ' : ''}{(item.aliases || []).slice(0, 2).join(' · ')}</p> : null}
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+                <div className="hidden overflow-x-auto md:block">
                   <table className="min-w-[900px] w-full text-left">
                   <thead className="bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-500">
                     <tr>
@@ -1317,6 +1359,18 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({ items: _it
             {pastePreview && <PreviewPanel preview={pastePreview} createLoading={pasteCreateLoading} onCreate={() => void handlePasteCreate()} title="Kết quả nhập từ Excel" compact />}
           </div>
         </section>
+      )}
+      {onAddPurchaseOrder && (
+        <StockItemPurchaseEntryForm
+          isOpen={stockReceiptOpen}
+          onClose={() => setStockReceiptOpen(false)}
+          currentUser={currentUser}
+          partners={partners}
+          branches={branches}
+          warehouses={warehouses}
+          funds={funds}
+          onAddPurchaseOrder={onAddPurchaseOrder}
+        />
       )}
     </div>
   );
