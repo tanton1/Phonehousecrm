@@ -1,4 +1,4 @@
-export type OperationalPolicyKind = 'sales' | 'customerCare';
+export type OperationalPolicyKind = 'sales' | 'customerCare' | 'retailPricing';
 
 export function getVietnamPolicyDate(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(now);

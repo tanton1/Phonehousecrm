@@ -66,7 +66,7 @@ export function calculateBranchWarehouseCoverage(branchIds: string[], warehouses
   };
 }
 
-const OPERATIONAL_CONFIG_KEYS = new Set(['sales', 'customerCare']);
+const OPERATIONAL_CONFIG_KEYS = new Set(['sales', 'customerCare', 'retailPricing']);
 
 export function validateOperationalConfig(configKey: string, input: any) {
   if (!OPERATIONAL_CONFIG_KEYS.has(configKey)) throw new Error('CONFIG_KEY_INVALID');
@@ -134,6 +134,37 @@ export function validateOperationalConfig(configKey: string, input: any) {
     return { id: configKey, ...policyIdentity, deviceProfitPercent, accessoryProfitPercent, onlineSaleSplitPercent, maxDiscountPercent, defaultMonthlyTarget, commissionTags };
   }
 
+  if (configKey === 'retailPricing') {
+    const entries = (Array.isArray(input?.entries) ? input.entries : []).map((entry: any, index: number) => ({
+      id: String(entry?.id || `PRICE_${index + 1}`).trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_'),
+      itemType: String(entry?.itemType || 'DEVICE').trim().toUpperCase(),
+      matchType: String(entry?.matchType || 'ITEM_ID').trim().toUpperCase(),
+      itemKey: String(entry?.itemKey || '').trim(),
+      itemName: String(entry?.itemName || '').trim(),
+      branchId: String(entry?.branchId || 'ALL').trim(),
+      retailPrice: typeof entry?.retailPrice === 'number' && Number.isFinite(entry.retailPrice) ? Number(entry.retailPrice) : null,
+      minimumPrice: typeof entry?.minimumPrice === 'number' && Number.isFinite(entry.minimumPrice) ? Number(entry.minimumPrice) : null,
+      isActive: entry?.isActive === true
+    }));
+    if (!isActive) return { id: configKey, ...policyIdentity, entries };
+    const activeEntries = entries.filter((entry: any) => entry.isActive);
+    if (activeEntries.length === 0) throw new Error('RETAIL_PRICE_ENTRY_REQUIRED');
+    const uniqueKeys = new Set<string>();
+    for (const entry of activeEntries) {
+      const uniqueKey = `${entry.branchId}:${entry.itemType}:${entry.matchType}:${entry.itemKey.toUpperCase()}`;
+      if (
+        !entry.id || !entry.itemKey || !entry.itemName ||
+        !['DEVICE', 'ACCESSORY'].includes(entry.itemType) ||
+        !['ITEM_ID', 'SKU', 'MODEL_VARIANT'].includes(entry.matchType) ||
+        !Number.isFinite(entry.retailPrice) || entry.retailPrice <= 0 ||
+        (entry.minimumPrice !== null && (!Number.isFinite(entry.minimumPrice) || entry.minimumPrice < 0 || entry.minimumPrice > entry.retailPrice)) ||
+        uniqueKeys.has(uniqueKey)
+      ) throw new Error('RETAIL_PRICE_ENTRY_INVALID');
+      uniqueKeys.add(uniqueKey);
+    }
+    return { id: configKey, ...policyIdentity, entries };
+  }
+
   if (!isActive) {
     const optionalNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Number(value) : null;
     const followUpDays = Array.isArray(input?.followUpDays) ? input.followUpDays.map(Number).filter(Number.isFinite) : [];
@@ -196,7 +227,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
   router.get('/setup-status', async (_req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const [branchesSnap, warehousesSnap, fundsSnap, sopSnap, taskTypesSnap, settingsSnap, salesSnap, careSnap] = await Promise.all([
+      const [branchesSnap, warehousesSnap, fundsSnap, sopSnap, taskTypesSnap, settingsSnap, salesSnap, retailPricingSnap, careSnap] = await Promise.all([
         db.collection('branches').get(),
         db.collection('warehouses').get(),
         db.collection('funds').get(),
@@ -204,6 +235,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         db.collection('technicalTaskTypes').get(),
         db.collection('storeSettings').doc('main').get(),
         db.collection('operationalConfigs').doc('sales').get(),
+        db.collection('operationalConfigs').doc('retailPricing').get(),
         db.collection('operationalConfigs').doc('customerCare').get()
       ]);
       const activeBranches = branchesSnap.docs.filter(item => item.data().isActive !== false);
@@ -216,8 +248,10 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       }).map(item => item.data().branchId));
       const settings = settingsSnap.exists ? settingsSnap.data()! : {};
       const salesVersions = normalizeOperationalPolicyVersions('sales', salesSnap.exists ? salesSnap.data() : null);
+      const retailPricingVersions = normalizeOperationalPolicyVersions('retailPricing', retailPricingSnap.exists ? retailPricingSnap.data() : null);
       const careVersions = normalizeOperationalPolicyVersions('customerCare', careSnap.exists ? careSnap.data() : null);
       const activeSales = selectEffectiveOperationalPolicy(salesVersions);
+      const activeRetailPricing = selectEffectiveOperationalPolicy(retailPricingVersions);
       const activeCare = selectEffectiveOperationalPolicy(careVersions);
       const checks = [
         { id: 'company', label: 'Thông tin doanh nghiệp', complete: Boolean(settings.companyName && settings.hotline && settings.headquarterAddress), detail: 'Tên doanh nghiệp, hotline và địa chỉ trụ sở' },
@@ -227,6 +261,7 @@ export function createConfigurationRouter(db: Firestore | null): Router {
         { id: 'sop', label: 'Quy trình SOP', complete: sopSnap.docs.some(item => item.data().isActive !== false), detail: `${sopSnap.docs.filter(item => item.data().isActive !== false).length} SOP hoạt động` },
         { id: 'technicalTasks', label: 'Task và hoa hồng kỹ thuật', complete: taskTypesSnap.docs.some(item => item.data().isActive !== false), detail: `${taskTypesSnap.docs.filter(item => item.data().isActive !== false).length} task hoạt động` },
         { id: 'sales', label: 'Chính sách Sales', complete: Boolean(activeSales && activeSales.commissionTags?.some((tag: any) => tag.isActive === true)), detail: activeSales ? `${activeSales.commissionTags.filter((tag: any) => tag.isActive === true).length} tag · hiệu lực ${activeSales.effectiveFrom}${activeSales.effectiveTo ? ` đến ${activeSales.effectiveTo}` : ''}` : 'Không có chính sách đang hiệu lực' },
+        { id: 'retailPricing', label: 'Bảng giá bán lẻ', complete: Boolean(activeRetailPricing && activeRetailPricing.entries?.some((entry: any) => entry.isActive === true)), detail: activeRetailPricing ? `${activeRetailPricing.entries.filter((entry: any) => entry.isActive === true).length} dòng giá · hiệu lực ${activeRetailPricing.effectiveFrom}${activeRetailPricing.effectiveTo ? ` đến ${activeRetailPricing.effectiveTo}` : ''}` : 'Không có bảng giá đang hiệu lực' },
         { id: 'customerCare', label: 'Quy trình & hoa hồng CSKH', complete: Boolean(activeCare && Number.isFinite(activeCare.completedFollowUpCommission)), detail: activeCare ? `Hiệu lực ${activeCare.effectiveFrom}${activeCare.effectiveTo ? ` đến ${activeCare.effectiveTo}` : ''} · ${Number(activeCare.completedFollowUpCommission || 0).toLocaleString('vi-VN')}đ/lượt đạt chuẩn` : 'Không có chính sách đang hiệu lực' }
       ];
       return res.json({ success: true, data: { complete: checks.every(item => item.complete), checks } });
@@ -237,16 +272,19 @@ export function createConfigurationRouter(db: Firestore | null): Router {
 
   router.get('/operational-configs', async (_req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
-    const [salesSnap, careSnap] = await Promise.all([
+    const [salesSnap, retailPricingSnap, careSnap] = await Promise.all([
       db.collection('operationalConfigs').doc('sales').get(),
+      db.collection('operationalConfigs').doc('retailPricing').get(),
       db.collection('operationalConfigs').doc('customerCare').get()
     ]);
     const policyVersions = {
       sales: normalizeOperationalPolicyVersions('sales', salesSnap.exists ? salesSnap.data() : null),
+      retailPricing: normalizeOperationalPolicyVersions('retailPricing', retailPricingSnap.exists ? retailPricingSnap.data() : null),
       customerCare: normalizeOperationalPolicyVersions('customerCare', careSnap.exists ? careSnap.data() : null)
     };
     const configs = {
       sales: selectEffectiveOperationalPolicy(policyVersions.sales),
+      retailPricing: selectEffectiveOperationalPolicy(policyVersions.retailPricing),
       customerCare: selectEffectiveOperationalPolicy(policyVersions.customerCare)
     };
     return res.json({ success: true, data: { configs, policyVersions } });

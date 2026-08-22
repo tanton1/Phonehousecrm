@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Headphones,
   Loader2,
+  Tags,
   RefreshCw,
   Save,
   Settings2,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 import {
   CustomerCareSetupConfig,
+  RetailPricingSetupConfig,
   SalesSetupConfig,
   SystemSetupCheck,
   SystemSetupStatus,
@@ -33,8 +35,9 @@ import {
 } from '../services/configurationApiClient';
 import { SOPManagementView } from './SOPManagementView';
 import { StoreSettingsView, StoreSettingsViewProps } from './StoreSettingsView';
+import { deviceModelVariantKey } from '../utils/retailPricing';
 
-type SetupTab = 'overview' | 'organization' | 'finance' | 'sop' | 'technicalTasks' | 'sales' | 'customerCare';
+type SetupTab = 'overview' | 'organization' | 'finance' | 'sop' | 'technicalTasks' | 'sales' | 'retailPricing' | 'customerCare';
 
 interface SystemSettingsHubProps extends StoreSettingsViewProps {
   initialTab?: SetupTab;
@@ -50,6 +53,7 @@ const TAB_BY_CHECK: Record<SystemSetupCheck['id'], SetupTab> = {
   sop: 'sop',
   technicalTasks: 'technicalTasks',
   sales: 'sales',
+  retailPricing: 'retailPricing',
   customerCare: 'customerCare'
 };
 
@@ -60,6 +64,7 @@ const tabs: Array<{ id: SetupTab; label: string; icon: React.ElementType }> = [
   { id: 'sop', label: 'SOP', icon: ClipboardCheck },
   { id: 'technicalTasks', label: 'Task kỹ thuật', icon: Wrench },
   { id: 'sales', label: 'Sales', icon: ShoppingBag },
+  { id: 'retailPricing', label: 'Giá bán lẻ', icon: Tags },
   { id: 'customerCare', label: 'CSKH', icon: Headphones }
 ];
 
@@ -73,6 +78,10 @@ const emptyCare = (): CustomerCareSetupConfig => ({
   id: 'customerCare', policyId: '', name: '', version: '', effectiveFrom: '', effectiveTo: '', firstResponseMinutes: Number.NaN,
   followUpAttempts: Number.NaN, followUpDays: [], completedFollowUpCommission: Number.NaN, requireEvidence: false,
   requireQaApproval: false, isActive: false
+});
+
+const emptyRetailPricing = (): RetailPricingSetupConfig => ({
+  id: 'retailPricing', policyId: '', name: '', version: '', effectiveFrom: '', effectiveTo: '', entries: [], isActive: false
 });
 
 function NumberField({ label, value, onChange, suffix }: { label: string; value: number; onChange: (value: number) => void; suffix?: string }) {
@@ -223,6 +232,109 @@ function OperationalPolicyPanel({ kind, policies, onSaved }: {
   );
 }
 
+function RetailPricingPanel({ policies, branches, devices = [], products = [], onSaved }: {
+  policies: RetailPricingSetupConfig[];
+  branches: StoreSettingsViewProps['branches'];
+  devices?: NonNullable<StoreSettingsViewProps['devices']>;
+  products?: NonNullable<StoreSettingsViewProps['products']>;
+  onSaved: () => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<RetailPricingSetupConfig>(emptyRetailPricing());
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const editing = policies.some(policy => policy.policyId === draft.policyId);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+
+  const catalog = useMemo(() => {
+    const variants = new Map<string, { itemName: string; retailPrice: number }>();
+    devices.forEach(device => {
+      const itemKey = deviceModelVariantKey(device);
+      if (!variants.has(itemKey)) variants.set(itemKey, {
+        itemName: [device.model, device.storage, device.condition].filter(Boolean).join(' · '),
+        retailPrice: Number(device.sellPrice || 0)
+      });
+    });
+    return [
+      ...[...variants.entries()].map(([itemKey, item]) => ({ itemType: 'DEVICE' as const, matchType: 'MODEL_VARIANT' as const, itemKey, ...item })),
+      ...products.filter(product => product.status !== 'inactive').map(product => ({
+        itemType: 'ACCESSORY' as const,
+        matchType: 'ITEM_ID' as const,
+        itemKey: product.id,
+        itemName: `${product.name}${product.sku ? ` · ${product.sku}` : ''}`,
+        retailPrice: Number(product.sellPrice || 0)
+      }))
+    ];
+  }, [devices, products]);
+
+  useEffect(() => {
+    setDraft(current => policies.find(policy => policy.policyId === current.policyId) || policies[0] || emptyRetailPricing());
+  }, [policies]);
+
+  const save = async () => {
+    setSaving(true); setMessage('');
+    try {
+      const policy = draft.policyId ? draft : { ...draft, policyId: `RETAIL_DRAFT_${Date.now()}` };
+      setDraft(policy);
+      await saveOperationalConfig('retailPricing', policy);
+      await onSaved();
+      setMessage(policy.isActive ? 'Đã lưu và lên lịch bảng giá.' : 'Đã lưu bản nháp bảng giá.');
+    } catch (error: any) { setMessage(error?.message || 'Không thể lưu bảng giá.'); }
+    finally { setSaving(false); }
+  };
+
+  const addEntry = () => {
+    const item = catalog[0];
+    setDraft(current => ({ ...current, entries: [...current.entries, {
+      id: `PRICE_${Date.now()}`,
+      itemType: item?.itemType || 'DEVICE',
+      matchType: item?.matchType || 'MODEL_VARIANT',
+      itemKey: item?.itemKey || '',
+      itemName: item?.itemName || '',
+      branchId: 'ALL',
+      retailPrice: item?.retailPrice || Number.NaN,
+      minimumPrice: Number.NaN,
+      isActive: true
+    }] }));
+  };
+
+  return <div className="grid gap-5 xl:grid-cols-[320px_1fr]">
+    <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-start justify-between gap-3"><div><h2 className="text-lg font-black">Bảng giá bán lẻ</h2><p className="mt-1 text-sm text-zinc-500">Tạo nhiều bảng giá theo khoảng thời gian, không ghi cứng giá vào mã nguồn.</p></div><button type="button" onClick={() => { setDraft(emptyRetailPricing()); setMessage(''); }} className="shrink-0 rounded-xl bg-zinc-900 px-3 py-2 text-xs font-black text-white">+ Tạo mới</button></div>
+      <div className="space-y-2">{policies.length === 0 && <div className="rounded-xl border border-dashed p-4 text-sm text-zinc-500">Chưa có bảng giá nào.</div>}{policies.map(policy => {
+        const activeNow = policy.isActive && policy.effectiveFrom <= today && (!policy.effectiveTo || policy.effectiveTo >= today);
+        return <button key={policy.policyId} type="button" onClick={() => { setDraft(policy); setMessage(''); }} className={`w-full rounded-xl border p-3 text-left ${draft.policyId === policy.policyId ? 'border-orange-500 bg-orange-50' : 'border-zinc-200 hover:border-orange-300'}`}><div className="flex items-start justify-between gap-2"><div><p className="font-black">{policy.name || 'Bảng giá chưa đặt tên'}</p><p className="text-xs text-zinc-500">{policy.version || 'Chưa có phiên bản'} · {policy.entries?.filter(entry => entry.isActive).length || 0} dòng</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-black ${activeNow ? 'bg-emerald-50 text-emerald-700' : 'bg-zinc-100 text-zinc-500'}`}>{activeNow ? 'Đang áp dụng' : policy.isActive ? 'Đã lên lịch' : 'Bản nháp / Đã tắt'}</span></div><p className="mt-2 text-xs text-zinc-600">{policy.effectiveFrom || 'Chưa đặt ngày'} → {policy.effectiveTo || 'Không giới hạn'}</p></button>;
+      })}</div>
+    </section>
+    <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="space-y-1 text-sm font-semibold"><span>Mã bảng giá</span><input disabled={editing} value={draft.policyId} onChange={event => setDraft({ ...draft, policyId: event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') })} placeholder="GIA_LE_2026_Q4" className="w-full rounded-xl border px-3 py-2.5 disabled:bg-zinc-100" /></label>
+        <label className="space-y-1 text-sm font-semibold"><span>Tên bảng giá</span><input value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="Giá bán lẻ quý 4/2026" className="w-full rounded-xl border px-3 py-2.5" /></label>
+        <label className="space-y-1 text-sm font-semibold"><span>Hiệu lực từ</span><input type="date" value={draft.effectiveFrom} onChange={event => setDraft({ ...draft, effectiveFrom: event.target.value })} className="w-full rounded-xl border px-3 py-2.5" /></label>
+        <label className="space-y-1 text-sm font-semibold"><span>Hiệu lực đến</span><input type="date" value={draft.effectiveTo || ''} onChange={event => setDraft({ ...draft, effectiveTo: event.target.value })} className="w-full rounded-xl border px-3 py-2.5" /></label>
+        <label className="space-y-1 text-sm font-semibold"><span>Phiên bản</span><input value={draft.version} onChange={event => setDraft({ ...draft, version: event.target.value })} placeholder="2026.10" className="w-full rounded-xl border px-3 py-2.5" /></label>
+        <label className="flex items-end gap-2 pb-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={event => setDraft({ ...draft, isActive: event.target.checked })} /> Bật để xét áp dụng theo ngày</label>
+      </div>
+      <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50/30 p-4">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h3 className="font-black">Giá theo mặt hàng và chi nhánh</h3><p className="text-xs text-zinc-600">POS tự lấy bảng đang hiệu lực. Nhân viên vẫn có thể sửa giá trên phiếu và phải ghi lý do.</p></div><button type="button" onClick={addEntry} className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-black text-white">+ Thêm dòng giá</button></div>
+        <div className="mt-4 space-y-3">{draft.entries.length === 0 && <div className="rounded-xl border border-dashed bg-white p-4 text-sm text-zinc-500">Chưa có dòng giá. Hãy thêm model máy hoặc phụ kiện từ danh mục hiện tại.</div>}{draft.entries.map((entry, index) => {
+          const update = (value: typeof entry) => setDraft({ ...draft, entries: draft.entries.map((item, itemIndex) => itemIndex === index ? value : item) });
+          const selectedCatalogValue = `${entry.itemType}::${entry.matchType}::${encodeURIComponent(entry.itemKey)}`;
+          return <div key={entry.id || index} className="grid gap-3 rounded-xl border bg-white p-3 md:grid-cols-2 xl:grid-cols-7">
+            <label className="space-y-1 text-xs font-bold md:col-span-2"><span>Mặt hàng</span><select value={selectedCatalogValue} onChange={event => { const [itemType, matchType, encodedKey] = event.target.value.split('::'); const itemKey = decodeURIComponent(encodedKey); const catalogItem = catalog.find(item => item.itemType === itemType && item.matchType === matchType && item.itemKey === itemKey); update({ ...entry, itemType: itemType as any, matchType: matchType as any, itemKey, itemName: catalogItem?.itemName || itemKey, retailPrice: catalogItem?.retailPrice || entry.retailPrice }); }} className="w-full rounded-lg border px-2.5 py-2"><option value={selectedCatalogValue}>{entry.itemName || entry.itemKey || 'Chọn mặt hàng'}</option>{catalog.filter(item => `${item.itemType}::${item.matchType}::${encodeURIComponent(item.itemKey)}` !== selectedCatalogValue).map(item => <option key={`${item.itemType}-${item.itemKey}`} value={`${item.itemType}::${item.matchType}::${encodeURIComponent(item.itemKey)}`}>{item.itemType === 'DEVICE' ? 'Máy' : 'Phụ kiện'} · {item.itemName}</option>)}</select></label>
+            <label className="space-y-1 text-xs font-bold"><span>Chi nhánh</span><select value={entry.branchId} onChange={event => update({ ...entry, branchId: event.target.value })} className="w-full rounded-lg border px-2.5 py-2"><option value="ALL">Toàn hệ thống</option>{branches.filter(branch => branch.isActive !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+            <NumberField label="Giá bán lẻ" value={entry.retailPrice} onChange={value => update({ ...entry, retailPrice: value })} />
+            <NumberField label="Giá sàn" value={entry.minimumPrice ?? Number.NaN} onChange={value => update({ ...entry, minimumPrice: value })} />
+            <label className="flex items-end gap-2 pb-2 text-xs font-bold"><input type="checkbox" checked={entry.isActive} onChange={event => update({ ...entry, isActive: event.target.checked })} /> Đang dùng</label>
+            <div className="flex items-end justify-end"><button type="button" onClick={() => setDraft({ ...draft, entries: draft.entries.filter((_, itemIndex) => itemIndex !== index) })} className="rounded-lg p-2 text-red-600 hover:bg-red-50" title="Xóa dòng"><Trash2 className="h-4 w-4" /></button></div>
+          </div>;
+        })}</div>
+      </div>
+      <p className="mt-3 text-xs text-zinc-500">Có thể lưu bản nháp chưa đầy đủ. Khi bật áp dụng, các bảng giá không được chồng lấn thời gian và mỗi dòng đang dùng phải có giá hợp lệ.</p>
+      <div className="mt-5 flex items-center gap-3"><button type="button" onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu bảng giá</button>{message && <span className="text-sm text-zinc-600">{message}</span>}</div>
+    </section>
+  </div>;
+}
+
 const emptyTask = (): TechnicalTaskTypeConfig => ({
   id: '', taskType: '', name: '', taskCode: '', baseCommission: Number.NaN,
   laborCostToDevice: Number.NaN, capitalizeLaborCost: true, reworkCommissionPolicy: 'NO_EXTRA_COMMISSION', requiredEvidenceTypes: ['AFTER_PHOTO', 'RESULT_NOTES'],
@@ -282,7 +394,7 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
 export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab = 'overview', onNavigate, onSetupStatusChange, ...storeProps }) => {
   const [activeTab, setActiveTab] = useState<SetupTab>(initialTab);
   const [status, setStatus] = useState<SystemSetupStatus | null>(null);
-  const [policyVersions, setPolicyVersions] = useState<{ sales: SalesSetupConfig[]; customerCare: CustomerCareSetupConfig[] }>({ sales: [], customerCare: [] });
+  const [policyVersions, setPolicyVersions] = useState<{ sales: SalesSetupConfig[]; customerCare: CustomerCareSetupConfig[]; retailPricing: RetailPricingSetupConfig[] }>({ sales: [], customerCare: [], retailPricing: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const load = useCallback(async () => {
@@ -321,6 +433,7 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
     {activeTab === 'sop' && <SOPManagementView branches={storeProps.branches} staffMembers={storeProps.staffMembers} onNotify={() => { void load(); }} />}
     {activeTab === 'technicalTasks' && <TechnicalTaskPanel onSaved={load} />}
     {activeTab === 'sales' && <OperationalPolicyPanel kind="sales" policies={policyVersions.sales} onSaved={load} />}
+    {activeTab === 'retailPricing' && <RetailPricingPanel policies={policyVersions.retailPricing} branches={storeProps.branches} devices={storeProps.devices} products={storeProps.products} onSaved={load} />}
     {activeTab === 'customerCare' && <OperationalPolicyPanel kind="customerCare" policies={policyVersions.customerCare} onSaved={load} />}
   </div>;
 };

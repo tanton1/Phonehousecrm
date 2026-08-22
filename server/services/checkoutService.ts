@@ -65,6 +65,23 @@ const ALLOWED_FUND_TYPES_BY_METHOD: Record<string, string[]> = {
   INSTALLMENT: ['CASH', 'BANK', 'VIETQR', 'KÉT TIỀN', 'NGÂN HÀNG', 'TIỀN MẶT', 'TIEN_MAT'] // Cho khoản trả trước (Down payment)
 };
 
+const normalizePriceKey = (value: unknown) => String(value || '').trim().toUpperCase();
+const devicePriceVariantKey = (device: any) => [device?.model, device?.storage, device?.condition].map(normalizePriceKey).join('|');
+
+function resolveRetailPriceEntry(policy: any, branchId: string, itemType: 'DEVICE' | 'ACCESSORY', itemId: string, data: any): any | undefined {
+  const entries = Array.isArray(policy?.entries) ? policy.entries : [];
+  const matches = entries.filter((entry: any) => {
+    if (entry?.isActive !== true || entry.itemType !== itemType || !['ALL', branchId].includes(String(entry.branchId || 'ALL'))) return false;
+    const key = normalizePriceKey(entry.itemKey);
+    if (entry.matchType === 'ITEM_ID') return key === normalizePriceKey(itemId);
+    if (entry.matchType === 'SKU') return key === normalizePriceKey(data?.sku);
+    return itemType === 'DEVICE' && entry.matchType === 'MODEL_VARIANT' && key === devicePriceVariantKey(data);
+  });
+  const priority = (entry: any) =>
+    (entry.branchId === branchId ? 100 : 0) + (entry.matchType === 'ITEM_ID' ? 30 : entry.matchType === 'SKU' ? 20 : 10);
+  return matches.sort((left: any, right: any) => priority(right) - priority(left))[0];
+}
+
 export async function executeAtomicCheckout(
   db: Firestore,
   payload: any,
@@ -90,6 +107,12 @@ export async function executeAtomicCheckout(
       itemType: selection.itemType,
       itemId: selection.itemId,
       tagIds: [...(selection.tagIds || [])].sort()
+    })).sort((a: any, b: any) => `${a.itemType}:${a.itemId}`.localeCompare(`${b.itemType}:${b.itemId}`)),
+    priceAdjustments: (payload.priceAdjustments || []).map((adjustment: any) => ({
+      itemType: adjustment.itemType,
+      itemId: adjustment.itemId,
+      unitPrice: adjustment.unitPrice,
+      reason: String(adjustment.reason || '').trim()
     })).sort((a: any, b: any) => `${a.itemType}:${a.itemId}`.localeCompare(`${b.itemType}:${b.itemId}`)),
     payments: payload.payments,
     payment: payload.payment,
@@ -204,7 +227,6 @@ export async function executeAtomicCheckout(
       : (payload.devicesToSell?.map((d: any) => d.id) || []);
 
     const loadedDevices: any[] = [];
-    let authoritativeDeviceSubtotal = 0;
     const checkoutLeadId = payload.leadId || payload.invoice?.leadId;
 
     for (const devId of deviceIds) {
@@ -231,8 +253,7 @@ export async function executeAtomicCheckout(
       }
 
       const price = typeof devData.sellPrice === 'number' ? devData.sellPrice : 0;
-      authoritativeDeviceSubtotal += price;
-      loadedDevices.push({ id: devId, ref: devRef, data: devData, authoritativePrice: price, wasReserved: isReservedForThisLead });
+      loadedDevices.push({ id: devId, ref: devRef, data: devData, listPrice: price, authoritativePrice: price, wasReserved: isReservedForThisLead });
     }
 
     // 4. Fetch & Validate Accessories (Authoritative Multi-Branch Stock & Pricing from DB - Fail Closed if not initialized)
@@ -241,7 +262,6 @@ export async function executeAtomicCheckout(
       : (payload.accessoriesToSell || []);
 
     const loadedAccessories: any[] = [];
-    let authoritativeAccessorySubtotal = 0;
     const warehouseId = payload.warehouseId || payload.invoice?.warehouseId || 'WH01';
 
     for (const acc of accessoryLines) {
@@ -273,16 +293,64 @@ export async function executeAtomicCheckout(
       }
 
       const price = typeof prodData.retailPrice === 'number' ? prodData.retailPrice : (prodData.sellPrice || 0);
-      authoritativeAccessorySubtotal += price * quantity;
       loadedAccessories.push({
         id: prodId,
         ref: prodRef,
         balanceRef,
         data: prodData,
         quantity,
+        listPrice: price,
         authoritativePrice: price
       });
     }
+
+    // Resolve the dated retail price policy and any audited POS line-price adjustment.
+    const retailPricingRef = db.collection('operationalConfigs').doc('retailPricing');
+    const retailPricingSnap = await transaction.get(retailPricingRef);
+    const retailPricing = selectEffectiveOperationalPolicy(normalizeOperationalPolicyVersions('retailPricing', retailPricingSnap.exists ? retailPricingSnap.data() : null));
+    const adjustmentMap = new Map<string, any>();
+    for (const adjustment of (payload.priceAdjustments || [])) {
+      const itemType = String(adjustment?.itemType || '').toUpperCase();
+      const itemId = String(adjustment?.itemId || '').trim();
+      const key = `${itemType}:${itemId}`;
+      const unitPrice = Number(adjustment?.unitPrice);
+      if (!['DEVICE', 'ACCESSORY'].includes(itemType) || !itemId || !Number.isFinite(unitPrice) || unitPrice <= 0 || adjustmentMap.has(key)) {
+        throw new Error('POS_PRICE_ADJUSTMENT_INVALID: Giá điều chỉnh trên phiếu bán không hợp lệ.');
+      }
+      adjustmentMap.set(key, { unitPrice: Math.round(unitPrice), reason: String(adjustment?.reason || '').trim() });
+    }
+    const applyRetailPrice = (itemType: 'DEVICE' | 'ACCESSORY', item: any) => {
+      const entry = resolveRetailPriceEntry(retailPricing, branchId, itemType, item.id, item.data);
+      const fallbackPrice = Number(item.listPrice || 0);
+      const listPrice = entry ? Number(entry.retailPrice) : fallbackPrice;
+      if (!Number.isFinite(listPrice) || listPrice <= 0) throw new Error(`RETAIL_PRICE_REQUIRED: Chưa có giá bán lẻ hợp lệ cho "${item.data?.model || item.data?.name || item.id}".`);
+      const adjustment = adjustmentMap.get(`${itemType}:${item.id}`);
+      const authoritativePrice = adjustment ? adjustment.unitPrice : listPrice;
+      const priceAdjusted = authoritativePrice !== listPrice;
+      if (priceAdjusted && !adjustment.reason) throw new Error('POS_PRICE_ADJUSTMENT_REASON_REQUIRED: Bắt buộc nhập lý do khi sửa giá bán trên phiếu.');
+      const minimumPrice = entry && Number.isFinite(Number(entry.minimumPrice)) ? Number(entry.minimumPrice) : null;
+      const role = String(authenticatedStaff?.role || '').toUpperCase();
+      const canOverrideFloor = ['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(role);
+      if (minimumPrice !== null && authoritativePrice < minimumPrice && !canOverrideFloor) {
+        throw new Error(`POS_PRICE_BELOW_FLOOR: Giá bán ${authoritativePrice.toLocaleString('vi-VN')}đ thấp hơn giá sàn ${minimumPrice.toLocaleString('vi-VN')}đ.`);
+      }
+      Object.assign(item, {
+        listPrice,
+        authoritativePrice,
+        minimumPrice,
+        priceAdjusted,
+        priceAdjustmentReason: priceAdjusted ? adjustment.reason : '',
+        pricePolicyId: retailPricing?.policyId || null,
+        pricePolicyVersion: retailPricing?.version || null
+      });
+    };
+    loadedDevices.forEach(device => applyRetailPrice('DEVICE', device));
+    loadedAccessories.forEach(accessory => applyRetailPrice('ACCESSORY', accessory));
+    const selectedLineKeys = new Set([
+      ...loadedDevices.map(item => `DEVICE:${item.id}`),
+      ...loadedAccessories.map(item => `ACCESSORY:${item.id}`)
+    ]);
+    if ([...adjustmentMap.keys()].some(key => !selectedLineKeys.has(key))) throw new Error('POS_PRICE_ADJUSTMENT_ITEM_NOT_IN_CART');
 
     // Resolve every selected commission tag from the active policy. Client values are never trusted.
     const salesConfigRef = db.collection('operationalConfigs').doc('sales');
@@ -315,7 +383,8 @@ export async function executeAtomicCheckout(
     loadedDevices.forEach(device => { device.commissionTags = resolveCommissionTags('DEVICE', device.id); });
     loadedAccessories.forEach(accessory => { accessory.commissionTags = resolveCommissionTags('ACCESSORY', accessory.id); });
 
-    const subTotal = authoritativeDeviceSubtotal + authoritativeAccessorySubtotal;
+    const subTotal = loadedDevices.reduce((sum, item) => sum + item.authoritativePrice, 0)
+      + loadedAccessories.reduce((sum, item) => sum + item.authoritativePrice * item.quantity, 0);
 
     // 5. Server Truth: Resolve Discount via DB Voucher with Quota & Eligibility Guard
     let authoritativeDiscount = 0;
@@ -548,6 +617,14 @@ export async function executeAtomicCheckout(
       customerDebtAmount = finalAmount;
     }
 
+    // Firestore requires every transaction read to finish before the first write.
+    // Preload optional CRM documents here; the remaining transaction is write-only.
+    const customerId = payload.customerId || payload.customerPartner?.id;
+    const customerRef: DocumentReference | null = customerId ? db.collection('partners').doc(customerId) : null;
+    const customerSnap = customerRef ? await transaction.get(customerRef) : null;
+    const leadRef: DocumentReference | null = checkoutLeadId ? db.collection('leads').doc(checkoutLeadId) : null;
+    const leadSnap = leadRef ? await transaction.get(leadRef) : null;
+
     // Secure Non-Colliding ID Generation
     const newInvRef = db.collection('invoices').doc();
     const invoiceId = payload.invoice?.id || newInvRef.id;
@@ -663,6 +740,9 @@ export async function executeAtomicCheckout(
         imei: d.data.imei,
         model: d.data.model,
         sellPrice: d.authoritativePrice,
+        listPrice: d.listPrice,
+        priceAdjusted: d.priceAdjusted,
+        priceAdjustmentReason: d.priceAdjustmentReason,
         color: d.data.color,
         storage: d.data.storage
       })),
@@ -686,21 +766,31 @@ export async function executeAtomicCheckout(
         productId: a.id,
         name: a.data.name,
         quantity: a.quantity,
-        price: a.authoritativePrice
+        price: a.authoritativePrice,
+        listPrice: a.listPrice,
+        priceAdjusted: a.priceAdjusted,
+        priceAdjustmentReason: a.priceAdjustmentReason
       })),
       detailedItems: [
         ...loadedDevices.map(d => ({
           sku: d.data.sku || d.id, name: d.data.model, quantity: 1,
           unitPrice: d.authoritativePrice, totalPrice: d.authoritativePrice,
           imei: d.data.imei, type: 'device', color: d.data.color, storage: d.data.storage,
-          commissionTags: d.commissionTags
+          commissionTags: d.commissionTags, listPrice: d.listPrice, priceAdjusted: d.priceAdjusted,
+          priceAdjustmentReason: d.priceAdjustmentReason, pricePolicyId: d.pricePolicyId,
+          pricePolicyVersion: d.pricePolicyVersion, priceAdjustedByUid: d.priceAdjusted ? (authenticatedStaff?.uid || 'SYSTEM') : null
         })),
         ...loadedAccessories.map(a => ({
           sku: a.data.sku || a.id, name: a.data.name, quantity: a.quantity,
           unitPrice: a.authoritativePrice, totalPrice: a.authoritativePrice * a.quantity,
-          type: 'accessory', commissionTags: a.commissionTags
+          type: 'accessory', commissionTags: a.commissionTags, listPrice: a.listPrice, priceAdjusted: a.priceAdjusted,
+          priceAdjustmentReason: a.priceAdjustmentReason, pricePolicyId: a.pricePolicyId,
+          pricePolicyVersion: a.pricePolicyVersion, priceAdjustedByUid: a.priceAdjusted ? (authenticatedStaff?.uid || 'SYSTEM') : null
         }))
       ],
+      priceList: retailPricing ? `${retailPricing.name || retailPricing.policyId} · ${retailPricing.version}` : 'Giá trên mặt hàng (chưa có bảng giá hiệu lực)',
+      retailPricePolicyId: retailPricing?.policyId || null,
+      retailPricePolicyVersion: retailPricing?.version || null,
       totalAmount: subTotal,
       discountAmount: authoritativeDiscount,
       tradeInDeduction: authoritativeTradeInDeduction,
@@ -881,10 +971,7 @@ export async function executeAtomicCheckout(
     }
 
     // 14. Customer CRM Lifetime Value (LTV) Update (Increments ONLY customer debt)
-    const customerId = payload.customerId || payload.customerPartner?.id;
-    if (customerId) {
-      const custRef = db.collection('partners').doc(customerId);
-      const custSnap = await transaction.get(custRef);
+    if (customerId && customerRef && customerSnap) {
       const debtTransaction = customerDebtAmount > 0 ? {
         id: `DEBT_${invoiceId}`,
         date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()),
@@ -895,8 +982,8 @@ export async function executeAtomicCheckout(
         referenceCode: invoiceCode,
         referenceType: 'INVOICE'
       } : null;
-      if (custSnap.exists) {
-        transaction.update(custRef, {
+      if (customerSnap.exists) {
+        transaction.update(customerRef, {
           totalSpent: FieldValue.increment(finalAmount),
           outstandingDebt: FieldValue.increment(customerDebtAmount),
           lastInvoiceId: invoiceId,
@@ -905,7 +992,7 @@ export async function executeAtomicCheckout(
         });
       } else {
         const profile = payload.customerPartner || {};
-        transaction.set(custRef, {
+        transaction.set(customerRef, {
           id: customerId,
           branchId,
           type: 'CUSTOMER',
@@ -927,9 +1014,7 @@ export async function executeAtomicCheckout(
     }
 
     // 15. If LeadId attached, update Lead status to WON
-    if (checkoutLeadId) {
-      const leadRef = db.collection('leads').doc(checkoutLeadId);
-      const leadSnap = await transaction.get(leadRef);
+    if (checkoutLeadId && leadRef && leadSnap) {
       if (leadSnap.exists) {
         transaction.update(leadRef, {
           status: 'won',

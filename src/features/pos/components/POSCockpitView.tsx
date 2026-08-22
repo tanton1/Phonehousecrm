@@ -10,6 +10,7 @@ import { usePosHotkeys } from '../hooks/usePosHotkeys';
 import { PosHotkeysBar } from './PosHotkeysBar';
 import { CreatePartnerModal } from '../../../components/CreatePartnerModal';
 import { getCachedOperationalConfigs } from '../../../services/configurationApiClient';
+import { resolveRetailPrice } from '../../../utils/retailPricing';
 
 export interface POSCockpitViewProps {
   devices: DeviceItem[];
@@ -50,6 +51,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const [selectedDevices, setSelectedDevices] = useState<DeviceItem[]>([]);
   const [selectedAccessories, setSelectedAccessories] = useState<{ product: ProductItem; quantity: number }[]>([]);
   const [commissionTagSelections, setCommissionTagSelections] = useState<Record<string, string[]>>({});
+  const [linePriceEdits, setLinePriceEdits] = useState<Record<string, { unitPrice: number; reason: string }>>({});
   const [warrantyPackage, setWarrantyPackage] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
   const [tradeInDeduction, setTradeInDeduction] = useState(0);
@@ -102,10 +104,15 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   // 5. Hook for Atomic Checkout
   const { checkoutInfo, runCheckout, resetCheckout, isProcessing } = useCheckout();
 
-  // Calculations
-  const devicesTotal = selectedDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
+  // Calculations: dated price policy first, then the audited price entered on this POS slip.
+  const retailPricing = getCachedOperationalConfigs().retailPricing;
+  const getListPrice = (itemType: 'DEVICE' | 'ACCESSORY', item: DeviceItem | ProductItem) =>
+    resolveRetailPrice(retailPricing, currentBranch.id, itemType, item).listPrice;
+  const getUnitPrice = (itemType: 'DEVICE' | 'ACCESSORY', item: DeviceItem | ProductItem) =>
+    linePriceEdits[`${itemType}:${item.id}`]?.unitPrice ?? getListPrice(itemType, item);
+  const devicesTotal = selectedDevices.reduce((sum, device) => sum + getUnitPrice('DEVICE', device), 0);
   const accessoriesTotal = selectedAccessories.reduce(
-    (sum, acc) => sum + ((acc.product.price || acc.product.salePrice || 0) * acc.quantity),
+    (sum, acc) => sum + (getUnitPrice('ACCESSORY', acc.product) * acc.quantity),
     0
   );
   const totalAmount = devicesTotal + accessoriesTotal;
@@ -193,6 +200,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const handleRemoveDevice = (deviceId: string) => {
     setSelectedDevices(prev => prev.filter(d => d.id !== deviceId));
     setCommissionTagSelections(prev => { const next = { ...prev }; delete next[`DEVICE:${deviceId}`]; return next; });
+    setLinePriceEdits(prev => { const next = { ...prev }; delete next[`DEVICE:${deviceId}`]; return next; });
   };
 
   const handleUpdateAccessoryQty = (productId: string, delta: number) => {
@@ -210,6 +218,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const handleRemoveAccessory = (productId: string) => {
     setSelectedAccessories(prev => prev.filter(item => item.product.id !== productId));
     setCommissionTagSelections(prev => { const next = { ...prev }; delete next[`ACCESSORY:${productId}`]; return next; });
+    setLinePriceEdits(prev => { const next = { ...prev }; delete next[`ACCESSORY:${productId}`]; return next; });
   };
 
   const handleToggleCommissionTag = (itemType: 'DEVICE' | 'ACCESSORY', itemId: string, tagId: string) => {
@@ -224,6 +233,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setTradeInDeduction(0);
     setTradeInDevice(null);
     setCommissionTagSelections({});
+    setLinePriceEdits({});
     resetCheckout();
   };
 
@@ -240,6 +250,14 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     const missingAccessory = selectedAccessories.find(accessory => activeCommissionTags.some(tag => tag.appliesTo === 'ACCESSORY') && (commissionTagSelections[`ACCESSORY:${accessory.product.id}`] || []).length !== 1);
     if (missingDevice || missingAccessory) {
       alert(`Bắt buộc chọn đúng một tag hoa hồng cho ${missingDevice ? `máy ${missingDevice.model}` : `phụ kiện ${missingAccessory!.product.name}`}.`);
+      return;
+    }
+    const missingPriceReason = [
+      ...selectedDevices.map(item => ({ itemType: 'DEVICE' as const, item })),
+      ...selectedAccessories.map(({ product }) => ({ itemType: 'ACCESSORY' as const, item: product }))
+    ].find(({ itemType, item }) => getUnitPrice(itemType, item) !== getListPrice(itemType, item) && !linePriceEdits[`${itemType}:${item.id}`]?.reason.trim());
+    if (missingPriceReason) {
+      alert(`Bắt buộc nhập lý do điều chỉnh giá cho ${missingPriceReason.itemType === 'DEVICE' ? 'máy' : 'phụ kiện'} ${(missingPriceReason.item as any).model || (missingPriceReason.item as any).name}.`);
       return;
     }
 
@@ -310,6 +328,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       createdAt: new Date().toISOString(),
       branchId: currentBranch.id,
       branch: currentBranch.name,
+      priceList: retailPricing ? `${retailPricing.name} · ${retailPricing.version}` : 'Giá trên mặt hàng',
       creatorName: currentUser?.name || 'Thu Ngân',
       customerName: customerName.trim() || 'Khách vãng lai',
       customerPhone: customerPhone.trim() || '',
@@ -332,27 +351,27 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       devices: selectedDevices.map(d => ({
         model: d.model,
         imei: d.imei,
-        price: d.sellPrice || 0,
+        price: getUnitPrice('DEVICE', d),
         color: d.color,
         storage: d.storage
       })),
       accessories: selectedAccessories.map(acc => ({
         name: acc.product.name,
-        price: acc.product.price || acc.product.salePrice || 0,
+        price: getUnitPrice('ACCESSORY', acc.product),
         quantity: acc.quantity
       })),
       items: [
         ...selectedDevices.map(d => ({
           model: d.model,
           imei: d.imei,
-          price: d.sellPrice || 0,
+          price: getUnitPrice('DEVICE', d),
           color: d.color,
           storage: d.storage
         })),
         ...selectedAccessories.map(acc => ({
           model: acc.product.name,
           imei: '',
-          price: acc.product.price || acc.product.salePrice || 0,
+          price: getUnitPrice('ACCESSORY', acc.product),
           color: '',
           storage: ''
         }))
@@ -362,8 +381,11 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           sku: d.sku || d.model,
           name: d.model,
           quantity: 1,
-          unitPrice: d.sellPrice || 0,
-          totalPrice: d.sellPrice || 0,
+          unitPrice: getUnitPrice('DEVICE', d),
+          totalPrice: getUnitPrice('DEVICE', d),
+          listPrice: getListPrice('DEVICE', d),
+          priceAdjusted: getUnitPrice('DEVICE', d) !== getListPrice('DEVICE', d),
+          priceAdjustmentReason: linePriceEdits[`DEVICE:${d.id}`]?.reason || '',
           imei: d.imei,
           type: 'device' as const,
           color: d.color,
@@ -373,8 +395,11 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           sku: acc.product.sku || acc.product.name,
           name: acc.product.name,
           quantity: acc.quantity,
-          unitPrice: acc.product.price || acc.product.salePrice || 0,
-          totalPrice: (acc.product.price || acc.product.salePrice || 0) * acc.quantity,
+          unitPrice: getUnitPrice('ACCESSORY', acc.product),
+          totalPrice: getUnitPrice('ACCESSORY', acc.product) * acc.quantity,
+          listPrice: getListPrice('ACCESSORY', acc.product),
+          priceAdjusted: getUnitPrice('ACCESSORY', acc.product) !== getListPrice('ACCESSORY', acc.product),
+          priceAdjustmentReason: linePriceEdits[`ACCESSORY:${acc.product.id}`]?.reason || '',
           type: 'accessory' as const
         }))
       ]
@@ -432,6 +457,10 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       commissionTagSelections: [
         ...selectedDevices.filter(() => activeCommissionTags.some(tag => tag.appliesTo === 'DEVICE')).map(device => ({ itemType: 'DEVICE' as const, itemId: device.id, tagIds: commissionTagSelections[`DEVICE:${device.id}`] || [] })),
         ...selectedAccessories.filter(() => activeCommissionTags.some(tag => tag.appliesTo === 'ACCESSORY')).map(accessory => ({ itemType: 'ACCESSORY' as const, itemId: accessory.product.id, tagIds: commissionTagSelections[`ACCESSORY:${accessory.product.id}`] || [] }))
+      ],
+      priceAdjustments: [
+        ...selectedDevices.map(device => ({ itemType: 'DEVICE' as const, itemId: device.id, unitPrice: getUnitPrice('DEVICE', device), reason: linePriceEdits[`DEVICE:${device.id}`]?.reason || 'Giá xác nhận tại POS' })),
+        ...selectedAccessories.map(accessory => ({ itemType: 'ACCESSORY' as const, itemId: accessory.product.id, unitPrice: getUnitPrice('ACCESSORY', accessory.product), reason: linePriceEdits[`ACCESSORY:${accessory.product.id}`]?.reason || 'Giá xác nhận tại POS' }))
       ]
     };
 
@@ -454,6 +483,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       setTradeInDeduction(0);
       setTradeInDevice(null);
       setCommissionTagSelections({});
+      setLinePriceEdits({});
       setCustomerName('');
       setCustomerPhone('');
       setDownPaymentAmount(0);
@@ -635,6 +665,11 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
             commissionTags={activeCommissionTags}
             commissionTagSelections={commissionTagSelections}
             onToggleCommissionTag={handleToggleCommissionTag}
+            getListPrice={getListPrice}
+            getUnitPrice={getUnitPrice}
+            getPriceReason={(itemType, itemId) => linePriceEdits[`${itemType}:${itemId}`]?.reason || ''}
+            onChangeUnitPrice={(itemType, item, unitPrice) => setLinePriceEdits(prev => ({ ...prev, [`${itemType}:${item.id}`]: { unitPrice, reason: prev[`${itemType}:${item.id}`]?.reason || '' } }))}
+            onChangePriceReason={(itemType, itemId, reason) => setLinePriceEdits(prev => ({ ...prev, [`${itemType}:${itemId}`]: { unitPrice: prev[`${itemType}:${itemId}`]?.unitPrice ?? getListPrice(itemType, itemType === 'DEVICE' ? selectedDevices.find(item => item.id === itemId)! : selectedAccessories.find(item => item.product.id === itemId)!.product), reason } }))}
           />
         </div>
 

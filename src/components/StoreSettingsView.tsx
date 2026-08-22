@@ -43,7 +43,8 @@ import {
   DeviceItem,
   WarrantyTicket,
   AttendanceRecord,
-  StaffMember
+  StaffMember,
+  ProductItem
 } from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
@@ -60,6 +61,7 @@ export interface StoreSettingsViewProps {
   warrantyTickets?: WarrantyTicket[];
   attendanceRecords?: AttendanceRecord[];
   staffMembers?: StaffMember[];
+  products?: ProductItem[];
   onAddBranch: (branch: StoreBranch) => Promise<void> | void;
   onUpdateBranch: (branch: StoreBranch) => Promise<void> | void;
   onDeleteBranch: (branchId: string) => Promise<void> | void;

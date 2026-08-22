@@ -19,6 +19,11 @@ export interface CartPanelProps {
   commissionTags: SalesCommissionTag[];
   commissionTagSelections: Record<string, string[]>;
   onToggleCommissionTag: (itemType: 'DEVICE' | 'ACCESSORY', itemId: string, tagId: string) => void;
+  getListPrice: (itemType: 'DEVICE' | 'ACCESSORY', item: DeviceItem | ProductItem) => number;
+  getUnitPrice: (itemType: 'DEVICE' | 'ACCESSORY', item: DeviceItem | ProductItem) => number;
+  getPriceReason: (itemType: 'DEVICE' | 'ACCESSORY', itemId: string) => string;
+  onChangeUnitPrice: (itemType: 'DEVICE' | 'ACCESSORY', item: DeviceItem | ProductItem, unitPrice: number) => void;
+  onChangePriceReason: (itemType: 'DEVICE' | 'ACCESSORY', itemId: string, reason: string) => void;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
@@ -37,12 +42,17 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   onClearCart,
   commissionTags,
   commissionTagSelections,
-  onToggleCommissionTag
+  onToggleCommissionTag,
+  getListPrice,
+  getUnitPrice,
+  getPriceReason,
+  onChangeUnitPrice,
+  onChangePriceReason
 }) => {
   // Subtotal Calculation
-  const devicesTotal = selectedDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
+  const devicesTotal = selectedDevices.reduce((sum, device) => sum + getUnitPrice('DEVICE', device), 0);
   const accessoriesTotal = selectedAccessories.reduce(
-    (sum, acc) => sum + ((acc.product.sellPrice || (acc.product as any).price || 0) * acc.quantity),
+    (sum, acc) => sum + (getUnitPrice('ACCESSORY', acc.product) * acc.quantity),
     0
   );
   const totalAmount = devicesTotal + accessoriesTotal;
@@ -131,7 +141,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
 
                 <div className="flex items-center space-x-2 shrink-0">
                   <span className="text-xs font-black font-mono text-[#ff4b16]">
-                    {(dev.sellPrice || 0).toLocaleString('vi-VN')} đ
+                    {getUnitPrice('DEVICE', dev).toLocaleString('vi-VN')} đ
                   </span>
                   <button
                     type="button"
@@ -143,6 +153,11 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                   </button>
                 </div>
                 </div>
+                <div className="mt-2 grid gap-2 rounded-xl border border-orange-100 bg-white p-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <label className="space-y-1 text-[10px] font-black text-zinc-600"><span>Giá bán trên phiếu (có thể điều chỉnh)</span><input type="number" min="1" value={getUnitPrice('DEVICE', dev) || ''} onChange={event => onChangeUnitPrice('DEVICE', dev, Math.max(0, Number(event.target.value) || 0))} className="w-full rounded-lg border border-zinc-200 px-2.5 py-2 text-sm font-black text-orange-600 outline-none focus:border-orange-500" /></label>
+                  <span className="pb-2 text-[10px] text-zinc-500">Niêm yết: {getListPrice('DEVICE', dev).toLocaleString('vi-VN')}đ</span>
+                </div>
+                {getUnitPrice('DEVICE', dev) !== getListPrice('DEVICE', dev) && <input value={getPriceReason('DEVICE', dev.id)} onChange={event => onChangePriceReason('DEVICE', dev.id, event.target.value)} placeholder="Lý do điều chỉnh giá *" className="mt-2 w-full rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs outline-none focus:border-orange-500" />}
                 {renderCommissionTags('DEVICE', dev.id)}
               </div>
             ))}
@@ -162,7 +177,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                     <h4 className="text-xs font-bold text-zinc-900 truncate">{acc.product.name}</h4>
                   </div>
                   <span className="text-[10px] text-zinc-500 font-mono mt-0.5 block">
-                    Đơn giá: {((acc.product.sellPrice || (acc.product as any).price || 0)).toLocaleString('vi-VN')}đ
+                    Đơn giá: {getUnitPrice('ACCESSORY', acc.product).toLocaleString('vi-VN')}đ
                   </span>
                 </div>
 
@@ -187,7 +202,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                   </div>
 
                   <span className="text-xs font-black font-mono text-zinc-900 min-w-[70px] text-right">
-                    {((acc.product.sellPrice || (acc.product as any).price || 0) * acc.quantity).toLocaleString('vi-VN')}đ
+                    {(getUnitPrice('ACCESSORY', acc.product) * acc.quantity).toLocaleString('vi-VN')}đ
                   </span>
 
                   <button
@@ -199,6 +214,11 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                   </button>
                 </div>
                 </div>
+                <div className="mt-2 grid gap-2 rounded-xl border border-blue-100 bg-white p-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <label className="space-y-1 text-[10px] font-black text-zinc-600"><span>Giá bán trên phiếu (có thể điều chỉnh)</span><input type="number" min="1" value={getUnitPrice('ACCESSORY', acc.product) || ''} onChange={event => onChangeUnitPrice('ACCESSORY', acc.product, Math.max(0, Number(event.target.value) || 0))} className="w-full rounded-lg border border-zinc-200 px-2.5 py-2 text-sm font-black text-blue-700 outline-none focus:border-blue-500" /></label>
+                  <span className="pb-2 text-[10px] text-zinc-500">Niêm yết: {getListPrice('ACCESSORY', acc.product).toLocaleString('vi-VN')}đ</span>
+                </div>
+                {getUnitPrice('ACCESSORY', acc.product) !== getListPrice('ACCESSORY', acc.product) && <input value={getPriceReason('ACCESSORY', acc.product.id)} onChange={event => onChangePriceReason('ACCESSORY', acc.product.id, event.target.value)} placeholder="Lý do điều chỉnh giá *" className="mt-2 w-full rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs outline-none focus:border-orange-500" />}
                 {renderCommissionTags('ACCESSORY', acc.product.id)}
               </div>
             ))}

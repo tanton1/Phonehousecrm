@@ -1912,6 +1912,7 @@ export default function App() {
             funds={funds}
             invoices={invoices}
             devices={devices}
+            products={products}
             warrantyTickets={warrantyTickets}
             attendanceRecords={attendanceRecords}
             staffMembers={staffMembers}

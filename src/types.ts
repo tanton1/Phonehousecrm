@@ -157,8 +157,34 @@ export interface CustomerCareSetupConfig {
   isActive: boolean;
 }
 
+export type RetailPriceItemType = 'DEVICE' | 'ACCESSORY';
+export type RetailPriceMatchType = 'ITEM_ID' | 'SKU' | 'MODEL_VARIANT';
+
+export interface RetailPriceEntry {
+  id: string;
+  itemType: RetailPriceItemType;
+  matchType: RetailPriceMatchType;
+  itemKey: string;
+  itemName: string;
+  branchId: string;
+  retailPrice: number;
+  minimumPrice?: number;
+  isActive: boolean;
+}
+
+export interface RetailPricingSetupConfig {
+  id: 'retailPricing';
+  policyId: string;
+  name: string;
+  version: string;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  entries: RetailPriceEntry[];
+  isActive: boolean;
+}
+
 export interface SystemSetupCheck {
-  id: 'company' | 'branches' | 'warehouses' | 'funds' | 'sop' | 'technicalTasks' | 'sales' | 'customerCare';
+  id: 'company' | 'branches' | 'warehouses' | 'funds' | 'sop' | 'technicalTasks' | 'sales' | 'retailPricing' | 'customerCare';
   label: string;
   complete: boolean;
   detail: string;
@@ -985,6 +1011,12 @@ export interface SalesInvoiceItem {
   warrantyMonths?: number;
   warrantyExpiryDate?: string;
   commissionTags?: SalesCommissionTagSnapshot[];
+  listPrice?: number;
+  priceAdjusted?: boolean;
+  priceAdjustmentReason?: string;
+  pricePolicyId?: string;
+  pricePolicyVersion?: string;
+  priceAdjustedByUid?: string;
 }
 
 export interface SalesInvoice {

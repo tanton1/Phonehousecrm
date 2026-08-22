@@ -24,6 +24,12 @@ export interface POSCheckoutPayload {
     itemId: string;
     tagIds: string[];
   }>;
+  priceAdjustments?: Array<{
+    itemType: 'DEVICE' | 'ACCESSORY';
+    itemId: string;
+    unitPrice: number;
+    reason?: string;
+  }>;
 }
 
 export interface POSCheckoutStateInfo {

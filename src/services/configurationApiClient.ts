@@ -1,13 +1,14 @@
 import { apiJson } from './apiClient';
 import {
   CustomerCareSetupConfig,
+  RetailPricingSetupConfig,
   SalesSetupConfig,
   SystemSetupStatus,
   TechnicalTaskTypeConfig
 } from '../types';
 
-let operationalConfigCache: { sales?: SalesSetupConfig; customerCare?: CustomerCareSetupConfig } = {};
-let operationalPolicyVersionsCache: { sales: SalesSetupConfig[]; customerCare: CustomerCareSetupConfig[] } = { sales: [], customerCare: [] };
+let operationalConfigCache: { sales?: SalesSetupConfig; customerCare?: CustomerCareSetupConfig; retailPricing?: RetailPricingSetupConfig } = {};
+let operationalPolicyVersionsCache: { sales: SalesSetupConfig[]; customerCare: CustomerCareSetupConfig[]; retailPricing: RetailPricingSetupConfig[] } = { sales: [], customerCare: [], retailPricing: [] };
 
 export function getCachedOperationalConfigs() {
   return operationalConfigCache;
@@ -26,20 +27,23 @@ export async function fetchOperationalConfigurationState(): Promise<{
   configs: {
     sales?: SalesSetupConfig;
     customerCare?: CustomerCareSetupConfig;
+    retailPricing?: RetailPricingSetupConfig;
   };
   policyVersions: {
     sales: SalesSetupConfig[];
     customerCare: CustomerCareSetupConfig[];
+    retailPricing: RetailPricingSetupConfig[];
   };
 }> {
   const response = await apiJson<{ success: boolean; data: {
-    configs: { sales?: SalesSetupConfig; customerCare?: CustomerCareSetupConfig };
-    policyVersions?: { sales?: SalesSetupConfig[]; customerCare?: CustomerCareSetupConfig[] };
+    configs: { sales?: SalesSetupConfig; customerCare?: CustomerCareSetupConfig; retailPricing?: RetailPricingSetupConfig };
+    policyVersions?: { sales?: SalesSetupConfig[]; customerCare?: CustomerCareSetupConfig[]; retailPricing?: RetailPricingSetupConfig[] };
   } }>('/api/configuration/operational-configs');
   operationalConfigCache = response.data.configs || {};
   operationalPolicyVersionsCache = {
     sales: response.data.policyVersions?.sales || [],
-    customerCare: response.data.policyVersions?.customerCare || []
+    customerCare: response.data.policyVersions?.customerCare || [],
+    retailPricing: response.data.policyVersions?.retailPricing || []
   };
   return { configs: operationalConfigCache, policyVersions: operationalPolicyVersionsCache };
 }
@@ -47,18 +51,19 @@ export async function fetchOperationalConfigurationState(): Promise<{
 export async function fetchOperationalConfigs(): Promise<{
   sales?: SalesSetupConfig;
   customerCare?: CustomerCareSetupConfig;
+  retailPricing?: RetailPricingSetupConfig;
 }> {
   return (await fetchOperationalConfigurationState()).configs;
 }
 
 export async function saveOperationalConfig(
-  key: 'sales' | 'customerCare',
-  config: SalesSetupConfig | CustomerCareSetupConfig
+  key: 'sales' | 'customerCare' | 'retailPricing',
+  config: SalesSetupConfig | CustomerCareSetupConfig | RetailPricingSetupConfig
 ) {
   const response = await apiJson<{ success: boolean; data: {
-    config?: SalesSetupConfig | CustomerCareSetupConfig;
-    policy: SalesSetupConfig | CustomerCareSetupConfig;
-    policyVersions: Array<SalesSetupConfig | CustomerCareSetupConfig>;
+    config?: SalesSetupConfig | CustomerCareSetupConfig | RetailPricingSetupConfig;
+    policy: SalesSetupConfig | CustomerCareSetupConfig | RetailPricingSetupConfig;
+    policyVersions: Array<SalesSetupConfig | CustomerCareSetupConfig | RetailPricingSetupConfig>;
   } }>(`/api/configuration/operational-configs/${key}`, {
     method: 'PUT',
     body: JSON.stringify(config)

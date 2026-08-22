@@ -54,7 +54,8 @@ export function useCheckout() {
         fundToUpdate: payload.fundToUpdate,
         payments: payload.invoice?.splitPayments as any,
         idempotencyKey: payload.idempotencyKey,
-        commissionTagSelections: payload.commissionTagSelections
+        commissionTagSelections: payload.commissionTagSelections,
+        priceAdjustments: payload.priceAdjustments
       });
 
       const canonicalInvoice = result?.invoice || payload.invoice;
