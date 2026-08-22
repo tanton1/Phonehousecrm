@@ -353,8 +353,12 @@ function normalizeIphoneSeedPreview(raw: any): CatalogIphoneSeedPreview {
     for (const key of keys) {
       const value = summarySource?.[key];
       if (value && typeof value === 'object') {
-        const fromCreate = numberValue(value.create ?? value.toCreate ?? value.total ?? value.count);
-        if (fromCreate !== undefined) return fromCreate;
+        // The seed preview has both `total` and `create`. The screen labels
+        // this as "Model iPhone", "Nhóm hàng", etc., so it must show the
+        // total already configured — not the number still missing (zero once
+        // a successful seed has completed).
+        const total = numberValue(value.total ?? value.count ?? value.create ?? value.toCreate);
+        if (total !== undefined) return total;
       }
       const scalar = numberValue(value);
       if (scalar !== undefined) return scalar;
