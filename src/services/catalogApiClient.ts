@@ -210,8 +210,10 @@ async function request<T>(path: string, init?: ApiRequestInit): Promise<T> {
   return result as T;
 }
 
-function post<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, { method: 'POST', body: JSON.stringify(body) });
+const CATALOG_BULK_TIMEOUT_MS = 90000;
+
+function post<T>(path: string, body: unknown, options: ApiRequestInit = {}): Promise<T> {
+  return request<T>(path, { ...options, method: 'POST', body: JSON.stringify(body) });
 }
 
 function normalizeModel(raw: any): CatalogModelRecord {
@@ -490,11 +492,13 @@ export const catalogApi = {
     // Normal API calls still keep their 15-second safety timeout.
     timeoutMs: 90000
   })),
-  previewBulk: async (items: CatalogCandidateInput[]) => normalizePreview(await post<any>('/api/catalog/bulk/preview', { items, candidates: items })),
-  createBulk: (items: CatalogCandidateInput[]) => post<CatalogCreateResult>('/api/catalog/bulk/create', { items, candidates: items }),
-  previewClone: async (sourceModelId: string, targetModelId: string) => normalizePreview(await post<any>('/api/catalog/clone/preview', { sourceModelId, targetModelId })),
-  createClone: (sourceModelId: string, targetModelId: string, selectedClientKeys?: string[], selectedSkus?: string[]) => post<CatalogCreateResult>('/api/catalog/clone/create', { sourceModelId, targetModelId, selectedClientKeys, selectedSkus }),
-  previewImport: async (rows: string[][]) => normalizePreview(await post<any>('/api/catalog/import/preview', { rows })),
-  createImport: (rows: string[][]) => post<CatalogCreateResult>('/api/catalog/import/create', { rows }),
+  // Preview and write jobs can cover hundreds of cells. Give only these
+  // deliberate catalog operations a longer wait; normal POS calls stay fast.
+  previewBulk: async (items: CatalogCandidateInput[]) => normalizePreview(await post<any>('/api/catalog/bulk/preview', { items, candidates: items }, { timeoutMs: CATALOG_BULK_TIMEOUT_MS })),
+  createBulk: (items: CatalogCandidateInput[]) => post<CatalogCreateResult>('/api/catalog/bulk/create', { items, candidates: items }, { timeoutMs: CATALOG_BULK_TIMEOUT_MS }),
+  previewClone: async (sourceModelId: string, targetModelId: string) => normalizePreview(await post<any>('/api/catalog/clone/preview', { sourceModelId, targetModelId }, { timeoutMs: CATALOG_BULK_TIMEOUT_MS })),
+  createClone: (sourceModelId: string, targetModelId: string, selectedClientKeys?: string[], selectedSkus?: string[]) => post<CatalogCreateResult>('/api/catalog/clone/create', { sourceModelId, targetModelId, selectedClientKeys, selectedSkus }, { timeoutMs: CATALOG_BULK_TIMEOUT_MS }),
+  previewImport: async (rows: string[][]) => normalizePreview(await post<any>('/api/catalog/import/preview', { rows }, { timeoutMs: CATALOG_BULK_TIMEOUT_MS })),
+  createImport: (rows: string[][]) => post<CatalogCreateResult>('/api/catalog/import/create', { rows }, { timeoutMs: CATALOG_BULK_TIMEOUT_MS }),
   rollbackOperation: (operationKey: string) => post<CatalogRollbackResult>(`/api/catalog/operations/${encodeURIComponent(operationKey)}/rollback`, {})
 };
