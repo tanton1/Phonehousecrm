@@ -5,6 +5,7 @@ import {
   previewCatalogClone,
   listCatalogItems,
   processCatalogBulkCreate,
+  processCatalogCandidates,
   processCatalogClone,
   processRollbackCatalogOperation,
   processCreateCatalogDictionary,
@@ -204,6 +205,36 @@ describe('Product Master & deterministic catalog SKU engine', () => {
       }]
     });
     expect(preview.candidates[0].sku).toBe('MH-IP15PM-GX-OLED');
+  });
+
+  it('writes selected matrix cells through the same endpoint used by the bulk screen', async () => {
+    const store = createCatalogDb(configuredSeed());
+    const input = {
+      items: [{
+        clientKey: 'matrix-01',
+        kind: 'PART',
+        categoryCode: 'MH',
+        categoryName: 'Màn hình',
+        unit: 'Cụm',
+        unitCode: 'CUM',
+        modelId: 'MODEL_IP15PM',
+        manufacturerCode: 'GX',
+        manufacturerName: 'GX',
+        qualityCode: 'OLED',
+        qualityName: 'OLED',
+        defaultImportPrice: 2_000_000,
+        defaultRetailPrice: 3_000_000
+      }]
+    };
+    const preview = await previewCatalogCandidates(store.db, input);
+    expect(preview.candidates[0]).toMatchObject({ clientKey: 'matrix-01', sku: 'MH-IP15PM-GX-OLED' });
+
+    const result = await processCatalogCandidates(store.db, input, actor);
+
+    expect(result).toMatchObject({ createdCount: 1, skippedExistingCount: 0 });
+    expect(store.values('catalogItems')).toHaveLength(1);
+    expect(store.values('catalogItems')[0]).toMatchObject({ sku: 'MH-IP15PM-GX-OLED' });
+    expect(store.values('catalogItems')[0]).not.toHaveProperty('clientKey');
   });
 
   it('honours clone preview selection keys so deselected variants are never written', async () => {

@@ -191,6 +191,8 @@ type ResolvedModel = Pick<CatalogModelRecord, 'id' | 'modelCode' | 'modelName'> 
 };
 
 export interface CatalogDraft {
+  /** UI-only matrix identity. Never stored with the finished catalog item. */
+  clientKey?: string;
   id: string;
   sku: string;
   skuNormalized: string;
@@ -833,6 +835,7 @@ export async function generateCatalogDrafts(
     ]);
     const legacy = applyLegacyAttributeFields(attributes);
     return {
+      ...(asString(variant.id) ? { clientKey: asString(variant.id) } : {}),
       id: safeDocId('CAT', sku),
       sku,
       skuNormalized: normalizeCatalogSku(sku),
@@ -1073,8 +1076,9 @@ async function createCatalogDraft(
       return;
     }
     const timestamp = nowIso();
+    const { clientKey: _clientKey, ...catalogDocument } = draft;
     const item = {
-      ...draft,
+      ...catalogDocument,
       sourceOperationId: sourceOperation?.id,
       sourceOperationKey: sourceOperation?.operationKey,
       createdAt: timestamp,
@@ -1216,6 +1220,7 @@ export function catalogCandidateToImportRow(candidate: CatalogCandidateInput | a
     defaultAttributes: attributes,
     status: candidate?.status,
     variant: {
+      id: asString(candidate?.clientKey) || undefined,
       skuSegments: explicitSegments.length ? explicitSegments : inferredSegments,
       name: candidate?.name,
       nameSegments,
