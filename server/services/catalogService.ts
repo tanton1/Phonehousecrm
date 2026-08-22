@@ -2040,48 +2040,96 @@ export async function processIphoneCatalogSeed(db: Firestore | any, input: any, 
   if (input?.confirmed !== true) throw new Error('CATALOG_IPHONE_SEED_CONFIRMATION_REQUIRED');
 
   const seed = getIphoneCatalogSeed();
-  const [existingDictionaries, existingModels] = await Promise.all([
+  const [existingDictionaries, existingModels, existingModelRegistries] = await Promise.all([
     listCollection(db, DICTIONARIES_COLLECTION),
-    listCollection(db, MODELS_COLLECTION)
+    listCollection(db, MODELS_COLLECTION),
+    listCollection(db, MODEL_REGISTRY_COLLECTION)
   ]);
   const dictionaryIndex = new Map(existingDictionaries.map(item => [catalogDictionaryIdentity(item), item]));
+  const dictionaryIdIndex = new Map(existingDictionaries.map(item => [asString(item.id), item]));
   const modelIndex = new Map(existingModels.map(item => [catalogModelIdentity(item), item]));
+  const modelIdIndex = new Map(existingModels.map(item => [asString(item.id), item]));
+  const modelRegistryIndex = new Map(existingModelRegistries.map(item => [catalogModelIdentity(item), item]));
   const idMap = new Map<string, string>();
   seed.dictionaries.forEach(record => {
-    const existing = dictionaryIndex.get(catalogDictionaryIdentity(record));
+    const existing = dictionaryIndex.get(catalogDictionaryIdentity(record)) || dictionaryIdIndex.get(record.id);
     idMap.set(record.id, existing?.id || record.id);
   });
 
   const created = makeSeedSummary();
   const existing = makeSeedSummary();
-  for (const record of seed.dictionaries) {
+  const dictionaryCreates: any[] = [];
+  const modelCreates: any[] = [];
+
+  seed.dictionaries.forEach(record => {
     const section = seedSectionForDictionary(record);
-    const duplicate = dictionaryIndex.get(catalogDictionaryIdentity(record));
+    const duplicate = dictionaryIndex.get(catalogDictionaryIdentity(record)) || dictionaryIdIndex.get(record.id);
     if (duplicate) {
       existing[section].total += 1;
-      continue;
+      return;
     }
-    const seedRecord = remapSeedReferences(record, idMap);
-    await processCreateCatalogDictionary(db, seedRecord, actor);
-    dictionaryIndex.set(catalogDictionaryIdentity(record), { id: record.id, ...seedRecord });
+    dictionaryCreates.push(remapSeedReferences(record, idMap));
     created[section].total += 1;
-  }
+  });
 
-  for (const model of seed.models) {
-    const duplicate = modelIndex.get(catalogModelIdentity(model));
+  seed.models.forEach(model => {
+    const registryKey = catalogModelIdentity(model);
+    const duplicate = modelIndex.get(catalogModelIdentity(model)) || modelIdIndex.get(model.id) || modelRegistryIndex.get(registryKey);
     if (duplicate) {
       existing.model.total += 1;
-      continue;
+      return;
     }
-    const seedModel = {
+    modelCreates.push({
       ...model,
       familyId: idMap.get('CAT_FAMILY_IPHONE') || 'CAT_FAMILY_IPHONE',
       familyCode: 'IPHONE',
       familyName: 'iPhone'
-    };
-    await processCreateCatalogModel(db, seedModel, actor);
-    modelIndex.set(catalogModelIdentity(model), { id: model.id, ...seedModel });
+    });
     created.model.total += 1;
+  });
+
+  // A starter catalog contains hundreds of setup rows. Writing each row in a
+  // separate transaction can exceed the browser's normal API timeout. All
+  // records are pre-read above, then committed as one Firestore batch; this is
+  // fast, keeps all optional values clean, and still leaves inventory untouched.
+  if (typeof db.batch === 'function' && (dictionaryCreates.length || modelCreates.length)) {
+    const batch = db.batch();
+    const timestamp = nowIso();
+    dictionaryCreates.forEach(seedRecord => {
+      const draft = normalizeDictionaryInput(seedRecord);
+      setCatalogDocument(batch, db.collection(DICTIONARIES_COLLECTION).doc(draft.id), {
+        ...draft,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        createdByUid: actor.uid,
+        updatedByUid: actor.uid
+      });
+    });
+    modelCreates.forEach(seedModel => {
+      const draft = normalizeModelInput(seedModel);
+      const model = {
+        ...draft,
+        searchTokens: buildCatalogAliases(draft.aliases),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        createdByUid: actor.uid,
+        updatedByUid: actor.uid
+      };
+      setCatalogDocument(batch, db.collection(MODELS_COLLECTION).doc(draft.id), model);
+      setCatalogDocument(batch, db.collection(MODEL_REGISTRY_COLLECTION).doc(`${draft.brandCode}__${draft.modelCode}`), {
+        brandCode: draft.brandCode,
+        modelCode: draft.modelCode,
+        modelId: draft.id,
+        createdAt: timestamp,
+        createdByUid: actor.uid
+      });
+    });
+    await batch.commit();
+  } else {
+    // The small in-memory test adapter has no WriteBatch. Retain the exact
+    // server-side validation path as a compatibility fallback.
+    for (const seedRecord of dictionaryCreates) await processCreateCatalogDictionary(db, seedRecord, actor);
+    for (const seedModel of modelCreates) await processCreateCatalogModel(db, seedModel, actor);
   }
 
   const totalCreated = Object.values(created).reduce((result, section) => result + section.total, 0);

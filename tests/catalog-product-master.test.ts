@@ -68,7 +68,22 @@ function createCatalogDb(seed: Record<string, Record<string, any>>) {
       delete: (target: Ref) => {
         data.delete(`${target.col}/${target.id}`);
       }
-    })
+    }),
+    batch: () => {
+      const writes: Array<{ target: Ref; value: any; merge?: boolean }> = [];
+      return {
+        set: (target: Ref, value: any, options?: { merge?: boolean }) => {
+          if (containsUndefined(value)) throw new Error('FIRESTORE_UNDEFINED_VALUE');
+          writes.push({ target, value, merge: options?.merge });
+        },
+        commit: async () => {
+          writes.forEach(({ target, value, merge }) => {
+            const key = `${target.col}/${target.id}`;
+            data.set(key, merge ? { ...(data.get(key) || {}), ...value } : { ...value });
+          });
+        }
+      };
+    }
   };
   return {
     db,

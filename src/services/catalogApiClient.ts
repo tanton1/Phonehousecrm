@@ -1,4 +1,4 @@
-import { apiJson } from './apiClient';
+import { apiJson, ApiRequestInit } from './apiClient';
 import type { MasterCatalogItem } from '../types';
 
 /**
@@ -199,7 +199,7 @@ interface ApiEnvelope<T> {
   message?: string;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: ApiRequestInit): Promise<T> {
   const result = await apiJson<ApiEnvelope<T> | T>(path, init);
   if (result && typeof result === 'object' && 'data' in result) {
     const envelope = result as ApiEnvelope<T>;
@@ -467,7 +467,10 @@ export const catalogApi = {
   previewIphoneSeed: async () => normalizeIphoneSeedPreview(await request<any>('/api/catalog/iphone-seed/preview')),
   confirmIphoneSeed: async (operationKey: string) => normalizeIphoneSeedResult(await request<any>('/api/catalog/iphone-seed/confirm', {
     method: 'POST',
-    body: JSON.stringify({ confirmed: true, operationKey })
+    body: JSON.stringify({ confirmed: true, operationKey }),
+    // Initializing the starter catalog is intentionally one large server job.
+    // Normal API calls still keep their 15-second safety timeout.
+    timeoutMs: 90000
   })),
   previewBulk: async (items: CatalogCandidateInput[]) => normalizePreview(await post<any>('/api/catalog/bulk/preview', { items, candidates: items })),
   createBulk: (items: CatalogCandidateInput[]) => post<CatalogCreateResult>('/api/catalog/bulk/create', { items, candidates: items }),

@@ -10,28 +10,38 @@ export interface ApiResponse<T> {
 }
 
 /**
+ * Most API calls should fail fast, but a deliberate one-time setup may write
+ * many records. It can opt into a longer client wait without weakening the
+ * timeout for normal POS and inventory actions.
+ */
+export interface ApiRequestInit extends RequestInit {
+  timeoutMs?: number;
+}
+
+/**
  * Universal, Safe API Request Helper with Content-Type & Status Validation
  */
 export async function apiJson<T>(
   path: string,
-  init: RequestInit = {}
+  init: ApiRequestInit = {}
 ): Promise<T> {
+  const { timeoutMs = 15000, ...requestInit } = init;
   const token = await auth.currentUser?.getIdToken(false).catch(() => null);
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   const fullUrl = API_BASE ? `${API_BASE}${cleanPath}` : cleanPath;
 
   try {
     const response = await fetch(fullUrl, {
-      ...init,
+      ...requestInit,
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(init.headers || {})
+        ...(requestInit.headers || {})
       }
     });
 
@@ -73,7 +83,7 @@ export async function apiJson<T>(
     return parsed as T;
   } catch (err: any) {
     if (err?.name === 'AbortError') {
-      throw new Error(`Yêu cầu tới "${cleanPath}" đã quá thời gian chờ (15s). Vui lòng thử lại.`);
+      throw new Error(`Yêu cầu tới "${cleanPath}" đã quá thời gian chờ (${Math.round(timeoutMs / 1000)}s). Vui lòng thử lại.`);
     }
     const finalMsg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err) || 'Lỗi kết nối không xác định.');
     throw new Error(finalMsg);
