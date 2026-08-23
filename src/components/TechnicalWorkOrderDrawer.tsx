@@ -477,7 +477,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     setHandoffTargetWarehouseId('');
   };
 
-  return <div className="fixed inset-0 z-[145] flex justify-end bg-black/55 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
+  return <div data-ph-fullscreen-form className="fixed inset-0 z-[145] flex justify-end bg-black/55 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="flex h-full min-w-0 w-full max-w-5xl flex-col bg-zinc-50 shadow-2xl">
       <header className="flex min-w-0 items-start justify-between gap-3 bg-zinc-950 px-4 py-4 text-white sm:px-5">
         <div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><Wrench className="h-5 w-5 shrink-0 text-orange-400"/><h2 className="truncate font-black">{workOrder.model || task.model || 'Hồ sơ kỹ thuật'}</h2></div><p className="mt-1 truncate font-mono text-xs text-zinc-300">{workOrder.code || task.ticketNumber} · IMEI {workOrder.imei || task.imei}</p><p className="mt-1 truncate text-xs text-orange-300">{workOrder.currentLocationId || 'Chưa xác định vị trí'} · {workOrder.status || task.status}</p></div>

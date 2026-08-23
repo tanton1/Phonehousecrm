@@ -33,6 +33,47 @@
   }
 }
 
+/*
+ * Data-entry should never be cramped into a small popup.  Most of the app's
+ * existing entry dialogs contain fields, so this rule promotes them to a
+ * full-page workspace without changing read-only dialogs, receipts or
+ * confirmations. The explicit data attribute is retained for operational
+ * forms that intentionally render their fields later.
+ */
+[data-ph-fullscreen-form] {
+  align-items: stretch !important;
+  justify-content: stretch !important;
+  padding: 0 !important;
+}
+
+[data-ph-fullscreen-form] > :first-child {
+  box-sizing: border-box;
+  width: 100vw !important;
+  max-width: none !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  border-radius: 0 !important;
+  overflow-y: auto !important;
+}
+
+@supports selector(:has(*)) {
+  [class~="fixed"][class~="inset-0"]:not([class~="flex-col"]):has(:is(input, select, textarea)) {
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    padding: 0 !important;
+  }
+
+  [class~="fixed"][class~="inset-0"]:not([class~="flex-col"]):has(:is(input, select, textarea)) > :first-child {
+    box-sizing: border-box;
+    width: 100vw !important;
+    max-width: none !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    overflow-y: auto !important;
+  }
+}
+
 /* Prevent mobile browser (especially iOS Safari) from zooming when focusing inputs */
 @media screen and (max-width: 768px) {
   input, select, textarea, [contenteditable="true"] {

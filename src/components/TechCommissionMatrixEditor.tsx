@@ -960,7 +960,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
 
       {/* MODAL: ADD NEW TASK */}
       {showAddTaskModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in">
+        <div data-ph-fullscreen-form className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-zinc-200 space-y-4">
             <h3 className="text-base font-black text-zinc-900">
               Thêm Hạng Mục Sửa Chữa Mới Vào Ma Trận
@@ -1018,7 +1018,7 @@ export const TechCommissionMatrixEditor: React.FC<TechCommissionMatrixEditorProp
 
       {/* MODAL: ADD MODEL GROUP */}
       {showAddModelModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in">
+        <div data-ph-fullscreen-form className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-zinc-200 space-y-4">
             <h3 className="text-base font-black text-zinc-900">
               Thêm Phân Nhóm Model Máy Mới

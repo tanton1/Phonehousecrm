@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building2, Phone, Mail, MapPin, FileText, Check } from 'lucide-react';
 import { Partner, PartnerType } from '../types';
+import { HelpHint } from './HelpHint';
 
 interface CreatePartnerModalProps {
   isOpen: boolean;
@@ -88,7 +89,7 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+    <div data-ph-fullscreen-form className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-zinc-200/80 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-4 sm:p-5 bg-gradient-to-r from-orange-50/80 to-amber-50/50 border-b border-orange-100/80 flex items-center justify-between">
@@ -96,13 +97,11 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
             <div className="w-9 h-9 rounded-xl bg-[#ff4b16] text-white flex items-center justify-center shadow-sm font-bold">
               {partnerType === 'SUPPLIER' ? <Building2 className="w-5 h-5" /> : <User className="w-5 h-5" />}
             </div>
-            <div>
+            <div className="flex items-center gap-2">
               <h3 className="font-black text-zinc-900 text-base">
                 {partnerType === 'SUPPLIER' ? 'Thêm Nhà Cung Cấp Mới' : 'Thêm Khách Hàng Mới'}
               </h3>
-              <p className="text-[11px] text-zinc-500 font-medium">
-                Lưu vào danh bạ và tự động chọn vào biểu mẫu đang thao tác
-              </p>
+              <HelpHint title="Tạo đối tác">Sau khi lưu, đối tác được thêm vào danh bạ và tự chọn cho form đang mở.</HelpHint>
             </div>
           </div>
           <button

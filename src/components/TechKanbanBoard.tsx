@@ -247,7 +247,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
 
       {/* Modal Quét IMEI nhận máy vật lý */}
       {scanModalTaskId && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div data-ph-fullscreen-form className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-zinc-200">
             <h3 className="text-base font-bold text-zinc-900 mb-4 flex items-center gap-2">
               <QrCode className="w-5 h-5 text-orange-500 mr-2" />

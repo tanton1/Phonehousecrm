@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FundAccount, StoreBranch, StaffMember, CashTransaction, CashReceiptCategory, CashPaymentCategory } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
 import { Wallet, Plus, AlertCircle, X, ArrowDownRight, ArrowUpRight } from 'lucide-react';
+import { HelpHint } from '../../../components/HelpHint';
 
 export interface CreateCashTransactionModalProps {
   isOpen: boolean;
@@ -114,7 +115,7 @@ export const CreateCashTransactionModal: React.FC<CreateCashTransactionModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div data-ph-fullscreen-form className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-zinc-100 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
@@ -124,11 +125,11 @@ export const CreateCashTransactionModal: React.FC<CreateCashTransactionModalProp
             }`}>
               {type === 'RECEIPT' ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
             </div>
-            <div>
+            <div className="flex items-center gap-2">
               <h3 className="text-base font-black text-zinc-900">
                 {type === 'RECEIPT' ? 'Lập Phiếu Thu Tiền' : 'Lập Phiếu Chi Tiền'}
               </h3>
-              <p className="text-xs text-zinc-500">Sổ Quỹ Thu Chi PhoneHouse</p>
+              <HelpHint title="Phiếu thu và phiếu chi">Chọn đúng quỹ/tài khoản và danh mục. Với phiếu chi, hệ thống kiểm tra số dư quỹ trước khi lưu.</HelpHint>
             </div>
           </div>
 

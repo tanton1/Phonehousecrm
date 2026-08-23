@@ -3,6 +3,7 @@ import { Building2, CheckCircle2, Coins, CreditCard, PackagePlus, Search, Trash2
 import { FundAccount, MasterCatalogItem, Partner, PurchaseOrder, StoreBranch, UserAccount, WarehouseInfo } from '../types';
 import { catalogApi } from '../services/catalogApiClient';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
+import { HelpHint } from './HelpHint';
 
 type DraftLine = {
   key: string;
@@ -200,10 +201,10 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
   };
 
   return (
-    <div className="fixed inset-0 z-[110] flex h-[100dvh] w-screen items-end bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-5">
+    <div data-ph-fullscreen-form className="fixed inset-0 z-[110] flex h-[100dvh] w-screen items-end bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-5">
       <div className="flex max-h-[96dvh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl bg-zinc-50 shadow-2xl sm:max-h-[92vh] sm:rounded-3xl">
         <header className="flex items-center justify-between gap-3 border-b border-zinc-200 bg-zinc-950 px-4 py-3 text-white sm:px-5">
-          <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500"><PackagePlus className="h-5 w-5" /></span><div><h2 className="text-sm font-black">Nhập linh kiện &amp; phụ kiện</h2><p className="text-[10px] text-zinc-400">Tạo phiếu nhập NCC và cộng tồn vào kho đã chọn</p></div></div>
+          <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-500"><PackagePlus className="h-5 w-5" /></span><div className="flex items-center gap-2"><h2 className="text-sm font-black">Nhập linh kiện &amp; phụ kiện</h2><HelpHint title="Nhập linh kiện và phụ kiện">Form này tạo một Phiếu nhập nhà cung cấp. Khi lưu thành công, tồn kho, công nợ nhà cung cấp và quỹ đã chọn được cập nhật cùng lúc.</HelpHint></div></div>
           <button type="button" onClick={onClose} className="rounded-xl p-2 text-zinc-300 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
@@ -216,7 +217,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
           </div>
 
           <section className="mt-4 rounded-2xl border border-zinc-200 bg-white p-3 sm:p-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-sm font-black text-zinc-900">Chọn hàng cần nhập</h3><p className="text-[11px] text-zinc-500">Gõ tên hoặc SKU, sau đó chạm để thêm vào phiếu.</p></div><form onSubmit={event => { event.preventDefault(); void loadCatalog(query); }} className="flex gap-2"><div className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm mã hàng..." className="w-48 rounded-xl border border-zinc-200 py-2 pl-8 pr-2 text-xs font-semibold outline-none focus:border-orange-500" /></div><button className="rounded-xl border border-zinc-200 px-3 text-xs font-bold text-zinc-700">{loadingCatalog ? 'Đang tải' : 'Tìm'}</button></form></div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-2"><h3 className="text-sm font-black text-zinc-900">Chọn hàng cần nhập</h3><HelpHint title="Chọn hàng">Gõ tên hoặc SKU, rồi chạm vào mã hàng để thêm vào Phiếu nhập. Mã hàng được lấy từ Danh mục hàng hóa.</HelpHint></div><form onSubmit={event => { event.preventDefault(); void loadCatalog(query); }} className="flex gap-2"><div className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm mã hàng..." className="w-48 rounded-xl border border-zinc-200 py-2 pl-8 pr-2 text-xs font-semibold outline-none focus:border-orange-500" /></div><button className="rounded-xl border border-zinc-200 px-3 text-xs font-bold text-zinc-700">{loadingCatalog ? 'Đang tải' : 'Tìm'}</button></form></div>
             <div className="mt-3 grid max-h-48 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
               {visibleCatalog.map(item => <button type="button" key={item.id} onClick={() => addItem(item)} className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-zinc-200 p-2 text-left hover:border-orange-300 hover:bg-orange-50"><div className="min-w-0"><span className={`rounded-md px-1.5 py-0.5 text-[10px] font-black ${item.category === 'PART' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>{item.category === 'PART' ? 'Linh kiện' : 'Phụ kiện'}</span><p className="mt-1 truncate text-xs font-bold text-zinc-800">{item.name}</p><p className="truncate font-mono text-[10px] text-zinc-500">{item.sku}</p></div><span className="shrink-0 rounded-lg bg-zinc-950 px-2 py-1 text-[10px] font-black text-white">Thêm</span></button>)}
               {!loadingCatalog && visibleCatalog.length === 0 && <p className="col-span-full py-5 text-center text-xs text-zinc-500">Chưa có SKU linh kiện/phụ kiện phù hợp. Hãy tạo mã hàng trước trong Danh mục.</p>}

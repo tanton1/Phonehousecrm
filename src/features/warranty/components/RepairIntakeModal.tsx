@@ -10,6 +10,7 @@ import {
 import { fetchInventoryTransferMetadata } from '../../../services/inventoryTransferApiClient';
 import { requestAttachIntakeEvidence, requestCreateWorkOrder } from '../../../services/technicalApiClient';
 import { isTechnicalImageFile, MAX_TECHNICAL_EVIDENCE_BYTES, uploadTechnicalEvidence } from '../../../services/technicalEvidenceService';
+import { HelpHint } from '../../../components/HelpHint';
 
 interface RepairIntakeModalProps {
   isOpen: boolean;
@@ -217,9 +218,9 @@ export const RepairIntakeModal: React.FC<RepairIntakeModalProps> = ({
     setPhotos(current => [...current, ...incoming].slice(0, 6));
   };
 
-  return <div className="fixed inset-0 z-[120] flex items-end bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4">
+  return <div data-ph-fullscreen-form className="fixed inset-0 z-[120] flex items-end bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-4">
     <div className="flex h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-zinc-50 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-3xl">
-      <header className="border-b border-zinc-800 bg-zinc-950 px-4 py-3 text-white sm:px-5"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2.5"><span className="rounded-xl bg-orange-600 p-2"><Wrench className="h-5 w-5" /></span><div><h3 className="text-sm font-black">Tiếp nhận máy sửa</h3><p className="text-[10px] text-zinc-300">Làm theo từng bước · lưu ảnh lúc nhận máy</p></div></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10"><X className="h-5 w-5" /></button></div><div className="mt-3 flex items-center justify-between"><StepLabel number={1} title="Máy & khách" active={step === 1} done={step > 1} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={2} title="Tình trạng" active={step === 2} done={step > 2} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={3} title="Việc sửa" active={step === 3} done={step > 3} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={4} title="Xác nhận" active={step === 4} done={false} /></div></header>
+      <header className="border-b border-zinc-800 bg-zinc-950 px-4 py-3 text-white sm:px-5"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2.5"><span className="rounded-xl bg-orange-600 p-2"><Wrench className="h-5 w-5" /></span><div className="flex items-center gap-2"><h3 className="text-sm font-black">Tiếp nhận máy sửa</h3><HelpHint title="Quy trình tiếp nhận">Đi lần lượt qua bốn bước: thông tin máy, tình trạng lúc nhận, việc kỹ thuật và xác nhận. Ảnh lúc nhận là tùy chọn.</HelpHint></div></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10"><X className="h-5 w-5" /></button></div><div className="mt-3 flex items-center justify-between"><StepLabel number={1} title="Máy & khách" active={step === 1} done={step > 1} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={2} title="Tình trạng" active={step === 2} done={step > 2} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={3} title="Việc sửa" active={step === 3} done={step > 3} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={4} title="Xác nhận" active={step === 4} done={false} /></div></header>
       <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
         {error && <div className="mb-3 flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</div>}
         {photoWarning && <div className="mb-3 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800"><ImagePlus className="h-4 w-4 shrink-0" />Ảnh chưa tải: {photoWarning}</div>}

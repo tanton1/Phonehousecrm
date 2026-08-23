@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { WarrantyTicket, StoreBranch, StaffMember } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
 import { Wrench, Plus, User, Phone, Smartphone, Lock, ShieldCheck, AlertCircle, X } from 'lucide-react';
+import { HelpHint } from '../../../components/HelpHint';
 
 export interface CreateWarrantyTicketModalProps {
   isOpen: boolean;
@@ -88,7 +89,7 @@ export const CreateWarrantyTicketModal: React.FC<CreateWarrantyTicketModalProps>
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div data-ph-fullscreen-form className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-zinc-100">
         {/* Top Header */}
         <div className="p-4 sm:p-5 border-b border-zinc-100 flex items-center justify-between">
@@ -96,9 +97,9 @@ export const CreateWarrantyTicketModal: React.FC<CreateWarrantyTicketModalProps>
             <div className="w-10 h-10 rounded-2xl bg-orange-100 text-[#ff4b16] flex items-center justify-center font-bold">
               <Wrench className="w-5 h-5" />
             </div>
-            <div>
+            <div className="flex items-center gap-2">
               <h3 className="text-base font-black text-zinc-900">Phiếu Tiếp Nhận Bảo Hành & Sửa Chữa</h3>
-              <p className="text-xs text-zinc-500">Ghi nhận lỗi, thẩm định máy và gán Kỹ Thuật Viên</p>
+              <HelpHint title="Phiếu tiếp nhận">Ghi nhận máy, lỗi và người xử lý. Với luồng sửa chữa mới, ưu tiên dùng màn Sửa chữa lẻ để có ảnh lúc nhận và nhiều việc kỹ thuật.</HelpHint>
             </div>
           </div>
 
