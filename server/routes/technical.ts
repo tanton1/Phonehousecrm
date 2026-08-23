@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/requireRole';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
 import {
   processCreateWorkOrder,
+  processAttachIntakeEvidence,
   processAcceptCustody,
   processAcceptTechnicalHandoff,
   processStartTaskLine,
@@ -66,6 +67,21 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       } catch (error: any) {
         console.error('[Create WorkOrder Error]:', error);
         return res.status(400).json({ success: false, error: error?.message || 'Lỗi tạo phiếu kỹ thuật.' });
+      }
+    }
+  );
+
+  router.post(
+    '/work-orders/:id/intake-evidence',
+    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER', 'WAREHOUSE', 'STORE_MANAGER', 'SALES', 'CASHIER', 'ACCOUNTANT'),
+    requireBranchAccess(),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const result = await processAttachIntakeEvidence(db, req.params.id, req.body?.intakePhotoUrls, req.user!);
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        return res.status(/FORBIDDEN/.test(error?.message || '') ? 403 : 400).json({ success: false, error: error?.message || 'Không thể lưu ảnh tiếp nhận.' });
       }
     }
   );

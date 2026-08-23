@@ -365,6 +365,51 @@ export async function processCreateWorkOrder(
 }
 
 /**
+ * The browser uploads intake photos after a work-order id exists.  URLs are
+ * accepted only when they live under this work order's Storage path; clients
+ * cannot attach an arbitrary photo from another repair record.
+ */
+export async function processAttachIntakeEvidence(
+  db: Firestore,
+  workOrderIdRaw: string,
+  intakePhotoUrls: unknown,
+  actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
+): Promise<{ workOrderId: string; intakePhotoUrls: string[] }> {
+  const workOrderId = String(workOrderIdRaw || '').trim();
+  const urls = Array.isArray(intakePhotoUrls) ? intakePhotoUrls.map(value => String(value || '').trim()).filter(Boolean) : [];
+  if (!workOrderId) throw new Error('WORK_ORDER_ID_REQUIRED');
+  if (urls.length < 1 || urls.length > 6 || urls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+    throw new Error('INTAKE_EVIDENCE_INVALID: Cần từ 1 đến 6 ảnh thuộc đúng phiếu tiếp nhận.');
+  }
+  return db.runTransaction(async transaction => {
+    const workOrderRef = db.collection('technicalWorkOrders').doc(workOrderId);
+    const workOrderSnap = await transaction.get(workOrderRef);
+    if (!workOrderSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    const workOrder = workOrderSnap.data()!;
+    if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    const intakeDetails = {
+      ...(workOrder.intakeDetails && typeof workOrder.intakeDetails === 'object' ? workOrder.intakeDetails : {}),
+      intakePhotoUrls: urls,
+      intakePhotoCount: urls.length,
+      intakePhotosAttachedAt: new Date().toISOString(),
+      intakePhotosAttachedByUid: actor.uid
+    };
+    transaction.update(workOrderRef, { intakeDetails, updatedAt: FieldValue.serverTimestamp() });
+    transaction.set(db.collection('technicalWorkOrderEvents').doc(), {
+      workOrderId,
+      branchId: workOrder.branchId,
+      eventType: 'INTAKE_PHOTOS_ATTACHED',
+      photoCount: urls.length,
+      actorUid: actor.uid,
+      actorName: actor.name || actor.uid,
+      occurredAt: new Date().toISOString(),
+      createdAt: FieldValue.serverTimestamp()
+    });
+    return { workOrderId, intakePhotoUrls: urls };
+  });
+}
+
+/**
  * 2. KTV scans physical IMEI to accept custody & begin responsibility
  */
 export async function processAcceptCustody(

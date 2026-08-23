@@ -90,6 +90,15 @@ export async function requestCreateWorkOrder(payload: {
   return await sendTechnicalApiRequest('work-orders', payload);
 }
 
+/** Attach the actual photos only after Storage has issued trustworthy URLs.
+ * The server verifies that every URL belongs to this work order. */
+export async function requestAttachIntakeEvidence(
+  workOrderId: string,
+  intakePhotoUrls: string[]
+): Promise<{ workOrderId: string; intakePhotoUrls: string[] }> {
+  return await sendTechnicalApiRequest(`work-orders/${encodeURIComponent(workOrderId)}/intake-evidence`, { intakePhotoUrls });
+}
+
 export async function requestRevealTechnicalPasscode(workOrderId: string): Promise<{ passcode: string | null }> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/passcode`, {}, 'GET');
 }
