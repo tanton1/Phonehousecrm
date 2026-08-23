@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
+import { canTransitionTaskLine } from './technicalStateMachine';
 
 export interface TechnicalCostActor {
   uid: string;
@@ -107,6 +108,80 @@ function normalizePartToken(value: unknown): string {
 }
 
 /**
+ * Model compatibility must not depend on how a technician happens to type a
+ * model name.  For example, `12 prm`, `iPhone 12 Pro Max` and `IP12PM` are
+ * one model.  Product Master codes still take precedence where available;
+ * this compact normalizer keeps legacy stock and existing work orders safe
+ * until all records carry those codes.
+ */
+function compactModelToken(value: unknown): string {
+  return normalizePartToken(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/Đ/g, 'D')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+function canonicalIphoneModelCode(value: unknown): string {
+  const compact = compactModelToken(value);
+  if (!compact) return '';
+  const directAliases: Record<string, string> = {
+    IPX: 'IPX', IPHONEX: 'IPX',
+    IPXR: 'IPXR', IPHONEXR: 'IPXR',
+    IPXS: 'IPXS', IPHONEXS: 'IPXS',
+    IPXSM: 'IPXSM', IPHONEXSMAX: 'IPXSM'
+  };
+  if (directAliases[compact]) return directAliases[compact];
+  const se = compact.match(/^(?:IPHONE)?(?:IP)?SE([23])$/);
+  if (se) return `IPSE${se[1]}`;
+  const numeric = compact.replace(/^IPHONE/, '').replace(/^IP/, '');
+  const match = numeric.match(/^(\d{1,2})(MINI|M|PLUS|PL|PROMAX|PRM|PM|PRO|P|E)?$/);
+  if (!match) return '';
+  const suffixes: Record<string, string> = {
+    MINI: 'M', M: 'M', PLUS: 'PL', PL: 'PL',
+    PROMAX: 'PM', PRM: 'PM', PM: 'PM', PRO: 'P', P: 'P', E: 'E'
+  };
+  return `IP${match[1]}${suffixes[match[2] || ''] || ''}`;
+}
+
+function modelTokens(values: unknown[]): string[] {
+  const tokens = values.flatMap(value => {
+    const raw = normalizePartToken(value);
+    const compact = compactModelToken(value);
+    const iphoneCode = canonicalIphoneModelCode(value);
+    return [raw, compact, iphoneCode].filter(Boolean);
+  });
+  return [...new Set(tokens)];
+}
+
+function workOrderModelTokens(workOrder: any, line: any): string[] {
+  return modelTokens([
+    workOrder?.catalogModelCode,
+    workOrder?.modelCode,
+    workOrder?.deviceSnapshot?.catalogModelCode,
+    workOrder?.deviceSnapshot?.modelCode,
+    line?.catalogModelCode,
+    line?.modelCode,
+    workOrder?.deviceModel,
+    workOrder?.model,
+    line?.deviceModel,
+    line?.model,
+    workOrder?.deviceSnapshot?.model
+  ]);
+}
+
+function partModelTokens(part: any): string[] {
+  const compatibleModels = [
+    ...(Array.isArray(part?.compatibleModelCodes) ? part.compatibleModelCodes : []),
+    ...(Array.isArray(part?.compatibleModelIds) ? part.compatibleModelIds : []),
+    ...(Array.isArray(part?.compatibleModels) ? part.compatibleModels : []),
+    part?.catalogModelCode,
+    part?.modelCode
+  ];
+  return modelTokens(compatibleModels);
+}
+
+/**
  * Tồn cũ có thể dùng mã nhóm ngắn (MH, CS, CAM), còn task mới dùng tên
  * dễ đọc (MAN_HINH, CAP_SAC, CAMERA). Quy về một mã trước khi đối chiếu để
  * tránh buộc KTV phải gửi duyệt ngoại lệ cho đúng linh kiện.
@@ -167,20 +242,14 @@ function matchingTaskTemplate(line: any, part: any): TaskPartTemplate | null {
 }
 
 function assertTaskPartModelCompatibility(workOrder: any, line: any, part: any): void {
-  const compatibleModels = Array.isArray(part?.compatibleModels)
-    ? part.compatibleModels.map(normalizePartToken).filter(Boolean)
-    : [];
+  const compatibleModels = partModelTokens(part);
   if (compatibleModels.length === 0) return;
-  const model = normalizePartToken(
-    workOrder?.deviceModel
-    || workOrder?.model
-    || line?.deviceModel
-    || line?.model
-    || workOrder?.deviceSnapshot?.model
-  );
+  const models = workOrderModelTokens(workOrder, line);
   // Older work orders can lack a model snapshot. Do not falsely reject them;
   // all new work orders should carry one before a compatibility policy is used.
-  if (model && !compatibleModels.includes(model)) throw new Error('SPARE_PART_MODEL_INCOMPATIBLE');
+  if (models.length > 0 && !models.some(model => compatibleModels.includes(model))) {
+    throw new Error('SPARE_PART_MODEL_INCOMPATIBLE');
+  }
 }
 
 function assertTechnicianUsesOwnWarehouse(actor: TechnicalCostActor, warehouse: any): void {
@@ -320,6 +389,8 @@ export async function processReceiveTechnicalSparePart(
     sourceCode?: string;
     note?: string;
     compatibleModels?: string[];
+    compatibleModelCodes?: string[];
+    compatibleModelIds?: string[];
     idempotencyKey: string;
   },
   actor: TechnicalCostActor
@@ -400,6 +471,19 @@ export async function processReceiveTechnicalSparePart(
     const receiptId = randomId('SPR');
     const movementId = randomId('SPM');
     const costVersion = `PART_RECEIPT_${now}`;
+    const compatibleModels = [...new Set([
+      ...(Array.isArray(existingPart?.compatibleModels) ? existingPart.compatibleModels : []),
+      ...(Array.isArray(input.compatibleModels) ? input.compatibleModels.map(String) : [])
+    ])];
+    const compatibleModelCodes = [...new Set([
+      ...(Array.isArray(existingPart?.compatibleModelCodes) ? existingPart.compatibleModelCodes : []),
+      ...(Array.isArray(input.compatibleModelCodes) ? input.compatibleModelCodes.map(String) : []),
+      ...compatibleModels.map(canonicalIphoneModelCode).filter(Boolean)
+    ])];
+    const compatibleModelIds = [...new Set([
+      ...(Array.isArray(existingPart?.compatibleModelIds) ? existingPart.compatibleModelIds : []),
+      ...(Array.isArray(input.compatibleModelIds) ? input.compatibleModelIds.map(String) : [])
+    ])];
     const part = {
       ...(existingPart || {}),
       id: partId,
@@ -413,7 +497,9 @@ export async function processReceiveTechnicalSparePart(
       currentAverageCost: nextAverageCost,
       costPrice: nextAverageCost,
       costVersion,
-      compatibleModels: [...new Set([...(Array.isArray(existingPart?.compatibleModels) ? existingPart.compatibleModels : []), ...(Array.isArray(input.compatibleModels) ? input.compatibleModels.map(String) : [])])],
+      compatibleModels,
+      compatibleModelCodes,
+      compatibleModelIds,
       isActive: existingPart?.isActive !== false,
       createdAt: existingPart?.createdAt || now,
       updatedAt: now
@@ -517,12 +603,17 @@ export async function processCreateTechnicalPartStockRequest(
   const partId = String(input.partId || '').trim();
   const lotId = String(input.lotId || '').trim() || null;
   const reason = String(input.reason || '').trim();
+  const workOrderId = String(input.workOrderId || '').trim() || null;
+  const workOrderLineId = String(input.workOrderLineId || '').trim() || null;
   if (!sourceWarehouseId || !targetWarehouseId || !partId || reason.length < 5) throw new Error('PART_STOCK_REQUEST_FIELDS_REQUIRED');
+  if ((workOrderId && !workOrderLineId) || (!workOrderId && workOrderLineId)) throw new Error('PART_STOCK_REQUEST_TASK_REFERENCE_INVALID');
   const idemRef = db.collection('technicalOperationIdempotency').doc(idempotencyId('PART_STOCK_REQUEST', key));
   const sourceWarehouseRef = db.collection('warehouses').doc(sourceWarehouseId);
   const targetWarehouseRef = db.collection('warehouses').doc(targetWarehouseId);
   const partRef = db.collection('spareParts').doc(partId);
   const lotRef = lotId ? db.collection('sparePartLots').doc(lotId) : null;
+  const workOrderRef = workOrderId ? db.collection('technicalWorkOrders').doc(workOrderId) : null;
+  const lineRef = workOrderLineId ? db.collection('technicalWorkOrderLines').doc(workOrderLineId) : null;
 
   return db.runTransaction(async transaction => {
     const idemSnap = await transaction.get(idemRef);
@@ -532,11 +623,13 @@ export async function processCreateTechnicalPartStockRequest(
       if (!requestSnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
       return { request: publicIssue(requestSnap.data()), idempotentReplay: true };
     }
-    const [sourceWarehouseSnap, targetWarehouseSnap, partSnap, lotSnap] = await Promise.all([
+    const [sourceWarehouseSnap, targetWarehouseSnap, partSnap, lotSnap, workOrderSnap, lineSnap] = await Promise.all([
       transaction.get(sourceWarehouseRef),
       transaction.get(targetWarehouseRef),
       transaction.get(partRef),
-      lotRef ? transaction.get(lotRef) : Promise.resolve(null)
+      lotRef ? transaction.get(lotRef) : Promise.resolve(null),
+      workOrderRef ? transaction.get(workOrderRef) : Promise.resolve(null),
+      lineRef ? transaction.get(lineRef) : Promise.resolve(null)
     ]);
     if (!sourceWarehouseSnap.exists || !targetWarehouseSnap.exists) throw new Error('PART_TRANSFER_WAREHOUSE_NOT_FOUND');
     if (!partSnap.exists) throw new Error('SPARE_PART_NOT_FOUND');
@@ -554,6 +647,27 @@ export async function processCreateTechnicalPartStockRequest(
     if (!isPartStockApprover(actor) && String(targetWarehouse.custodianUid || '') !== actor.uid) throw new Error('TECHNICIAN_PERSONAL_WAREHOUSE_FORBIDDEN');
     if (String(part.branchId || '') !== branchId || String(part.warehouseId || '') !== sourceWarehouseId) throw new Error('SPARE_PART_WAREHOUSE_MISMATCH');
     if (lot && (String(lot.partId || '') !== partId || String(lot.warehouseId || '') !== sourceWarehouseId)) throw new Error('SPARE_PART_LOT_MISMATCH');
+    const workOrder = workOrderSnap?.data();
+    const line = lineSnap?.data();
+    if (workOrderId) {
+      if (!workOrderSnap?.exists || !lineSnap?.exists || !workOrder || !line) throw new Error('PART_STOCK_REQUEST_WORK_ORDER_NOT_FOUND');
+      if (String(line.workOrderId || '') !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
+      if (!canAccessBranch(actor, String(workOrder.branchId || line.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+      if (!isElevated(actor) && String(line.assigneeUid || '') !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
+      // A KTV may request a part as soon as a task is assigned, before they
+      // begin hands-on work.  Reserve/issue remains restricted to active
+      // task states below; this exception is only for a stock request.
+      const lineCanRequestParts = ACTIVE_PART_LINE_STATUSES.has(String(line.status || ''))
+        || String(line.status || '') === 'ASSIGNED';
+      const workOrderCanRequestParts = ACTIVE_PART_WORK_ORDER_STATUSES.has(String(workOrder.status || ''))
+        || String(workOrder.status || '') === 'ASSIGNED';
+      if (!workOrderCanRequestParts || !lineCanRequestParts) {
+        throw new Error('TASK_NOT_OPEN_FOR_PARTS');
+      }
+      const taskTemplate = matchingTaskTemplate(line, { ...part, id: partSnap.id || partId });
+      if (!taskTemplate) throw new Error(taskPartTemplates(line).length === 0 ? 'TASK_PART_POLICY_NOT_CONFIGURED' : 'TASK_PART_NOT_ALLOWED');
+      assertTaskPartModelCompatibility(workOrder, line, part);
+    }
     const availableQuantity = numberOrZero(lot?.stockQuantity ?? part.stockQuantity) - numberOrZero(lot?.reservedQuantity ?? part.reservedQuantity);
     const now = new Date().toISOString();
     const requestId = randomId('PSR');
@@ -571,11 +685,13 @@ export async function processCreateTechnicalPartStockRequest(
       partName: part.name || partId,
       category: part.category || 'KHAC',
       compatibleModels: Array.isArray(part.compatibleModels) ? part.compatibleModels : [],
+      compatibleModelCodes: Array.isArray(part.compatibleModelCodes) ? part.compatibleModelCodes : [],
+      compatibleModelIds: Array.isArray(part.compatibleModelIds) ? part.compatibleModelIds : [],
       quantityRequested: quantity,
       quantityApproved: 0,
       sourceAvailableSnapshot: Math.max(0, availableQuantity),
-      workOrderId: String(input.workOrderId || '') || null,
-      workOrderLineId: String(input.workOrderLineId || '') || null,
+      workOrderId,
+      workOrderLineId,
       reason,
       requestedByUid: actor.uid,
       requestedByName: actor.name || null,
@@ -584,6 +700,25 @@ export async function processCreateTechnicalPartStockRequest(
       updatedAt: now
     };
     transaction.set(db.collection('technicalPartStockRequests').doc(requestId), request);
+    if (lineRef && workOrderRef && line && workOrder) {
+      const lineStatus = String(line.status || '');
+      if (lineStatus !== 'WAITING_PARTS') {
+        const transition = canTransitionTaskLine(lineStatus as any, 'WAITING_PARTS');
+        if (!transition.allowed) throw new Error(transition.reason || 'TASK_WAITING_PARTS_TRANSITION_INVALID');
+        transaction.update(lineRef, {
+          status: 'WAITING_PARTS',
+          partsWaitingAt: now,
+          partsWaitingReason: reason,
+          lastPartStockRequestId: requestId,
+          updatedAt: now
+        });
+      }
+      transaction.update(workOrderRef, {
+        status: 'IN_PROGRESS',
+        lastPartStockRequestId: requestId,
+        updatedAt: now
+      });
+    }
     transaction.set(idemRef, { scope: 'PART_STOCK_REQUEST', requestId, createdAt: now });
     return { request };
   });
@@ -689,6 +824,12 @@ export async function processDecideTechnicalPartStockRequest(
       costPrice: nextTargetAverage,
       costVersion,
       compatibleModels: Array.isArray(targetPart?.compatibleModels) && targetPart.compatibleModels.length ? targetPart.compatibleModels : (request.compatibleModels || sourcePart.compatibleModels || []),
+      compatibleModelCodes: Array.isArray(targetPart?.compatibleModelCodes) && targetPart.compatibleModelCodes.length
+        ? targetPart.compatibleModelCodes
+        : (sourcePart.compatibleModelCodes || (request.compatibleModels || sourcePart.compatibleModels || []).map(canonicalIphoneModelCode).filter(Boolean)),
+      compatibleModelIds: Array.isArray(targetPart?.compatibleModelIds) && targetPart.compatibleModelIds.length
+        ? targetPart.compatibleModelIds
+        : (sourcePart.compatibleModelIds || []),
       isActive: targetPart?.isActive !== false,
       createdAt: targetPart?.createdAt || now,
       updatedAt: now
@@ -822,6 +963,10 @@ export async function processCreateTechnicalPartException(
     assertTechnicianUsesOwnWarehouse(actor, warehouse);
     if (String(part.warehouseId || '') !== String(input.warehouseId) || String(part.branchId || '') !== String(workOrder.branchId)) throw new Error('SPARE_PART_WAREHOUSE_MISMATCH');
     if (lot && (String(lot.partId || '') !== String(input.partId) || String(lot.warehouseId || '') !== String(input.warehouseId))) throw new Error('SPARE_PART_LOT_MISMATCH');
+    // An exception can approve a different task category, never a different
+    // device model.  That keeps a screen for 12 Pro Max from being used on a
+    // different model by mistake.
+    assertTaskPartModelCompatibility(workOrder, line, part);
     if (matchingTaskTemplate(line, { ...part, id: partSnap.id || input.partId })) throw new Error('PART_ALREADY_ALLOWED_BY_TASK');
     const now = new Date().toISOString();
     const exceptionId = randomId('TPE');
@@ -1223,6 +1368,11 @@ export async function processIssueTechnicalPart(
       || !['RESERVED', 'PARTIALLY_ISSUED'].includes(String(reservation.status || ''))
     )) throw new Error('PART_RESERVATION_MISMATCH');
 
+    // Model compatibility is non-negotiable.  A task-category exception is
+    // intentionally narrower and cannot turn a wrong-model part into a
+    // usable one.
+    assertTaskPartModelCompatibility(workOrder, line, part);
+
     const taskTemplate = matchingTaskTemplate(line, { ...part, id: partSnap.id || input.partId });
     const partException = exceptionSnap?.data();
     if (!taskTemplate) {
@@ -1240,7 +1390,6 @@ export async function processIssueTechnicalPart(
         || approvedRemaining < quantity
       ) throw new Error('TASK_PART_EXCEPTION_NOT_APPROVED');
     } else {
-      assertTaskPartModelCompatibility(workOrder, line, part);
       const maxQuantity = Number(taskTemplate.maxQuantity ?? taskTemplate.quantity ?? 0);
       if (Number.isFinite(maxQuantity) && maxQuantity > 0) {
         const issuedQuantity = lineIssuesSnap.docs.reduce((sum: number, doc: any) => {
@@ -1341,6 +1490,16 @@ export async function processIssueTechnicalPart(
         lastIssuedAt: now,
         lastIssueId: issueId
       });
+    }
+    // A task that was waiting for a requested part becomes actionable again
+    // only when the KTV actually issues it from their own warehouse.
+    if (String(line.status || '') === 'WAITING_PARTS') {
+      transaction.update(lineRef, {
+        status: 'IN_PROGRESS',
+        partsAvailableAt: now,
+        updatedAt: now
+      });
+      transaction.update(woRef, { status: 'IN_PROGRESS', updatedAt: now });
     }
     transaction.set(db.collection('technicalPartIssues').doc(issueId), issue);
     transaction.set(db.collection('sparePartMovements').doc(movementId), {
@@ -1899,11 +2058,12 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
   if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
   const workOrder = woSnap.data()!;
   if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
-  const [linesSnap, issuesSnap, reservationsSnap, exceptionsSnap, externalSnap, recoverySnap, postingSnap, qcSnap, movementBySourceSnap, movementByWorkOrderSnap, costEventsSnap] = await Promise.all([
+  const [linesSnap, issuesSnap, reservationsSnap, exceptionsSnap, additionRequestsSnap, externalSnap, recoverySnap, postingSnap, qcSnap, movementBySourceSnap, movementByWorkOrderSnap, costEventsSnap] = await Promise.all([
     db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartIssues').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartReservations').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartExceptions').where('workOrderId', '==', workOrderId).get(),
+    db.collection('technicalTaskAdditionRequests').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalExternalCosts').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalRecoveries').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalCostPostings').doc(workOrderId).get(),
@@ -1916,6 +2076,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
   const partIssues: any[] = issuesSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const partReservations: any[] = reservationsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const partExceptions: any[] = exceptionsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
+  const taskAdditionRequests: any[] = additionRequestsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const externalCosts: any[] = externalSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const recoveries: any[] = recoverySnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const openingDeviceCost = numberOrZero(workOrder.openingDeviceCost ?? postingSnap.data()?.breakdown?.openingDeviceCost);
@@ -1946,6 +2107,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
     ...partIssues.map(issue => ({ id: issue.id, type: 'PART_ISSUE', title: `Linh kiện: ${issue.partName}`, occurredAt: eventTime(issue.issuedAt || issue.createdAt), actorUid: issue.issuedByUid || null, status: issue.status })),
     ...partReservations.map(reservation => ({ id: reservation.id, type: 'PART_RESERVATION', title: `Giữ linh kiện: ${reservation.partName}`, occurredAt: eventTime(reservation.reservedAt || reservation.createdAt), actorUid: reservation.reservedByUid || null, status: reservation.status })),
     ...partExceptions.map(exception => ({ id: exception.id, type: 'PART_EXCEPTION', title: `Ngoại lệ linh kiện: ${exception.partName}`, occurredAt: eventTime(exception.decidedAt || exception.requestedAt || exception.createdAt), actorUid: exception.decidedByUid || exception.requestedByUid || null, status: exception.status })),
+    ...taskAdditionRequests.map(request => ({ id: request.id, type: 'TASK_ADDITION', title: `Lỗi phát sinh: ${request.taskName || request.taskType}`, occurredAt: eventTime(request.decidedAt || request.requestedAt || request.createdAt), actorUid: request.decidedByUid || request.requestedByUid || null, status: request.status })),
     ...qcInspections.map(inspection => ({ id: inspection.id, type: 'QC_INSPECTION', title: `KCS ${inspection.overallResult}`, occurredAt: eventTime(inspection.inspectedAt || inspection.createdAt), actorUid: inspection.inspectorUid || null, actorName: inspection.inspectorName || null, status: inspection.overallResult })),
     ...(mayViewCost ? costEvents.map(event => ({ id: event.id, type: event.eventType, title: 'Kết chuyển giá vốn', occurredAt: eventTime(event.createdAt), actorUid: event.createdByUid || null, amount: event.amount, costAfter: event.costAfter })) : [])
   ].filter((event): event is any => !!event && !!event.occurredAt)
@@ -1991,6 +2153,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
     partIssues: publicIssue(visibleIssues),
     partReservations: publicIssue(partReservations),
     partExceptions: publicIssue(partExceptions),
+    taskAdditionRequests: publicIssue(taskAdditionRequests),
     externalCosts: mayViewCost ? publicIssue(externalCosts) : [],
     recoveries: mayViewCost ? publicIssue(recoveries) : [],
     qcInspections: publicIssue(qcInspections),
@@ -2063,6 +2226,8 @@ export async function listTechnicalSpareParts(db: Firestore, actor: TechnicalCos
         reservedQuantity: Number(part.reservedQuantity || 0),
         availableQuantity: Math.max(0, Number(part.stockQuantity || 0) - Number(part.reservedQuantity || 0)),
         compatibleModels: Array.isArray(part.compatibleModels) ? part.compatibleModels : [],
+        compatibleModelCodes: Array.isArray(part.compatibleModelCodes) ? part.compatibleModelCodes : [],
+        compatibleModelIds: Array.isArray(part.compatibleModelIds) ? part.compatibleModelIds : [],
         lots: (lotsByPartId.get(part.id) || []).sort((left, right) => String(left.receivedAt || '').localeCompare(String(right.receivedAt || '')))
       };
       if (mayViewCost) visible.currentCost = Number(part.currentAverageCost ?? part.costPrice ?? 0);

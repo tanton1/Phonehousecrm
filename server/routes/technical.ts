@@ -9,6 +9,9 @@ import {
   processAcceptCustody,
   processAcceptTechnicalHandoff,
   processStartTaskLine,
+  processMarkTaskWaitingForParts,
+  processCreateTechnicalTaskAdditionRequest,
+  processDecideTechnicalTaskAdditionRequest,
   processCompleteTaskLine,
   processQCInspection,
   processReturnToStock,
@@ -202,6 +205,54 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       } catch (error: any) {
         console.error('[Start Task Error]:', error);
         return res.status(400).json({ success: false, error: error?.message || 'Lỗi bắt đầu công việc.' });
+      }
+    }
+  );
+
+  /** Mark only one task as waiting for a part; other tasks on the same
+   * device remain actionable in the Kanban. */
+  router.post(
+    '/work-orders/:id/waiting-parts',
+    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const { lineId, reason, idempotencyKey } = req.body || {};
+        if (!lineId) return res.status(400).json({ success: false, error: 'MISSING_LINE_ID' });
+        const result = await processMarkTaskWaitingForParts(db, req.params.id, lineId, reason, req.user!, idempotencyKey);
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error?.message || 'Không thể chuyển task sang chờ linh kiện.' });
+      }
+    }
+  );
+
+  /** KTV reports an additional fault.  Approval is separate so no extra
+   * commission, cost or customer amount can be inserted silently. */
+  router.post(
+    '/work-orders/:id/task-additions',
+    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const result = await processCreateTechnicalTaskAdditionRequest(db, req.params.id, req.body || {}, req.user!);
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error?.message || 'Không thể gửi lỗi phát sinh.' });
+      }
+    }
+  );
+
+  router.post(
+    '/work-orders/:id/task-additions/:requestId/decision',
+    requireRole('ADMIN', 'MANAGER', 'TECH_LEAD'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const result = await processDecideTechnicalTaskAdditionRequest(db, req.params.id, req.params.requestId, req.body || {}, req.user!);
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error?.message || 'Không thể duyệt lỗi phát sinh.' });
       }
     }
   );
@@ -661,10 +712,14 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       });
       const getStage = (workOrder: any, lines: any[]) => {
         const status = String(workOrder.status || 'ASSIGNED');
+        const openLineStatuses = lines
+          .map(line => String(line.status || 'ASSIGNED'))
+          .filter(lineStatus => !['COMPLETED', 'VERIFIED'].includes(lineStatus));
+        const allOpenTasksWaitingForParts = openLineStatuses.length > 0 && openLineStatuses.every(lineStatus => lineStatus === 'WAITING_PARTS');
         if (status === 'DELIVERED_TO_CUSTOMER') return 'COMPLETED';
         if (['QC_PASSED', 'CUSTOMER_READY'].includes(status)) return 'WAITING_DELIVERY';
         if (['TECH_COMPLETED', 'QC_PENDING'].includes(status)) return 'WAITING_QC';
-        if (lines.some(line => String(line.status || '') === 'WAITING_PARTS')) return 'WAITING_PARTS';
+        if (allOpenTasksWaitingForParts) return 'WAITING_PARTS';
         if (status === 'ASSIGNED' || lines.every(line => String(line.status || '') === 'ASSIGNED')) return 'WAITING_ACCEPTANCE';
         return 'IN_PROGRESS';
       };

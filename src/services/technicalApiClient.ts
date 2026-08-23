@@ -164,6 +164,51 @@ export async function requestStartTaskLine(
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/start-task`, { lineId });
 }
 
+/** Pause only this task while waiting for a part; other tasks stay active. */
+export async function requestMarkTaskWaitingForParts(
+  workOrderId: string,
+  lineId: string,
+  reason: string
+): Promise<{ success: boolean; lineId: string; status: 'WAITING_PARTS'; idempotentReplay?: boolean }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/waiting-parts`, {
+    lineId,
+    reason,
+    idempotencyKey: createTechnicalIdempotencyKey(`task-waiting-parts-${workOrderId}-${lineId}`)
+  });
+}
+
+export async function requestCreateTechnicalTaskAddition(
+  workOrderId: string,
+  payload: {
+    taskType: string;
+    priority?: 'NORMAL' | 'PRIORITY' | 'URGENT';
+    reason: string;
+    evidencePhotoUrls?: string[];
+    additionalCustomerQuote?: number;
+  }
+): Promise<{ request: any; idempotentReplay?: boolean }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/task-additions`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`task-addition-${workOrderId}-${payload.taskType}`)
+  });
+}
+
+export async function requestDecideTechnicalTaskAddition(
+  workOrderId: string,
+  requestId: string,
+  payload: {
+    decision: 'APPROVED' | 'REJECTED';
+    note?: string;
+    customerApprovalConfirmed?: boolean;
+    additionalCustomerQuote?: number;
+  }
+): Promise<{ request: any; lineId?: string; idempotentReplay?: boolean }> {
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/task-additions/${requestId}/decision`, {
+    ...payload,
+    idempotencyKey: createTechnicalIdempotencyKey(`task-addition-decision-${requestId}`)
+  });
+}
+
 /**
  * 4. Complete Work Order Task Line
  */
@@ -284,6 +329,8 @@ export async function requestReceiveTechnicalSparePart(payload: {
   sourceCode?: string;
   note?: string;
   compatibleModels?: string[];
+  compatibleModelCodes?: string[];
+  compatibleModelIds?: string[];
 }): Promise<any> {
   return await sendTechnicalApiRequest('parts/receive', {
     ...payload,

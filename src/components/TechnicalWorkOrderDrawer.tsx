@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, DollarSign, Loader2, Package, RefreshCw, ScanLine, Wrench, X } from 'lucide-react';
-import { FundAccount, UserAccount, WarehouseInfo, WarrantyTicket } from '../types';
+import { FundAccount, TechnicalTaskTypeConfig, UserAccount, WarehouseInfo, WarrantyTicket } from '../types';
 import {
   fetchTechnicalCostBreakdown,
   fetchTechnicalSpareParts,
   requestAddTechnicalExternalCost,
   requestAddTechnicalRecovery,
+  requestCreateTechnicalTaskAddition,
+  requestDecideTechnicalTaskAddition,
   requestCompleteTaskLine,
   requestDecideTechnicalPartException,
   requestDecideTechnicalExternalCost,
@@ -16,6 +18,7 @@ import {
   requestCancelSparePartIssue,
   requestFinalizeTechnicalCost,
   requestIssueSparePart,
+  requestMarkTaskWaitingForParts,
   requestReserveSparePart,
   requestTechnicalPartStockRequest,
   requestTechnicalPartException,
@@ -25,6 +28,7 @@ import {
   requestScrapSparePart,
   requestReturnToStock
 } from '../services/technicalApiClient';
+import { fetchTechnicalTaskSettings } from '../services/configurationApiClient';
 import { uploadTechnicalEvidence } from '../services/technicalEvidenceService';
 
 interface TechnicalWorkOrderDrawerProps {
@@ -62,6 +66,75 @@ const canonicalPartGroup = (value: unknown) => {
     IC: 'IC', ANT: 'ANTEN', ANTEN: 'ANTEN', RUNG: 'RUNG'
   };
   return aliases[compact] || compact;
+};
+
+// Keep the part selector aligned with the server.  Old stock may contain a
+// short alias ("12 prm") while Product Master uses "iPhone 12 Pro Max".
+const compactModelToken = (value: unknown) => normalizedPartValue(value)
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/Đ/g, 'D')
+  .replace(/[^A-Z0-9]/g, '');
+
+const canonicalIphoneModelCode = (value: unknown) => {
+  const compact = compactModelToken(value);
+  const aliases: Record<string, string> = {
+    IPX: 'IPX', IPHONEX: 'IPX', IPXR: 'IPXR', IPHONEXR: 'IPXR',
+    IPXS: 'IPXS', IPHONEXS: 'IPXS', IPXSM: 'IPXSM', IPHONEXSMAX: 'IPXSM'
+  };
+  if (aliases[compact]) return aliases[compact];
+  const se = compact.match(/^(?:IPHONE)?(?:IP)?SE([23])$/);
+  if (se) return `IPSE${se[1]}`;
+  const normalized = compact.replace(/^IPHONE/, '').replace(/^IP/, '');
+  const match = normalized.match(/^(\d{1,2})(MINI|M|PLUS|PL|PROMAX|PRM|PM|PRO|P|E)?$/);
+  if (!match) return '';
+  const suffixes: Record<string, string> = { MINI: 'M', M: 'M', PLUS: 'PL', PL: 'PL', PROMAX: 'PM', PRM: 'PM', PM: 'PM', PRO: 'P', P: 'P', E: 'E' };
+  return `IP${match[1]}${suffixes[match[2] || ''] || ''}`;
+};
+
+const modelTokens = (values: unknown[]) => [...new Set(values.flatMap(value => [
+  normalizedPartValue(value), compactModelToken(value), canonicalIphoneModelCode(value)
+]).filter(Boolean))];
+
+const technicalErrorMessage = (cause: unknown) => {
+  const message = String(cause || 'Không thể hoàn tất thao tác.');
+  if (message.includes('SPARE_PART_MODEL_INCOMPATIBLE')) {
+    return 'Linh kiện này chưa được khai báo tương thích với model máy đang sửa. Hãy chọn đúng model hoặc bổ sung model tương thích trong Danh mục.';
+  }
+  if (message.includes('TASK_PART_NOT_ALLOWED')) {
+    return 'Linh kiện không thuộc nhóm được phép dùng cho task này. Nếu thật sự phát sinh, hãy thêm hạng mục hoặc gửi yêu cầu duyệt ngoại lệ.';
+  }
+  if (message.includes('TASK_PART_POLICY_NOT_CONFIGURED')) {
+    return 'Task này chưa được thiết lập nhóm linh kiện đi kèm. Quản lý hãy bổ sung trong Cài đặt task kỹ thuật trước.';
+  }
+  if (message.includes('TASK_NOT_OPEN_FOR_PARTS')) {
+    return 'Task này chưa ở trạng thái có thể xử lý linh kiện. Hãy nhận task hoặc chọn đúng hạng mục đang làm.';
+  }
+  if (message.includes('CUSTOMER_APPROVAL_REQUIRED_FOR_ADDITIONAL_TASK')) {
+    return 'Cần xác nhận khách đã đồng ý báo giá phát sinh trước khi thêm hạng mục mới.';
+  }
+  return message;
+};
+
+const isPartCompatibleWithMachine = (part: any, workOrder: any, line?: any) => {
+  const partModels = [
+    ...(Array.isArray(part?.compatibleModelCodes) ? part.compatibleModelCodes : []),
+    ...(Array.isArray(part?.compatibleModelIds) ? part.compatibleModelIds : []),
+    ...(Array.isArray(part?.compatibleModels) ? part.compatibleModels : []),
+    part?.catalogModelCode,
+    part?.modelCode
+  ];
+  if (partModels.filter(Boolean).length === 0) return true;
+  const machineModels = [
+    workOrder?.catalogModelCode, workOrder?.modelCode,
+    workOrder?.deviceSnapshot?.catalogModelCode, workOrder?.deviceSnapshot?.modelCode,
+    line?.catalogModelCode, line?.modelCode,
+    workOrder?.deviceModel, workOrder?.model, line?.deviceModel, line?.model,
+    workOrder?.deviceSnapshot?.model
+  ];
+  const expected = modelTokens(partModels);
+  const actual = modelTokens(machineModels);
+  return actual.length === 0 || actual.some(model => expected.includes(model));
 };
 
 const partGroupTokens = (part: any) => [...new Set([part?.category, part?.catalogGroupCode, part?.groupCode, part?.categoryCode].map(canonicalPartGroup).filter(Boolean))];
@@ -127,6 +200,16 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const [handoffScannedImei, setHandoffScannedImei] = useState('');
   const [handoffReason, setHandoffReason] = useState('');
   const [handoffFiles, setHandoffFiles] = useState<File[]>([]);
+  const [technicalTaskTypes, setTechnicalTaskTypes] = useState<TechnicalTaskTypeConfig[]>([]);
+  const [additionTaskType, setAdditionTaskType] = useState('');
+  const [additionPriority, setAdditionPriority] = useState<'NORMAL' | 'PRIORITY' | 'URGENT'>('NORMAL');
+  const [additionReason, setAdditionReason] = useState('');
+  const [additionFiles, setAdditionFiles] = useState<File[]>([]);
+  const [additionQuote, setAdditionQuote] = useState(0);
+  const [partsWaitingReason, setPartsWaitingReason] = useState('');
+  const [additionDecisionNotes, setAdditionDecisionNotes] = useState<Record<string, string>>({});
+  const [additionDecisionQuotes, setAdditionDecisionQuotes] = useState<Record<string, number>>({});
+  const [additionCustomerApproved, setAdditionCustomerApproved] = useState<Record<string, boolean>>({});
 
   const workOrderId = String((task as any)?.workOrderId || task?.id || '');
   const role = String(currentUser?.role || '').toUpperCase();
@@ -134,6 +217,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const canFinalizeCost = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(role);
   const canReturnStock = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'].includes(role);
   const canManagePartExceptions = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'].includes(role);
+  const canManageTaskAdditions = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(role);
   const canDeliverCustomer = ['ADMIN', 'MANAGER', 'SALES', 'SALE', 'TECH_LEAD'].includes(role);
   const customerPaymentFunds = useMemo(() => funds.filter(fund => fund.isActive !== false && fund.isArchived !== true && fund.branchId === details?.workOrder?.branchId), [funds, details?.workOrder?.branchId]);
 
@@ -176,6 +260,14 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   };
 
   useEffect(() => {
+    let active = true;
+    fetchTechnicalTaskSettings()
+      .then(items => { if (active) setTechnicalTaskTypes((items || []).filter(item => item.isActive)); })
+      .catch(() => { if (active) setTechnicalTaskTypes([]); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     setRevealedPasscode(null);
     if (!task) return;
     setActiveTab('OVERVIEW'); setDetails(null); setError(''); setMessage(''); setSelectedLineId(String((task as any).lineId || '')); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); setPartsWarehouseId('');
@@ -190,15 +282,15 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     setSelectedLotId(firstAvailableLot?.id || '');
   }, [selectedPartId, parts]);
 
-  const run = async (operation: () => Promise<any>, success: string) => {
+  const run = async (operation: () => Promise<any>, success: string | ((result: any) => string)) => {
     setSaving(true); setError(''); setMessage('');
     try {
-      await operation();
-      setMessage(success);
+      const result = await operation();
+      setMessage(typeof success === 'function' ? success(result) : success);
       await load();
       await onRefresh?.();
     } catch (cause: any) {
-      setError(cause?.message || 'Không thể hoàn tất thao tác.');
+      setError(technicalErrorMessage(cause?.message));
     } finally { setSaving(false); }
   };
 
@@ -214,13 +306,17 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     const snapshotRules = selectedLine?.requiredParts ?? selectedLine?.requiredPartTemplates;
     return Array.isArray(snapshotRules) ? snapshotRules : [];
   }, [selectedLine]);
-  const compatibleParts = useMemo(() => parts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [parts, taskPartRules]);
-  const orderableCentralParts = useMemo(() => centralParts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [centralParts, taskPartRules]);
+  const taskMatchedParts = useMemo(() => parts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [parts, taskPartRules]);
+  const compatibleParts = useMemo(() => taskMatchedParts.filter((part: any) => isPartCompatibleWithMachine(part, details?.workOrder, selectedLine)), [taskMatchedParts, details?.workOrder, selectedLine]);
+  const wrongModelParts = useMemo(() => taskMatchedParts.filter((part: any) => !isPartCompatibleWithMachine(part, details?.workOrder, selectedLine)), [taskMatchedParts, details?.workOrder, selectedLine]);
+  const orderableCentralParts = useMemo(() => centralParts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && taskPartRules.some(rule => partMatchesTaskRule(part, rule)) && isPartCompatibleWithMachine(part, details?.workOrder, selectedLine)), [centralParts, taskPartRules, details?.workOrder, selectedLine]);
   const incompatibleParts = useMemo(() => parts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && !taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [parts, taskPartRules]);
   const selectedPartRule = selectedPart ? taskPartRules.find(rule => partMatchesTaskRule(selectedPart, rule)) : undefined;
+  const selectedPartModelMismatch = Boolean(selectedPart && selectedPartRule && !isPartCompatibleWithMachine(selectedPart, details?.workOrder, selectedLine));
   const selectedPartMaximum = Number(selectedPartRule?.maxQuantity ?? selectedPartRule?.quantity ?? 0);
   const exceedsTaskPartMaximum = Boolean(selectedPartRule && Number.isFinite(selectedPartMaximum) && selectedPartMaximum > 0 && issueQuantity > selectedPartMaximum);
-  const selectedPartIsMismatch = Boolean(selectedPart && !selectedPartRule);
+  const selectedPartIsTaskMismatch = Boolean(selectedPart && !selectedPartRule);
+  const selectedPartIsMismatch = selectedPartIsTaskMismatch || selectedPartModelMismatch;
   const selectedApprovedPartException = useMemo(() => (details?.partExceptions || []).find((exception: any) => (
     exception.status === 'APPROVED'
     && exception.workOrderLineId === selectedLineId
@@ -240,7 +336,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     ? Number(selectedApprovedPartException.quantityApproved || 0) - Number(selectedApprovedPartException.quantityIssued || 0)
     : 0;
   const exceedsExceptionApproval = Boolean(selectedApprovedPartException && issueQuantity > selectedExceptionAvailableQuantity);
-  const partSelectionReady = Boolean(selectedLineId && selectedPartId && partsWarehouseId && (selectedPartRule || selectedApprovedPartException) && Number.isFinite(issueQuantity) && issueQuantity > 0 && !exceedsTaskPartMaximum && !exceedsExceptionApproval && (selectedPartLots.length === 0 || selectedLotId));
+  const partSelectionReady = Boolean(selectedLineId && selectedPartId && partsWarehouseId && !selectedPartModelMismatch && (selectedPartRule || selectedApprovedPartException) && Number.isFinite(issueQuantity) && issueQuantity > 0 && !exceedsTaskPartMaximum && !exceedsExceptionApproval && (selectedPartLots.length === 0 || selectedLotId));
   const eligibleHandoffWarehouses = useMemo(() => warehouses.filter(item =>
     item.isActive !== false
     && !item.isArchived
@@ -313,8 +409,44 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     const normalizedSerials = replacementSerials.split(/[\n,]+/).map(value => value.trim()).filter(Boolean);
     if (requiredEvidence.includes('REPLACEMENT_SERIAL') && normalizedSerials.length === 0) throw new Error('Hạng mục này bắt buộc ghi serial linh kiện thay thế.');
     const urls = await uploadTechnicalEvidence(workOrderId, selectedLine.id, completionFiles);
-    await requestCompleteTaskLine(workOrderId, selectedLine.id, urls, completionNotes.trim(), { replacementSerials: normalizedSerials });
+    const result = await requestCompleteTaskLine(workOrderId, selectedLine.id, urls, completionNotes.trim(), { replacementSerials: normalizedSerials });
     setCompletionNotes(''); setCompletionFiles([]); setReplacementSerials('');
+    return result;
+  };
+
+  const markSelectedTaskWaitingForParts = async () => {
+    if (!selectedLine) throw new Error('Hãy chọn task đang chờ linh kiện.');
+    if (partsWaitingReason.trim().length < 5) throw new Error('Hãy ghi lý do chờ linh kiện, tối thiểu 5 ký tự.');
+    await requestMarkTaskWaitingForParts(workOrderId, selectedLine.id, partsWaitingReason.trim());
+    setPartsWaitingReason('');
+  };
+
+  const submitTaskAddition = async () => {
+    if (!additionTaskType) throw new Error('Hãy chọn hạng mục phát sinh.');
+    if (additionReason.trim().length < 10) throw new Error('Mô tả lỗi phát sinh cần ít nhất 10 ký tự.');
+    const evidencePhotoUrls = additionFiles.length
+      ? await uploadTechnicalEvidence(workOrderId, `task-addition-${additionTaskType}`, additionFiles)
+      : [];
+    await requestCreateTechnicalTaskAddition(workOrderId, {
+      taskType: additionTaskType,
+      priority: additionPriority,
+      reason: additionReason.trim(),
+      evidencePhotoUrls,
+      additionalCustomerQuote: additionQuote
+    });
+    setAdditionTaskType(''); setAdditionPriority('NORMAL'); setAdditionReason(''); setAdditionFiles([]); setAdditionQuote(0);
+  };
+
+  const decideTaskAddition = async (request: any, decision: 'APPROVED' | 'REJECTED') => {
+    const isCustomerRepair = String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE';
+    await requestDecideTechnicalTaskAddition(workOrderId, request.id, {
+      decision,
+      note: additionDecisionNotes[request.id] || '',
+      ...(decision === 'APPROVED' && isCustomerRepair ? {
+        customerApprovalConfirmed: additionCustomerApproved[request.id] === true,
+        additionalCustomerQuote: Number(additionDecisionQuotes[request.id] ?? request.additionalCustomerQuote ?? 0)
+      } : {})
+    });
   };
 
   const revealPasscode = async () => {
@@ -364,29 +496,44 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
 
           {activeTab === 'OVERVIEW' && canRequestHandoff && <section className="mt-4 rounded-2xl border border-blue-200 bg-blue-50/40 p-5"><h3 className="font-black text-zinc-900">Bàn giao trách nhiệm sang KTV khác</h3><p className="mt-1 text-xs text-zinc-500">Task đang chạy phải dừng, linh kiện phải đối soát. Trách nhiệm chỉ đổi sau khi KTV nhận quét đúng IMEI và chụp ảnh.</p>{workOrder.activeHandoffId ? <div className="mt-3 rounded-xl bg-amber-100 p-3 text-sm font-bold text-amber-800">Đang chờ KTV đích xác nhận bàn giao: {workOrder.activeHandoffId}</div> : <><div className="mt-4 grid gap-3 sm:grid-cols-2"><select value={handoffTargetWarehouseId} onChange={event => setHandoffTargetWarehouseId(event.target.value)} className="h-11 rounded-xl border bg-white px-3 text-sm"><option value="">Chọn kho/KTV nhận</option>{eligibleHandoffWarehouses.map(item => <option key={item.id} value={item.id}>{item.name} · {item.custodianName || item.technicianName}</option>)}</select><input value={handoffScannedImei} onChange={event => setHandoffScannedImei(event.target.value.replace(/\D/g, '').slice(0, 15))} placeholder="Quét IMEI bàn giao" className="h-11 rounded-xl border px-3 font-mono text-sm"/><input value={handoffReason} onChange={event => setHandoffReason(event.target.value)} placeholder="Lý do bàn giao" className="h-11 rounded-xl border px-3 text-sm sm:col-span-2"/><label className="rounded-xl border border-dashed bg-white p-3 text-xs font-bold sm:col-span-2">Ảnh tình trạng lúc bàn giao<input type="file" accept="image/*" multiple onChange={event => setHandoffFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/></label></div><button disabled={saving || !handoffTargetWarehouseId || !handoffScannedImei || handoffReason.trim().length < 5 || handoffFiles.length < 1} onClick={() => void run(requestHandoff, 'Đã tạo yêu cầu; trách nhiệm vẫn thuộc KTV hiện tại cho đến khi người nhận xác nhận.')} className="mt-3 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">Tạo yêu cầu bàn giao</button></>}</section>}
 
-          {activeTab === 'TASKS' && <div className="space-y-4"><section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b px-4 py-3 font-black">Danh sách hạng mục</div><div className="divide-y">{(details?.taskLines || []).map((line: any) => <button key={line.id} onClick={() => setSelectedLineId(line.id)} className={`grid w-full gap-1 p-4 text-left sm:grid-cols-[1fr_170px_130px] ${selectedLineId === line.id ? 'bg-orange-50' : ''}`}><span><strong>{line.taskName}</strong><span className="mt-1 block text-xs text-zinc-500">{line.assigneeName} · {line.priority || 'NORMAL'}</span></span><span className="text-xs font-bold text-zinc-600">SLA: {line.deadlineAt ? new Date(line.deadlineAt).toLocaleString('vi-VN') : '—'}</span><span className="text-xs font-black text-orange-700">{line.status}</span></button>)}</div></section>{selectedLine && ACTIVE_LINE_STATUSES.includes(String(selectedLine.status)) && <section className="rounded-2xl border bg-white p-5"><h3 className="font-black">Báo hoàn thành: {selectedLine.taskName}</h3><textarea value={completionNotes} onChange={event => setCompletionNotes(event.target.value)} rows={3} placeholder="Mô tả kết quả trước/sau, thông số thay đổi..." className="mt-3 w-full rounded-xl border p-3 text-sm"/>{Array.isArray(selectedLine.requiredEvidenceTypes) && selectedLine.requiredEvidenceTypes.includes('REPLACEMENT_SERIAL') && <textarea value={replacementSerials} onChange={event => setReplacementSerials(event.target.value)} rows={2} placeholder="Serial linh kiện thay thế, mỗi serial một dòng" className="mt-3 w-full rounded-xl border p-3 font-mono text-sm"/>}<label className="mt-3 block rounded-xl border border-dashed p-4 text-sm"><span className="font-bold">Ảnh bằng chứng trước/sau</span><input type="file" accept="image/*" multiple onChange={event => setCompletionFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block text-xs text-zinc-500">Đã chọn {completionFiles.length} ảnh, tối đa 8 ảnh · 10MB/ảnh.</span></label><button disabled={saving} onClick={() => void run(completeSelectedTask, 'Đã gửi hạng mục sang chờ KCS.')} className="mt-4 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Hoàn thành hạng mục</button></section>}</div>}
+          {activeTab === 'TASKS' && <div className="space-y-4">
+            <section className="overflow-hidden rounded-2xl border bg-white">
+              <div className="border-b px-4 py-3 font-black">Danh sách hạng mục</div>
+              <div className="divide-y">{(details?.taskLines || []).map((line: any) => <button key={line.id} onClick={() => setSelectedLineId(line.id)} className={`grid w-full gap-1 p-4 text-left sm:grid-cols-[1fr_170px_130px] ${selectedLineId === line.id ? 'bg-orange-50' : ''}`}><span><strong>{line.taskName}</strong><span className="mt-1 block text-xs text-zinc-500">{line.assigneeName} · {line.priority || 'NORMAL'}</span></span><span className="text-xs font-bold text-zinc-600">SLA: {line.deadlineAt ? new Date(line.deadlineAt).toLocaleString('vi-VN') : '—'}</span><span className="text-xs font-black text-orange-700">{String(line.status || '').replaceAll('_', ' ')}</span></button>)}</div>
+            </section>
+
+            {selectedLine?.status === 'WAITING_PARTS' && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-black text-amber-950">Task đang chờ linh kiện</h3><p className="mt-1 text-sm text-amber-800">Xuất linh kiện đúng model ở tab Linh kiện thì task sẽ tự trở lại Đang xử lý. Không thể hoàn thành khi còn chờ linh kiện.</p></section>}
+
+            {selectedLine && String(selectedLine.status || '') === 'IN_PROGRESS' && <section className="rounded-2xl border bg-white p-5"><h3 className="font-black">Báo hoàn thành: {selectedLine.taskName}</h3><p className="mt-1 text-xs text-zinc-500">Có thể chuẩn bị ảnh trong khi sửa. Nhưng trước khi hoàn thành, linh kiện đã giữ/xuất phải được xác nhận dùng, trả hoặc báo hỏng.</p><textarea value={completionNotes} onChange={event => setCompletionNotes(event.target.value)} rows={3} placeholder="Mô tả kết quả trước/sau, thông số thay đổi..." className="mt-3 w-full rounded-xl border p-3 text-sm"/>{Array.isArray(selectedLine.requiredEvidenceTypes) && selectedLine.requiredEvidenceTypes.includes('REPLACEMENT_SERIAL') && <textarea value={replacementSerials} onChange={event => setReplacementSerials(event.target.value)} rows={2} placeholder="Serial linh kiện thay thế, mỗi serial một dòng" className="mt-3 w-full rounded-xl border p-3 font-mono text-sm"/>}<label className="mt-3 block rounded-xl border border-dashed p-4 text-sm"><span className="font-bold">Ảnh bằng chứng trước/sau</span><input type="file" accept="image/*" multiple onChange={event => setCompletionFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block text-xs text-zinc-500">Đã chọn {completionFiles.length} ảnh, tối đa 8 ảnh · 10MB/ảnh.</span></label><button disabled={saving} onClick={() => void run(completeSelectedTask, result => result?.allLinesCompleted ? 'Đã hoàn thành toàn bộ task; phiếu chuyển sang chờ KCS.' : 'Đã hoàn thành task này. Các task còn lại vẫn tiếp tục xử lý.')} className="mt-4 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Hoàn thành hạng mục</button></section>}
+
+            {!['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH', 'CANCELLED'].includes(String(workOrder.status || '')) && <section className="rounded-2xl border border-orange-200 bg-orange-50/60 p-5"><h3 className="font-black text-orange-950">Phát sinh lỗi / hạng mục mới</h3><p className="mt-1 text-xs text-orange-900">KTV gửi mô tả và ảnh. Quản lý duyệt trước khi hệ thống thêm task, hoa hồng và yêu cầu linh kiện. Không sửa ngược lịch sử task cũ.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><select value={additionTaskType} onChange={event => setAdditionTaskType(event.target.value)} className="h-11 rounded-xl border bg-white px-3 text-sm"><option value="">Chọn hạng mục phát sinh</option>{technicalTaskTypes.map(item => <option key={item.taskType} value={item.taskType}>{item.name}</option>)}</select><select value={additionPriority} onChange={event => setAdditionPriority(event.target.value as any)} className="h-11 rounded-xl border bg-white px-3 text-sm"><option value="NORMAL">Bình thường</option><option value="PRIORITY">Ưu tiên</option><option value="URGENT">Khẩn</option></select>{String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE' && <label className="sm:col-span-2"><span className="text-xs font-black text-zinc-600">Báo giá tăng thêm dự kiến</span><input type="number" min={0} value={additionQuote} onChange={event => setAdditionQuote(Math.max(0, Number(event.target.value || 0)))} className="mt-1 h-11 w-full rounded-xl border bg-white px-3"/></label>}<textarea value={additionReason} onChange={event => setAdditionReason(event.target.value)} rows={3} placeholder="Mô tả lỗi mới, nguyên nhân và hướng xử lý (ít nhất 10 ký tự)" className="rounded-xl border bg-white p-3 text-sm sm:col-span-2"/><label className="rounded-xl border border-dashed bg-white p-3 text-xs font-bold sm:col-span-2">Ảnh lỗi phát sinh (không bắt buộc)<input type="file" accept="image/*" multiple onChange={event => setAdditionFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/></label></div><button disabled={saving || !additionTaskType || additionReason.trim().length < 10} onClick={() => void run(submitTaskAddition, 'Đã gửi hạng mục phát sinh để quản lý duyệt.')} className="mt-3 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40">Gửi duyệt hạng mục</button></section>}
+
+            {!!details?.taskAdditionRequests?.length && <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b px-4 py-3 font-black">Hạng mục phát sinh</div><div className="divide-y">{details.taskAdditionRequests.map((request: any) => <div key={request.id} className="p-4"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-bold">{request.taskName || request.taskType}</p><p className="mt-1 text-xs text-zinc-500">{request.requestedByName || 'KTV'} · {request.priority || 'NORMAL'} · {request.status}</p></div><span className={`rounded-full px-2 py-1 text-[11px] font-black ${request.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : request.status === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>{request.status}</span></div><p className="mt-2 rounded-lg bg-zinc-50 p-2 text-sm text-zinc-700">{request.reason}</p>{canManageTaskAdditions && request.status === 'PENDING' && <div className="mt-3 grid gap-2 sm:grid-cols-2"><input value={additionDecisionNotes[request.id] || ''} onChange={event => setAdditionDecisionNotes(current => ({ ...current, [request.id]: event.target.value }))} placeholder="Ghi chú duyệt/từ chối" className="h-10 rounded-lg border px-3 text-sm"/>{String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE' && <div className="space-y-2"><input type="number" min={0} value={additionDecisionQuotes[request.id] ?? Number(request.additionalCustomerQuote || 0)} onChange={event => setAdditionDecisionQuotes(current => ({ ...current, [request.id]: Math.max(0, Number(event.target.value || 0)) }))} placeholder="Báo giá tăng thêm" className="h-10 w-full rounded-lg border px-3 text-sm"/><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={additionCustomerApproved[request.id] === true} onChange={event => setAdditionCustomerApproved(current => ({ ...current, [request.id]: event.target.checked }))}/> Khách đã đồng ý báo giá</label></div>}<div className="flex gap-2 sm:col-span-2"><button disabled={saving} onClick={() => void run(() => decideTaskAddition(request, 'APPROVED'), 'Đã duyệt và thêm task phát sinh vào phiếu.')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-black text-white">Duyệt thêm task</button><button disabled={saving} onClick={() => void run(() => decideTaskAddition(request, 'REJECTED'), 'Đã từ chối hạng mục phát sinh.')} className="rounded-lg bg-red-50 px-3 py-2 text-xs font-black text-red-700">Từ chối</button></div></div>}</div>)}</div></section>}
+          </div>}
 
           {activeTab === 'PARTS' && <div className="space-y-4">
             <section className="rounded-2xl border bg-white p-5">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black">Giữ trước hoặc xuất linh kiện cho task</h3><p className="mt-1 text-xs text-zinc-500">Chỉ linh kiện đúng policy của task mới được phát hành. Chọn sai sẽ chỉ tạo yêu cầu chờ Kho/Admin duyệt, không trừ tồn.</p></div>{isTechnician && <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">Chỉ dùng kho KTV cá nhân</span>}</div>
               {selectedLine && <div className={`mt-4 rounded-xl border p-3 text-sm ${taskPartRules.length ? 'border-emerald-200 bg-emerald-50/60 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}><p className="font-black">Policy linh kiện: {selectedLine.taskName}</p>{taskPartRules.length ? <ul className="mt-2 list-inside list-disc space-y-1 text-xs">{taskPartRules.map((rule, index) => <li key={`${rule.category || rule.sku || rule.partId || 'rule'}-${index}`}>{taskPartRuleLabel(rule)}</li>)}</ul> : <p className="mt-1 text-xs">Task này chưa có quy tắc linh kiện. KTV không được tự giữ/xuất; chỉ có thể gửi yêu cầu ngoại lệ để Kho/Admin duyệt.</p>}</div>}
                {isTechnician && ownTechnicianPartWarehouses.length === 0 && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">Tài khoản KTV này chưa được gắn kho con kỹ thuật. Hãy vào Cài đặt → Kho hàng để gắn đúng kho KTV trước khi xuất linh kiện.</div>}
-               {isTechnician && taskPartRules.length > 0 && compatibleParts.length === 0 && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800">Kho KTV cá nhân chưa có linh kiện đúng task hoặc đã hết tồn. Mở <strong>Kho Linh Kiện &amp; Phụ Kiện → Linh kiện theo kho</strong>, chọn <strong>Yêu cầu Kho Tổng</strong> để cấp phát về kho cá nhân trước khi xuất.</div>}
+               {isTechnician && taskPartRules.length > 0 && compatibleParts.length === 0 && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800">Kho KTV cá nhân chưa có linh kiện đúng <strong>task và model máy</strong>, hoặc đã hết tồn. Hãy yêu cầu Kho Tổng cấp đúng linh kiện trước khi xuất.</div>}
+               {selectedLine && ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS'].includes(String(selectedLine.status || '')) && <section className="mt-3 rounded-2xl border border-amber-200 bg-amber-50/70 p-3"><p className="text-sm font-black text-amber-950">Không có linh kiện ngay?</p><p className="mt-1 text-xs text-amber-800">Đánh dấu riêng task này là Chờ linh kiện. Có thể làm ngay sau khi task được giao; những task khác của cùng máy vẫn tiếp tục làm.</p><div className="mt-2 flex flex-col gap-2 sm:flex-row"><input value={partsWaitingReason} onChange={event => setPartsWaitingReason(event.target.value)} placeholder="Ví dụ: chờ màn IP12PM từ Kho Tổng" className="h-10 min-w-0 flex-1 rounded-lg border border-amber-300 bg-white px-3 text-sm"/><button disabled={saving || partsWaitingReason.trim().length < 5} onClick={() => void run(markSelectedTaskWaitingForParts, 'Task đã chuyển sang Chờ linh kiện; các task khác không bị dừng.')} className="rounded-lg bg-amber-600 px-4 py-2 text-xs font-black text-white disabled:opacity-40">Đánh dấu chờ linh kiện</button></div></section>}
                {isTechnician && taskPartRules.length > 0 && centralPartWarehouse && <section className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/70 p-3"><div><p className="text-sm font-black text-sky-950">Yêu cầu Kho Tổng cấp linh kiện</p><p className="mt-1 text-xs text-sky-800">Gửi yêu cầu ngay tại task này. Kho/Admin duyệt xong, linh kiện sẽ về kho cá nhân của bạn để xuất đúng quy trình.</p></div><div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_100px_auto]"><select value={orderPartId} onChange={event => setOrderPartId(event.target.value)} className="h-10 min-w-0 rounded-xl border border-sky-200 bg-white px-3 text-xs"><option value="">{orderableCentralParts.length ? 'Chọn linh kiện đúng task ở Kho Tổng' : 'Kho Tổng chưa có linh kiện đúng task'}</option>{orderableCentralParts.map(part => <option key={part.id} value={part.id}>{part.name} · còn {part.availableQuantity}</option>)}</select><input type="number" min={1} value={orderQuantity} onChange={event => setOrderQuantity(Number(event.target.value))} className="h-10 min-w-0 rounded-xl border border-sky-200 bg-white px-3 text-sm"/><button disabled={saving || !selectedLineId || !partsWarehouseId || !orderPartId || !Number.isFinite(orderQuantity) || orderQuantity <= 0} onClick={() => void run(async () => { const part = orderableCentralParts.find(item => item.id === orderPartId); if (!part) throw new Error('Hãy chọn linh kiện đúng task từ Kho Tổng.'); await requestTechnicalPartStockRequest({ sourceWarehouseId: centralPartWarehouse.id, targetWarehouseId: partsWarehouseId, partId: part.id, quantity: orderQuantity, reason: `Cấp ${part.name || part.sku} cho task ${selectedLine?.taskName || selectedLineId}.`, workOrderId, workOrderLineId: selectedLineId }); setOrderQuantity(1); }, 'Đã gửi yêu cầu Kho Tổng. Linh kiện chỉ về kho KTV sau khi được duyệt.')} className="h-10 rounded-xl bg-sky-700 px-3 text-xs font-black text-white disabled:opacity-40">Yêu cầu cấp</button></div></section>}
               <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <select value={selectedLineId} onChange={event => { setSelectedLineId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm">{(details?.taskLines || []).map((line: any) => <option key={line.id} value={line.id}>{line.taskName}</option>)}</select>
                 <select value={partsWarehouseId} onChange={event => { setPartsWarehouseId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} disabled={isTechnician && ownTechnicianPartWarehouses.length <= 1} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{isTechnician ? 'Kho KTV chưa được gắn' : 'Chọn kho xuất'}</option>{selectablePartWarehouses.map(item => <option key={item.id} value={item.id}>{item.name}{isTechnician ? ' · kho cá nhân' : ''}</option>)}</select>
-                <select value={selectedPartId} onChange={event => { setSelectedPartId(event.target.value); setPartExceptionReason(''); }} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm"><option value="">Chọn linh kiện</option>{compatibleParts.length > 0 && <optgroup label="Đúng task">{compatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}{incompatibleParts.length > 0 && <optgroup label="Không đúng task — cần duyệt ngoại lệ">{incompatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}</select>
+                <select value={selectedPartId} onChange={event => { setSelectedPartId(event.target.value); setPartExceptionReason(''); }} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm"><option value="">Chọn linh kiện</option>{compatibleParts.length > 0 && <optgroup label="Đúng task và đúng model">{compatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}{wrongModelParts.length > 0 && <optgroup label="Sai model — không thể xuất">{wrongModelParts.map(item => <option key={item.id} value={item.id} disabled>{item.name} · model không khớp</option>)}</optgroup>}{incompatibleParts.length > 0 && <optgroup label="Không đúng task — cần duyệt ngoại lệ">{incompatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}</select>
                 <select value={selectedLotId} onChange={event => setSelectedLotId(event.target.value)} disabled={selectedPartLots.length === 0} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{selectedPartLots.length ? 'Chọn lô xuất' : 'Không quản lý theo lô'}</option>{selectedPartLots.map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotCode} · còn {lot.availableQuantity}</option>)}</select>
                 <input type="number" min={1} value={issueQuantity} onChange={event => setIssueQuantity(Number(event.target.value))} className="h-11 min-w-0 w-full rounded-xl border px-3"/>
               </div>
               {selectedPartRule && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">✓ Linh kiện phù hợp: {taskPartRuleLabel(selectedPartRule)}</p>}
               {exceedsTaskPartMaximum && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Số lượng đang chọn vượt tối đa {selectedPartMaximum} cho task này. Hãy giảm số lượng hoặc gửi yêu cầu ngoại lệ.</p>}
-              {selectedPartIsMismatch && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3"><p className="text-sm font-black text-amber-900">Linh kiện này không khớp task đã chọn</p>{selectedApprovedPartException ? <p className="mt-1 text-xs font-semibold text-emerald-800">Ngoại lệ đã được Kho/Admin duyệt ({selectedExceptionAvailableQuantity} còn lại). Có thể xuất ngay, nhưng không thể giữ trước linh kiện sai task.</p> : selectedPendingPartException ? <p className="mt-1 text-xs font-semibold text-amber-800">Đã gửi yêu cầu ngoại lệ, đang chờ Kho/Admin xét duyệt. Tồn kho chưa thay đổi.</p> : <><p className="mt-1 text-xs text-amber-800">Không thể tự xuất linh kiện sai task. Nêu lý do để gửi yêu cầu, sau đó Kho/Admin sẽ xét duyệt trước khi có thể dùng.</p><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={partExceptionReason} onChange={event => setPartExceptionReason(event.target.value)} placeholder="Lý do cần dùng linh kiện này (ít nhất 5 ký tự)" className="h-10 min-w-0 flex-1 rounded-lg border border-amber-300 bg-white px-3 text-sm"/><button disabled={saving || !selectedLineId || !selectedPartId || !partsWarehouseId || issueQuantity <= 0 || partExceptionReason.trim().length < 5 || (selectedPartLots.length > 0 && !selectedLotId)} onClick={() => void run(async () => { await requestTechnicalPartException(workOrderId, { lineId: selectedLineId, partId: selectedPartId, warehouseId: partsWarehouseId, lotId: selectedLotId || undefined, quantity: issueQuantity, reason: partExceptionReason.trim() }); setPartExceptionReason(''); }, 'Đã gửi yêu cầu ngoại lệ; linh kiện chưa được xuất cho đến khi Kho/Admin duyệt.')} className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Yêu cầu duyệt ngoại lệ</button></div></>}</div>}
+              {selectedPartModelMismatch && <div className="mt-3 rounded-xl border border-red-300 bg-red-50 p-3"><p className="text-sm font-black text-red-900">Linh kiện không tương thích với model máy</p><p className="mt-1 text-xs text-red-800">Không thể dùng duyệt ngoại lệ để xuất linh kiện sai model. Hãy chọn đúng model hoặc bổ sung tương thích của linh kiện trong Danh mục.</p></div>}
+              {selectedPartIsTaskMismatch && <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3"><p className="text-sm font-black text-amber-900">Linh kiện này không khớp task đã chọn</p>{selectedApprovedPartException ? <p className="mt-1 text-xs font-semibold text-emerald-800">Ngoại lệ đã được Kho/Admin duyệt ({selectedExceptionAvailableQuantity} còn lại). Có thể xuất ngay, nhưng không thể giữ trước linh kiện sai task.</p> : selectedPendingPartException ? <p className="mt-1 text-xs font-semibold text-amber-800">Đã gửi yêu cầu ngoại lệ, đang chờ Kho/Admin xét duyệt. Tồn kho chưa thay đổi.</p> : <><p className="mt-1 text-xs text-amber-800">Không thể tự xuất linh kiện sai task. Nêu lý do để gửi yêu cầu, sau đó Kho/Admin sẽ xét duyệt trước khi có thể dùng.</p><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={partExceptionReason} onChange={event => setPartExceptionReason(event.target.value)} placeholder="Lý do cần dùng linh kiện này (ít nhất 5 ký tự)" className="h-10 min-w-0 flex-1 rounded-lg border border-amber-300 bg-white px-3 text-sm"/><button disabled={saving || !selectedLineId || !selectedPartId || !partsWarehouseId || issueQuantity <= 0 || partExceptionReason.trim().length < 5 || (selectedPartLots.length > 0 && !selectedLotId)} onClick={() => void run(async () => { await requestTechnicalPartException(workOrderId, { lineId: selectedLineId, partId: selectedPartId, warehouseId: partsWarehouseId, lotId: selectedLotId || undefined, quantity: issueQuantity, reason: partExceptionReason.trim() }); setPartExceptionReason(''); }, 'Đã gửi yêu cầu ngoại lệ; linh kiện chưa được xuất cho đến khi Kho/Admin duyệt.')} className="rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Yêu cầu duyệt ngoại lệ</button></div></>}</div>}
               {exceedsExceptionApproval && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Số lượng đang chọn vượt quyền ngoại lệ còn lại ({selectedExceptionAvailableQuantity}). Hãy giảm số lượng hoặc xin duyệt thêm.</p>}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button disabled={saving || !partSelectionReady || selectedPartIsMismatch} onClick={() => void run(() => requestReserveSparePart(workOrderId, selectedLineId, selectedPartId, partsWarehouseId, issueQuantity, selectedLotId || undefined), 'Đã giữ linh kiện đúng task.' )} className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">Giữ trước</button>
-                <button disabled={saving || !partSelectionReady} onClick={() => void run(() => requestIssueSparePart(workOrderId, selectedLineId, selectedPartId, partsWarehouseId, issueQuantity, selectedLotId || undefined, undefined, selectedApprovedPartException?.id), selectedPartIsMismatch ? 'Đã xuất linh kiện theo ngoại lệ đã được duyệt và snapshot giá vốn.' : 'Đã xuất linh kiện đúng task và snapshot giá vốn.' )} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Package className="mr-2 inline h-4 w-4"/>Xuất ngay</button>
+                <button disabled={saving || !partSelectionReady} onClick={() => void run(() => requestIssueSparePart(workOrderId, selectedLineId, selectedPartId, partsWarehouseId, issueQuantity, selectedLotId || undefined, undefined, selectedApprovedPartException?.id), selectedPartIsTaskMismatch ? 'Đã xuất linh kiện theo ngoại lệ đã được duyệt và snapshot giá vốn.' : 'Đã xuất linh kiện đúng task, đúng model và đã snapshot giá vốn.' )} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50"><Package className="mr-2 inline h-4 w-4"/>Xuất ngay</button>
               </div>
             </section>
 

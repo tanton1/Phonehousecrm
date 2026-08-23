@@ -13,7 +13,13 @@ import {
   processReserveTechnicalPart,
   processReturnTechnicalPart
 } from '../server/services/technicalCostService';
-import { processAcceptTechnicalHandoff, processCompleteTaskLine, processRequestTechnicalHandoff } from '../server/services/technicalService';
+import {
+  processAcceptTechnicalHandoff,
+  processCompleteTaskLine,
+  processCreateTechnicalTaskAdditionRequest,
+  processDecideTechnicalTaskAdditionRequest,
+  processRequestTechnicalHandoff
+} from '../server/services/technicalService';
 
 type Ref = { col: string; id: string };
 type Query = { col: string; field: string; value: unknown; query: true };
@@ -389,5 +395,58 @@ describe('Technical per-IMEI cost engine', () => {
       'Đã hoàn thành đầy đủ kiểm tra sau sửa.',
       tech
     )).rejects.toThrow('INVALID_EVIDENCE');
+  });
+
+  it('accepts iPhone aliases such as 12 prm and iPhone 12 Pro Max as one compatible model', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', model: '12 prm' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'MAN_HINH', quantity: 1 }] } },
+      spareParts: { SCREEN_01: { id: 'SCREEN_01', sku: 'MH-IP12PM-ZIN', name: 'Màn iPhone 12 Pro Max', category: 'MH', branchId: 'CN01', warehouseId: 'KHO_KTV_NAM', stockQuantity: 1, reservedQuantity: 0, compatibleModels: ['iPhone 12 Pro Max'] } },
+      warehouses: { KHO_KTV_NAM: { id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
+    });
+    const result = await processReserveTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1, idempotencyKey: 'iphone-model-alias-reserve-0001'
+    }, tech);
+    expect(result.reservation.partId).toBe('SCREEN_01');
+  });
+
+  it('lets KTV request stock immediately after assignment and marks only that task waiting for parts', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'ASSIGNED', branchId: 'CN01', model: 'iPhone 15 Pro' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'ASSIGNED', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'PIN', quantity: 1 }] } },
+      spareParts: { PIN_MAIN: { id: 'PIN_MAIN', sku: 'PIN-IP15P', name: 'Pin 15 Pro', category: 'PIN', branchId: 'CN01', warehouseId: 'KHO_TONG', stockQuantity: 3, reservedQuantity: 0, compatibleModels: ['IP15P'] } },
+      warehouses: {
+        KHO_TONG: { id: 'KHO_TONG', branchId: 'CN01', type: 'CENTRAL', isActive: true },
+        KHO_KTV_NAM: { id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'TECHNICIAN_SUB', parentWarehouseId: 'KHO_TONG', custodianUid: 'TECH_01', isActive: true }
+      }
+    });
+    const result = await processCreateTechnicalPartStockRequest(store.db, {
+      sourceWarehouseId: 'KHO_TONG', targetWarehouseId: 'KHO_KTV_NAM', partId: 'PIN_MAIN', quantity: 1,
+      reason: 'Kho cá nhân hết pin đúng model để thực hiện task.', workOrderId: 'WO_01', workOrderLineId: 'LINE_01', idempotencyKey: 'waiting-parts-request-0001'
+    }, tech);
+    expect(result.request.status).toBe('PENDING');
+    expect(store.get('technicalWorkOrderLines', 'LINE_01')).toMatchObject({ status: 'WAITING_PARTS' });
+    expect(store.get('technicalWorkOrders', 'WO_01')).toMatchObject({ status: 'IN_PROGRESS' });
+  });
+
+  it('creates an approved additional task only after customer approval is confirmed', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', workOrderType: 'CUSTOMER_SERVICE', imei: '12345', model: 'iPhone 15', currentCustodianUid: 'TECH_01', taskLineIds: ['LINE_01'], customerApprovedQuote: 100_000, totalCommissionAmount: 0, costPostingStatus: 'NOT_APPLICABLE' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', assigneeUid: 'TECH_01', assigneeName: 'KTV Nam' } },
+      technicalTaskTypes: { THAY_CAM: { id: 'THAY_CAM', taskCode: 'CAM', name: 'Thay camera', baseCommission: 80_000, laborCostToDevice: 80_000, normalSlaHours: 4, prioritySlaHours: 2, urgentSlaHours: 1, priorityMultiplier: { NORMAL: 1, PRIORITY: 1.2, URGENT: 1.5 }, requiresQc: true, isActive: true, version: 'V1', requiredPartTemplates: [{ category: 'CAMERA', quantity: 1 }] } }
+    });
+    const created = await processCreateTechnicalTaskAdditionRequest(store.db, 'WO_01', {
+      taskType: 'THAY_CAM', reason: 'Phát hiện thêm camera sau không lấy nét được khi kiểm tra.', additionalCustomerQuote: 350_000, idempotencyKey: 'task-addition-create-0001'
+    }, tech);
+    await expect(processDecideTechnicalTaskAdditionRequest(store.db, 'WO_01', created.request.id, {
+      decision: 'APPROVED', idempotencyKey: 'task-addition-decision-denied-0001'
+    }, manager)).rejects.toThrow('CUSTOMER_APPROVAL_REQUIRED_FOR_ADDITIONAL_TASK');
+    const approved = await processDecideTechnicalTaskAdditionRequest(store.db, 'WO_01', created.request.id, {
+      decision: 'APPROVED', customerApprovalConfirmed: true, additionalCustomerQuote: 350_000, idempotencyKey: 'task-addition-decision-approved-0001'
+    }, manager);
+    expect(approved.lineId).toBeTruthy();
+    expect(store.get('technicalTaskAdditionRequests', created.request.id)).toMatchObject({ status: 'APPROVED', lineId: approved.lineId });
+    expect(store.get('technicalWorkOrders', 'WO_01')).toMatchObject({ customerApprovedQuote: 450_000 });
+    expect(store.get('technicalWorkOrderLines', approved.lineId!)).toMatchObject({ taskType: 'THAY_CAM', status: 'ASSIGNED', additionRequestId: created.request.id });
   });
 });

@@ -16,6 +16,16 @@ export interface CreateWorkOrderLineInput {
   assigneeName: string;
 }
 
+export interface TechnicalTaskAdditionInput {
+  taskType: string;
+  priority?: TechnicalPriority;
+  reason: string;
+  evidencePhotoUrls?: string[];
+  /** For customer repairs, this is the extra amount NVBH has quoted. */
+  additionalCustomerQuote?: number;
+  idempotencyKey: string;
+}
+
 export interface CreateWorkOrderInput {
   deviceId?: string;
   imei: string;
@@ -64,6 +74,24 @@ function canAccessBranch(user: any, targetBranchId?: string): boolean {
   const userBranchId = user?.branchId;
   const assigned = user?.assignedBranchIds || [];
   return userBranchId === targetBranchId || assigned.includes(targetBranchId);
+}
+
+function isTechnicalSupervisor(user: { role?: string }): boolean {
+  return ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(user.role || '').toUpperCase());
+}
+
+function isClosedWorkOrder(status: unknown): boolean {
+  return ['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH', 'CANCELLED'].includes(String(status || ''));
+}
+
+function technicalIdempotencyId(scope: string, key: string): string {
+  return crypto.createHash('sha256').update(`${scope}:${key}`).digest('hex');
+}
+
+function requireTechnicalIdempotencyKey(value: unknown): string {
+  const key = String(value || '').trim();
+  if (key.length < 8 || key.length > 160) throw new Error('IDEMPOTENCY_KEY_REQUIRED');
+  return key;
 }
 
 export function isTechnicalEvidenceUrlForWorkOrder(value: unknown, workOrderId: string): boolean {
@@ -843,6 +871,334 @@ export async function processStartTaskLine(
     });
 
     return { success: true, lineId };
+  });
+}
+
+/**
+ * A technician can explicitly pause only the affected task while waiting for
+ * stock, a supplier confirmation, or a replacement part.  This keeps the
+ * Kanban truthful without stopping other tasks on the same device.
+ */
+export async function processMarkTaskWaitingForParts(
+  db: Firestore,
+  workOrderId: string,
+  lineId: string,
+  reasonInput: string,
+  actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] },
+  idempotencyKeyInput: string
+): Promise<{ success: boolean; lineId: string; status: 'WAITING_PARTS'; idempotentReplay?: boolean }> {
+  const reason = String(reasonInput || '').trim();
+  if (reason.length < 5) throw new Error('PARTS_WAITING_REASON_REQUIRED');
+  const key = requireTechnicalIdempotencyKey(idempotencyKeyInput);
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  const lineRef = db.collection('technicalWorkOrderLines').doc(lineId);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`TASK_WAITING_PARTS:${workOrderId}:${lineId}`, key));
+  return db.runTransaction(async transaction => {
+    const [idemSnap, woSnap, lineSnap] = await Promise.all([
+      transaction.get(idemRef),
+      transaction.get(woRef),
+      transaction.get(lineRef)
+    ]);
+    if (idemSnap.exists) return { success: true, lineId, status: 'WAITING_PARTS' as const, idempotentReplay: true };
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (!lineSnap.exists) throw new Error('LINE_NOT_FOUND');
+    const workOrder = woSnap.data()!;
+    const line = lineSnap.data()!;
+    if (String(line.workOrderId || '') !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
+    if (!canAccessBranch(actor, String(workOrder.branchId || line.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (!isTechnicalSupervisor(actor) && String(line.assigneeUid || '') !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
+    if (isClosedWorkOrder(workOrder.status)) throw new Error('WORK_ORDER_CLOSED');
+    const transition = canTransitionTaskLine(line.status as TaskLineStatus, 'WAITING_PARTS');
+    if (!transition.allowed) throw new Error(transition.reason || 'TASK_WAITING_PARTS_TRANSITION_INVALID');
+    const now = new Date().toISOString();
+    transaction.update(lineRef, {
+      status: 'WAITING_PARTS',
+      partsWaitingAt: now,
+      partsWaitingReason: reason,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(woRef, { status: 'IN_PROGRESS', updatedAt: FieldValue.serverTimestamp() });
+    transaction.set(db.collection('technicalWorkOrderEvents').doc(`EVT_PARTS_WAIT_${lineId}_${Date.now()}`), {
+      workOrderId,
+      branchId: workOrder.branchId,
+      lineId,
+      eventType: 'TASK_WAITING_PARTS',
+      reason,
+      actorUid: actor.uid,
+      actorName: actor.name || actor.uid,
+      occurredAt: now,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    transaction.set(idemRef, { scope: 'TASK_WAITING_PARTS', workOrderId, lineId, createdAt: now });
+    return { success: true, lineId, status: 'WAITING_PARTS' as const };
+  });
+}
+
+/**
+ * KTV reports a newly discovered fault.  It deliberately creates a pending
+ * request first: no hidden task, commission, cost or customer charge appears
+ * until a supervisor approves it.
+ */
+export async function processCreateTechnicalTaskAdditionRequest(
+  db: Firestore,
+  workOrderId: string,
+  input: TechnicalTaskAdditionInput,
+  actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
+): Promise<{ request: any; idempotentReplay?: boolean }> {
+  const taskType = String(input.taskType || '').trim();
+  const reason = String(input.reason || '').trim();
+  const key = requireTechnicalIdempotencyKey(input.idempotencyKey);
+  const evidencePhotoUrls = Array.isArray(input.evidencePhotoUrls)
+    ? input.evidencePhotoUrls.map(value => String(value || '').trim()).filter(Boolean)
+    : [];
+  const additionalCustomerQuote = Number(input.additionalCustomerQuote || 0);
+  if (!taskType || reason.length < 10) throw new Error('TASK_ADDITION_FIELDS_REQUIRED');
+  if (!Number.isFinite(additionalCustomerQuote) || additionalCustomerQuote < 0) throw new Error('TASK_ADDITION_QUOTE_INVALID');
+  if (evidencePhotoUrls.length > 6 || evidencePhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+    throw new Error('TASK_ADDITION_EVIDENCE_INVALID');
+  }
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  const configRef = db.collection('technicalTaskTypes').doc(taskType);
+  const linesQuery = db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`TASK_ADDITION_CREATE:${workOrderId}`, key));
+  return db.runTransaction(async transaction => {
+    const [idemSnap, woSnap, configSnap, linesSnap] = await Promise.all([
+      transaction.get(idemRef),
+      transaction.get(woRef),
+      transaction.get(configRef),
+      transaction.get(linesQuery)
+    ]);
+    if (idemSnap.exists) {
+      const requestRef = db.collection('technicalTaskAdditionRequests').doc(String(idemSnap.data()?.requestId || ''));
+      const requestSnap = await transaction.get(requestRef);
+      if (!requestSnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      return { request: requestSnap.data(), idempotentReplay: true };
+    }
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (!configSnap.exists) throw new Error('TASK_TYPE_NOT_CONFIGURED');
+    const workOrder = woSnap.data()!;
+    const config = { id: configSnap.id, ...configSnap.data() } as TechnicalTaskTypeRecord;
+    const lines = linesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    if (isClosedWorkOrder(workOrder.status)) throw new Error('WORK_ORDER_CLOSED_CREATE_NEW_WORK_ORDER');
+    if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (config.isActive === false) throw new Error('TASK_TYPE_INACTIVE');
+    const assignedLine = lines.find(line => String(line.assigneeUid || '') === actor.uid)
+      || lines.find(line => String(line.assigneeUid || '') === String(workOrder.currentCustodianUid || ''))
+      || lines[0];
+    if (!assignedLine || (!isTechnicalSupervisor(actor) && String(assignedLine.assigneeUid || '') !== actor.uid)) {
+      throw new Error('TECHNICIAN_NOT_ASSIGNED');
+    }
+    const now = new Date().toISOString();
+    const requestId = `TAR_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const request = {
+      id: requestId,
+      status: 'PENDING',
+      workOrderId,
+      branchId: workOrder.branchId,
+      taskType,
+      taskCode: config.taskCode || taskType,
+      taskName: config.name || taskType,
+      priority: input.priority || 'NORMAL',
+      reason,
+      evidencePhotoUrls,
+      additionalCustomerQuote,
+      assigneeUid: assignedLine.assigneeUid,
+      assigneeName: assignedLine.assigneeName || workOrder.currentCustodianName || null,
+      requestedByUid: actor.uid,
+      requestedByName: actor.name || actor.uid,
+      requestedAt: now,
+      createdAt: now,
+      updatedAt: now
+    };
+    transaction.set(db.collection('technicalTaskAdditionRequests').doc(requestId), request);
+    transaction.set(db.collection('technicalWorkOrderEvents').doc(`EVT_TASK_ADD_REQUEST_${requestId}`), {
+      workOrderId,
+      branchId: workOrder.branchId,
+      eventType: 'TASK_ADDITION_REQUESTED',
+      requestId,
+      taskType,
+      taskName: request.taskName,
+      reason,
+      actorUid: actor.uid,
+      actorName: actor.name || actor.uid,
+      occurredAt: now,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    transaction.set(idemRef, { scope: 'TASK_ADDITION_CREATE', workOrderId, requestId, createdAt: now });
+    return { request };
+  });
+}
+
+export async function processDecideTechnicalTaskAdditionRequest(
+  db: Firestore,
+  workOrderId: string,
+  requestId: string,
+  input: {
+    decision: 'APPROVED' | 'REJECTED';
+    note?: string;
+    customerApprovalConfirmed?: boolean;
+    additionalCustomerQuote?: number;
+    idempotencyKey: string;
+  },
+  actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
+): Promise<{ request: any; lineId?: string; idempotentReplay?: boolean }> {
+  if (!isTechnicalSupervisor(actor)) throw new Error('TASK_ADDITION_APPROVAL_FORBIDDEN');
+  const decision = String(input.decision || '').toUpperCase() as 'APPROVED' | 'REJECTED';
+  const key = requireTechnicalIdempotencyKey(input.idempotencyKey);
+  if (!['APPROVED', 'REJECTED'].includes(decision)) throw new Error('TASK_ADDITION_DECISION_INVALID');
+  const note = String(input.note || '').trim();
+  const additionalCustomerQuote = Number(input.additionalCustomerQuote || 0);
+  if (!Number.isFinite(additionalCustomerQuote) || additionalCustomerQuote < 0) throw new Error('TASK_ADDITION_QUOTE_INVALID');
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  const requestRef = db.collection('technicalTaskAdditionRequests').doc(requestId);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`TASK_ADDITION_DECISION:${requestId}`, key));
+  return db.runTransaction(async transaction => {
+    const [idemSnap, woSnap, requestSnap] = await Promise.all([
+      transaction.get(idemRef),
+      transaction.get(woRef),
+      transaction.get(requestRef)
+    ]);
+    if (idemSnap.exists) {
+      if (!requestSnap.exists) throw new Error('IDEMPOTENCY_RECORD_CORRUPTED');
+      return { request: requestSnap.data(), lineId: String(idemSnap.data()?.lineId || '') || undefined, idempotentReplay: true };
+    }
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (!requestSnap.exists) throw new Error('TASK_ADDITION_REQUEST_NOT_FOUND');
+    const workOrder = woSnap.data()!;
+    const request = requestSnap.data()!;
+    if (String(request.workOrderId || '') !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
+    if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (String(request.status || '') !== 'PENDING') throw new Error('TASK_ADDITION_ALREADY_DECIDED');
+    if (isClosedWorkOrder(workOrder.status)) throw new Error('WORK_ORDER_CLOSED_CREATE_NEW_WORK_ORDER');
+    if (String(workOrder.costPostingStatus || '') === 'POSTED') throw new Error('COST_ALREADY_POSTED_CREATE_NEW_WORK_ORDER_OR_REVERSAL');
+    const configRef = db.collection('technicalTaskTypes').doc(String(request.taskType || ''));
+    const linesQuery = db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId);
+    // Transaction reads must all happen before the first write.
+    const [configSnap, linesSnap] = await Promise.all([transaction.get(configRef), transaction.get(linesQuery)]);
+    if (!configSnap.exists) throw new Error('TASK_TYPE_NOT_CONFIGURED');
+    const config = { id: configSnap.id, ...configSnap.data() } as TechnicalTaskTypeRecord;
+    if (config.isActive === false) throw new Error('TASK_TYPE_INACTIVE');
+    const existingLines = linesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    if (decision === 'REJECTED') {
+      const rejected = { ...request, status: 'REJECTED', decisionNote: note, decidedByUid: actor.uid, decidedByName: actor.name || actor.uid, decidedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      transaction.update(requestRef, rejected);
+      transaction.set(idemRef, { scope: 'TASK_ADDITION_DECISION', requestId, createdAt: new Date().toISOString() });
+      return { request: rejected };
+    }
+    if (String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE' && input.customerApprovalConfirmed !== true) {
+      throw new Error('CUSTOMER_APPROVAL_REQUIRED_FOR_ADDITIONAL_TASK');
+    }
+    const priority = (request.priority || 'NORMAL') as TechnicalPriority;
+    const quote = calculateTechnicalTaskQuote(config, priority, new Date().toISOString());
+    const now = new Date().toISOString();
+    const lineId = `WOL_${workOrderId}_ADD_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const assignedLine = existingLines.find(line => String(line.assigneeUid || '') === String(request.assigneeUid || '')) || existingLines[0];
+    if (!assignedLine) throw new Error('WORK_ORDER_LINES_REQUIRED');
+    const shouldReopen = ['TECH_COMPLETED', 'QC_PENDING', 'QC_PASSED', 'CUSTOMER_READY', 'QC_FAILED_REWORK'].includes(String(workOrder.status || ''));
+    const addedLine = {
+      id: lineId,
+      workOrderId,
+      deviceId: workOrder.deviceId || null,
+      imei: workOrder.imei,
+      model: workOrder.model,
+      modelCode: workOrder.modelCode || null,
+      catalogModelCode: workOrder.catalogModelCode || null,
+      branchId: workOrder.branchId,
+      taskType: String(request.taskType),
+      taskCode: config.taskCode,
+      taskName: config.name,
+      priority,
+      assigneeUid: request.assigneeUid || assignedLine.assigneeUid,
+      assigneeName: request.assigneeName || assignedLine.assigneeName,
+      ratePolicyId: config.id,
+      ratePolicyVersion: config.version,
+      commissionAmount: quote.commissionAmount,
+      laborCostToDevice: quote.laborCostToDevice,
+      capitalizeLaborCost: quote.capitalizeLaborCost,
+      reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
+      status: 'ASSIGNED',
+      requiredParts: config.requiredPartTemplates || [],
+      intakeIssueTypes: config.intakeIssueTypes || [],
+      requiredEvidenceTypes: config.requiredEvidenceTypes || [],
+      qcChecklistTemplateId: config.qcChecklistTemplateId || null,
+      evidencePhotoUrls: [],
+      addedAfterDiagnosis: true,
+      additionRequestId: requestId,
+      additionReason: request.reason,
+      createdAt: now,
+      updatedAt: now
+    };
+    const approved = {
+      ...request,
+      status: 'APPROVED',
+      decisionNote: note,
+      customerApprovalConfirmed: String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE' ? true : null,
+      additionalCustomerQuote,
+      lineId,
+      decidedByUid: actor.uid,
+      decidedByName: actor.name || actor.uid,
+      decidedAt: now,
+      updatedAt: now
+    };
+    transaction.set(db.collection('technicalWorkOrderLines').doc(lineId), addedLine);
+    transaction.set(db.collection('commissionLedger').doc(`COMM_${lineId}`), {
+      id: `COMM_${lineId}`,
+      staffUid: addedLine.assigneeUid,
+      staffName: addedLine.assigneeName,
+      workOrderId,
+      workOrderLineId: lineId,
+      workOrderType: workOrder.workOrderType,
+      branchId: workOrder.branchId,
+      imei: workOrder.imei,
+      taskCode: config.taskCode,
+      taskName: config.name,
+      amount: quote.commissionAmount,
+      commissionPayable: quote.commissionAmount,
+      laborCostToDevice: quote.laborCostToDevice,
+      capitalizeToDevice: quote.capitalizeLaborCost,
+      policyId: config.id,
+      policyVersion: config.version,
+      reworkCycle: Number(workOrder.reworkCount || 0),
+      status: 'PENDING',
+      eligibilityRequiresStockReturn: workOrder.eligibilityRequiresStockReturn === true,
+      eligibilityRequiresCustomerDelivery: workOrder.eligibilityRequiresCustomerDelivery === true,
+      payrollPeriod: now.slice(0, 7),
+      additionRequestId: requestId,
+      createdAt: now
+    });
+    transaction.update(requestRef, approved);
+    transaction.update(woRef, {
+      taskLineIds: [...new Set([...(Array.isArray(workOrder.taskLineIds) ? workOrder.taskLineIds : existingLines.map(line => line.id)), lineId])],
+      totalCommissionAmount: Number(workOrder.totalCommissionAmount || 0) + quote.commissionAmount,
+      ...(String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE' ? {
+        customerApprovedQuote: Number(workOrder.customerApprovedQuote || 0) + additionalCustomerQuote,
+        additionalCustomerQuote: Number(workOrder.additionalCustomerQuote || 0) + additionalCustomerQuote
+      } : {}),
+      ...(shouldReopen ? {
+        status: 'IN_PROGRESS',
+        qcStatus: 'REOPENED_FOR_ADDITIONAL_TASK',
+        reopenedAt: now,
+        reopenedByUid: actor.uid,
+        reopenedReason: request.reason
+      } : {}),
+      updatedAt: now
+    });
+    transaction.set(db.collection('technicalWorkOrderEvents').doc(`EVT_TASK_ADD_APPROVED_${requestId}`), {
+      workOrderId,
+      branchId: workOrder.branchId,
+      eventType: shouldReopen ? 'WORK_ORDER_REOPENED_FOR_ADDITIONAL_TASK' : 'TASK_ADDITION_APPROVED',
+      requestId,
+      lineId,
+      taskType: request.taskType,
+      taskName: config.name,
+      reason: request.reason,
+      actorUid: actor.uid,
+      actorName: actor.name || actor.uid,
+      occurredAt: now,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    transaction.set(idemRef, { scope: 'TASK_ADDITION_DECISION', requestId, lineId, createdAt: now });
+    return { request: approved, lineId };
   });
 }
 

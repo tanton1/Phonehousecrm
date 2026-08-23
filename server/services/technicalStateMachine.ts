@@ -25,7 +25,10 @@ export type TaskLineStatus =
   | 'VERIFIED';
 
 const VALID_TASK_LINE_TRANSITIONS: Record<TaskLineStatus, TaskLineStatus[]> = {
-  ASSIGNED: ['ACCEPTED', 'IN_PROGRESS'],
+  // A KTV can see that a part is unavailable before starting the physical
+  // work.  Allow that individual task to wait for stock immediately; it does
+  // not stop the other tasks on the same repair order.
+  ASSIGNED: ['ACCEPTED', 'IN_PROGRESS', 'WAITING_PARTS'],
   ACCEPTED: ['IN_PROGRESS', 'WAITING_PARTS'],
   IN_PROGRESS: ['COMPLETED', 'WAITING_PARTS', 'PAUSED'],
   WAITING_PARTS: ['IN_PROGRESS', 'PAUSED'],

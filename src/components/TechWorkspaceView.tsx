@@ -217,13 +217,15 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
       const first = lines[0] || {};
       const workOrderStatus = String(first.workOrderStatus || 'ASSIGNED');
       const lineStatuses = lines.map(line => String(line.status || 'ASSIGNED'));
+      const openLineStatuses = lineStatuses.filter(status => !['COMPLETED', 'VERIFIED'].includes(status));
+      const allOpenTasksWaitingForParts = openLineStatuses.length > 0 && openLineStatuses.every(status => status === 'WAITING_PARTS');
       const stage = ['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH'].includes(workOrderStatus)
         ? 'COMPLETED'
         : ['QC_PASSED', 'CUSTOMER_READY'].includes(workOrderStatus)
           ? 'WAITING_DELIVERY'
           : ['TECH_COMPLETED', 'QC_PENDING'].includes(workOrderStatus)
             ? 'WAITING_QC'
-            : lineStatuses.includes('WAITING_PARTS')
+            : allOpenTasksWaitingForParts
               ? 'WAITING_PARTS'
               : workOrderStatus === 'ASSIGNED' || lineStatuses.every(status => status === 'ASSIGNED')
                 ? 'WAITING_ACCEPTANCE'
