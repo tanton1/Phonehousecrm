@@ -14,6 +14,7 @@ interface TechKanbanBoardProps {
   onOpenAddTaskModal?: () => void;
   onRefresh?: () => Promise<void> | void;
   currentUserRole?: string;
+  currentUserId?: string;
 }
 
 const QC_STEPS: Array<[string, string]> = [
@@ -25,7 +26,7 @@ const QC_STEPS: Array<[string, string]> = [
   ['water_seal_glue', 'Ron/keo chống nước'], ['internal_cleaning', 'Vệ sinh hoàn thiện']
 ];
 
-export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskClick, onOpenAddTaskModal, onRefresh, currentUserRole }) => {
+export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskClick, onOpenAddTaskModal, onRefresh, currentUserRole, currentUserId }) => {
   const [scanModalTaskId, setScanModalTaskId] = useState<string | null>(null);
   const [scannedImei, setScannedImei] = useState('');
   const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
@@ -157,10 +158,17 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
 
   const getStatusAction = (columnId: string, task: WarrantyTicket) => {
     const isBusy = loadingTaskId === task.id;
+    const assignedTechnicianIds = Array.isArray((task as any).technicianIds)
+      ? (task as any).technicianIds.map((id: unknown) => String(id || '')).filter(Boolean)
+      : ((task as any).taskLines || []).map((line: any) => String(line.assigneeUid || '')).filter(Boolean);
+    const isAssignedToCurrentUser = !currentUserId || assignedTechnicianIds.includes(String(currentUserId));
 
     switch (columnId) {
       case 'WAITING_ACCEPTANCE':
         if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER') {
+          if (!isAssignedToCurrentUser) {
+            return <div className="mt-3 rounded bg-amber-50 py-1.5 px-2 text-center text-xs font-semibold text-amber-800">Chờ KTV được giao quét IMEI nhận máy</div>;
+          }
           return (
             <button
               disabled={isBusy}

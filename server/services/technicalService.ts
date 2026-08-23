@@ -485,14 +485,19 @@ export async function processAcceptCustody(
     );
 
     const isAssignedTech = linesSnap.docs.some(d => d.data().assigneeUid === technicianUser.uid);
-    const canAccept = isAssignedTech || technicianUser.role === 'ADMIN' || technicianUser.role === 'MANAGER' || technicianUser.role === 'TECH_LEAD';
-
-    if (!canAccept) {
-      throw new Error('TECHNICIAN_NOT_ASSIGNED: Bạn không có tên trong danh sách KTV được phân công xử lý phiếu kỹ thuật này.');
+    // Nhận máy là mốc chịu trách nhiệm vật lý. Quản lý có thể theo dõi nhưng
+    // không được nhận thay KTV, vì điều đó sẽ làm phiếu ACCEPTED trong khi
+    // các task vẫn thuộc một KTV khác.
+    if (!isAssignedTech) {
+      throw new Error('TECHNICIAN_NOT_ASSIGNED: Chỉ KTV được giao task mới có thể xác nhận nhận máy.');
     }
 
     const currentStatus = woData.status as WorkOrderStatus;
-    if (currentStatus !== 'ASSIGNED' && currentStatus !== 'DRAFT' && currentStatus !== 'QC_FAILED_REWORK') {
+    const staleAcceptanceRecovery = currentStatus === 'ACCEPTED'
+      && String(woData.currentCustodianUid || '') !== technicianUser.uid
+      && linesSnap.docs.length > 0
+      && linesSnap.docs.every(doc => ['ASSIGNED', 'REWORK_REQUIRED'].includes(String(doc.data()?.status || 'ASSIGNED')));
+    if (currentStatus !== 'ASSIGNED' && currentStatus !== 'DRAFT' && currentStatus !== 'QC_FAILED_REWORK' && !staleAcceptanceRecovery) {
       throw new Error(`INVALID_STATUS: Phiếu kỹ thuật đang ở trạng thái "${woData.status}", không thể xác nhận nhận máy.`);
     }
 
@@ -566,8 +571,10 @@ export async function processAcceptCustody(
       deviceId: woData.deviceId,
       imei: woData.imei,
       branchId: woData.branchId,
-      movementType: 'TECH_ACCEPT',
-      fromLocationId: woData.currentLocationId || woData.sourceWarehouseId || null,
+      movementType: staleAcceptanceRecovery ? 'TECH_ACCEPT_CORRECTION' : 'TECH_ACCEPT',
+      fromLocationId: staleAcceptanceRecovery
+        ? (woData.sourceWarehouseId || woData.currentLocationId || null)
+        : (woData.currentLocationId || woData.sourceWarehouseId || null),
       toLocationId: techLocationId,
       fromCustodianUid: woData.currentCustodianUid,
       toCustodianUid: technicianUser.uid,
@@ -576,6 +583,7 @@ export async function processAcceptCustody(
       workOrderId,
       performedByUid: technicianUser.uid,
       confirmedByUid: technicianUser.uid,
+      correctionReason: staleAcceptanceRecovery ? 'Khôi phục nhận máy: phiếu từng được xác nhận bởi tài khoản không được giao task.' : null,
       occurredAt: now,
       createdAt: FieldValue.serverTimestamp()
     });

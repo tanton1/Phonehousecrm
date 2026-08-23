@@ -366,6 +366,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                   onTaskClick={setSelectedTechnicalTask}
                   onRefresh={handleManualSync}
                   currentUserRole={currentUser?.role}
+                  currentUserId={String((currentUser as any)?.authUid || currentUser?.id || '')}
                 />
               </div>
             </div>

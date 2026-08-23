@@ -148,6 +148,33 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
       ).rejects.toThrow('TECHNICIAN_NOT_ASSIGNED');
     });
 
+    it('does not let an administrator receive a machine on behalf of its assigned KTV', async () => {
+      const mockDb: any = {
+        collection: (col: string) => ({
+          doc: (docId: string) => ({ col, docId, id: docId }),
+          where: () => ({ get: async () => ({ docs: [{ data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'ASSIGNED' }) }] }) })
+        }),
+        runTransaction: async (cb: any) => {
+          const mockTransaction = {
+            get: async (refOrQuery: any) => {
+              if (refOrQuery.col === 'technicalWorkOrders') {
+                return { exists: true, data: () => ({ id: 'WO_01', imei: '356789012345678', status: 'ASSIGNED', branchId: 'CN01' }) };
+              }
+              return { docs: [{ data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'ASSIGNED' }) }] };
+            },
+            update: () => {}, set: () => {}
+          };
+          return await cb(mockTransaction);
+        }
+      };
+
+      await expect(
+        processAcceptCustody(mockDb, 'WO_01', '356789012345678', { uid: 'UID_ADMIN', role: 'ADMIN', branchId: 'CN01' }, {
+          appearance: 'GOOD', screen: 'OK', power: 'OK', biometrics: 'OK', handoverPhotoUrls: []
+        })
+      ).rejects.toThrow('TECHNICIAN_NOT_ASSIGNED');
+    });
+
     it('allows KTV to confirm receipt with checklist and IMEI but no photo', async () => {
       let workOrderStatus = '';
       const mockDb: any = {
@@ -180,6 +207,43 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
       });
       expect(result.success).toBe(true);
       expect(workOrderStatus).toBe('ACCEPTED');
+    });
+
+    it('lets the assigned KTV recover a stale acceptance left by an administrator before any task started', async () => {
+      let movementType = '';
+      const mockDb: any = {
+        collection: (col: string) => ({
+          doc: (docId: string) => ({ col, docId, id: docId }),
+          where: () => ({ col: 'technicalWorkOrderLines' })
+        }),
+        runTransaction: async (cb: any) => {
+          const mockTransaction = {
+            get: async (refOrQuery: any) => {
+              if (refOrQuery.col === 'technicalWorkOrders') return {
+                exists: true,
+                data: () => ({
+                  id: 'WO_01', imei: '356789012345678', status: 'ACCEPTED', branchId: 'CN01',
+                  sourceWarehouseId: 'KHO_NHAN', destinationLocationId: 'KHO_KTV_NAM', currentCustodianUid: 'UID_ADMIN'
+                })
+              };
+              if (refOrQuery.col === 'warehouses') return {
+                exists: true,
+                data: () => ({ id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'TECHNICIAN_SUB', isActive: true, custodianUid: 'UID_KTV_NAM' })
+              };
+              return { docs: [{ ref: { col: 'technicalWorkOrderLines', id: 'LINE_01' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'ASSIGNED' }) }] };
+            },
+            update: () => {},
+            set: (ref: any, fields: any) => { if (ref.col === 'inventoryMovements') movementType = fields.movementType; }
+          };
+          return await cb(mockTransaction);
+        }
+      };
+
+      const result = await processAcceptCustody(mockDb, 'WO_01', '356789012345678', { uid: 'UID_KTV_NAM', role: 'TECHNICIAN', branchId: 'CN01' }, {
+        appearance: 'GOOD', screen: 'OK', power: 'OK', biometrics: 'OK', handoverPhotoUrls: []
+      });
+      expect(result.success).toBe(true);
+      expect(movementType).toBe('TECH_ACCEPT_CORRECTION');
     });
   });
 
