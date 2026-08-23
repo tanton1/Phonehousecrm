@@ -12,6 +12,7 @@ import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import { fetchMyTechnicalWork, fetchPendingTechnicalHandoffs, fetchRepairRevenueReport, fetchTechnicalCommissionLedger, requestAcceptTechnicalHandoff, RepairRevenueReport, TechnicalCommissionLedgerEntry } from '../services/technicalApiClient';
 import { TechnicalWorkOrderDrawer } from './TechnicalWorkOrderDrawer';
 import { uploadTechnicalEvidence } from '../services/technicalEvidenceService';
+import { HelpHint } from './HelpHint';
 
 interface TechWorkspaceViewProps {
   devices: DeviceItem[];
@@ -347,6 +348,9 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
               <div className="mb-3 sm:mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <h2 className="text-base sm:text-lg font-black text-zinc-900">Bàn kỹ thuật & KCS</h2>
+                  <HelpHint title="Các cột Kanban">
+                    Chờ nhận: KTV quét IMEI và nhận trách nhiệm. Đang xử lý: thực hiện task. Chờ linh kiện: task đó tạm dừng, task khác vẫn làm được. Chờ KCS: kiểm tra độc lập. Chờ trả máy: NVBH giao khách và thu tiền.
+                  </HelpHint>
                   <span className="text-xs font-bold text-zinc-500 bg-white px-2.5 py-1 rounded-xl border border-zinc-200 shadow-2xs">
                     {kanbanTasks.length} công việc
                   </span>
@@ -359,7 +363,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 </div>
               </div>
               {pendingHandoffs.length > 0 && <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-blue-900">Có {pendingHandoffs.length} máy đang chờ bạn nhận trách nhiệm</p><div className="mt-2 flex flex-wrap gap-2">{pendingHandoffs.map(handoff => <button key={handoff.id} onClick={() => { setSelectedHandoff(handoff); setHandoffScan(''); setHandoffNotes(''); setHandoffFiles([]); }} className="rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm"><strong className="block text-blue-800">{handoff.imei} · {handoff.targetTechnicianName || 'KTV nhận'}</strong><span className="text-zinc-500">Từ {handoff.fromTechnicianName || 'KTV trước'} · {handoff.reason}</span></button>)}</div></div>}
-              {(assignedWorkLines.length > 0 || assignedWorkError) && <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-3"><div><p className="text-xs font-black uppercase tracking-wide text-orange-900">Máy kho đã chuyển cho tôi: {assignedWorkLines.length} hạng mục</p><p className="text-[11px] text-orange-700">Đã đưa thẳng vào các cột Kanban bên dưới theo trạng thái thực tế.</p>{assignedWorkError && <p className="mt-1 text-xs font-semibold text-rose-600">{assignedWorkError}</p>}</div><button onClick={handleManualSync} className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /></button></div>}
+              {(assignedWorkLines.length > 0 || assignedWorkError) && <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-3"><div className="flex items-center gap-2"><p className="text-xs font-black uppercase tracking-wide text-orange-900">Máy kho đã chuyển cho tôi: {assignedWorkLines.length} hạng mục</p><HelpHint title="Máy kho đã chuyển">Máy từ kho được đưa vào Kanban theo trạng thái thực tế. Mỗi task vẫn thuộc đúng KTV đã được giao.</HelpHint>{assignedWorkError && <p className="mt-1 text-xs font-semibold text-rose-600">{assignedWorkError}</p>}</div><button onClick={handleManualSync} className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /></button></div>}
               <div className="flex-1 min-h-0 bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden">
                 <TechKanbanBoard 
                   tasks={kanbanTasks}
