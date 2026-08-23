@@ -71,13 +71,15 @@ export async function requestCreateWorkOrder(payload: {
   customerPhone?: string;
   customerApprovedQuote?: number;
   totalEstimatedCost?: number;
-  passcode?: string;
   intakeDetails?: {
     issueType?: string;
     faultDescription?: string;
     deviceAppearance?: string;
     accessoriesIncluded?: string;
     expectedReturnDate?: string;
+    /** Chỉ là trạng thái hỗ trợ mở máy, tuyệt đối không có tài khoản/mật khẩu. */
+    icloudStatus?: string;
+    unlockNote?: string;
   };
   notes?: string;
   lines: Array<{

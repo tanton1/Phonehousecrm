@@ -247,6 +247,8 @@ export interface TechnicalTaskTypeConfig {
     /** Cho phép dùng SKU thay thế khi vẫn cùng nhóm linh kiện. */
     allowSubstitution?: boolean;
   }>;
+  /** Nhóm lỗi có thể gợi ý nhanh task này tại phiếu tiếp nhận. */
+  intakeIssueTypes?: WarrantyTicket['issueType'][];
   qcChecklistTemplateId?: string;
   normalSlaHours: number;
   prioritySlaHours?: number;

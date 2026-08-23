@@ -65,6 +65,11 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
           };
         })
         : [];
+      const intakeIssueTypes = Array.isArray(body.intakeIssueTypes)
+        ? [...new Set(body.intakeIssueTypes
+          .map((value: unknown) => String(value || '').trim())
+          .filter((value: string) => value.length > 0 && value.length <= 80))]
+        : [];
       const now = new Date().toISOString();
       const record = {
         id: taskType,
@@ -77,6 +82,7 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
         reworkCommissionPolicy: ['NO_EXTRA_COMMISSION', 'REPEAT_COMMISSION', 'MANAGER_APPROVAL'].includes(body.reworkCommissionPolicy) ? body.reworkCommissionPolicy : 'NO_EXTRA_COMMISSION',
         requiredEvidenceTypes: Array.isArray(body.requiredEvidenceTypes) ? body.requiredEvidenceTypes.filter((value: unknown) => typeof value === 'string') : [],
         requiredPartTemplates,
+        intakeIssueTypes,
         qcChecklistTemplateId: body.qcChecklistTemplateId ? String(body.qcChecklistTemplateId) : null,
         normalSlaHours: Number(body.normalSlaHours),
         prioritySlaHours: Number(body.prioritySlaHours),

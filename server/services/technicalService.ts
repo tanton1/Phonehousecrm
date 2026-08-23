@@ -8,7 +8,6 @@ import {
   WorkOrderStatus
 } from './technicalStateMachine';
 import { calculateTechnicalTaskQuote, TechnicalPriority, TechnicalTaskTypeRecord } from './inventoryTransferService';
-import { encryptTechnicalSecret } from './technicalSecretService';
 
 export interface CreateWorkOrderLineInput {
   taskType: string;
@@ -30,13 +29,14 @@ export interface CreateWorkOrderInput {
   customerPhone?: string;
   customerApprovedQuote?: number;
   totalEstimatedCost?: number;
-  passcode?: string;
   intakeDetails?: {
     issueType?: string;
     faultDescription?: string;
     deviceAppearance?: string;
     accessoriesIncluded?: string;
     expectedReturnDate?: string;
+    icloudStatus?: string;
+    unlockNote?: string;
   };
   notes?: string;
   lines: CreateWorkOrderLineInput[];
@@ -116,8 +116,6 @@ export async function processCreateWorkOrder(
   if (!canAccessBranch(creatorUser, branchId)) {
     throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền khởi tạo phiếu kỹ thuật tại chi nhánh "${branchId}".`);
   }
-
-  const encryptedPasscode = encryptTechnicalSecret(input.passcode);
 
   return await db.runTransaction(async (transaction) => {
     // 1. Invariant: Only ONE active work order per IMEI (including REWORK)
@@ -245,6 +243,7 @@ export async function processCreateWorkOrder(
         reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
         status: 'ASSIGNED',
         requiredParts: config.requiredPartTemplates || [],
+        intakeIssueTypes: config.intakeIssueTypes || [],
         requiredEvidenceTypes: config.requiredEvidenceTypes || [],
         qcChecklistTemplateId: config.qcChecklistTemplateId || null,
         evidencePhotoUrls: [],
@@ -303,7 +302,8 @@ export async function processCreateWorkOrder(
       customerPhone: input.customerPhone || null,
       customerApprovedQuote: approvedQuote,
       intakeDetails: input.intakeDetails || null,
-      hasPasscode: !!encryptedPasscode,
+      // Phiếu tiếp nhận không lưu mật mã mở máy. Chỉ lưu trạng thái/ghi chú hỗ trợ mở máy trong intakeDetails.
+      hasPasscode: false,
       totalEstimatedCost: estimatedCost,
       totalActualCost: 0,
       openingDeviceCost: isInternalAsset ? Number(devData?.currentCost ?? devData?.buyPrice ?? 0) : 0,
@@ -319,16 +319,6 @@ export async function processCreateWorkOrder(
       updatedAt: FieldValue.serverTimestamp()
     };
     transaction.set(woRef, woRecord);
-    if (encryptedPasscode) {
-      transaction.set(db.collection('technicalSecrets').doc(workOrderId), {
-        ...encryptedPasscode,
-        workOrderId,
-        branchId,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      });
-    }
-
     // 5. Update Device operational status (Keep commercial status safe for warranty/customer service!)
     if (devRef && devData) {
       transaction.update(devRef, {

@@ -30,6 +30,7 @@ export interface TechnicalTaskTypeRecord {
     maxQuantity?: number;
     allowSubstitution?: boolean;
   }>;
+  intakeIssueTypes?: string[];
   qcChecklistTemplateId?: string;
   normalSlaHours: number;
   prioritySlaHours: number;
@@ -299,6 +300,7 @@ export async function processCreateTechnicalTransfer(
           reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
           requiredEvidenceTypes: config.requiredEvidenceTypes || [],
           requiredPartTemplates: config.requiredPartTemplates || [],
+          intakeIssueTypes: config.intakeIssueTypes || [],
           qcChecklistTemplateId: config.qcChecklistTemplateId || null,
           slaHours: quote.slaHours,
           deadlineAt: quote.deadlineAt,
