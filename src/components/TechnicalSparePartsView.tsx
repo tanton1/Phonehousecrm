@@ -1,9 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Boxes, Loader2, Plus, RefreshCw, Search, Warehouse, X } from 'lucide-react';
 import { UserAccount, WarehouseInfo } from '../types';
+import type { MasterCatalogItem } from '../types';
+import { catalogApi } from '../services/catalogApiClient';
+import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 import {
   fetchTechnicalPartStockRequests,
   fetchTechnicalSpareParts,
+  fetchTechnicalSparePartTrace,
   requestDecideTechnicalPartStockRequest,
   requestReceiveTechnicalSparePart,
   requestTechnicalPartStockRequest,
@@ -19,9 +23,11 @@ interface TechnicalSparePartsViewProps {
 
 interface TechnicalSparePartRow {
   id: string;
+  productMasterId?: string | null;
   sku: string;
   name: string;
   category: string;
+  catalogGroupCode?: string | null;
   branchId?: string | null;
   warehouseId?: string | null;
   stockQuantity: number;
@@ -82,10 +88,19 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
     reason: ''
   });
   const [receipt, setReceipt] = useState({
-    sku: '', name: '', category: 'KHAC', warehouseId: '', lotCode: '', quantity: 1, unitCost: 0,
+    productMasterId: '', sku: '', name: '', category: 'KHAC', warehouseId: '', lotCode: '', quantity: 1, unitCost: 0,
     sourceType: 'PART_PURCHASE' as 'PART_PURCHASE' | 'OPENING_BALANCE' | 'MANUAL_ADJUSTMENT',
     sourceId: '', sourceCode: '', note: '', compatibleModels: ''
   });
+  const [catalogSearch, setCatalogSearch] = useState('');
+  const [catalogItems, setCatalogItems] = useState<MasterCatalogItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState('');
+  const [selectedReceiptMaster, setSelectedReceiptMaster] = useState<MasterCatalogItem | null>(null);
+  const [tracePartId, setTracePartId] = useState('');
+  const [trace, setTrace] = useState<{ lots: any[]; receipts: any[]; movements: any[] } | null>(null);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [traceError, setTraceError] = useState('');
   const canReceive = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD'].includes(String(currentUser?.role || '').toUpperCase());
   const currentRole = String(currentUser?.role || '').toUpperCase();
   const canApproveSupply = SUPPLY_APPROVER_ROLES.has(currentRole);
@@ -128,6 +143,34 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
     if (!currentUser?.id) return;
     void loadSupplyRequests();
   }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!receiptOpen) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setCatalogLoading(true);
+        setCatalogError('');
+        try {
+          const result = await catalogApi.listItems({
+            kind: 'PART',
+            activeOnly: true,
+            limit: 40,
+            search: catalogSearch.trim()
+          });
+          if (!cancelled) setCatalogItems(result.items);
+        } catch (cause: any) {
+          if (!cancelled) setCatalogError(cause?.message || 'Không thể tải Danh mục hàng hóa.');
+        } finally {
+          if (!cancelled) setCatalogLoading(false);
+        }
+      })();
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [catalogSearch, receiptOpen]);
 
   useEffect(() => {
     setSupplyForm(current => {
@@ -178,6 +221,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
     setError('');
     try {
       await requestReceiveTechnicalSparePart({
+        productMasterId: receipt.productMasterId,
         sku: receipt.sku.trim(),
         name: receipt.name.trim(),
         category: receipt.category.trim() || 'KHAC',
@@ -192,7 +236,9 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         note: receipt.note.trim(),
         compatibleModels: receipt.compatibleModels.split(',').map(value => value.trim()).filter(Boolean)
       });
-      setReceipt(current => ({ ...current, sku: '', name: '', lotCode: '', quantity: 1, unitCost: 0, sourceId: '', sourceCode: '', note: '', compatibleModels: '' }));
+      setReceipt(current => ({ ...current, productMasterId: '', sku: '', name: '', category: 'KHAC', lotCode: '', quantity: 1, unitCost: 0, sourceId: '', sourceCode: '', note: '', compatibleModels: '' }));
+      setSelectedReceiptMaster(null);
+      setCatalogSearch('');
       setReceiptOpen(false);
       await load();
     } catch (cause: any) {
@@ -236,6 +282,27 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
 
   const refreshAll = async () => {
     await Promise.all([load(), loadSupplyRequests()]);
+  };
+
+  const toggleTrace = async (partId: string) => {
+    if (tracePartId === partId) {
+      setTracePartId('');
+      setTrace(null);
+      setTraceError('');
+      return;
+    }
+    setTracePartId(partId);
+    setTrace(null);
+    setTraceError('');
+    setTraceLoading(true);
+    try {
+      const result = await fetchTechnicalSparePartTrace(partId);
+      setTrace(result);
+    } catch (cause: any) {
+      setTraceError(cause?.message || 'Không thể tải lịch sử linh kiện.');
+    } finally {
+      setTraceLoading(false);
+    }
   };
 
   const submitSupplyRequest = async () => {
@@ -307,6 +374,22 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
     }
   };
 
+  const chooseReceiptMaster = (item: MasterCatalogItem) => {
+    const compatibleModels = item.compatibleModels?.length
+      ? item.compatibleModels
+      : (item.model ? [item.model] : []);
+    setSelectedReceiptMaster(item);
+    setReceipt(current => ({
+      ...current,
+      productMasterId: item.id,
+      sku: item.sku,
+      name: item.name,
+      category: item.catalogGroupCode || item.categoryCode || item.subCategory || 'KHAC',
+      compatibleModels: compatibleModels.join(', ')
+    }));
+    setCatalogSearch('');
+  };
+
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 pb-24 sm:space-y-6 sm:pb-8">
       <header className={`flex flex-col justify-between gap-3 ${embedded ? 'rounded-2xl border border-zinc-100 bg-white p-4 shadow-2xs' : ''} sm:flex-row sm:items-center`}>
@@ -320,7 +403,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         </div>
         <div className="flex flex-wrap gap-2">
           {requestableTechnicianWarehouses.length > 0 && <button onClick={() => { setSupplyError(''); setSupplyNotice(''); setSupplyOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2.5 text-sm font-black text-orange-700"><Plus className="h-4 w-4" /> Yêu cầu Kho Tổng</button>}
-          {canReceive && <button onClick={() => setReceiptOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white"><Plus className="h-4 w-4" /> Nhập linh kiện</button>}
+          {canReceive && <button onClick={() => { setCatalogError(''); setReceiptOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white"><Plus className="h-4 w-4" /> Nhập linh kiện</button>}
           <button onClick={() => void refreshAll()} disabled={loading || supplyLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border bg-white px-4 py-2.5 text-sm font-black text-zinc-700 disabled:opacity-50">
             {loading || supplyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Làm mới
           </button>
@@ -332,21 +415,25 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
       {supplyNotice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{supplyNotice}</div>}
 
       {receiptOpen && <section className="rounded-2xl border border-orange-200 bg-orange-50/40 p-4 sm:p-5">
-        <div className="flex items-center justify-between"><div><h3 className="font-black text-zinc-900">Phiếu nhận linh kiện theo lô</h3><p className="text-xs text-zinc-500">Tăng tồn vật lý, snapshot giá vốn lô và cập nhật bình quân kho trong một transaction.</p></div><button onClick={() => setReceiptOpen(false)} className="rounded-lg p-2 text-zinc-500"><X className="h-5 w-5" /></button></div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <input value={receipt.sku} onChange={event => setReceipt(current => ({ ...current, sku: event.target.value }))} placeholder="SKU *" className="h-11 rounded-xl border px-3 text-sm" />
-          <input value={receipt.name} onChange={event => setReceipt(current => ({ ...current, name: event.target.value }))} placeholder="Tên linh kiện *" className="h-11 rounded-xl border px-3 text-sm" />
-          <input value={receipt.category} onChange={event => setReceipt(current => ({ ...current, category: event.target.value }))} placeholder="Phân loại" className="h-11 rounded-xl border px-3 text-sm" />
-          <select value={receipt.warehouseId} onChange={event => setReceipt(current => ({ ...current, warehouseId: event.target.value }))} className="h-11 rounded-xl border bg-white px-3 text-sm font-bold"><option value="">Kho Tổng nhận *</option>{warehouses.filter(item => item.isActive !== false && !item.isArchived && item.type === 'CENTRAL').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-          <input value={receipt.lotCode} onChange={event => setReceipt(current => ({ ...current, lotCode: event.target.value }))} placeholder="Mã lô" className="h-11 rounded-xl border px-3 text-sm" />
-          <input type="number" min={1} value={receipt.quantity} onChange={event => setReceipt(current => ({ ...current, quantity: Number(event.target.value) }))} placeholder="Số lượng" className="h-11 rounded-xl border px-3 text-sm" />
-          <input type="number" min={0} step={1} value={receipt.unitCost} onChange={event => setReceipt(current => ({ ...current, unitCost: Number(event.target.value) }))} placeholder="Giá vốn/đơn vị" className="h-11 rounded-xl border px-3 text-sm" />
-          <select value={receipt.sourceType} onChange={event => setReceipt(current => ({ ...current, sourceType: event.target.value as typeof current.sourceType }))} className="h-11 rounded-xl border bg-white px-3 text-sm"><option value="PART_PURCHASE">Mua linh kiện</option><option value="OPENING_BALANCE">Tồn đầu kỳ</option><option value="MANUAL_ADJUSTMENT">Điều chỉnh có lý do</option></select>
-          <input value={receipt.sourceId} onChange={event => setReceipt(current => ({ ...current, sourceId: event.target.value }))} placeholder="ID chứng từ nguồn *" className="h-11 rounded-xl border px-3 text-sm" />
-          <input value={receipt.sourceCode} onChange={event => setReceipt(current => ({ ...current, sourceCode: event.target.value }))} placeholder="Mã chứng từ hiển thị" className="h-11 rounded-xl border px-3 text-sm" />
-          <input value={receipt.compatibleModels} onChange={event => setReceipt(current => ({ ...current, compatibleModels: event.target.value }))} placeholder="Model tương thích, cách nhau dấu phẩy" className="h-11 rounded-xl border px-3 text-sm lg:col-span-2" />
-          <input value={receipt.note} onChange={event => setReceipt(current => ({ ...current, note: event.target.value }))} placeholder="Ghi chú/lý do" className="h-11 rounded-xl border px-3 text-sm lg:col-span-3" />
-          <button disabled={loading || !receipt.sku.trim() || !receipt.name.trim() || !receipt.warehouseId || !receipt.sourceId.trim() || receipt.quantity < 1 || receipt.unitCost < 0} onClick={() => void submitReceipt()} className="h-11 rounded-xl bg-orange-600 px-4 text-sm font-black text-white disabled:opacity-40">Xác nhận nhập</button>
+        <div className="flex items-center justify-between gap-3"><div><h3 className="font-black text-zinc-900">Phiếu nhận linh kiện theo lô</h3><p className="text-xs text-zinc-500">Chọn mã hàng đã có trong Danh mục. Phiếu sẽ lưu lô, giá vốn và chứng từ nguồn để truy vết.</p></div><button onClick={() => setReceiptOpen(false)} className="rounded-lg p-2 text-zinc-500"><X className="h-5 w-5" /></button></div>
+        <div className="mt-4 space-y-3">
+          <div className="rounded-2xl border border-orange-200 bg-white p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-black text-zinc-700">Mã hàng từ Danh mục Smart *</p><p className="mt-0.5 text-[11px] text-zinc-500">Không nhập tay hoặc tạo SKU mới tại kho.</p></div>{selectedReceiptMaster && <button type="button" onClick={() => { setSelectedReceiptMaster(null); setReceipt(current => ({ ...current, productMasterId: '', sku: '', name: '', category: 'KHAC', compatibleModels: '' })); }} className="self-start text-xs font-bold text-rose-600">Bỏ chọn</button>}</div>
+            {selectedReceiptMaster ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-sm"><span className="font-mono text-xs font-black text-emerald-800">{selectedReceiptMaster.sku}</span><span className="font-bold text-zinc-900">{selectedReceiptMaster.name}</span><span className="text-xs text-zinc-500">· {receipt.category}</span></div> : <><label className="relative mt-3 block"><Search className="absolute left-3 top-3 h-4 w-4 text-zinc-400" /><input value={catalogSearch} onChange={event => setCatalogSearch(event.target.value)} placeholder="Tìm mã hàng, tên, model..." className="h-10 w-full rounded-xl border px-10 pr-3 text-sm" autoFocus /></label><div className="mt-2 max-h-48 divide-y overflow-y-auto rounded-xl border bg-zinc-50/50">{catalogLoading && <p className="p-3 text-xs text-zinc-500">Đang tìm trong Danh mục...</p>}{!catalogLoading && catalogItems.map(item => <button key={item.id} type="button" onClick={() => chooseReceiptMaster(item)} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-orange-50"><span className="min-w-0"><span className="block truncate text-sm font-bold text-zinc-900">{item.name}</span><span className="block font-mono text-[11px] font-bold text-orange-700">{item.sku}</span></span><span className="shrink-0 text-[10px] font-bold text-zinc-500">{item.catalogGroupCode || item.subCategory || 'Linh kiện'}</span></button>)}{!catalogLoading && catalogItems.length === 0 && <p className="p-3 text-xs text-zinc-500">Chưa có mã linh kiện phù hợp. Hãy tạo trước tại Danh mục hàng hóa.</p>}</div></>}
+            {catalogError && <p className="mt-2 text-xs font-bold text-red-600">{catalogError}</p>}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <select value={receipt.warehouseId} onChange={event => setReceipt(current => ({ ...current, warehouseId: event.target.value }))} className="h-11 rounded-xl border bg-white px-3 text-sm font-bold"><option value="">Kho Tổng nhận *</option>{warehouses.filter(item => item.isActive !== false && !item.isArchived && item.type === 'CENTRAL').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+            <input value={receipt.lotCode} onChange={event => setReceipt(current => ({ ...current, lotCode: event.target.value }))} placeholder="Mã lô / mã NCC" className="h-11 rounded-xl border px-3 text-sm" />
+            <input type="number" min={1} value={receipt.quantity} onChange={event => setReceipt(current => ({ ...current, quantity: Number(event.target.value) }))} placeholder="Số lượng" className="h-11 rounded-xl border px-3 text-sm" />
+            <input type="number" min={0} step={1} value={receipt.unitCost} onChange={event => setReceipt(current => ({ ...current, unitCost: Number(event.target.value) }))} placeholder="Giá vốn/đơn vị" className="h-11 rounded-xl border px-3 text-sm" />
+            <select value={receipt.sourceType} onChange={event => setReceipt(current => ({ ...current, sourceType: event.target.value as typeof current.sourceType }))} className="h-11 rounded-xl border bg-white px-3 text-sm"><option value="PART_PURCHASE">Mua linh kiện</option><option value="OPENING_BALANCE">Tồn đầu kỳ</option><option value="MANUAL_ADJUSTMENT">Điều chỉnh có lý do</option></select>
+            <input value={receipt.sourceId} onChange={event => setReceipt(current => ({ ...current, sourceId: event.target.value }))} placeholder="Mã/ID chứng từ nguồn *" className="h-11 rounded-xl border px-3 text-sm" />
+            <input value={receipt.sourceCode} onChange={event => setReceipt(current => ({ ...current, sourceCode: event.target.value }))} placeholder="Mã hiển thị (nếu có)" className="h-11 rounded-xl border px-3 text-sm" />
+            <input value={receipt.note} onChange={event => setReceipt(current => ({ ...current, note: event.target.value }))} placeholder="Ghi chú/lý do" className="h-11 rounded-xl border px-3 text-sm" />
+          </div>
+          {selectedReceiptMaster?.compatibleModels?.length ? <p className="text-xs text-zinc-500">Tương thích: <span className="font-bold text-zinc-700">{selectedReceiptMaster.compatibleModels.join(', ')}</span></p> : null}
+          <div className="flex justify-end"><button disabled={loading || !receipt.productMasterId || !receipt.warehouseId || !receipt.sourceId.trim() || receipt.quantity < 1 || receipt.unitCost < 0} onClick={() => void submitReceipt()} className="h-11 rounded-xl bg-orange-600 px-5 text-sm font-black text-white disabled:opacity-40">Xác nhận nhập</button></div>
         </div>
       </section>}
 
@@ -403,6 +490,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
                   <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs font-black text-orange-700">{request.sku || request.partId}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${pending ? 'bg-amber-100 text-amber-800' : String(request.status) === 'FULFILLED' ? 'bg-emerald-100 text-emerald-800' : 'bg-zinc-100 text-zinc-700'}`}>{pending ? 'CHỜ DUYỆT' : request.status}</span></div>
                   <p className="font-black text-zinc-900">{request.partName || 'Linh kiện'}</p>
                   <p className="text-sm text-zinc-600">{requestSource?.name || request.sourceWarehouseId} <span className="px-1 text-orange-600">→</span> {requestTarget?.name || request.targetWarehouseId}</p>
+                  {request.imei ? <p className="rounded-lg bg-sky-50 px-2.5 py-1.5 text-xs font-bold text-sky-800">Máy sửa: <span className="font-mono">IMEI {request.imei}</span>{request.deviceModel ? ` · ${request.deviceModel}` : ''}{request.workOrderCode ? ` · ${request.workOrderCode}` : ''}</p> : <p className="text-xs text-zinc-400">Cấp bù tồn kho chung · chưa gắn phiếu sửa máy</p>}
                   <p className="text-xs text-zinc-500">Yêu cầu <span className="font-black text-zinc-800">{request.quantityRequested}</span> · nguồn lúc gửi {request.sourceAvailableSnapshot ?? '—'} · {request.requestedByName || request.requestedByUid || 'Không rõ người yêu cầu'} · {formatRequestDate(request.requestedAt)}</p>
                   <p className="text-xs leading-5 text-zinc-500">Lý do: {request.reason}</p>
                   {!pending && <p className="text-xs font-bold text-zinc-600">{request.status === 'FULFILLED' ? `Đã cấp ${request.quantityApproved ?? request.quantityRequested}` : 'Đã từ chối'}{request.decisionNote ? ` · ${request.decisionNote}` : ''}</p>}
@@ -419,14 +507,14 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         </div>
       </section>}
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <InventoryMetricCarousel>
         {[
           ['Tổng tồn vật lý', totals.stock],
           ['Đang giữ trước', totals.reserved],
           ['Có thể xuất', totals.available],
           ['Giá trị khả dụng', mayViewCost ? money.format(totals.value) : 'Ẩn theo quyền']
-        ].map(([label, value]) => <div key={String(label)} className="rounded-2xl border bg-white p-4"><p className="text-xs font-bold text-zinc-500">{label}</p><p className="mt-1 text-xl font-black">{value}</p></div>)}
-      </section>
+        ].map(([label, value]) => <div key={String(label)} className="h-full rounded-2xl border bg-white p-4 shadow-2xs"><p className="text-xs font-bold text-zinc-500">{label}</p><p className="mt-1 text-xl font-black">{value}</p></div>)}
+      </InventoryMetricCarousel>
 
       <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:grid-cols-[minmax(0,1fr)_280px]">
         <label className="relative">
@@ -443,23 +531,26 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
       </section>
 
       <section className="overflow-hidden rounded-2xl border bg-white">
-        <div className="hidden grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px] gap-3 border-b bg-zinc-50 px-4 py-3 text-xs font-black text-zinc-500 lg:grid">
-          <span>SKU</span><span>Linh kiện</span><span>Kho vật lý</span><span>Tồn</span><span>Đã giữ</span><span>Khả dụng</span><span>Giá vốn</span>
+        <div className="hidden grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px_90px] gap-3 border-b bg-zinc-50 px-4 py-3 text-xs font-black text-zinc-500 lg:grid">
+          <span>SKU</span><span>Linh kiện</span><span>Kho vật lý</span><span>Tồn</span><span>Đã giữ</span><span>Khả dụng</span><span>Giá vốn</span><span>Truy vết</span>
         </div>
         <div className="divide-y">
           {filtered.map(part => {
             const location = part.warehouseId ? warehouseById.get(part.warehouseId) : undefined;
             const hasMismatch = Number(part.stockQuantity || 0) < Number(part.reservedQuantity || 0);
-            return <article key={part.id} className="grid gap-3 p-4 lg:grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px] lg:items-center">
+            const traceVisible = tracePartId === part.id;
+            return <article key={part.id} className="grid gap-3 p-4 lg:grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px_90px] lg:items-center">
               <span className="font-mono text-xs font-black text-orange-700">{part.sku}</span>
-              <div><p className="font-black text-zinc-900">{part.name}</p><p className="mt-1 text-xs text-zinc-500">{part.category}{part.compatibleModels?.length ? ` · ${part.compatibleModels.join(', ')}` : ''}</p></div>
+              <div><p className="font-black text-zinc-900">{part.name}</p><p className="mt-1 text-xs text-zinc-500">{part.category}{part.compatibleModels?.length ? ` · ${part.compatibleModels.join(', ')}` : ''}</p>{part.productMasterId ? <p className="mt-1 text-[10px] font-bold text-emerald-700">Đã liên kết Danh mục</p> : <p className="mt-1 text-[10px] font-bold text-amber-700">Mã cũ · chỉ dùng để đối soát</p>}</div>
               <span className="text-sm font-bold text-zinc-600">{location?.name || (part.warehouseId ? `Kho ${part.warehouseId}` : 'Chưa định danh kho')}</span>
               <span className="text-sm font-black"><span className="lg:hidden text-zinc-500">Tồn: </span>{part.stockQuantity}</span>
               <span className="text-sm font-black"><span className="lg:hidden text-zinc-500">Đã giữ: </span>{part.reservedQuantity}</span>
               <span className={`text-sm font-black ${hasMismatch ? 'text-red-700' : 'text-emerald-700'}`}><span className="lg:hidden text-zinc-500">Khả dụng: </span>{part.availableQuantity}</span>
               <span className="text-sm font-black">{typeof part.currentCost === 'number' ? money.format(part.currentCost) : 'Không có quyền xem'}</span>
+              <button type="button" onClick={() => void toggleTrace(part.id)} className="h-9 rounded-lg border bg-white px-2 text-xs font-black text-orange-700 hover:bg-orange-50">{traceVisible ? 'Thu gọn' : 'Lịch sử'}</button>
               {!!part.lots?.length && <div className="col-span-full flex flex-wrap gap-2">{part.lots.map(lot => <span key={lot.id} className="rounded-lg bg-zinc-100 px-2.5 py-1 text-[11px] font-bold text-zinc-600">Lô {lot.lotCode}: tồn {lot.stockQuantity}, giữ {lot.reservedQuantity}{typeof lot.unitCost === 'number' ? ` · ${money.format(lot.unitCost)}` : ''}</span>)}</div>}
               {hasMismatch && <p className="col-span-full flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700"><AlertTriangle className="h-4 w-4" /> Tồn giữ trước lớn hơn tồn vật lý, cần đối soát ledger.</p>}
+              {traceVisible && <section className="col-span-full rounded-xl border border-sky-100 bg-sky-50/40 p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black text-sky-950">Lịch sử lô &amp; biến động</p><p className="mt-0.5 text-[11px] text-sky-800">IMEI chỉ hiện khi linh kiện đã gắn với một máy sửa.</p></div>{traceLoading && <Loader2 className="h-4 w-4 animate-spin text-sky-700" />}</div>{traceError && <p className="mt-2 text-xs font-bold text-red-600">{traceError}</p>}{!traceLoading && trace && <div className="mt-3 space-y-2">{trace.movements.length === 0 && <p className="text-xs text-zinc-500">Chưa có biến động được lưu.</p>}{trace.movements.map((movement: any) => <div key={movement.id} className="rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-black text-zinc-900">{movement.movementType}</span><span className="text-zinc-500">{formatRequestDate(movement.occurredAt || movement.createdAt)}</span></div><p className="mt-1 text-zinc-600">{movement.workOrderCode || movement.sourceCode || movement.sourceId || 'Chứng từ kho'}{movement.imei ? <span className="ml-2 rounded bg-sky-50 px-1.5 py-0.5 font-mono font-bold text-sky-800">IMEI {movement.imei}</span> : null}</p></div>)}</div>}</section>}
             </article>;
           })}
           {!loading && filtered.length === 0 && <p className="p-10 text-center text-sm text-zinc-500">Không có linh kiện trong phạm vi kho/chi nhánh được cấp quyền.</p>}

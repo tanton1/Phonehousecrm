@@ -315,6 +315,7 @@ export async function requestCancelSparePartReservation(workOrderId: string, res
 
 export async function requestReceiveTechnicalSparePart(payload: {
   partId?: string;
+  productMasterId?: string;
   sku: string;
   name: string;
   category?: string;
@@ -401,6 +402,17 @@ export async function fetchTechnicalSpareParts(warehouseId?: string): Promise<an
   return await sendTechnicalApiRequest(`parts${query}`, {}, 'GET');
 }
 
+export interface TechnicalSparePartTrace {
+  part: any;
+  lots: any[];
+  receipts: any[];
+  movements: any[];
+}
+
+export async function fetchTechnicalSparePartTrace(partId: string): Promise<TechnicalSparePartTrace> {
+  return await sendTechnicalApiRequest(`parts/${encodeURIComponent(partId)}/trace`, {}, 'GET');
+}
+
 /**
  * A request moves stock only after it has been approved.  The requester
  * never receives a write path to the central balance directly.
@@ -414,16 +426,23 @@ export interface TechnicalPartStockRequest {
   targetCustodianUid?: string | null;
   targetCustodianName?: string | null;
   partId: string;
+  productMasterId?: string | null;
   lotId?: string | null;
   sku?: string;
   partName?: string;
   category?: string;
+  catalogGroupCode?: string | null;
   quantityRequested: number;
   quantityApproved?: number;
   sourceAvailableSnapshot?: number;
   reason: string;
   workOrderId?: string | null;
   workOrderLineId?: string | null;
+  workOrderCode?: string | null;
+  deviceId?: string | null;
+  /** Snapshot from the work order, so approval and transfer rows stay traceable. */
+  imei?: string | null;
+  deviceModel?: string | null;
   requestedByUid?: string;
   requestedByName?: string | null;
   requestedAt?: string;

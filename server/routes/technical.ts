@@ -39,7 +39,8 @@ import {
   processReserveTechnicalPart,
   processReturnTechnicalPart,
   processScrapTechnicalPart,
-  listTechnicalPartStockRequests
+  listTechnicalPartStockRequests,
+  getTechnicalSparePartTrace
 } from '../services/technicalCostService';
 import { processAcceptTechnicalTransfer } from '../services/inventoryTransferService';
 import crypto from 'crypto';
@@ -458,6 +459,16 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       return res.json({ success: true, data: result });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error?.message || 'Lỗi tải kho linh kiện.' });
+    }
+  });
+
+  router.get('/parts/:partId/trace', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'INVENTORY_MANAGER', 'WAREHOUSE'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await getTechnicalSparePartTrace(db, req.params.partId, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tải lịch sử linh kiện.' });
     }
   });
 

@@ -93,15 +93,21 @@ describe('Technical per-IMEI cost engine', () => {
 
   it('receives canonical spare-part lots and updates moving-average cost idempotently', async () => {
     const store = createTechnicalCostDb({
-      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'CENTRAL', isActive: true } }
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'CENTRAL', isActive: true } },
+      catalogItems: {
+        CAT_PIN_15: {
+          id: 'CAT_PIN_15', category: 'PART', sku: 'PIN-15', name: 'Pin iPhone 15',
+          lifecycleStatus: 'ACTIVE', catalogGroupCode: 'PIN', compatibleModels: ['iPhone 15']
+        }
+      }
     });
     const first = await processReceiveTechnicalSparePart(store.db, {
-      sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01',
+      productMasterId: 'CAT_PIN_15', sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01',
       lotCode: 'LOT-A', quantity: 2, unitCost: 100_000, sourceType: 'PART_PURCHASE', sourceId: 'SRC_01',
       idempotencyKey: 'part-receipt-test-0001'
     }, manager);
     const secondInput = {
-      sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01',
+      productMasterId: 'CAT_PIN_15', sku: 'PIN-15', name: 'Pin iPhone 15', category: 'PIN', branchId: 'CN01', warehouseId: 'PARTS_CN01',
       lotCode: 'LOT-A', quantity: 1, unitCost: 200_000, sourceType: 'PART_PURCHASE' as const, sourceId: 'SRC_02',
       idempotencyKey: 'part-receipt-test-0002'
     };
@@ -113,6 +119,18 @@ describe('Technical per-IMEI cost engine', () => {
     expect(replay.idempotentReplay).toBe(true);
     expect(store.get('spareParts', second.part.id).stockQuantity).toBe(3);
     expect(store.values('sparePartReceipts')).toHaveLength(2);
+    expect(store.get('spareParts', second.part.id).productMasterId).toBe('CAT_PIN_15');
+  });
+
+  it('does not allow a typed SKU to create a new technical stock balance', async () => {
+    const store = createTechnicalCostDb({
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'CENTRAL', isActive: true } }
+    });
+    await expect(processReceiveTechnicalSparePart(store.db, {
+      sku: 'RAW-PIN', name: 'Pin nhập tay', branchId: 'CN01', warehouseId: 'PARTS_CN01',
+      quantity: 1, unitCost: 100_000, sourceType: 'PART_PURCHASE', sourceId: 'SRC_RAW',
+      idempotencyKey: 'part-receipt-raw-block-001'
+    }, manager)).rejects.toThrow('SPARE_PART_CATALOG_REQUIRED');
   });
 
   it('reserves stock before issue and prevents another task from consuming the reserved balance', async () => {
@@ -288,11 +306,12 @@ describe('Technical per-IMEI cost engine', () => {
     const fulfilled = await processDecideTechnicalPartStockRequest(store.db, request.request.id, {
       decision: 'APPROVED', quantityApproved: 2, note: 'Đủ tồn, cấp cho kho KTV Nam.', idempotencyKey: 'stock-request-decision-0001'
     }, { uid: 'ACC_01', name: 'Kế toán', role: 'ACCOUNTANT', branchId: 'CN01' });
-    expect(fulfilled.request).toMatchObject({ status: 'FULFILLED', quantityApproved: 2 });
+    expect(fulfilled.request).toMatchObject({ status: 'FULFILLED', quantityApproved: 2, imei: '12345', deviceId: 'DEV_01' });
     expect(store.get('spareParts', 'PIN_MAIN').stockQuantity).toBe(3);
     const personalPart = store.values('spareParts').find(item => item.warehouseId === 'KHO_KTV_NAM');
     expect(personalPart).toMatchObject({ sku: 'PIN-15', stockQuantity: 2, currentAverageCost: 450_000 });
     expect(store.values('sparePartMovements').map(item => item.movementType).sort()).toEqual(['TRANSFER_IN', 'TRANSFER_OUT']);
+    expect(store.values('sparePartMovements').every(item => item.imei === '12345')).toBe(true);
     await processIssueTechnicalPart(store.db, 'WO_01', {
       lineId: 'LINE_01', partId: personalPart.id, warehouseId: 'KHO_KTV_NAM', quantity: 1, idempotencyKey: 'issue-after-approved-transfer-01'
     }, tech);

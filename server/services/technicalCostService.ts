@@ -374,8 +374,10 @@ export async function processReceiveTechnicalSparePart(
   db: Firestore,
   input: {
     partId?: string;
-    sku: string;
-    name: string;
+    /** Product Master is the only source allowed to introduce a new SKU. */
+    productMasterId?: string;
+    sku?: string;
+    name?: string;
     category?: string;
     branchId: string;
     warehouseId: string;
@@ -401,23 +403,25 @@ export async function processReceiveTechnicalSparePart(
   const key = assertIdempotencyKey(input.idempotencyKey);
   const sku = String(input.sku || '').trim().toUpperCase();
   const name = String(input.name || '').trim();
+  const productMasterId = String(input.productMasterId || '').trim();
   const branchId = String(input.branchId || '').trim();
   const warehouseId = String(input.warehouseId || '').trim();
   const sourceId = String(input.sourceId || '').trim();
   const quantity = positiveInteger(input.quantity);
   const unitCost = Number(input.unitCost);
-  if (!sku || !name || !branchId || !warehouseId || !sourceId) throw new Error('SPARE_PART_RECEIPT_FIELDS_REQUIRED');
+  if (!branchId || !warehouseId || !sourceId || (!productMasterId && (!sku || !name))) throw new Error('SPARE_PART_RECEIPT_FIELDS_REQUIRED');
   if (!['PART_PURCHASE', 'OPENING_BALANCE', 'MANUAL_ADJUSTMENT'].includes(String(input.sourceType || ''))) throw new Error('SPARE_PART_RECEIPT_SOURCE_INVALID');
   if (!Number.isSafeInteger(unitCost) || unitCost < 0) throw new Error('SPARE_PART_COST_INVALID');
   if (!canAccessBranch(actor, branchId)) throw new Error('BRANCH_FORBIDDEN');
   if (input.sourceType === 'MANUAL_ADJUSTMENT' && String(input.note || '').trim().length < 5) throw new Error('SPARE_PART_ADJUSTMENT_NOTE_REQUIRED');
-  const partId = String(input.partId || '').trim() || deterministicId('SP', `${branchId}:${warehouseId}:${sku}`);
+  const partId = String(input.partId || '').trim() || deterministicId('SP', `${branchId}:${warehouseId}:${productMasterId || sku}`);
   const lotCode = String(input.lotCode || '').trim() || `AUTO-${sourceId}`;
   const lotId = String(input.lotId || '').trim() || deterministicId('SPL', `${partId}:${lotCode}`);
   const idemRef = db.collection('technicalOperationIdempotency').doc(idempotencyId('SPARE_PART_RECEIPT', key));
   const partRef = db.collection('spareParts').doc(partId);
   const lotRef = db.collection('sparePartLots').doc(lotId);
   const warehouseRef = db.collection('warehouses').doc(warehouseId);
+  const catalogRef = productMasterId ? db.collection('catalogItems').doc(productMasterId) : null;
 
   return db.runTransaction(async transaction => {
     const idemSnap = await transaction.get(idemRef);
@@ -436,10 +440,11 @@ export async function processReceiveTechnicalSparePart(
       if (!canViewTechnicalCost(actor)) delete lotData.unitCost;
       return { part: partData, lot: lotData, receiptId: String(idemSnap.data()?.receiptId || ''), idempotentReplay: true };
     }
-    const [warehouseSnap, partSnap, lotSnap] = await Promise.all([
+    const [warehouseSnap, partSnap, lotSnap, catalogSnap] = await Promise.all([
       transaction.get(warehouseRef),
       transaction.get(partRef),
-      transaction.get(lotRef)
+      transaction.get(lotRef),
+      catalogRef ? transaction.get(catalogRef) : Promise.resolve(null)
     ]);
     if (!warehouseSnap.exists) throw new Error('PART_WAREHOUSE_NOT_FOUND');
     const warehouse = warehouseSnap.data()!;
@@ -449,11 +454,27 @@ export async function processReceiveTechnicalSparePart(
     // and the source lot/cost audit trail.
     if (String(warehouse.type || '') !== 'CENTRAL') throw new Error('SPARE_PART_RECEIPT_MUST_BE_CENTRAL');
     const existingPart = partSnap.exists ? partSnap.data()! : null;
+    const catalogMaster = catalogSnap?.exists ? catalogSnap.data()! : null;
+    // A legacy balance can still be topped up for a controlled migration, but
+    // no new physical part balance may be invented from a typed SKU/name.
+    if (!existingPart && !catalogMaster) throw new Error('SPARE_PART_CATALOG_REQUIRED');
+    if (productMasterId && (!catalogMaster
+      || String(catalogMaster.category || '').toUpperCase() !== 'PART'
+      || catalogMaster.lifecycleStatus === 'ARCHIVED'
+      || catalogMaster.status === 'inactive')) {
+      throw new Error('SPARE_PART_CATALOG_ITEM_INVALID');
+    }
+    const canonicalSku = String(catalogMaster?.sku || sku || existingPart?.sku || '').trim().toUpperCase();
+    const canonicalName = String(catalogMaster?.name || name || existingPart?.name || '').trim();
+    if (!canonicalSku || !canonicalName) throw new Error('SPARE_PART_CATALOG_REQUIRED');
     if (existingPart && (
       String(existingPart.branchId || '') !== branchId
       || String(existingPart.warehouseId || '') !== warehouseId
-      || String(existingPart.sku || '').toUpperCase() !== sku
+      || String(existingPart.sku || '').toUpperCase() !== canonicalSku
     )) throw new Error('SPARE_PART_IDENTITY_MISMATCH');
+    if (existingPart?.productMasterId && productMasterId && String(existingPart.productMasterId) !== productMasterId) {
+      throw new Error('SPARE_PART_CATALOG_ITEM_MISMATCH');
+    }
     const existingLot = lotSnap.exists ? lotSnap.data()! : null;
     if (existingLot && (existingLot.partId !== partId || existingLot.warehouseId !== warehouseId || existingLot.branchId !== branchId)) {
       throw new Error('SPARE_PART_LOT_MISMATCH');
@@ -473,23 +494,31 @@ export async function processReceiveTechnicalSparePart(
     const costVersion = `PART_RECEIPT_${now}`;
     const compatibleModels = [...new Set([
       ...(Array.isArray(existingPart?.compatibleModels) ? existingPart.compatibleModels : []),
+      ...(Array.isArray(catalogMaster?.compatibleModels) ? catalogMaster.compatibleModels.map(String) : []),
       ...(Array.isArray(input.compatibleModels) ? input.compatibleModels.map(String) : [])
     ])];
     const compatibleModelCodes = [...new Set([
       ...(Array.isArray(existingPart?.compatibleModelCodes) ? existingPart.compatibleModelCodes : []),
+      ...(Array.isArray(catalogMaster?.compatibleModelCodes) ? catalogMaster.compatibleModelCodes.map(String) : []),
+      ...(catalogMaster?.modelCode ? [String(catalogMaster.modelCode)] : []),
       ...(Array.isArray(input.compatibleModelCodes) ? input.compatibleModelCodes.map(String) : []),
       ...compatibleModels.map(canonicalIphoneModelCode).filter(Boolean)
     ])];
     const compatibleModelIds = [...new Set([
       ...(Array.isArray(existingPart?.compatibleModelIds) ? existingPart.compatibleModelIds : []),
+      ...(Array.isArray(catalogMaster?.compatibleModelIds) ? catalogMaster.compatibleModelIds.map(String) : []),
+      ...(catalogMaster?.modelId ? [String(catalogMaster.modelId)] : []),
       ...(Array.isArray(input.compatibleModelIds) ? input.compatibleModelIds.map(String) : [])
     ])];
     const part = {
       ...(existingPart || {}),
       id: partId,
-      sku,
-      name,
-      category: String(input.category || existingPart?.category || 'KHAC'),
+      productMasterId: productMasterId || existingPart?.productMasterId || null,
+      sku: canonicalSku,
+      name: canonicalName,
+      category: String(catalogMaster?.catalogGroupCode || catalogMaster?.categoryCode || input.category || existingPart?.category || 'KHAC'),
+      catalogGroupCode: String(catalogMaster?.catalogGroupCode || existingPart?.catalogGroupCode || '') || null,
+      catalogModelCode: String(catalogMaster?.modelCode || existingPart?.catalogModelCode || '') || null,
       branchId,
       warehouseId,
       stockQuantity: nextStock,
@@ -509,7 +538,8 @@ export async function processReceiveTechnicalSparePart(
       id: lotId,
       lotCode,
       partId,
-      sku,
+      productMasterId: productMasterId || existingLot?.productMasterId || existingPart?.productMasterId || null,
+      sku: canonicalSku,
       branchId,
       warehouseId,
       supplierId: input.supplierId || existingLot?.supplierId || null,
@@ -528,8 +558,10 @@ export async function processReceiveTechnicalSparePart(
       id: receiptId,
       partId,
       lotId,
-      sku,
-      partName: name,
+      productMasterId: productMasterId || existingPart?.productMasterId || null,
+      sku: canonicalSku,
+      partName: canonicalName,
+      catalogGroupCode: String(catalogMaster?.catalogGroupCode || existingPart?.catalogGroupCode || '') || null,
       branchId,
       warehouseId,
       quantity,
@@ -552,6 +584,8 @@ export async function processReceiveTechnicalSparePart(
       movementType: 'RECEIPT',
       partId,
       lotId,
+      productMasterId: productMasterId || existingPart?.productMasterId || null,
+      sku: canonicalSku,
       warehouseId,
       branchId,
       quantity,
@@ -681,9 +715,11 @@ export async function processCreateTechnicalPartStockRequest(
       targetCustodianName: targetWarehouse.custodianName || null,
       partId,
       lotId,
+      productMasterId: part.productMasterId || null,
       sku: part.sku || partId,
       partName: part.name || partId,
       category: part.category || 'KHAC',
+      catalogGroupCode: part.catalogGroupCode || null,
       compatibleModels: Array.isArray(part.compatibleModels) ? part.compatibleModels : [],
       compatibleModelCodes: Array.isArray(part.compatibleModelCodes) ? part.compatibleModelCodes : [],
       compatibleModelIds: Array.isArray(part.compatibleModelIds) ? part.compatibleModelIds : [],
@@ -692,6 +728,10 @@ export async function processCreateTechnicalPartStockRequest(
       sourceAvailableSnapshot: Math.max(0, availableQuantity),
       workOrderId,
       workOrderLineId,
+      workOrderCode: workOrder?.code || null,
+      deviceId: workOrder?.deviceId || null,
+      imei: workOrder?.imei || null,
+      deviceModel: workOrder?.deviceModel || workOrder?.model || workOrder?.deviceSnapshot?.model || null,
       reason,
       requestedByUid: actor.uid,
       requestedByName: actor.name || null,
@@ -813,9 +853,12 @@ export async function processDecideTechnicalPartStockRequest(
     const nextTargetPart = {
       ...(targetPart || {}),
       id: targetPartId,
+      productMasterId: request.productMasterId || sourcePart.productMasterId || targetPart?.productMasterId || null,
       sku: String(request.sku || sourcePart.sku || '').toUpperCase(),
       name: request.partName || sourcePart.name || request.partId,
       category: request.category || sourcePart.category || 'KHAC',
+      catalogGroupCode: request.catalogGroupCode || sourcePart.catalogGroupCode || targetPart?.catalogGroupCode || null,
+      catalogModelCode: sourcePart.catalogModelCode || targetPart?.catalogModelCode || null,
       branchId: request.branchId,
       warehouseId: request.targetWarehouseId,
       stockQuantity: nextTargetStock,
@@ -839,6 +882,7 @@ export async function processDecideTechnicalPartStockRequest(
       id: targetLotId,
       lotCode: targetLotCode,
       partId: targetPartId,
+      productMasterId: request.productMasterId || sourcePart.productMasterId || targetLot?.productMasterId || null,
       sku: nextTargetPart.sku,
       branchId: request.branchId,
       warehouseId: request.targetWarehouseId,
@@ -884,9 +928,17 @@ export async function processDecideTechnicalPartStockRequest(
       sourceLotId: request.lotId || null,
       targetPartId,
       targetLotId,
+      productMasterId: request.productMasterId || sourcePart.productMasterId || null,
       sku: nextTargetPart.sku,
       partName: nextTargetPart.name,
+      catalogGroupCode: request.catalogGroupCode || sourcePart.catalogGroupCode || null,
       quantity: quantityApproved,
+      workOrderId: request.workOrderId || null,
+      workOrderLineId: request.workOrderLineId || null,
+      workOrderCode: request.workOrderCode || null,
+      deviceId: request.deviceId || null,
+      imei: request.imei || null,
+      deviceModel: request.deviceModel || null,
       unitCostSnapshot,
       totalCost: quantityApproved * unitCostSnapshot,
       approvedByUid: actor.uid,
@@ -897,6 +949,13 @@ export async function processDecideTechnicalPartStockRequest(
       id: sourceMovementId, movementType: 'TRANSFER_OUT', branchId: request.branchId,
       warehouseId: request.sourceWarehouseId, counterpartyWarehouseId: request.targetWarehouseId,
       partId: request.partId, lotId: request.lotId || null, quantity: quantityApproved,
+      productMasterId: request.productMasterId || sourcePart.productMasterId || null,
+      sku: nextTargetPart.sku,
+      workOrderId: request.workOrderId || null,
+      workOrderLineId: request.workOrderLineId || null,
+      workOrderCode: request.workOrderCode || null,
+      deviceId: request.deviceId || null,
+      imei: request.imei || null,
       unitCostSnapshot, sourceType: 'PART_STOCK_REQUEST', sourceId: requestId, transferId,
       actorUid: actor.uid, occurredAt: now, createdAt: now
     });
@@ -904,6 +963,13 @@ export async function processDecideTechnicalPartStockRequest(
       id: destinationMovementId, movementType: 'TRANSFER_IN', branchId: request.branchId,
       warehouseId: request.targetWarehouseId, counterpartyWarehouseId: request.sourceWarehouseId,
       partId: targetPartId, lotId: targetLotId, quantity: quantityApproved,
+      productMasterId: request.productMasterId || sourcePart.productMasterId || null,
+      sku: nextTargetPart.sku,
+      workOrderId: request.workOrderId || null,
+      workOrderLineId: request.workOrderLineId || null,
+      workOrderCode: request.workOrderCode || null,
+      deviceId: request.deviceId || null,
+      imei: request.imei || null,
       unitCostSnapshot, sourceType: 'PART_STOCK_REQUEST', sourceId: requestId, transferId,
       actorUid: actor.uid, occurredAt: now, createdAt: now
     });
@@ -921,6 +987,45 @@ export async function listTechnicalPartStockRequests(db: Firestore, actor: Techn
     .filter(request => role === 'ADMIN' || role === 'REGIONAL_MANAGER' || isPartSupplyApprover(actor) || String(request.targetCustodianUid || '') === actor.uid || String(request.targetWarehouseCustodianUid || '') === actor.uid || String(request.requestedByUid || '') === actor.uid)
     .filter(request => !status || String(request.status || '') === status)
     .sort((left, right) => String(right.requestedAt || right.createdAt || '').localeCompare(String(left.requestedAt || left.createdAt || '')));
+}
+
+/**
+ * Read-only evidence for one physical part balance.  Each movement retains a
+ * work-order and IMEI snapshot when it came from a repair, so a stock count
+ * can always be traced back without relying on a mutable work-order screen.
+ */
+export async function getTechnicalSparePartTrace(db: Firestore, partId: string, actor: TechnicalCostActor): Promise<any> {
+  const normalizedPartId = String(partId || '').trim();
+  if (!normalizedPartId) throw new Error('SPARE_PART_NOT_FOUND');
+  const partSnap = await db.collection('spareParts').doc(normalizedPartId).get();
+  if (!partSnap.exists) throw new Error('SPARE_PART_NOT_FOUND');
+  const part = { id: partSnap.id, ...partSnap.data() } as any;
+  if (!canAccessBranch(actor, String(part.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+
+  const [lotsSnap, receiptsSnap, movementsSnap] = await Promise.all([
+    db.collection('sparePartLots').where('partId', '==', normalizedPartId).get(),
+    db.collection('sparePartReceipts').where('partId', '==', normalizedPartId).get(),
+    db.collection('sparePartMovements').where('partId', '==', normalizedPartId).get()
+  ]);
+  const visible = (value: any) => {
+    const next = publicIssue(value);
+    if (!canViewTechnicalCost(actor)) {
+      delete next.unitCost;
+      delete next.unitCostSnapshot;
+      delete next.totalCost;
+      delete next.currentAverageCost;
+      delete next.costPrice;
+    }
+    return next;
+  };
+  const byNewest = (left: any, right: any) => String(right.occurredAt || right.receivedAt || right.createdAt || '')
+    .localeCompare(String(left.occurredAt || left.receivedAt || left.createdAt || ''));
+  return {
+    part: visible(part),
+    lots: lotsSnap.docs.map((doc: any) => visible({ id: doc.id, ...doc.data() })).sort(byNewest),
+    receipts: receiptsSnap.docs.map((doc: any) => visible({ id: doc.id, ...doc.data() })).sort(byNewest),
+    movements: movementsSnap.docs.map((doc: any) => visible({ id: doc.id, ...doc.data() })).sort(byNewest).slice(0, 80)
+  };
 }
 
 export async function processCreateTechnicalPartException(
@@ -1144,11 +1249,13 @@ export async function processReserveTechnicalPart(
       id: reservationId,
       workOrderId,
       workOrderLineId: input.lineId,
+      workOrderCode: workOrder.code || null,
       deviceId: workOrder.deviceId || null,
       imei: workOrder.imei,
       branchId: workOrder.branchId,
       warehouseId: input.warehouseId,
       partId: input.partId,
+      productMasterId: part.productMasterId || null,
       sku: part.sku || input.partId,
       partName: part.name || input.partId,
       lotId: input.lotId || null,
@@ -1181,6 +1288,11 @@ export async function processReserveTechnicalPart(
       sourceId: workOrderId,
       reservationId,
       workOrderLineId: input.lineId,
+      workOrderCode: workOrder.code || null,
+      deviceId: workOrder.deviceId || null,
+      imei: workOrder.imei || null,
+      productMasterId: part.productMasterId || null,
+      sku: part.sku || input.partId,
       actorUid: actor.uid,
       occurredAt: now,
       createdAt: now
@@ -1273,6 +1385,12 @@ export async function processCancelTechnicalPartReservation(
       sourceType: 'WORK_ORDER',
       sourceId: workOrderId,
       reservationId,
+      workOrderLineId: reservation.workOrderLineId || null,
+      workOrderCode: woSnap.data()?.code || null,
+      deviceId: reservation.deviceId || null,
+      imei: reservation.imei || null,
+      productMasterId: part.productMasterId || null,
+      sku: part.sku || reservation.partId,
       actorUid: actor.uid,
       reason,
       occurredAt: now,
@@ -1430,11 +1548,13 @@ export async function processIssueTechnicalPart(
       id: issueId,
       workOrderId,
       workOrderLineId: input.lineId,
+      workOrderCode: workOrder.code || null,
       deviceId: workOrder.deviceId || null,
       imei: workOrder.imei,
       branchId: workOrder.branchId,
       warehouseId: input.warehouseId,
       partId: input.partId,
+      productMasterId: part.productMasterId || null,
       sku: part.sku || input.partId,
       partName: part.name || input.partId,
       lotId: input.lotId || null,
@@ -1517,6 +1637,11 @@ export async function processIssueTechnicalPart(
       reservationId: input.reservationId || null,
       exceptionApprovalId: input.exceptionApprovalId || null,
       workOrderLineId: input.lineId,
+      workOrderCode: workOrder.code || null,
+      deviceId: workOrder.deviceId || null,
+      imei: workOrder.imei || null,
+      productMasterId: part.productMasterId || null,
+      sku: part.sku || input.partId,
       actorUid: actor.uid,
       occurredAt: now,
       createdAt: now
@@ -1610,6 +1735,11 @@ async function settleTechnicalPart(
       sourceId: workOrderId,
       issueId,
       workOrderLineId: issue.workOrderLineId,
+      workOrderCode: workOrder.code || issue.workOrderCode || null,
+      deviceId: issue.deviceId || null,
+      imei: issue.imei || workOrder.imei || null,
+      productMasterId: issue.productMasterId || null,
+      sku: issue.sku || null,
       actorUid: actor.uid,
       note: String(note || ''),
       occurredAt: now,
@@ -2217,9 +2347,11 @@ export async function listTechnicalSpareParts(db: Firestore, actor: TechnicalCos
     .map(part => {
       const visible: any = {
         id: part.id,
+        productMasterId: part.productMasterId || null,
         sku: part.sku || part.id,
         name: part.name || part.id,
         category: part.category || 'KHAC',
+        catalogGroupCode: part.catalogGroupCode || null,
         branchId: part.branchId || null,
         warehouseId: part.warehouseId || null,
         stockQuantity: Number(part.stockQuantity || 0),

@@ -49,6 +49,7 @@ import {
   requestReceiveInterBranchTransfer
 } from '../services/inventoryTransferApiClient';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
+import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 
 type TransferTab = 'TECHNICAL' | 'INTER_BRANCH';
 type ReceiptDraft = Record<string, { result: 'RECEIVED' | 'MISSING' | 'WRONG_DEVICE' | 'DAMAGED'; scannedImei: string; notes: string }>;
@@ -513,13 +514,13 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <InventoryMetricCarousel>
         {stats.map(stat => {
           const Icon = stat.icon;
           const tones: Record<string, string> = { amber: 'bg-amber-50 text-amber-700 border-amber-100', blue: 'bg-blue-50 text-blue-700 border-blue-100', violet: 'bg-violet-50 text-violet-700 border-violet-100', red: 'bg-red-50 text-red-700 border-red-100' };
-          return <div key={stat.label} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><div className={`rounded-xl border p-2 ${tones[stat.tone]}`}><Icon className="h-4 w-4" /></div><span className="text-2xl font-black text-zinc-950">{stat.value}</span></div><p className="mt-3 text-xs font-bold text-zinc-600">{stat.label}</p></div>;
+          return <div key={stat.label} className="h-full rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><div className={`rounded-xl border p-2 ${tones[stat.tone]}`}><Icon className="h-4 w-4" /></div><span className="text-2xl font-black text-zinc-950">{stat.value}</span></div><p className="mt-3 text-xs font-bold text-zinc-600">{stat.label}</p></div>;
         })}
-      </section>
+      </InventoryMetricCarousel>
 
       <section className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_210px_170px]">

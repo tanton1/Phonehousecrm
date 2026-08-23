@@ -69,6 +69,7 @@ import { UniformEntryForm } from './UniformEntryForm';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal';
 import { DeviceDetailModal } from './DeviceDetailModal';
+import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 import type { InventoryDeviceSummary } from '../services/inventoryApiClient';
 
 interface InventoryViewProps {
@@ -544,11 +545,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       )}
 
-      {/* 3. 4 Cockpit Executive KPI Cards (Redesigned & Mobile Optimized) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
+      {/* 3. Inventory metrics: swipeable on mobile, multiple cards on desktop. */}
+      <InventoryMetricCarousel>
         
         {/* Card 1: Máy Sẵn Bán */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
+        <div className="h-full bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
             <span className="truncate">Sẵn Xuất Quầy</span>
             <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-mono font-bold text-[10px] shrink-0">
@@ -569,7 +570,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           const canViewCostPrice = !currentUser || currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER' || (currentUser as any).roleLevel === 'ADMIN' || (currentUser as any).roleLevel === 'MANAGER';
           
           return (
-            <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
+            <div className="h-full bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
               <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
                 <span className="truncate">Vốn Tồn Kho</span>
                 {canViewCostPrice ? (
@@ -607,7 +608,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         })()}
 
         {/* Card 3: Giá Trị Bán & Lợi Nhuận */}
-        <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
+        <div className="h-full bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs space-y-1.5 flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs text-zinc-500 font-bold">
             <span className="truncate">Giá Trị Bán</span>
             <span className="px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 font-mono font-bold text-[10px] shrink-0">
@@ -628,7 +629,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
 
         {/* Card 4: Tồn Kho >30 Ngày */}
-        <div className={`p-3.5 sm:p-4 rounded-2xl border shadow-2xs space-y-1.5 flex flex-col justify-between ${
+        <div className={`h-full p-3.5 sm:p-4 rounded-2xl border shadow-2xs space-y-1.5 flex flex-col justify-between ${
           agingDevices.length > 0 ? 'bg-rose-50/50 border-rose-200/80' : 'bg-white border-zinc-200/80'
         }`}>
           <div className="flex items-center justify-between text-xs font-bold">
@@ -648,7 +649,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             {agingDevices.length > 0 ? `Đọng vốn ~${(agingStockCost / 1_000_000).toFixed(0)}Tr VNĐ` : '✅ Vòng quay kho tốt'}
           </div>
         </div>
-      </div>
+      </InventoryMetricCarousel>
 
       {/* 4. Chart Analytics Toggle Bar */}
       <div className="bg-white rounded-2xl p-2.5 sm:p-3 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
