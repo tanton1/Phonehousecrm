@@ -16,6 +16,23 @@
   --ph-info: #2563eb;
 }
 
+/*
+ * Tailwind v4 uses `currentColor` for a bare `border` utility.  Much of the
+ * application intentionally uses that utility for neutral cards and form
+ * fields, so it was inheriting the surrounding text colour and appearing
+ * black on several screens.  Keep a single neutral default across the app;
+ * any explicit `border-zinc-*`, `border-orange-*`, etc. utility still wins.
+ */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--ph-gray-200);
+  }
+}
+
 /* Prevent mobile browser (especially iOS Safari) from zooming when focusing inputs */
 @media screen and (max-width: 768px) {
   input, select, textarea, [contenteditable="true"] {
