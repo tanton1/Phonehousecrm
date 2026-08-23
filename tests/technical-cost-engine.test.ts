@@ -369,18 +369,21 @@ describe('Technical per-IMEI cost engine', () => {
     )).rejects.toThrow('PART_ISSUE_NOT_SETTLED');
   });
 
-  it('enforces configured completion evidence on the server', async () => {
+  it('allows completing a task without a photo when no part remains unsettled', async () => {
     const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01' } },
       technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', assigneeUid: 'TECH_01', requiredEvidenceTypes: ['AFTER_PHOTO'] } }
     });
-    await expect(processCompleteTaskLine(
+    const result = await processCompleteTaskLine(
       store.db,
       'WO_01',
       'LINE_01',
       [],
       'Đã hoàn thành đầy đủ kiểm tra sau sửa.',
       tech
-    )).rejects.toThrow('AFTER_PHOTO_REQUIRED');
+    );
+    expect(result).toMatchObject({ success: true, allLinesCompleted: true });
+    expect(store.get('technicalWorkOrderLines', 'LINE_01')).toMatchObject({ status: 'COMPLETED', evidencePhotoUrls: [] });
   });
 
   it('rejects an external HTTPS URL that is not evidence for the same work order', async () => {

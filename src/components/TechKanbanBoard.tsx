@@ -83,16 +83,13 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
       setActionError('Vui lòng quét hoặc nhập số IMEI thực tế của máy để nhận bàn giao.');
       return;
     }
-    if (acceptanceFiles.length === 0) {
-      setActionError('Bắt buộc chụp ít nhất một ảnh tình trạng máy khi nhận.');
-      return;
-    }
-
     setLoadingTaskId(task.id);
     setActionError(null);
     try {
       const workOrderId = String((task as any).workOrderId || task.id);
-      const urls = await uploadTechnicalEvidence(workOrderId, `acceptance-${String((task as any).lineId || 'device')}`, acceptanceFiles);
+      const urls = acceptanceFiles.length
+        ? await uploadTechnicalEvidence(workOrderId, `acceptance-${String((task as any).lineId || 'device')}`, acceptanceFiles)
+        : [];
       await requestAcceptCustody(workOrderId, scannedImei.trim(), { ...preRepairInspection, handoverPhotoUrls: urls });
       setScanModalTaskId(null);
       setScannedImei('');
@@ -141,14 +138,10 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
       setActionError('Vui lòng ghi rõ lý do KCS không đạt để trả lại KTV.');
       return;
     }
-    if (qcFiles.length === 0) {
-      setActionError('KCS bắt buộc có ít nhất một ảnh bằng chứng.');
-      return;
-    }
     setLoadingTaskId(qcTask.id);
     try {
       const workOrderId = String((qcTask as any).workOrderId);
-      const photoEvidenceUrls = await uploadTechnicalEvidence(workOrderId, 'qc-inspection', qcFiles);
+      const photoEvidenceUrls = qcFiles.length ? await uploadTechnicalEvidence(workOrderId, 'qc-inspection', qcFiles) : [];
       await requestQCInspection(String((qcTask as any).workOrderId), {
         checklistVersion: 'QC_STANDARD_12_STEPS_V2', checklistResults: qcChecks,
         overallResult: qcResult, failedReason: qcReason.trim() || undefined, photoEvidenceUrls
@@ -261,8 +254,9 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                 <input
                   type="text"
                   value={scannedImei}
-                  onChange={(e) => setScannedImei(e.target.value)}
-                  placeholder="Nhập hoặc quét mã IMEI 15 số..."
+                  inputMode="numeric"
+                  onChange={(e) => setScannedImei(e.target.value.replace(/\D/g, '').slice(0, 15))}
+                  placeholder="Nhập hoặc quét IMEI 5–15 số..."
                   className="w-full px-3 py-2 border border-zinc-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none"
                   autoFocus
                 />
@@ -334,7 +328,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                     />
                   </div>
                   <label className="block rounded-lg border border-dashed border-orange-300 bg-orange-50 p-3 text-xs">
-                    <span className="font-bold text-orange-900">Ảnh tình trạng lúc nhận *</span>
+                    <span className="font-bold text-orange-900">Ảnh tình trạng lúc nhận (không bắt buộc)</span>
                     <input type="file" accept="image/*" multiple onChange={event => setAcceptanceFiles(Array.from(event.target.files || []).slice(0, 6))} className="mt-2 block w-full" />
                     <span className="mt-1 block text-orange-700">Đã chọn {acceptanceFiles.length} ảnh · tối đa 6 ảnh.</span>
                   </label>
@@ -367,7 +361,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         </div>
       )}
 
-      {qcTask && <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"><div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-zinc-950">KCS độc lập · 12 tiêu chí</h3><p className="text-xs text-zinc-500">{qcTask.ticketNumber} · IMEI {qcTask.imei}</p></div><button onClick={() => setQcTask(null)} className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold">Đóng</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{QC_STEPS.map(([key, label]) => <label key={key} className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${qcChecks[key] ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}><input type="checkbox" checked={Boolean(qcChecks[key])} onChange={e => setQcChecks(current => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-bold"><span>Kết quả KCS</span><select value={qcResult} onChange={e => setQcResult(e.target.value as 'PASS' | 'FAIL')} className="h-10 w-full rounded-xl border px-3"><option value="PASS">Đạt · chuyển bước tiếp</option><option value="FAIL">Không đạt · trả KTV làm lại</option></select></label><label className="space-y-1 text-xs font-bold"><span>Lý do/Ghi chú</span><input value={qcReason} onChange={e => setQcReason(e.target.value)} className="h-10 w-full rounded-xl border px-3" placeholder={qcResult === 'FAIL' ? 'Bắt buộc khi không đạt' : 'Ghi chú KCS'} /></label></div><label className="mt-4 block rounded-xl border border-dashed p-3 text-xs font-bold"><span>Ảnh bằng chứng KCS (bắt buộc)</span><input type="file" accept="image/*" multiple onChange={event => setQcFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block font-normal text-zinc-500">Đã chọn {qcFiles.length} ảnh · tối đa 8 ảnh, 10MB/ảnh.</span></label><button disabled={loadingTaskId === qcTask.id} onClick={() => void submitQc()} className="mt-4 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black text-white disabled:opacity-50">{loadingTaskId === qcTask.id ? 'Đang ghi nhận...' : 'Xác nhận kết quả KCS'}</button></div></div>}
+      {qcTask && <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"><div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-zinc-950">KCS độc lập · 12 tiêu chí</h3><p className="text-xs text-zinc-500">{qcTask.ticketNumber} · IMEI {qcTask.imei}</p></div><button onClick={() => setQcTask(null)} className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold">Đóng</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{QC_STEPS.map(([key, label]) => <label key={key} className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${qcChecks[key] ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}><input type="checkbox" checked={Boolean(qcChecks[key])} onChange={e => setQcChecks(current => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-bold"><span>Kết quả KCS</span><select value={qcResult} onChange={e => setQcResult(e.target.value as 'PASS' | 'FAIL')} className="h-10 w-full rounded-xl border px-3"><option value="PASS">Đạt · chuyển bước tiếp</option><option value="FAIL">Không đạt · trả KTV làm lại</option></select></label><label className="space-y-1 text-xs font-bold"><span>Lý do/Ghi chú</span><input value={qcReason} onChange={e => setQcReason(e.target.value)} className="h-10 w-full rounded-xl border px-3" placeholder={qcResult === 'FAIL' ? 'Bắt buộc khi không đạt' : 'Ghi chú KCS'} /></label></div><label className="mt-4 block rounded-xl border border-dashed p-3 text-xs font-bold"><span>Ảnh bằng chứng KCS (không bắt buộc)</span><input type="file" accept="image/*" multiple onChange={event => setQcFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block font-normal text-zinc-500">Đã chọn {qcFiles.length} ảnh · tối đa 8 ảnh, 20MB/ảnh.</span></label><button disabled={loadingTaskId === qcTask.id} onClick={() => void submitQc()} className="mt-4 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black text-white disabled:opacity-50">{loadingTaskId === qcTask.id ? 'Đang ghi nhận...' : 'Xác nhận kết quả KCS'}</button></div></div>}
 
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4">
         {COLUMNS.map(col => {

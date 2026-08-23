@@ -404,8 +404,8 @@ export async function processAttachIntakeEvidence(
   const workOrderId = String(workOrderIdRaw || '').trim();
   const urls = Array.isArray(intakePhotoUrls) ? intakePhotoUrls.map(value => String(value || '').trim()).filter(Boolean) : [];
   if (!workOrderId) throw new Error('WORK_ORDER_ID_REQUIRED');
-  if (urls.length < 1 || urls.length > 6 || urls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
-    throw new Error('INTAKE_EVIDENCE_INVALID: Cần từ 1 đến 6 ảnh thuộc đúng phiếu tiếp nhận.');
+  if (urls.length > 6 || urls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+    throw new Error('INTAKE_EVIDENCE_INVALID: Ảnh tiếp nhận phải thuộc đúng phiếu và tối đa 6 ảnh.');
   }
   return db.runTransaction(async transaction => {
     const workOrderRef = db.collection('technicalWorkOrders').doc(workOrderId);
@@ -455,9 +455,9 @@ export async function processAcceptCustody(
   if (!scannedImei || scannedImei.trim().length === 0) {
     throw new Error('SCANNED_IMEI_REQUIRED: Bắt buộc quét mã IMEI thực tế của máy để nhận bàn giao.');
   }
-  const handoverPhotoUrls = preRepairInspection?.handoverPhotoUrls;
-  if (!preRepairInspection || !Array.isArray(handoverPhotoUrls) || handoverPhotoUrls.length === 0 || handoverPhotoUrls.length > 6 || handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
-    throw new Error('PRE_REPAIR_INSPECTION_EVIDENCE_REQUIRED: Bắt buộc checklist và 1–6 ảnh tình trạng khi KTV nhận máy.');
+  const handoverPhotoUrls = Array.isArray(preRepairInspection?.handoverPhotoUrls) ? preRepairInspection.handoverPhotoUrls : [];
+  if (!preRepairInspection || handoverPhotoUrls.length > 6 || handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+    throw new Error('PRE_REPAIR_INSPECTION_INVALID: Checklist nhận máy không hợp lệ. Ảnh là tùy chọn, tối đa 6 ảnh.');
   }
   
   return await db.runTransaction(async (transaction) => {
@@ -593,7 +593,7 @@ export async function processRequestTechnicalHandoff(
     targetTechnicianName?: string;
     scannedImei: string;
     reason: string;
-    handoverPhotoUrls: string[];
+    handoverPhotoUrls?: string[];
     idempotencyKey: string;
   },
   actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
@@ -604,8 +604,9 @@ export async function processRequestTechnicalHandoff(
   const key = String(input.idempotencyKey || '').trim();
   if (!targetWarehouseId || !targetTechnicianUid || reason.length < 5) throw new Error('TECH_HANDOFF_FIELDS_REQUIRED');
   if (key.length < 8 || key.length > 160) throw new Error('IDEMPOTENCY_KEY_REQUIRED');
-  if (!Array.isArray(input.handoverPhotoUrls) || input.handoverPhotoUrls.length < 1 || input.handoverPhotoUrls.length > 6 || input.handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
-    throw new Error('TECH_HANDOFF_EVIDENCE_REQUIRED');
+  const handoverPhotoUrls = Array.isArray(input.handoverPhotoUrls) ? input.handoverPhotoUrls : [];
+  if (handoverPhotoUrls.length > 6 || handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+    throw new Error('TECH_HANDOFF_EVIDENCE_INVALID');
   }
   const idemId = crypto.createHash('sha256').update(`TECH_HANDOFF_REQUEST:${workOrderId}:${key}`).digest('hex');
   const idemRef = db.collection('technicalOperationIdempotency').doc(idemId);
@@ -669,7 +670,7 @@ export async function processRequestTechnicalHandoff(
       targetTechnicianUid,
       targetTechnicianName: String(input.targetTechnicianName || targetWarehouse.custodianName || targetWarehouse.technicianName || '').trim(),
       reason,
-      requestPhotoUrls: input.handoverPhotoUrls,
+      requestPhotoUrls: handoverPhotoUrls,
       requestedByUid: actor.uid,
       requestedByName: actor.name || null,
       requestedAt: now,
@@ -687,7 +688,7 @@ export async function processRequestTechnicalHandoff(
 export async function processAcceptTechnicalHandoff(
   db: Firestore,
   handoffId: string,
-  input: { scannedImei: string; handoverPhotoUrls: string[]; notes?: string; idempotencyKey: string },
+  input: { scannedImei: string; handoverPhotoUrls?: string[]; notes?: string; idempotencyKey: string },
   actor: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
 ): Promise<{ handoff: any; reassignedLineIds: string[]; idempotentReplay?: boolean }> {
   const key = String(input.idempotencyKey || '').trim();
@@ -702,8 +703,9 @@ export async function processAcceptTechnicalHandoff(
     const handoff = handoffSnap.data()!;
     if (handoff.status !== 'PENDING_ACCEPTANCE') throw new Error('TECH_HANDOFF_NOT_PENDING');
     if (handoff.targetTechnicianUid !== actor.uid) throw new Error('TECH_HANDOFF_TARGET_ONLY');
-    if (!Array.isArray(input.handoverPhotoUrls) || input.handoverPhotoUrls.length < 1 || input.handoverPhotoUrls.length > 6 || input.handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, String(handoff.workOrderId || '')))) {
-      throw new Error('TECH_HANDOFF_EVIDENCE_REQUIRED');
+    const handoverPhotoUrls = Array.isArray(input.handoverPhotoUrls) ? input.handoverPhotoUrls : [];
+    if (handoverPhotoUrls.length > 6 || handoverPhotoUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, String(handoff.workOrderId || '')))) {
+      throw new Error('TECH_HANDOFF_EVIDENCE_INVALID');
     }
     if (String(input.scannedImei || '').trim() !== String(handoff.imei || '').trim()) throw new Error('IMEI_MISMATCH');
     const woRef = db.collection('technicalWorkOrders').doc(String(handoff.workOrderId));
@@ -797,7 +799,7 @@ export async function processAcceptTechnicalHandoff(
     const acceptedHandoff = {
       ...handoff,
       status: 'ACCEPTED',
-      acceptancePhotoUrls: input.handoverPhotoUrls,
+      acceptancePhotoUrls: handoverPhotoUrls,
       acceptanceNotes: String(input.notes || ''),
       acceptedByUid: actor.uid,
       acceptedByName: actor.name || handoff.targetTechnicianName || null,
@@ -1254,9 +1256,6 @@ export async function processCompleteTaskLine(
     const requiredEvidenceTypes = Array.isArray(lineData.requiredEvidenceTypes)
       ? lineData.requiredEvidenceTypes.map((value: unknown) => String(value).toUpperCase())
       : [];
-    if (requiredEvidenceTypes.includes('AFTER_PHOTO') && evidencePhotoUrls.length === 0) {
-      throw new Error('AFTER_PHOTO_REQUIRED: Hạng mục này bắt buộc có ảnh sau sửa.');
-    }
 
     const replacementSerials = Array.isArray(completionMetadata.replacementSerials)
       ? completionMetadata.replacementSerials.map(value => String(value).trim()).filter(Boolean)
@@ -1432,8 +1431,8 @@ export async function processQCInspection(
       }
     }
     const qcEvidenceUrls = Array.isArray(inspection.photoEvidenceUrls) ? inspection.photoEvidenceUrls : [];
-    if (qcEvidenceUrls.length < 1 || qcEvidenceUrls.length > 8 || qcEvidenceUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
-      throw new Error('QC_PHOTO_EVIDENCE_REQUIRED: KCS phải có từ 1 đến 8 ảnh bằng chứng hợp lệ.');
+    if (qcEvidenceUrls.length > 8 || qcEvidenceUrls.some(url => !isTechnicalEvidenceUrlForWorkOrder(url, workOrderId))) {
+      throw new Error('QC_PHOTO_EVIDENCE_INVALID: Ảnh KCS phải thuộc đúng phiếu và tối đa 8 ảnh.');
     }
 
     const now = new Date().toISOString();

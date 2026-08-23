@@ -113,7 +113,7 @@ export async function requestTechnicalHandoff(
     targetTechnicianName?: string;
     scannedImei: string;
     reason: string;
-    handoverPhotoUrls: string[];
+    handoverPhotoUrls?: string[];
   }
 ): Promise<any> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/handoffs`, {
@@ -128,7 +128,7 @@ export async function fetchPendingTechnicalHandoffs(): Promise<any[]> {
 
 export async function requestAcceptTechnicalHandoff(
   handoffId: string,
-  payload: { scannedImei: string; handoverPhotoUrls: string[]; notes?: string }
+  payload: { scannedImei: string; handoverPhotoUrls?: string[]; notes?: string }
 ): Promise<any> {
   return await sendTechnicalApiRequest(`handoffs/${handoffId}/accept`, {
     ...payload,
@@ -148,7 +148,7 @@ export async function requestAcceptCustody(
     power: 'OK' | 'NO_POWER';
     biometrics: 'OK' | 'DEFECTIVE' | 'NOT_TESTABLE';
     technicianNotes?: string;
-    handoverPhotoUrls: string[];
+    handoverPhotoUrls?: string[];
   }
 ): Promise<{ success: boolean; workOrderId: string }> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/accept`, { scannedImei, preRepairInspection });

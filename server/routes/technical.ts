@@ -159,9 +159,9 @@ export function createTechnicalRouter(db: Firestore | null): Router {
 
       try {
         const { scannedImei, preRepairInspection } = req.body;
-        const handoverPhotoUrls = preRepairInspection?.handoverPhotoUrls;
-        if (!preRepairInspection || !Array.isArray(handoverPhotoUrls) || handoverPhotoUrls.length === 0 || handoverPhotoUrls.length > 6 || handoverPhotoUrls.some((url: unknown) => !isTechnicalEvidenceUrlForWorkOrder(url, req.params.id))) {
-          return res.status(400).json({ success: false, error: 'PRE_REPAIR_INSPECTION_EVIDENCE_REQUIRED: Bắt buộc checklist và ảnh tình trạng khi nhận máy.' });
+        const handoverPhotoUrls = Array.isArray(preRepairInspection?.handoverPhotoUrls) ? preRepairInspection.handoverPhotoUrls : [];
+        if (!preRepairInspection || handoverPhotoUrls.length > 6 || handoverPhotoUrls.some((url: unknown) => !isTechnicalEvidenceUrlForWorkOrder(url, req.params.id))) {
+          return res.status(400).json({ success: false, error: 'PRE_REPAIR_INSPECTION_INVALID: Checklist nhận máy không hợp lệ. Ảnh là tùy chọn.' });
         }
         const workOrderSnap = await db.collection('technicalWorkOrders').doc(req.params.id).get();
         if (!workOrderSnap.exists) {

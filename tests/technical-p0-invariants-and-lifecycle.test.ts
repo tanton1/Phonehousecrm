@@ -147,6 +147,40 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
         processAcceptCustody(mockDb, 'WO_01', '356789012345678', { uid: 'UID_KTV_UNASSIGNED', role: 'TECH', branchId: 'CN01' }, { appearance: 'GOOD', screen: 'OK', power: 'OK', biometrics: 'OK', handoverPhotoUrls: ['https://firebasestorage.googleapis.com/v0/b/test.appspot.com/o/technical-evidence%2FWO_01%2Facceptance%2Faccept.jpg?alt=media'] })
       ).rejects.toThrow('TECHNICIAN_NOT_ASSIGNED');
     });
+
+    it('allows KTV to confirm receipt with checklist and IMEI but no photo', async () => {
+      let workOrderStatus = '';
+      const mockDb: any = {
+        collection: (col: string) => ({
+          doc: (docId: string) => ({ col, docId, id: docId }),
+          where: () => ({ col: 'technicalWorkOrderLines' })
+        }),
+        runTransaction: async (cb: any) => {
+          const mockTransaction = {
+            get: async (refOrQuery: any) => {
+              if (refOrQuery.col === 'technicalWorkOrders') return {
+                exists: true,
+                data: () => ({ id: 'WO_01', imei: '356789012345678', status: 'ASSIGNED', branchId: 'CN01', destinationLocationId: 'KHO_KTV_NAM' })
+              };
+              if (refOrQuery.col === 'warehouses') return {
+                exists: true,
+                data: () => ({ id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'REPAIR_WARRANTY', isActive: true })
+              };
+              return { docs: [{ ref: { col: 'technicalWorkOrderLines', id: 'LINE_01' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'ASSIGNED' }) }] };
+            },
+            update: (ref: any, fields: any) => { if (ref.col === 'technicalWorkOrders') workOrderStatus = fields.status; },
+            set: () => {}
+          };
+          return await cb(mockTransaction);
+        }
+      };
+
+      const result = await processAcceptCustody(mockDb, 'WO_01', '356789012345678', { uid: 'UID_KTV_NAM', role: 'TECH', branchId: 'CN01' }, {
+        appearance: 'GOOD', screen: 'OK', power: 'OK', biometrics: 'OK', handoverPhotoUrls: []
+      });
+      expect(result.success).toBe(true);
+      expect(workOrderStatus).toBe('ACCEPTED');
+    });
   });
 
   describe('3. Strict QC Inspection Gates (P0-04 & P0-05)', () => {

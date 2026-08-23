@@ -284,7 +284,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
       expect(commissionStatus).toBe('ELIGIBLE');
     });
 
-    it('rejects a complete passing checklist when QC has no photo evidence', async () => {
+    it('allows a complete passing checklist when no photo is attached', async () => {
       const mockDb: any = {
         collection: (col: string) => ({
           doc: (docId: string) => ({ col, docId, id: docId }),
@@ -303,11 +303,11 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
         })
       };
 
-      await expect(processQCInspection(mockDb, 'WO_01', {
+      const result = await processQCInspection(mockDb, 'WO_01', {
         checklistResults: fullPassingChecklist,
         overallResult: 'PASS'
-      }, { uid: 'UID_QC_INSPECTOR', role: 'TECH_LEAD', branchId: 'CN01' }))
-        .rejects.toThrow('QC_PHOTO_EVIDENCE_REQUIRED');
+      }, { uid: 'UID_QC_INSPECTOR', role: 'TECH_LEAD', branchId: 'CN01' });
+      expect(result).toMatchObject({ success: true, result: 'PASS' });
     });
   });
 
