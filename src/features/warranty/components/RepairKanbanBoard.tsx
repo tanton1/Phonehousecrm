@@ -51,8 +51,8 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
   return (
     <div className="space-y-3 sm:space-y-4">
       <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-        <p className="font-black uppercase tracking-wide">Dữ liệu phiếu sửa cũ · chỉ đọc</p>
-        <p className="mt-1">Không thể chuyển trạng thái tại đây để tránh bỏ qua quét IMEI, đối soát linh kiện, KCS và chốt giá vốn. Phiếu tiếp nhận mới sẽ tự động đi vào Bảng Điều Phối Kỹ Thuật chuẩn.</p>
+        <p className="font-black uppercase tracking-wide">Phiếu sửa cũ · chỉ để tra cứu</p>
+        <p className="mt-1">Trang này không nhận phiếu mới và không xử lý công việc. Phiếu mới sau khi tiếp nhận sẽ chuyển thẳng vào <strong>Kanban kỹ thuật &amp; KCS</strong> trong Bàn kỹ thuật; KTV chỉ thao tác ở đó.</p>
       </div>
       {/* 1. Top Header & Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
@@ -62,7 +62,7 @@ export const RepairKanbanBoard: React.FC<RepairKanbanBoardProps> = ({
           </div>
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-800">
-              Bàn Kỹ Thuật & Sửa Chữa Kanban ({tickets.length} Phiếu)
+              Phiếu sửa cũ (lưu trữ) · {tickets.length} phiếu
             </h3>
             <p className="text-[11px] text-zinc-500">Theo dõi tiến độ sửa chữa từ tiếp nhận đến bàn giao khách</p>
           </div>

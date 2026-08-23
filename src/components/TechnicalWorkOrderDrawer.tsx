@@ -48,11 +48,27 @@ type TaskPartRule = {
 
 const normalizedPartValue = (value: unknown) => String(value || '').trim().toUpperCase();
 
+const canonicalPartGroup = (value: unknown) => {
+  const compact = normalizedPartValue(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/Đ/g, 'D').replace(/[^A-Z0-9]/g, '');
+  const aliases: Record<string, string> = {
+    MH: 'MANHINH', MANHINH: 'MANHINH', SCREEN: 'MANHINH', DISPLAY: 'MANHINH',
+    PIN: 'PIN', BATTERY: 'PIN', CAM: 'CAMERA', CAMERA: 'CAMERA',
+    CS: 'CAPSAC', CAPSAC: 'CAPSAC', CHANSAC: 'CAPSAC', CHARGINGPORT: 'CAPSAC',
+    LOA: 'LOA', LT: 'LOA', LN: 'LOA', SPEAKER: 'LOA', MIC: 'MIC', MICRO: 'MIC',
+    FACE: 'FACE', FACEID: 'FACE', VO: 'VO', KHUNG: 'VO', VOVO: 'VO', FRAME: 'VO', HOUSING: 'VO',
+    KINH: 'KINH', KINHLUNG: 'KINH', GLASS: 'KINH', MAIN: 'MAINBOARD', MAINBOARD: 'MAINBOARD',
+    IC: 'IC', ANT: 'ANTEN', ANTEN: 'ANTEN', RUNG: 'RUNG'
+  };
+  return aliases[compact] || compact;
+};
+
+const partGroupTokens = (part: any) => [...new Set([part?.category, part?.catalogGroupCode, part?.groupCode, part?.categoryCode].map(canonicalPartGroup).filter(Boolean))];
+
 const partMatchesTaskRule = (part: any, rule: TaskPartRule): boolean => {
-  const category = normalizedPartValue(rule.category);
+  const category = canonicalPartGroup(rule.category);
   const sku = normalizedPartValue(rule.sku);
   const partId = String(rule.partId || '').trim();
-  const categoryMatches = !category || normalizedPartValue(part?.category) === category;
+  const categoryMatches = !category || partGroupTokens(part).includes(category);
   if (!categoryMatches) return false;
   if (partId && String(part?.id || '') !== partId) return false;
 
@@ -305,15 +321,15 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   };
 
   return <div className="fixed inset-0 z-[145] flex justify-end bg-black/55 backdrop-blur-sm" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <aside className="flex h-full w-full max-w-5xl flex-col bg-zinc-50 shadow-2xl">
-      <header className="flex items-start justify-between gap-4 bg-zinc-950 px-5 py-4 text-white">
-        <div><div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-orange-400"/><h2 className="font-black">{workOrder.model || task.model || 'Hồ sơ kỹ thuật'}</h2></div><p className="mt-1 font-mono text-xs text-zinc-300">{workOrder.code || task.ticketNumber} · IMEI {workOrder.imei || task.imei}</p><p className="mt-1 text-xs text-orange-300">{workOrder.currentLocationId || 'Chưa xác định vị trí'} · {workOrder.status || task.status}</p></div>
+    <aside className="flex h-full min-w-0 w-full max-w-5xl flex-col bg-zinc-50 shadow-2xl">
+      <header className="flex min-w-0 items-start justify-between gap-3 bg-zinc-950 px-4 py-4 text-white sm:px-5">
+        <div className="min-w-0"><div className="flex min-w-0 items-center gap-2"><Wrench className="h-5 w-5 shrink-0 text-orange-400"/><h2 className="truncate font-black">{workOrder.model || task.model || 'Hồ sơ kỹ thuật'}</h2></div><p className="mt-1 truncate font-mono text-xs text-zinc-300">{workOrder.code || task.ticketNumber} · IMEI {workOrder.imei || task.imei}</p><p className="mt-1 truncate text-xs text-orange-300">{workOrder.currentLocationId || 'Chưa xác định vị trí'} · {workOrder.status || task.status}</p></div>
         <div className="flex gap-2"><button onClick={() => void load()} className="rounded-xl bg-white/10 p-2"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}/></button><button onClick={onClose} className="rounded-xl bg-white/10 p-2"><X className="h-5 w-5"/></button></div>
       </header>
       <nav className="flex gap-1 overflow-x-auto border-b bg-white px-3 py-2">{[
         ['OVERVIEW','Tổng quan'],['TASKS','Task & bằng chứng'],['PARTS','Linh kiện'],['COST','Giá vốn'],['QC','QC/KCS'],['TIMELINE','Timeline'],['RETURN','Nhận lại kho']
       ].map(([id,label]) => <button key={id} onClick={() => setActiveTab(id as any)} className={`whitespace-nowrap rounded-xl px-3 py-2 text-xs font-black ${activeTab === id ? 'bg-orange-600 text-white' : 'text-zinc-600 hover:bg-zinc-100'}`}>{label}</button>)}</nav>
-      <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-6">
         {error && <div className="mb-4 flex gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700"><AlertCircle className="h-5 w-5 shrink-0"/>{error}</div>}
         {message && <div className="mb-4 flex gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700"><CheckCircle2 className="h-5 w-5 shrink-0"/>{message}</div>}
         {loading && !details ? <div className="grid h-48 place-items-center"><Loader2 className="h-8 w-8 animate-spin text-orange-600"/></div> : <>
@@ -329,12 +345,12 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
               {selectedLine && <div className={`mt-4 rounded-xl border p-3 text-sm ${taskPartRules.length ? 'border-emerald-200 bg-emerald-50/60 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}><p className="font-black">Policy linh kiện: {selectedLine.taskName}</p>{taskPartRules.length ? <ul className="mt-2 list-inside list-disc space-y-1 text-xs">{taskPartRules.map((rule, index) => <li key={`${rule.category || rule.sku || rule.partId || 'rule'}-${index}`}>{taskPartRuleLabel(rule)}</li>)}</ul> : <p className="mt-1 text-xs">Task này chưa có quy tắc linh kiện. KTV không được tự giữ/xuất; chỉ có thể gửi yêu cầu ngoại lệ để Kho/Admin duyệt.</p>}</div>}
               {isTechnician && ownTechnicianPartWarehouses.length === 0 && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">Tài khoản KTV này chưa được gắn kho con kỹ thuật. Hãy vào Cài đặt → Kho hàng để gắn đúng kho KTV trước khi xuất linh kiện.</div>}
               {isTechnician && taskPartRules.length > 0 && compatibleParts.length === 0 && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800">Kho KTV cá nhân chưa có linh kiện đúng task hoặc đã hết tồn. Mở <strong>Kho Linh Kiện &amp; Phụ Kiện → Linh kiện theo kho</strong>, chọn <strong>Yêu cầu Kho Tổng</strong> để cấp phát về kho cá nhân trước khi xuất.</div>}
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <select value={selectedLineId} onChange={event => { setSelectedLineId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} className="h-11 rounded-xl border px-3 text-sm">{(details?.taskLines || []).map((line: any) => <option key={line.id} value={line.id}>{line.taskName}</option>)}</select>
-                <select value={partsWarehouseId} onChange={event => { setPartsWarehouseId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} disabled={isTechnician && ownTechnicianPartWarehouses.length <= 1} className="h-11 rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{isTechnician ? 'Kho KTV chưa được gắn' : 'Chọn kho xuất'}</option>{selectablePartWarehouses.map(item => <option key={item.id} value={item.id}>{item.name}{isTechnician ? ' · kho cá nhân' : ''}</option>)}</select>
-                <select value={selectedPartId} onChange={event => { setSelectedPartId(event.target.value); setPartExceptionReason(''); }} className="h-11 rounded-xl border px-3 text-sm"><option value="">Chọn linh kiện</option>{compatibleParts.length > 0 && <optgroup label="Đúng task">{compatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}{incompatibleParts.length > 0 && <optgroup label="Không đúng task — cần duyệt ngoại lệ">{incompatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}</select>
-                <select value={selectedLotId} onChange={event => setSelectedLotId(event.target.value)} disabled={selectedPartLots.length === 0} className="h-11 rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{selectedPartLots.length ? 'Chọn lô xuất' : 'Không quản lý theo lô'}</option>{selectedPartLots.map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotCode} · còn {lot.availableQuantity}</option>)}</select>
-                <input type="number" min={1} value={issueQuantity} onChange={event => setIssueQuantity(Number(event.target.value))} className="h-11 rounded-xl border px-3"/>
+              <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <select value={selectedLineId} onChange={event => { setSelectedLineId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm">{(details?.taskLines || []).map((line: any) => <option key={line.id} value={line.id}>{line.taskName}</option>)}</select>
+                <select value={partsWarehouseId} onChange={event => { setPartsWarehouseId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} disabled={isTechnician && ownTechnicianPartWarehouses.length <= 1} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{isTechnician ? 'Kho KTV chưa được gắn' : 'Chọn kho xuất'}</option>{selectablePartWarehouses.map(item => <option key={item.id} value={item.id}>{item.name}{isTechnician ? ' · kho cá nhân' : ''}</option>)}</select>
+                <select value={selectedPartId} onChange={event => { setSelectedPartId(event.target.value); setPartExceptionReason(''); }} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm"><option value="">Chọn linh kiện</option>{compatibleParts.length > 0 && <optgroup label="Đúng task">{compatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}{incompatibleParts.length > 0 && <optgroup label="Không đúng task — cần duyệt ngoại lệ">{incompatibleParts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.category || item.sku || 'Chưa phân loại'} · còn {item.availableQuantity}</option>)}</optgroup>}</select>
+                <select value={selectedLotId} onChange={event => setSelectedLotId(event.target.value)} disabled={selectedPartLots.length === 0} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{selectedPartLots.length ? 'Chọn lô xuất' : 'Không quản lý theo lô'}</option>{selectedPartLots.map((lot: any) => <option key={lot.id} value={lot.id}>{lot.lotCode} · còn {lot.availableQuantity}</option>)}</select>
+                <input type="number" min={1} value={issueQuantity} onChange={event => setIssueQuantity(Number(event.target.value))} className="h-11 min-w-0 w-full rounded-xl border px-3"/>
               </div>
               {selectedPartRule && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">✓ Linh kiện phù hợp: {taskPartRuleLabel(selectedPartRule)}</p>}
               {exceedsTaskPartMaximum && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">Số lượng đang chọn vượt tối đa {selectedPartMaximum} cho task này. Hãy giảm số lượng hoặc gửi yêu cầu ngoại lệ.</p>}

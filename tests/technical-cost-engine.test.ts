@@ -237,6 +237,20 @@ describe('Technical per-IMEI cost engine', () => {
     expect(store.values('sparePartMovements')).toHaveLength(0);
   });
 
+  it('accepts the short screen group code MH for a MAN_HINH task rule', async () => {
+    const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345', model: 'iPhone 12 Pro Max' } },
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', assigneeUid: 'TECH_01', requiredParts: [{ category: 'MAN_HINH', quantity: 1 }] } },
+      spareParts: { SCREEN_01: { id: 'SCREEN_01', sku: 'MH-IP12PM-ZIN', name: 'Màn hình iPhone 12 Pro Max', category: 'MH', branchId: 'CN01', warehouseId: 'KHO_KTV_NAM', stockQuantity: 1, reservedQuantity: 0, costPrice: 900_000 } },
+      warehouses: { KHO_KTV_NAM: { id: 'KHO_KTV_NAM', branchId: 'CN01', type: 'TECHNICIAN_SUB', custodianUid: 'TECH_01', isActive: true } }
+    });
+    const reserved = await processReserveTechnicalPart(store.db, 'WO_01', {
+      lineId: 'LINE_01', partId: 'SCREEN_01', warehouseId: 'KHO_KTV_NAM', quantity: 1, idempotencyKey: 'reserve-screen-short-code-01'
+    }, tech);
+    expect(reserved.reservation).toMatchObject({ partId: 'SCREEN_01', quantityReserved: 1 });
+    expect(store.get('spareParts', 'SCREEN_01').reservedQuantity).toBe(1);
+  });
+
   it('does not let a KTV consume matching stock directly from the central warehouse', async () => {
     const store = createTechnicalCostDb({
       technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', deviceId: 'DEV_01', imei: '12345' } },

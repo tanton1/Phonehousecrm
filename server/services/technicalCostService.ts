@@ -106,6 +106,42 @@ function normalizePartToken(value: unknown): string {
   return String(value || '').trim().toLocaleUpperCase('vi');
 }
 
+/**
+ * Tồn cũ có thể dùng mã nhóm ngắn (MH, CS, CAM), còn task mới dùng tên
+ * dễ đọc (MAN_HINH, CAP_SAC, CAMERA). Quy về một mã trước khi đối chiếu để
+ * tránh buộc KTV phải gửi duyệt ngoại lệ cho đúng linh kiện.
+ */
+function canonicalPartCategory(value: unknown): string {
+  const compact = normalizePartToken(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/Đ/g, 'D')
+    .replace(/[^A-Z0-9]/g, '');
+  const aliases: Record<string, string> = {
+    MH: 'MANHINH', MANHINH: 'MANHINH', SCREEN: 'MANHINH', DISPLAY: 'MANHINH',
+    PIN: 'PIN', BATTERY: 'PIN',
+    CAM: 'CAMERA', CAMERA: 'CAMERA',
+    CS: 'CAPSAC', CAPSAC: 'CAPSAC', CHANSAC: 'CAPSAC', CHARGINGPORT: 'CAPSAC',
+    LOA: 'LOA', LT: 'LOA', LN: 'LOA', SPEAKER: 'LOA',
+    MIC: 'MIC', MICRO: 'MIC',
+    FACE: 'FACE', FACEID: 'FACE',
+    VO: 'VO', KHUNG: 'VO', VOVO: 'VO', FRAME: 'VO', HOUSING: 'VO',
+    KINH: 'KINH', KINHLUNG: 'KINH', GLASS: 'KINH',
+    MAIN: 'MAINBOARD', MAINBOARD: 'MAINBOARD',
+    IC: 'IC', ANT: 'ANTEN', ANTEN: 'ANTEN', RUNG: 'RUNG'
+  };
+  return aliases[compact] || compact;
+}
+
+function partCategoryTokens(part: any): string[] {
+  return [...new Set([
+    part?.category,
+    part?.catalogGroupCode,
+    part?.groupCode,
+    part?.categoryCode
+  ].map(canonicalPartCategory).filter(Boolean))];
+}
+
 function taskPartTemplates(line: any): TaskPartTemplate[] {
   return Array.isArray(line?.requiredParts)
     ? line.requiredParts.filter((rule: any) => rule && typeof rule === 'object')
@@ -115,15 +151,15 @@ function taskPartTemplates(line: any): TaskPartTemplate[] {
 function partMatchesTaskTemplate(part: any, template: TaskPartTemplate): boolean {
   const expectedPartId = String(template.partId || '').trim();
   const expectedSku = normalizePartToken(template.sku);
-  const expectedCategory = normalizePartToken(template.category);
+  const expectedCategory = canonicalPartCategory(template.category);
   const actualPartId = String(part?.id || '').trim();
   const actualSku = normalizePartToken(part?.sku);
-  const actualCategory = normalizePartToken(part?.category);
+  const actualCategories = partCategoryTokens(part);
   // A rule may be category-only (PIN), SKU-only (PIN-15-PRO), or exact.
   const skuMustMatch = !!expectedSku && !(template.allowSubstitution === true && !!expectedCategory);
   return (!expectedPartId || expectedPartId === actualPartId)
     && (!skuMustMatch || expectedSku === actualSku)
-    && (!expectedCategory || expectedCategory === actualCategory);
+    && (!expectedCategory || actualCategories.includes(expectedCategory));
 }
 
 function matchingTaskTemplate(line: any, part: any): TaskPartTemplate | null {
