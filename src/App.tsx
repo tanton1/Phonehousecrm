@@ -1587,8 +1587,13 @@ export default function App() {
           <PartsInventoryHub
             products={products}
             warehouses={warehouses}
+            partners={partners}
+            branches={branches}
+            funds={funds}
             currentUser={currentUser}
             preferredSection={activeTab === 'spare-parts' ? 'technical' : undefined}
+            onAddPurchaseOrder={handleAddPurchaseOrder}
+            onOpenPurchaseOrders={() => setActiveTab('purchase-orders')}
             onAddProduct={(p) => {
               setProducts([...products, p]);
               addProductToFirestore(p);

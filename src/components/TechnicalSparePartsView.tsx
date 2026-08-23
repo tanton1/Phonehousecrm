@@ -4,6 +4,7 @@ import { UserAccount, WarehouseInfo } from '../types';
 import type { MasterCatalogItem } from '../types';
 import { catalogApi } from '../services/catalogApiClient';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
+import { HelpHint } from './HelpHint';
 import {
   fetchTechnicalPartStockRequests,
   fetchTechnicalSpareParts,
@@ -19,6 +20,10 @@ interface TechnicalSparePartsViewProps {
   currentUser?: UserAccount | null;
   /** Rendered inside the unified parts hub, which already owns the page header. */
   embedded?: boolean;
+  /** Lets the unified warehouse hub show inventory and supply approval as separate, focused tabs. */
+  mode?: 'all' | 'inventory' | 'requests';
+  /** Supplier receipts use the full Purchase Order flow when this callback is supplied. */
+  onOpenPurchaseReceipt?: () => void;
 }
 
 interface TechnicalSparePartRow {
@@ -63,10 +68,18 @@ const formatRequestDate = (value?: string | null) => {
 
 const isActiveWarehouse = (warehouse: WarehouseInfo) => warehouse.isActive !== false && !warehouse.isArchived;
 
-export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = ({ warehouses, currentUser, embedded = false }) => {
+export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = ({
+  warehouses,
+  currentUser,
+  embedded = false,
+  mode = 'all',
+  onOpenPurchaseReceipt
+}) => {
   const [parts, setParts] = useState<TechnicalSparePartRow[]>([]);
   const [warehouseId, setWarehouseId] = useState('');
   const [search, setSearch] = useState('');
+  const [groupFilter, setGroupFilter] = useState('ALL');
+  const [availabilityFilter, setAvailabilityFilter] = useState<'ALL' | 'AVAILABLE' | 'RESERVED' | 'EMPTY'>('ALL');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -79,6 +92,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
   const [decisionBusyId, setDecisionBusyId] = useState('');
   const [decisionQuantities, setDecisionQuantities] = useState<Record<string, string>>({});
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
+  const [requestStatusFilter, setRequestStatusFilter] = useState<'PENDING' | 'FULFILLED' | 'REJECTED' | 'ALL'>('PENDING');
   const [supplyForm, setSupplyForm] = useState({
     targetWarehouseId: '',
     sourceWarehouseId: '',
@@ -248,18 +262,36 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
     }
   };
 
+  const showInventory = mode !== 'requests';
+  const showRequests = mode !== 'inventory';
+  const groupOptions = useMemo<string[]>(() => Array.from(new Set<string>(parts
+    .map(part => String(part.catalogGroupCode || part.category || '').trim())
+    .filter(Boolean))).sort((left, right) => left.localeCompare(right, 'vi')),
+  [parts]);
   const filtered = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase('vi');
     if (!keyword) return parts;
     return parts.filter(part => [part.sku, part.name, part.category, ...(part.compatibleModels || [])]
       .some(value => String(value || '').toLocaleLowerCase('vi').includes(keyword)));
   }, [parts, search]);
-  const totals = useMemo(() => filtered.reduce((summary, part) => ({
+  const filteredByInventoryControls = useMemo(() => filtered.filter(part => {
+    const group = String(part.catalogGroupCode || part.category || '').trim();
+    if (groupFilter !== 'ALL' && group !== groupFilter) return false;
+    const stock = Number(part.stockQuantity || 0);
+    const reserved = Number(part.reservedQuantity || 0);
+    const available = Number(part.availableQuantity || 0);
+    if (availabilityFilter === 'AVAILABLE') return available > 0;
+    if (availabilityFilter === 'RESERVED') return reserved > 0;
+    if (availabilityFilter === 'EMPTY') return stock <= 0 || available <= 0;
+    return true;
+  }), [availabilityFilter, filtered, groupFilter]);
+  const totals = useMemo(() => filteredByInventoryControls.reduce((summary, part) => ({
     stock: summary.stock + Number(part.stockQuantity || 0),
     reserved: summary.reserved + Number(part.reservedQuantity || 0),
     available: summary.available + Number(part.availableQuantity || 0),
     value: summary.value + Number(part.availableQuantity || 0) * Number(part.currentCost || 0)
-  }), { stock: 0, reserved: 0, available: 0, value: 0 }), [filtered]);
+  }), { stock: 0, reserved: 0, available: 0, value: 0 }), [filteredByInventoryControls]);
+  const inactiveOrHeldCount = useMemo(() => filteredByInventoryControls.filter(part => Number(part.availableQuantity || 0) <= 0 || Number(part.stockQuantity || 0) < Number(part.reservedQuantity || 0)).length, [filteredByInventoryControls]);
   const mayViewCost = parts.some(part => typeof part.currentCost === 'number');
   const selectedSupplyPart = useMemo(
     () => supplyParts.find(item => item.id === supplyForm.partId),
@@ -275,10 +307,12 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
     () => supplyRequests.filter(item => String(item.status || '') === 'PENDING'),
     [supplyRequests]
   );
-  const visibleSupplyRequests = useMemo(
-    () => canApproveSupply ? pendingSupplyRequests : supplyRequests.slice(0, 8),
-    [canApproveSupply, pendingSupplyRequests, supplyRequests]
-  );
+  const visibleSupplyRequests = useMemo(() => {
+    const inScope = canApproveSupply
+      ? supplyRequests
+      : supplyRequests.filter(item => String(item.targetCustodianUid || '') === String(currentUser?.id || '') || String(item.requestedByUid || '') === String(currentUser?.id || ''));
+    return inScope.filter(item => requestStatusFilter === 'ALL' || String(item.status || '') === requestStatusFilter);
+  }, [canApproveSupply, currentUser?.id, requestStatusFilter, supplyRequests]);
 
   const refreshAll = async () => {
     await Promise.all([load(), loadSupplyRequests()]);
@@ -395,15 +429,15 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
       <header className={`flex flex-col justify-between gap-3 ${embedded ? 'rounded-2xl border border-zinc-100 bg-white p-4 shadow-2xs' : ''} sm:flex-row sm:items-center`}>
         <div>
           {embedded ? (
-            <h3 className="flex items-center gap-2 text-base font-black text-zinc-900 sm:text-lg"><Boxes className="h-5 w-5 text-orange-600" /> Tồn linh kiện theo kho</h3>
+            <h3 className="flex items-center gap-2 text-base font-black text-zinc-900 sm:text-lg"><Boxes className="h-5 w-5 text-orange-600" /> {showRequests ? 'Điều chuyển linh kiện & phiếu duyệt' : 'Danh sách tồn linh kiện theo kho'} <HelpHint title={showRequests ? 'Điều chuyển & duyệt' : 'Danh sách tồn linh kiện'}>{showRequests ? 'KTV tạo yêu cầu từ kho cá nhân. Khi Kho Tổng, Kế toán hoặc Admin duyệt, hệ thống mới chuyển tồn. Mỗi phiếu có thể gắn IMEI và phiếu kỹ thuật để truy vết.' : 'Mỗi dòng là một SKU ở một vị trí kho. Mở Lịch sử để xem lô, phiếu nhập, cấp phát, xuất dùng và IMEI nếu linh kiện đã gắn vào máy sửa.'}</HelpHint></h3>
           ) : (
-            <h2 className="flex items-center gap-2 text-xl font-black text-zinc-900 sm:text-2xl"><Boxes className="h-7 w-7 text-orange-600" /> Linh kiện theo kho</h2>
+            <h2 className="flex items-center gap-2 text-xl font-black text-zinc-900 sm:text-2xl"><Boxes className="h-7 w-7 text-orange-600" /> {showRequests ? 'Điều chuyển linh kiện & phiếu duyệt' : 'Linh kiện theo kho'} <HelpHint title={showRequests ? 'Điều chuyển & duyệt' : 'Linh kiện theo kho'}>{showRequests ? 'Kho Tổng là nguồn cấp phát. Phiếu chỉ chuyển tồn sau khi được duyệt.' : 'Tồn được quản lý theo kho, lô và lịch sử biến động. Danh mục chỉ là nơi chọn SKU.'}</HelpHint></h2>
           )}
-          <p className="mt-1 text-xs leading-5 text-zinc-500 sm:text-sm">Kho Tổng điều phối cho kho con KTV. Tồn chỉ thay đổi qua phiếu nhập, cấp phát, xuất dùng, trả hoặc đảo ledger.</p>
+          <p className="mt-1 text-xs text-zinc-500 sm:text-sm">{showRequests ? `${pendingSupplyRequests.length} phiếu đang chờ duyệt` : `${parts.length} dòng tồn theo kho`}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {requestableTechnicianWarehouses.length > 0 && <button onClick={() => { setSupplyError(''); setSupplyNotice(''); setSupplyOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2.5 text-sm font-black text-orange-700"><Plus className="h-4 w-4" /> Yêu cầu Kho Tổng</button>}
-          {canReceive && <button onClick={() => { setCatalogError(''); setReceiptOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white"><Plus className="h-4 w-4" /> Nhập linh kiện</button>}
+          {showRequests && requestableTechnicianWarehouses.length > 0 && <button onClick={() => { setSupplyError(''); setSupplyNotice(''); setSupplyOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2.5 text-sm font-black text-orange-700"><Plus className="h-4 w-4" /> Yêu cầu Kho Tổng</button>}
+          {showInventory && canReceive && <button onClick={() => { if (onOpenPurchaseReceipt) onOpenPurchaseReceipt(); else { setCatalogError(''); setReceiptOpen(true); } }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white"><Plus className="h-4 w-4" /> Nhập hàng</button>}
           <button onClick={() => void refreshAll()} disabled={loading || supplyLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border bg-white px-4 py-2.5 text-sm font-black text-zinc-700 disabled:opacity-50">
             {loading || supplyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Làm mới
           </button>
@@ -414,7 +448,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
       {supplyError && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{supplyError}</div>}
       {supplyNotice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">{supplyNotice}</div>}
 
-      {receiptOpen && <section className="rounded-2xl border border-orange-200 bg-orange-50/40 p-4 sm:p-5">
+      {showInventory && receiptOpen && <section className="rounded-2xl border border-orange-200 bg-orange-50/40 p-4 sm:p-5">
         <div className="flex items-center justify-between gap-3"><div><h3 className="font-black text-zinc-900">Phiếu nhận linh kiện theo lô</h3><p className="text-xs text-zinc-500">Chọn mã hàng đã có trong Danh mục. Phiếu sẽ lưu lô, giá vốn và chứng từ nguồn để truy vết.</p></div><button onClick={() => setReceiptOpen(false)} className="rounded-lg p-2 text-zinc-500"><X className="h-5 w-5" /></button></div>
         <div className="mt-4 space-y-3">
           <div className="rounded-2xl border border-orange-200 bg-white p-3">
@@ -437,7 +471,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         </div>
       </section>}
 
-      {supplyOpen && <section className="rounded-2xl border border-orange-200 bg-orange-50/40 p-4 sm:p-5">
+      {showRequests && supplyOpen && <section className="rounded-2xl border border-orange-200 bg-orange-50/40 p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="font-black text-zinc-900">Yêu cầu cấp phát từ Kho Tổng</h3>
@@ -471,14 +505,14 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         )}
       </section>}
 
-      {(canApproveSupply || requestableTechnicianWarehouses.length > 0) && <section className="overflow-hidden rounded-2xl border bg-white">
+      {showRequests && (canApproveSupply || requestableTechnicianWarehouses.length > 0) && <section className="overflow-hidden rounded-2xl border bg-white">
         <div className="flex flex-col gap-2 border-b bg-zinc-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div><h3 className="font-black text-zinc-900">{canApproveSupply ? 'Phiếu cấp phát chờ duyệt' : 'Yêu cầu cấp phát của kho KTV'}</h3><p className="mt-0.5 text-xs text-zinc-500">{canApproveSupply ? `${pendingSupplyRequests.length} phiếu đang chờ quyết định; duyệt sẽ chuyển tồn giữa hai kho.` : 'Theo dõi các yêu cầu đã gửi và kết quả điều phối từ Kho Tổng.'}</p></div>
-          <button type="button" onClick={() => void loadSupplyRequests()} disabled={supplyLoading} className="inline-flex items-center justify-center gap-2 self-start rounded-xl border bg-white px-3 py-2 text-xs font-black text-zinc-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${supplyLoading ? 'animate-spin' : ''}`} /> Làm mới phiếu</button>
+          <div><h3 className="font-black text-zinc-900">{canApproveSupply ? 'Phiếu điều chuyển & cấp phát' : 'Yêu cầu cấp phát của kho KTV'}</h3><p className="mt-0.5 text-xs text-zinc-500">{canApproveSupply ? `${pendingSupplyRequests.length} phiếu đang chờ quyết định` : 'Theo dõi yêu cầu đã gửi và kết quả từ Kho Tổng.'}</p></div>
+          <div className="flex flex-wrap items-center gap-1.5"><div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border bg-white p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{([['PENDING', 'Chờ duyệt'], ['FULFILLED', 'Đã cấp'], ['REJECTED', 'Từ chối'], ['ALL', 'Tất cả']] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setRequestStatusFilter(value)} className={`h-8 shrink-0 rounded-lg px-2.5 text-[10px] font-black ${requestStatusFilter === value ? 'bg-zinc-950 text-white' : 'text-zinc-500 hover:bg-zinc-100'}`}>{label}</button>)}</div><button type="button" onClick={() => void loadSupplyRequests()} disabled={supplyLoading} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border bg-white px-3 text-xs font-black text-zinc-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${supplyLoading ? 'animate-spin' : ''}`} /> Làm mới</button></div>
         </div>
         <div className="divide-y">
           {supplyLoading && visibleSupplyRequests.length === 0 && <p className="flex items-center justify-center gap-2 p-8 text-sm font-bold text-zinc-500"><Loader2 className="h-5 w-5 animate-spin" /> Đang tải phiếu cấp phát...</p>}
-          {!supplyLoading && visibleSupplyRequests.length === 0 && <p className="p-8 text-center text-sm text-zinc-500">{canApproveSupply ? 'Không có phiếu cấp phát đang chờ duyệt.' : 'Chưa có yêu cầu cấp phát nào cho kho KTV của bạn.'}</p>}
+          {!supplyLoading && visibleSupplyRequests.length === 0 && <p className="p-8 text-center text-sm text-zinc-500">{requestStatusFilter === 'PENDING' ? (canApproveSupply ? 'Không có phiếu cấp phát đang chờ duyệt.' : 'Chưa có yêu cầu cấp phát nào đang chờ xử lý.') : 'Không có phiếu phù hợp bộ lọc.'}</p>}
           {visibleSupplyRequests.map(request => {
             const requestSource = warehouseById.get(request.sourceWarehouseId);
             const requestTarget = warehouseById.get(request.targetWarehouseId);
@@ -507,41 +541,49 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         </div>
       </section>}
 
-      <InventoryMetricCarousel>
+      {showInventory && <InventoryMetricCarousel label="Báo cáo tồn linh kiện, vuốt để xem thêm">
         {[
+          ['SKU theo kho', filteredByInventoryControls.length],
           ['Tổng tồn vật lý', totals.stock],
           ['Đang giữ trước', totals.reserved],
           ['Có thể xuất', totals.available],
+          ['Cần kiểm tra', inactiveOrHeldCount],
           ['Giá trị khả dụng', mayViewCost ? money.format(totals.value) : 'Ẩn theo quyền']
-        ].map(([label, value]) => <div key={String(label)} className="h-full rounded-2xl border bg-white p-4 shadow-2xs"><p className="text-xs font-bold text-zinc-500">{label}</p><p className="mt-1 text-xl font-black">{value}</p></div>)}
-      </InventoryMetricCarousel>
+        ].map(([label, value]) => <div key={String(label)} className="h-full rounded-2xl border border-zinc-100 bg-white p-4 shadow-2xs"><p className="text-xs font-bold text-zinc-500">{label}</p><p className={`mt-1 text-xl font-black ${label === 'Cần kiểm tra' && Number(value) > 0 ? 'text-amber-700' : 'text-zinc-900'}`}>{value}</p></div>)}
+      </InventoryMetricCarousel>}
 
-      <section className="grid gap-3 rounded-2xl border bg-white p-4 sm:grid-cols-[minmax(0,1fr)_280px]">
+      {showInventory && <section className="rounded-2xl border border-zinc-100 bg-white p-3 shadow-2xs">
+        <div className="flex flex-col gap-2 lg:flex-row">
         <label className="relative">
           <Search className="absolute left-3 top-3 h-5 w-5 text-zinc-400" />
           <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Tìm SKU, tên, model tương thích..." className="h-11 w-full rounded-xl border pl-11 pr-3 text-sm" />
         </label>
-        <label className="relative">
+        <label className="relative lg:w-64">
           <Warehouse className="absolute left-3 top-3 h-5 w-5 text-zinc-400" />
           <select value={warehouseId} onChange={event => setWarehouseId(event.target.value)} className="h-11 w-full rounded-xl border bg-white pl-11 pr-3 text-sm font-bold">
             <option value="">Tất cả kho được phép xem</option>
             {warehouses.filter(item => item.isActive !== false && !item.isArchived).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
-      </section>
+        </div>
+        <div className="mt-2 flex gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <select aria-label="Lọc nhóm linh kiện" value={groupFilter} onChange={event => setGroupFilter(event.target.value)} className="h-9 shrink-0 rounded-xl border bg-white px-2.5 text-xs font-bold text-zinc-700"><option value="ALL">Tất cả nhóm</option>{groupOptions.map(group => <option key={group} value={group}>{group}</option>)}</select>
+          {([['ALL', 'Tất cả'], ['AVAILABLE', 'Có thể dùng'], ['RESERVED', 'Đang giữ'], ['EMPTY', 'Cần kiểm tra']] as const).map(([value, label]) => <button key={value} type="button" onClick={() => setAvailabilityFilter(value)} className={`h-9 shrink-0 rounded-xl px-3 text-[11px] font-black ${availabilityFilter === value ? 'bg-orange-600 text-white' : 'border bg-white text-zinc-600 hover:border-orange-200 hover:text-orange-700'}`}>{label}</button>)}
+        </div>
+      </section>}
 
-      <section className="overflow-hidden rounded-2xl border bg-white">
+      {showInventory && <section className="overflow-hidden rounded-2xl border border-zinc-100 bg-white shadow-2xs">
         <div className="hidden grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px_90px] gap-3 border-b bg-zinc-50 px-4 py-3 text-xs font-black text-zinc-500 lg:grid">
           <span>SKU</span><span>Linh kiện</span><span>Kho vật lý</span><span>Tồn</span><span>Đã giữ</span><span>Khả dụng</span><span>Giá vốn</span><span>Truy vết</span>
         </div>
         <div className="divide-y">
-          {filtered.map(part => {
+          {filteredByInventoryControls.map(part => {
             const location = part.warehouseId ? warehouseById.get(part.warehouseId) : undefined;
             const hasMismatch = Number(part.stockQuantity || 0) < Number(part.reservedQuantity || 0);
             const traceVisible = tracePartId === part.id;
             return <article key={part.id} className="grid gap-3 p-4 lg:grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px_90px] lg:items-center">
               <span className="font-mono text-xs font-black text-orange-700">{part.sku}</span>
-              <div><p className="font-black text-zinc-900">{part.name}</p><p className="mt-1 text-xs text-zinc-500">{part.category}{part.compatibleModels?.length ? ` · ${part.compatibleModels.join(', ')}` : ''}</p>{part.productMasterId ? <p className="mt-1 text-[10px] font-bold text-emerald-700">Đã liên kết Danh mục</p> : <p className="mt-1 text-[10px] font-bold text-amber-700">Mã cũ · chỉ dùng để đối soát</p>}</div>
+              <div><p className="font-black text-zinc-900">{part.name}</p><div className="mt-1 flex flex-wrap gap-1.5"><span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-zinc-600">{part.catalogGroupCode || part.category || 'Chưa gán nhóm'}</span>{part.compatibleModels?.slice(0, 3).map(model => <span key={model} className="rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">{model}</span>)}{(part.compatibleModels?.length || 0) > 3 && <span className="rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">+{(part.compatibleModels?.length || 0) - 3}</span>}</div>{part.productMasterId ? <p className="mt-1 text-[10px] font-bold text-emerald-700">Đã liên kết Danh mục</p> : <p className="mt-1 text-[10px] font-bold text-amber-700">Mã cũ · chỉ dùng để đối soát</p>}</div>
               <span className="text-sm font-bold text-zinc-600">{location?.name || (part.warehouseId ? `Kho ${part.warehouseId}` : 'Chưa định danh kho')}</span>
               <span className="text-sm font-black"><span className="lg:hidden text-zinc-500">Tồn: </span>{part.stockQuantity}</span>
               <span className="text-sm font-black"><span className="lg:hidden text-zinc-500">Đã giữ: </span>{part.reservedQuantity}</span>
@@ -553,10 +595,10 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
               {traceVisible && <section className="col-span-full rounded-xl border border-sky-100 bg-sky-50/40 p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black text-sky-950">Lịch sử lô &amp; biến động</p><p className="mt-0.5 text-[11px] text-sky-800">IMEI chỉ hiện khi linh kiện đã gắn với một máy sửa.</p></div>{traceLoading && <Loader2 className="h-4 w-4 animate-spin text-sky-700" />}</div>{traceError && <p className="mt-2 text-xs font-bold text-red-600">{traceError}</p>}{!traceLoading && trace && <div className="mt-3 space-y-2">{trace.movements.length === 0 && <p className="text-xs text-zinc-500">Chưa có biến động được lưu.</p>}{trace.movements.map((movement: any) => <div key={movement.id} className="rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-black text-zinc-900">{movement.movementType}</span><span className="text-zinc-500">{formatRequestDate(movement.occurredAt || movement.createdAt)}</span></div><p className="mt-1 text-zinc-600">{movement.workOrderCode || movement.sourceCode || movement.sourceId || 'Chứng từ kho'}{movement.imei ? <span className="ml-2 rounded bg-sky-50 px-1.5 py-0.5 font-mono font-bold text-sky-800">IMEI {movement.imei}</span> : null}</p></div>)}</div>}</section>}
             </article>;
           })}
-          {!loading && filtered.length === 0 && <p className="p-10 text-center text-sm text-zinc-500">Không có linh kiện trong phạm vi kho/chi nhánh được cấp quyền.</p>}
+          {!loading && filteredByInventoryControls.length === 0 && <p className="p-10 text-center text-sm text-zinc-500">Không có linh kiện phù hợp bộ lọc hiện tại.</p>}
           {loading && <p className="flex items-center justify-center gap-2 p-10 text-sm font-bold text-zinc-500"><Loader2 className="h-5 w-5 animate-spin" /> Đang tải dữ liệu canonical...</p>}
         </div>
-      </section>
+      </section>}
     </div>
   );
 };
