@@ -24,7 +24,6 @@ interface TechWorkspaceViewProps {
   onOpenCheckIn?: () => void;
   attendanceRecord?: import('../types').AttendanceRecord;
   onSyncCommissions?: () => void;
-  onOpenRepairIntake?: () => void;
 }
 
 export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ 
@@ -37,8 +36,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   onCheckOut, 
   onOpenCheckIn,
   attendanceRecord,
-  onSyncCommissions,
-  onOpenRepairIntake
+  onSyncCommissions
 }) => {
   const [activeTab, setActiveTab] = useState<'KANBAN' | 'INVENTORY' | 'KPI' | 'REPORT' | 'HR'>('KANBAN');
   const [walletFilter, setWalletFilter] = useState<'ALL' | 'KCS' | 'REPAIR' | 'WARRANTY' | 'TRADEIN'>('ALL');
@@ -210,36 +208,61 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   }, [devices, assignedWorkLines, currentUser, staffMember]);
 
   const kanbanTasks = useMemo(() => {
-    const technicalTasks = assignedWorkLines.map(line => ({
-      id: `TECH-${line.id}`,
-      workOrderId: line.workOrderId,
-      workOrderStatus: line.workOrderStatus,
-      workOrderType: line.workOrderType,
-      sourceWarehouseId: line.sourceWarehouseId,
-      lineId: line.id,
-      sourceKind: 'TECHNICAL_WORK_ORDER',
-      ticketNumber: line.workOrderCode || line.workOrderId || line.id,
-      ticketCode: line.workOrderCode || line.workOrderId || line.id,
-      customerName: line.customerName || 'Máy nội bộ từ kho',
-      phone: line.customerPhone || '',
-      imei: line.imei || '',
-      model: line.model || 'Thiết bị',
-      deviceModel: line.model || 'Thiết bị',
-      issueType: 'Khác',
-      faultDescription: line.issueDescription || line.taskName || 'Công việc kỹ thuật từ kho',
-      issueDescription: line.taskName || line.taskType || 'Công việc kỹ thuật',
-      technician: line.assigneeName || currentUser?.displayName || '',
-      status: line.status || line.workOrderStatus || 'ASSIGNED',
-      priority: line.priority || 'NORMAL',
-      isWarrantyFree: true,
-      estimatedCost: Number(line.commissionAmount || 0),
-      estimatedLaborCost: Number(line.commissionAmount || 0),
-      finalCost: 0,
-      receivedDate: line.createdAt || '',
-      expectedReturnDate: line.deadlineAt || ''
-    })) as unknown as WarrantyTicket[];
-    return technicalTasks;
-  }, [assignedWorkLines, currentUser?.displayName]);
+    const grouped = new Map<string, any[]>();
+    assignedWorkLines.forEach(line => {
+      const key = String(line.workOrderId || line.id || '');
+      grouped.set(key, [...(grouped.get(key) || []), line]);
+    });
+    return [...grouped.entries()].map(([workOrderId, lines]) => {
+      const first = lines[0] || {};
+      const workOrderStatus = String(first.workOrderStatus || 'ASSIGNED');
+      const lineStatuses = lines.map(line => String(line.status || 'ASSIGNED'));
+      const stage = ['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH'].includes(workOrderStatus)
+        ? 'COMPLETED'
+        : ['QC_PASSED', 'CUSTOMER_READY'].includes(workOrderStatus)
+          ? 'WAITING_DELIVERY'
+          : ['TECH_COMPLETED', 'QC_PENDING'].includes(workOrderStatus)
+            ? 'WAITING_QC'
+            : lineStatuses.includes('WAITING_PARTS')
+              ? 'WAITING_PARTS'
+              : workOrderStatus === 'ASSIGNED' || lineStatuses.every(status => status === 'ASSIGNED')
+                ? 'WAITING_ACCEPTANCE'
+                : 'IN_PROGRESS';
+      const actionableLine = lines.find(line => ['ASSIGNED', 'ACCEPTED', 'REWORK_REQUIRED', 'IN_PROGRESS', 'WAITING_PARTS'].includes(String(line.status || ''))) || first;
+      const technicians = [...new Map(lines.filter(line => line.assigneeUid || line.assigneeName).map(line => [String(line.assigneeUid || line.assigneeName), { id: String(line.assigneeUid || ''), name: String(line.assigneeName || 'Chưa gán KTV') }])).values()];
+      return {
+        id: `TECH-WO-${workOrderId}`,
+        workOrderId,
+        workOrderStatus,
+        workOrderType: first.workOrderType,
+        sourceWarehouseId: first.sourceWarehouseId,
+        lineId: actionableLine.id,
+        sourceKind: 'TECHNICAL_WORK_ORDER',
+        ticketNumber: first.workOrderCode || workOrderId,
+        ticketCode: first.workOrderCode || workOrderId,
+        customerName: first.customerName || 'Máy nội bộ từ kho',
+        phone: first.customerPhone || '',
+        imei: first.imei || '',
+        model: first.model || 'Thiết bị',
+        deviceModel: first.model || 'Thiết bị',
+        issueType: 'Khác',
+        faultDescription: first.issueDescription || first.taskName || 'Công việc kỹ thuật',
+        issueDescription: lines.map(line => line.taskName || line.taskType).filter(Boolean).join(' · '),
+        technician: technicians.map(item => item.name).join(' · ') || 'Chưa gán KTV',
+        technicianIds: technicians.map(item => item.id).filter(Boolean),
+        taskLines: lines.map(line => ({ id: line.id, taskName: line.taskName || line.taskType || 'Việc kỹ thuật', status: line.status || 'ASSIGNED', assigneeUid: line.assigneeUid || '', assigneeName: line.assigneeName || '' })),
+        boardStage: stage,
+        status: stage,
+        priority: lines.some(line => line.priority === 'URGENT') ? 'URGENT' : lines.some(line => line.priority === 'PRIORITY') ? 'PRIORITY' : 'NORMAL',
+        isWarrantyFree: first.workOrderType === 'WARRANTY',
+        estimatedCost: Number(lines.reduce((sum, line) => sum + Number(line.commissionAmount || 0), 0)),
+        estimatedLaborCost: Number(lines.reduce((sum, line) => sum + Number(line.commissionAmount || 0), 0)),
+        finalCost: 0,
+        receivedDate: first.createdAt || '',
+        expectedReturnDate: lines.map(line => line.deadlineAt).filter(Boolean).sort()[0] || ''
+      } as any;
+    }).filter(task => task.boardStage !== 'COMPLETED') as unknown as WarrantyTicket[];
+  }, [assignedWorkLines]);
 
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
@@ -320,13 +343,12 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
             <div className="h-full flex flex-col">
               <div className="mb-3 sm:mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-base sm:text-lg font-black text-zinc-900">Bảng Điều Phối Sửa Chữa & KCS</h2>
+                  <h2 className="text-base sm:text-lg font-black text-zinc-900">Bàn kỹ thuật & KCS</h2>
                   <span className="text-xs font-bold text-zinc-500 bg-white px-2.5 py-1 rounded-xl border border-zinc-200 shadow-2xs">
                     {kanbanTasks.length} công việc
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {onOpenRepairIntake && <button onClick={onOpenRepairIntake} className="rounded-xl bg-orange-600 px-3 py-1.5 text-xs font-black text-white shadow-sm hover:bg-orange-700">+ Tiếp nhận máy sửa</button>}
                   <div className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-700 flex items-center gap-2 shadow-2xs">
                     <Clock className="w-3.5 h-3.5 text-orange-500" />
                     <span>SLA Tiêu Chuẩn: &lt; 2h / ca</span>
@@ -566,7 +588,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
           className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KANBAN' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
           <CheckCircle2 className={`w-5 h-5 ${activeTab === 'KANBAN' ? 'scale-110' : ''}`} />
-          <span className="text-[10px]">Kanban</span>
+          <span className="text-[10px]">Điều phối</span>
         </button>
         <button 
           onClick={() => setActiveTab('INVENTORY')}

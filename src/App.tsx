@@ -31,7 +31,7 @@ import { LeadKanbanBoard } from './features/crm/components/LeadKanbanBoard';
 import { CreateLeadModal } from './features/crm/components/CreateLeadModal';
 import { Customer360Drawer } from './features/crm/components/Customer360Drawer';
 import { CRMLeadsView } from './components/CRMLeadsView';
-import { RepairIntakeHub } from './features/warranty/components/RepairIntakeHub';
+import { RetailRepairView } from './features/warranty/components/RetailRepairView';
 import { RepairIntakeModal } from './features/warranty/components/RepairIntakeModal';
 import { TradeInCockpitView } from './features/tradein/components/TradeInCockpitView';
 import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
@@ -167,6 +167,7 @@ export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [isRepairIntakeOpen, setIsRepairIntakeOpen] = useState(false);
+  const [retailRepairRefreshKey, setRetailRepairRefreshKey] = useState(0);
   const [linkedInvoiceId, setLinkedInvoiceId] = useState<string | null>(null);
   const [linkedPurchaseOrderId, setLinkedPurchaseOrderId] = useState<string | null>(null);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ADMIN');
@@ -1767,7 +1768,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'warranty' && <RepairIntakeHub onOpenIntake={() => setIsRepairIntakeOpen(true)} onOpenTechDesk={() => setActiveTab('tech-workspace')} />}
+        {activeTab === 'warranty' && <RetailRepairView currentUser={currentUser} branches={branches} funds={funds} refreshKey={retailRepairRefreshKey} onOpenIntake={() => setIsRepairIntakeOpen(true)} onOpenTechDesk={() => setActiveTab('tech-workspace')} />}
 
         {activeTab === 'pos' && (
           <POSCockpitView
@@ -1961,7 +1962,6 @@ export default function App() {
             onCheckOut={handleCheckOut}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
             attendanceRecord={currentAttendance}
-            onOpenRepairIntake={() => setIsRepairIntakeOpen(true)}
           />
         )}
 
@@ -2006,7 +2006,7 @@ export default function App() {
         devices={devices}
         users={users}
         currentUser={currentUser}
-        onCreated={async () => { setActiveTab('tech-workspace'); }}
+        onCreated={async () => { setRetailRepairRefreshKey(value => value + 1); setActiveTab('warranty'); }}
       />
 
       {/* Floating AI Copilot Button */}

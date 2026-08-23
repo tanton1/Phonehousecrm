@@ -312,7 +312,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
     },
     {
       id: 'warranty',
-      label: 'Bảo Hành & Sửa Chữa',
+      label: 'Sửa chữa lẻ',
       subtitle: 'Tra cứu IMEI, Linh kiện zin',
       icon: Wrench,
       color: 'text-orange-500',
@@ -885,7 +885,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                 </span>
                 <h3 className="text-sm sm:text-base font-semibold truncate">
                   {activeSubModal === 'preorders' && 'Quản Lý Đơn Đặt Hàng Pre-order'}
-                  {activeSubModal === 'repairs' && 'Phiếu Tiếp Nhận Sửa Chữa Điện Thoại'}
+                  {activeSubModal === 'repairs' && 'Sửa chữa lẻ'}
                   {activeSubModal === 'audits' && 'Kiểm Kê Kho & Cân Bằng Tồn'}
                   {activeSubModal === 'shipments' && 'Quản Lý Vận Đơn & Tra Cứu GHN/GHTK'}
                   {activeSubModal === 'payroll' && 'Bảng Lương & Hoa Hồng Doanh Số'}

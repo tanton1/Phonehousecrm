@@ -83,8 +83,8 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     id: 'technical',
     label: 'Kỹ Thuật & Sửa Chữa',
     items: [
-      { id: 'warranty', label: 'Tiếp Nhận Sửa Chữa', icon: Wrench },
-      { id: 'tech-workspace', label: 'Kanban Kỹ Thuật & KCS', icon: Cpu, roles: ['ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'] }
+      { id: 'warranty', label: 'Sửa chữa lẻ', icon: Wrench, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'SALES', 'SALE', 'CASHIER'] },
+      { id: 'tech-workspace', label: 'Bàn kỹ thuật & KCS', icon: Cpu, roles: ['ADMIN', 'MANAGER', 'TECH_LEAD', 'TECH', 'TECHNICIAN'] }
     ]
   },
   {
@@ -131,8 +131,8 @@ export function getMobilePrimaryTabs(userRole?: string) {
   if (userRole === 'TECHNICIAN' || userRole === 'TECH' || userRole === 'TECH_LEAD') {
     return [
       { id: 'tech-workspace', label: 'Việc của tôi', icon: Cpu },
-      { id: 'warranty', label: 'Tiếp nhận', icon: Wrench },
       { id: 'products', label: 'Linh kiện', icon: Package },
+      { id: 'transfers', label: 'Chuyển kho', icon: ArrowRightLeft },
       { id: 'checkin-portal', label: 'Điểm danh', icon: ScanFace },
       { id: 'more', label: 'Thêm', icon: Settings }
     ];

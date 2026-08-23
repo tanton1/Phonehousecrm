@@ -62,6 +62,12 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
+        const requestedType = String(req.body?.workOrderType || '').toUpperCase();
+        const actorRole = String(req.user!.role || '').toUpperCase();
+        const isCustomerRepair = ['CUSTOMER_SERVICE', 'WARRANTY'].includes(requestedType);
+        if (isCustomerRepair && !['ADMIN', 'MANAGER', 'SALES', 'SALE', 'CASHIER'].includes(actorRole)) {
+          return res.status(403).json({ success: false, error: 'RETAIL_REPAIR_SALES_ONLY: Phiếu sửa chữa lẻ và bảo hành phải do bộ phận bán hàng hoặc quản lý tiếp nhận.' });
+        }
         const result = await processCreateWorkOrder(db, req.body, req.user!);
         return res.json({ success: true, data: result });
       } catch (error: any) {
@@ -563,7 +569,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
    * Revenue is recognized only when a customer-owned device has actually been
    * handed back. This keeps the report aligned with the receipt/fund ledger.
    */
-  router.get('/reports/repair-revenue', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.get('/reports/repair-revenue', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'SALES', 'SALE', 'CASHIER'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const role = String(req.user!.role || '').toUpperCase();
@@ -619,6 +625,96 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     } catch (error: any) {
       console.error('[Repair Revenue Report Error]:', error);
       return res.status(400).json({ success: false, error: error?.message || 'Không thể tải báo cáo sửa chữa.' });
+    }
+  });
+
+  /**
+   * GET /api/technical/retail-repairs
+   * Sales-facing branch queue. A repair is always a customer-owned technical
+   * work order; task lines are returned only as progress, never as separate
+   * sales cards.
+   */
+  router.get('/retail-repairs', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'SALES', 'SALE', 'CASHIER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const role = String(req.user!.role || '').toUpperCase();
+      const allowedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      const serializeDate = (value: any): string => {
+        if (!value) return '';
+        if (typeof value === 'string') return value;
+        if (typeof value.toDate === 'function') return value.toDate().toISOString();
+        return '';
+      };
+      const workOrderSnapshot = await db.collection('technicalWorkOrders').limit(1000).get();
+      const workOrders = workOrderSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(item => ['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(item.workOrderType || '')))
+        .filter(item => role === 'ADMIN' || allowedBranches.has(String(item.branchId || '')))
+        .filter(item => String(item.status || '') !== 'CANCELLED');
+      const lineIds = [...new Set(workOrders.flatMap(item => Array.isArray(item.taskLineIds) ? item.taskLineIds : []).map(String).filter(Boolean))];
+      const lineSnapshots = lineIds.length ? await db.getAll(...lineIds.map(id => db.collection('technicalWorkOrderLines').doc(id))) : [];
+      const linesByOrder = new Map<string, any[]>();
+      lineSnapshots.filter(snapshot => snapshot.exists).forEach(snapshot => {
+        const line = { id: snapshot.id, ...snapshot.data() } as any;
+        const key = String(line.workOrderId || '');
+        linesByOrder.set(key, [...(linesByOrder.get(key) || []), line]);
+      });
+      const getStage = (workOrder: any, lines: any[]) => {
+        const status = String(workOrder.status || 'ASSIGNED');
+        if (status === 'DELIVERED_TO_CUSTOMER') return 'COMPLETED';
+        if (['QC_PASSED', 'CUSTOMER_READY'].includes(status)) return 'WAITING_DELIVERY';
+        if (['TECH_COMPLETED', 'QC_PENDING'].includes(status)) return 'WAITING_QC';
+        if (lines.some(line => String(line.status || '') === 'WAITING_PARTS')) return 'WAITING_PARTS';
+        if (status === 'ASSIGNED' || lines.every(line => String(line.status || '') === 'ASSIGNED')) return 'WAITING_ACCEPTANCE';
+        return 'IN_PROGRESS';
+      };
+      const items = workOrders.map(workOrder => {
+        const lines = (linesByOrder.get(workOrder.id) || []).map(line => ({
+          id: line.id,
+          taskName: line.taskName || line.taskType || 'Việc kỹ thuật',
+          status: line.status || 'ASSIGNED',
+          assigneeUid: line.assigneeUid || '',
+          assigneeName: line.assigneeName || '',
+          deadlineAt: serializeDate(line.deadlineAt)
+        }));
+        const finalAmount = Number(workOrder.finalServiceAmount ?? workOrder.customerApprovedQuote ?? workOrder.totalEstimatedCost ?? 0);
+        const paidAmount = Number(workOrder.paidAmount || 0);
+        return {
+          id: workOrder.id,
+          code: workOrder.code || workOrder.id,
+          branchId: workOrder.branchId || '',
+          type: workOrder.workOrderType,
+          status: workOrder.status || 'ASSIGNED',
+          stage: getStage(workOrder, lines),
+          customerName: workOrder.customerName || 'Khách lẻ',
+          customerPhone: workOrder.customerPhone || '',
+          imei: workOrder.imei || '',
+          model: workOrder.model || 'Thiết bị',
+          receivedAt: serializeDate(workOrder.receivedAt || workOrder.createdAt),
+          expectedReturnDate: serializeDate(workOrder.expectedReturnDate),
+          deliveredAt: serializeDate(workOrder.deliveredAt),
+          finalAmount,
+          paidAmount,
+          balanceDue: Math.max(0, Number(workOrder.balanceDue ?? finalAmount - paidAmount)),
+          paymentStatus: workOrder.paymentStatus || (paidAmount >= finalAmount ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'),
+          paymentMethod: workOrder.paymentMethod || 'DEBT',
+          taskLines: lines
+        };
+      }).sort((left, right) => String(right.receivedAt || right.deliveredAt).localeCompare(String(left.receivedAt || left.deliveredAt)));
+      const summary = items.reduce((total, item) => ({
+        receivedCount: total.receivedCount + 1,
+        inProgressCount: total.inProgressCount + (['WAITING_ACCEPTANCE', 'IN_PROGRESS', 'WAITING_PARTS', 'WAITING_QC'].includes(item.stage) ? 1 : 0),
+        waitingDeliveryCount: total.waitingDeliveryCount + (item.stage === 'WAITING_DELIVERY' ? 1 : 0),
+        deliveredCount: total.deliveredCount + (item.stage === 'COMPLETED' ? 1 : 0),
+        serviceRevenue: total.serviceRevenue + (item.stage === 'COMPLETED' ? item.finalAmount : 0),
+        cashCollected: total.cashCollected + (item.stage === 'COMPLETED' ? item.paidAmount : 0),
+        outstanding: total.outstanding + (item.stage === 'COMPLETED' ? item.balanceDue : 0),
+        warrantyCount: total.warrantyCount + (item.type === 'WARRANTY' ? 1 : 0)
+      }), { receivedCount: 0, inProgressCount: 0, waitingDeliveryCount: 0, deliveredCount: 0, serviceRevenue: 0, cashCollected: 0, outstanding: 0, warrantyCount: 0 });
+      return res.json({ success: true, data: { summary, items } });
+    } catch (error: any) {
+      console.error('[Retail Repair Queue Error]:', error);
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tải danh sách sửa chữa lẻ.' });
     }
   });
 

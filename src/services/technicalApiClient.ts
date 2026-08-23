@@ -539,6 +539,48 @@ export async function fetchRepairRevenueReport(from?: string, to?: string): Prom
   return await sendTechnicalApiRequest(`reports/repair-revenue${query.size ? `?${query.toString()}` : ''}`, {}, 'GET');
 }
 
+export type RetailRepairStage = 'WAITING_ACCEPTANCE' | 'IN_PROGRESS' | 'WAITING_PARTS' | 'WAITING_QC' | 'WAITING_DELIVERY' | 'COMPLETED';
+
+export interface RetailRepairCase {
+  id: string;
+  code: string;
+  branchId: string;
+  type: 'CUSTOMER_SERVICE' | 'WARRANTY' | string;
+  status: string;
+  stage: RetailRepairStage;
+  customerName: string;
+  customerPhone: string;
+  imei: string;
+  model: string;
+  receivedAt: string;
+  expectedReturnDate: string;
+  deliveredAt: string;
+  finalAmount: number;
+  paidAmount: number;
+  balanceDue: number;
+  paymentStatus: string;
+  paymentMethod: string;
+  taskLines: Array<{ id: string; taskName: string; status: string; assigneeUid: string; assigneeName: string; deadlineAt: string }>;
+}
+
+export interface RetailRepairDashboard {
+  summary: {
+    receivedCount: number;
+    inProgressCount: number;
+    waitingDeliveryCount: number;
+    deliveredCount: number;
+    serviceRevenue: number;
+    cashCollected: number;
+    outstanding: number;
+    warrantyCount: number;
+  };
+  items: RetailRepairCase[];
+}
+
+export async function fetchRetailRepairDashboard(): Promise<RetailRepairDashboard> {
+  return await sendTechnicalApiRequest('retail-repairs', {}, 'GET');
+}
+
 /**
  * 9. Fetch Task Lines for Authenticated Technician (My Work)
  */

@@ -48,31 +48,31 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
 
   // Columns Definition
   const COLUMNS = [
-    { id: 'TODO', title: 'Chờ Tiếp Nhận', statuses: ['received', 'ASSIGNED'] },
-    { id: 'IN_PROGRESS', title: 'Đang Xử Lý', statuses: ['inspecting', 'repairing', 'IN_PROGRESS', 'ACCEPTED', 'REWORK_REQUIRED'] },
-    { id: 'PENDING_PARTS', title: 'Chờ Linh Kiện', statuses: ['waiting_parts', 'WAITING_PARTS'] },
-    { id: 'DONE', title: 'Hoàn Thành (Chờ QC / Đã QC)', statuses: ['ready', 'delivered', 'COMPLETED', 'TECH_COMPLETED', 'QC_PASSED', 'VERIFIED'] }
+    { id: 'WAITING_ACCEPTANCE', title: 'Chờ nhận' },
+    { id: 'IN_PROGRESS', title: 'Đang xử lý' },
+    { id: 'WAITING_PARTS', title: 'Chờ linh kiện' },
+    { id: 'WAITING_QC', title: 'Chờ KCS' },
+    { id: 'WAITING_DELIVERY', title: 'Chờ trả máy' }
   ];
 
   const canFilterTechnician = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(currentUserRole || '').toUpperCase());
-  const technicians = useMemo(() => [...new Set(tasks.map(task => String(task.technician || 'Chưa gán KTV')).filter(Boolean))], [tasks]);
-  const visibleTasks = useMemo(() => technicianFilter === 'ALL' ? tasks : tasks.filter(task => String(task.technician || 'Chưa gán KTV') === technicianFilter), [tasks, technicianFilter]);
+  const technicians = useMemo(() => {
+    const grouped = new Map<string, string>();
+    tasks.forEach(task => {
+      const ids = Array.isArray((task as any).technicianIds) ? (task as any).technicianIds : [];
+      const names = String(task.technician || 'Chưa gán KTV').split(' · ');
+      ids.forEach((id: string, index: number) => grouped.set(String(id), names[index] || 'KTV'));
+    });
+    return [...grouped.entries()].map(([id, name]) => ({ id, name }));
+  }, [tasks]);
+  const visibleTasks = useMemo(() => technicianFilter === 'ALL' ? tasks : tasks.filter(task => Array.isArray((task as any).technicianIds) && (task as any).technicianIds.includes(technicianFilter)), [tasks, technicianFilter]);
 
   const groupedTasks = useMemo(() => {
-    const groups: Record<string, WarrantyTicket[]> = {
-      'TODO': [],
-      'IN_PROGRESS': [],
-      'PENDING_PARTS': [],
-      'DONE': []
-    };
+    const groups: Record<string, WarrantyTicket[]> = Object.fromEntries(COLUMNS.map(column => [column.id, []]));
 
     visibleTasks.forEach(task => {
-      const status = task.status || 'received';
-      if (COLUMNS[0].statuses.includes(status)) groups['TODO'].push(task);
-      else if (COLUMNS[1].statuses.includes(status)) groups['IN_PROGRESS'].push(task);
-      else if (COLUMNS[2].statuses.includes(status)) groups['PENDING_PARTS'].push(task);
-      else if (COLUMNS[3].statuses.includes(status)) groups['DONE'].push(task);
-      else groups['TODO'].push(task);
+      const stage = String((task as any).boardStage || task.status || 'WAITING_ACCEPTANCE');
+      (groups[stage] || groups.WAITING_ACCEPTANCE).push(task);
     });
 
     return groups;
@@ -166,7 +166,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
     const isBusy = loadingTaskId === task.id;
 
     switch (columnId) {
-      case 'TODO':
+      case 'WAITING_ACCEPTANCE':
         if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER') {
           return (
             <button
@@ -181,7 +181,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         }
         return <div className="mt-3 rounded bg-zinc-100 py-1.5 text-center text-xs font-semibold text-zinc-500">Phiếu cũ chỉ đọc · cần chuyển đổi dữ liệu</div>;
       case 'IN_PROGRESS':
-        if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER' && ['ACCEPTED', 'REWORK_REQUIRED'].includes(String(task.status))) {
+        if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER' && ['ACCEPTED', 'REWORK_REQUIRED'].includes(String(((task as any).taskLines || []).find((line: any) => line.id === (task as any).lineId)?.status || ''))) {
           return (
             <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); void handleStartTask(task); }} className="w-full mt-3 py-1.5 bg-orange-600 text-white text-xs font-bold rounded hover:bg-orange-700 flex items-center justify-center disabled:opacity-50">
               <ArrowRight className="w-3.5 h-3.5 mr-1" />{isBusy ? 'Đang bắt đầu...' : 'Bắt đầu hạng mục'}
@@ -209,31 +209,24 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
             </button>
           </div>
         );
-      case 'PENDING_PARTS':
+      case 'WAITING_PARTS':
         return (
           <button 
             disabled={isBusy}
-            onClick={(e) => { e.stopPropagation(); if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER') void handleStartTask(task); else onTaskClick(task); }}
+            onClick={(e) => { e.stopPropagation(); onTaskClick(task); }}
             className="w-full mt-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-semibold rounded hover:bg-orange-100 flex items-center justify-center transition-colors disabled:opacity-50"
           >
-            <ArrowRight className="w-3.5 h-3.5 mr-1" />
-            {isBusy ? 'Đang xử lý...' : 'Tiếp Tục Làm'}
+            <Package className="w-3.5 h-3.5 mr-1" />
+            Mở linh kiện & yêu cầu kho
           </button>
         );
-      case 'DONE':
-        if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER' && String(task.status) === 'COMPLETED' && ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(currentUserRole || '').toUpperCase())) {
+      case 'WAITING_QC':
+        if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER' && ['TECH_COMPLETED', 'QC_PENDING'].includes(String((task as any).workOrderStatus || '')) && ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(currentUserRole || '').toUpperCase())) {
           return <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); setQcTask(task); setQcChecks({}); setQcResult('PASS'); setQcReason(''); setQcFiles([]); }} className="w-full mt-3 py-1.5 bg-violet-600 text-white text-xs font-bold rounded hover:bg-violet-700 disabled:opacity-50">KCS độc lập · Duyệt 12 bước</button>;
         }
-        if ((task as any).sourceKind !== 'TECHNICAL_WORK_ORDER') return <div className="mt-3 rounded bg-zinc-100 py-1.5 text-center text-xs font-semibold text-zinc-500">Phiếu cũ chỉ đọc</div>;
-        return (
-          <div className="mt-3 text-center text-xs font-medium text-zinc-500 bg-zinc-50 py-1.5 rounded">
-            {String(task.status) === 'delivered' || String(task.status) === 'DELIVERED_TO_CUSTOMER'
-              ? '✅ Đã giao khách'
-              : String((task as any).workOrderStatus) === 'QC_PASSED' || String(task.status) === 'VERIFIED'
-                ? '✅ KCS đạt · Chờ nhập kho/giao khách'
-                : '⏳ Chờ KCS độc lập'}
-          </div>
-        );
+        return <div className="mt-3 rounded bg-violet-50 py-1.5 text-center text-xs font-semibold text-violet-700">⏳ Chờ KCS độc lập</div>;
+      case 'WAITING_DELIVERY':
+        return <div className="mt-3 rounded bg-emerald-50 py-1.5 text-center text-xs font-semibold text-emerald-700">✅ KCS đạt · Chờ NVBH trả máy hoặc kho nhận lại</div>;
       default:
         return null;
     }
@@ -248,7 +241,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         </div>
       )}
 
-      {canFilterTechnician && <div className="flex gap-2 overflow-x-auto pb-1"><button onClick={() => setTechnicianFilter('ALL')} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black ${technicianFilter === 'ALL' ? 'bg-zinc-900 text-white' : 'border bg-white text-zinc-600'}`}>Tất cả · {tasks.length}</button>{technicians.map(technician => <button key={technician} onClick={() => setTechnicianFilter(technician)} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black ${technicianFilter === technician ? 'bg-orange-600 text-white' : 'border bg-white text-zinc-600'}`}>{technician} · {tasks.filter(task => String(task.technician || 'Chưa gán KTV') === technician).length}</button>)}</div>}
+      {canFilterTechnician && <div className="flex gap-2 overflow-x-auto pb-1"><button onClick={() => setTechnicianFilter('ALL')} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black ${technicianFilter === 'ALL' ? 'bg-zinc-900 text-white' : 'border bg-white text-zinc-600'}`}>Tất cả · {tasks.length}</button>{technicians.map(technician => <button key={technician.id} onClick={() => setTechnicianFilter(technician.id)} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black ${technicianFilter === technician.id ? 'bg-orange-600 text-white' : 'border bg-white text-zinc-600'}`}>{technician.name} · {tasks.filter(task => Array.isArray((task as any).technicianIds) && (task as any).technicianIds.includes(technician.id)).length}</button>)}</div>}
 
       {/* Modal Quét IMEI nhận máy vật lý */}
       {scanModalTaskId && (
@@ -422,6 +415,8 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                     <p className="text-xs text-zinc-600 line-clamp-2 mb-2 bg-zinc-50 p-1.5 rounded border border-zinc-100">
                       {task.issueDescription || task.faultDescription || 'Chưa ghi nhận lỗi chi tiết'}
                     </p>
+
+                    {Array.isArray((task as any).taskLines) && <div className="mb-2 space-y-1">{(task as any).taskLines.map((line: any) => <div key={line.id} className="flex items-center justify-between gap-2 rounded-md bg-zinc-50 px-2 py-1 text-[10px]"><span className="truncate font-semibold text-zinc-700">{line.taskName}</span><span className={['COMPLETED', 'VERIFIED'].includes(String(line.status)) ? 'font-black text-emerald-700' : String(line.status) === 'WAITING_PARTS' ? 'font-black text-orange-700' : 'font-bold text-zinc-500'}>{String(line.status).replaceAll('_', ' ')}</span></div>)}</div>}
 
                     <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-2 border-t border-zinc-100">
                       <span>{task.technician || 'Chưa gán KTV'}</span>

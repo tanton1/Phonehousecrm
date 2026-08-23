@@ -166,8 +166,8 @@ export const Navbar: React.FC<NavbarProps> = ({
       matchIds: ['warranty', 'tech-workspace'],
       badge: (warrantyCount > 0) ? warrantyCount : undefined,
       subItems: [
-        { id: 'warranty', label: 'Tiếp Nhận Sửa Chữa', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
-        { id: 'tech-workspace', label: 'Kanban Kỹ Thuật & KCS', icon: Sparkles }
+        { id: 'warranty', label: 'Sửa chữa lẻ', icon: Wrench, badge: warrantyCount > 0 ? warrantyCount : undefined },
+        { id: 'tech-workspace', label: 'Bàn kỹ thuật & KCS', icon: Sparkles }
       ]
     },
     {

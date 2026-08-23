@@ -23,7 +23,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(allItemIds).toContain('payroll');
   });
 
-  it('Case 3: Sales nhân viên chỉ thấy các tab Bán hàng/Kho/CRM/Điểm danh, không thấy Sổ quỹ hay Phân quyền', () => {
+  it('Case 3: Sales có Sửa chữa lẻ theo chi nhánh, không thấy Sổ quỹ hay Phân quyền', () => {
     const salesGroups = getAuthorizedNavigation('SALES');
     const salesItemIds = salesGroups.flatMap(g => g.items.map(i => i.id));
 
@@ -33,6 +33,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(salesItemIds).toContain('inventory');
     expect(salesItemIds).toContain('crm');
     expect(salesItemIds).toContain('checkin-portal');
+    expect(salesItemIds).toContain('warranty');
 
     // Blocked for Sales
     expect(salesItemIds).not.toContain('funds');
@@ -42,11 +43,11 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(salesItemIds).not.toContain('store-settings');
   });
 
-  it('Case 4: Kỹ thuật viên (TECH) chỉ thấy Kho Linh Kiện, Chuyển kho và Tiếp Nhận Sửa Chữa', () => {
+  it('Case 4: Kỹ thuật viên (TECH) chỉ thấy Bàn kỹ thuật, Kho Linh Kiện và Chuyển kho', () => {
     const techGroups = getAuthorizedNavigation('TECH');
     const techItemIds = techGroups.flatMap(g => g.items.map(i => i.id));
 
-    expect(techItemIds).toContain('warranty');
+    expect(techItemIds).not.toContain('warranty');
     expect(techItemIds).toContain('products');
     expect(techItemIds).not.toContain('spare-parts');
     expect(techItemIds).toContain('tech-workspace');
