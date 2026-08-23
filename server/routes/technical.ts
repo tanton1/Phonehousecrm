@@ -503,8 +503,8 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       }
 
       try {
-        const { notes } = req.body;
-        const result = await processDeliverToCustomer(db, req.params.id, notes || '', req.user!);
+        const { notes, payment } = req.body;
+        const result = await processDeliverToCustomer(db, req.params.id, notes || '', req.user!, payment);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Deliver Customer Error]:', error);
@@ -555,6 +555,70 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       return res.json({ success: true, data: entries });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error?.message || 'Không thể tải sổ hoa hồng kỹ thuật.' });
+    }
+  });
+
+  /**
+   * GET /api/technical/reports/repair-revenue?from=YYYY-MM-DD&to=YYYY-MM-DD
+   * Revenue is recognized only when a customer-owned device has actually been
+   * handed back. This keeps the report aligned with the receipt/fund ledger.
+   */
+  router.get('/reports/repair-revenue', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const role = String(req.user!.role || '').toUpperCase();
+      const allowedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || '')) ? `${req.query.from}T00:00:00.000Z` : '';
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || '')) ? `${req.query.to}T23:59:59.999Z` : '';
+      const serializeDate = (value: any): string => {
+        if (!value) return '';
+        if (typeof value === 'string') return value;
+        if (typeof value.toDate === 'function') return value.toDate().toISOString();
+        return '';
+      };
+      const snapshot = await db.collection('technicalWorkOrders').limit(1000).get();
+      const items = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(item => {
+          if (!['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(item.workOrderType || ''))) return false;
+          if (String(item.status || '') !== 'DELIVERED_TO_CUSTOMER') return false;
+          if (role !== 'ADMIN' && !allowedBranches.has(item.branchId)) return false;
+          const deliveredAt = serializeDate(item.deliveredAt);
+          return (!from || deliveredAt >= from) && (!to || deliveredAt <= to);
+        })
+        .map(item => {
+          const finalAmount = Number(item.finalServiceAmount ?? item.customerApprovedQuote ?? item.totalEstimatedCost ?? 0);
+          const paidAmount = Number(item.paidAmount || 0);
+          return {
+            workOrderId: item.id,
+            code: item.code || item.id,
+            branchId: item.branchId || '',
+            type: item.workOrderType,
+            customerName: item.customerName || 'Khách lẻ',
+            customerPhone: item.customerPhone || '',
+            imei: item.imei || '',
+            model: item.model || 'Thiết bị',
+            deliveredAt: serializeDate(item.deliveredAt),
+            finalAmount,
+            paidAmount,
+            balanceDue: Math.max(0, Number(item.balanceDue ?? finalAmount - paidAmount)),
+            paymentStatus: item.paymentStatus || (paidAmount >= finalAmount ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'),
+            paymentMethod: item.paymentMethod || 'DEBT',
+            deliveryNotes: item.deliveryNotes || ''
+          };
+        })
+        .sort((left, right) => String(right.deliveredAt).localeCompare(String(left.deliveredAt)));
+      const summary = items.reduce((total, item) => ({
+        deliveredCount: total.deliveredCount + 1,
+        warrantyCount: total.warrantyCount + (item.type === 'WARRANTY' ? 1 : 0),
+        serviceRevenue: total.serviceRevenue + item.finalAmount,
+        cashCollected: total.cashCollected + item.paidAmount,
+        outstanding: total.outstanding + item.balanceDue
+      }), { deliveredCount: 0, warrantyCount: 0, serviceRevenue: 0, cashCollected: 0, outstanding: 0 });
+      return res.json({ success: true, data: { from: String(req.query.from || ''), to: String(req.query.to || ''), summary, items } });
+    } catch (error: any) {
+      console.error('[Repair Revenue Report Error]:', error);
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tải báo cáo sửa chữa.' });
     }
   });
 

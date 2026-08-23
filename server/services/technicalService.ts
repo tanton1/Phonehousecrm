@@ -50,6 +50,14 @@ export interface QCInspectionInput {
   photoEvidenceUrls?: string[];
 }
 
+export interface CustomerDeliveryPaymentInput {
+  finalAmount?: number;
+  paidAmount?: number;
+  paymentMethod?: 'CASH' | 'BANK' | 'DEBT';
+  fundId?: string;
+  note?: string;
+}
+
 function canAccessBranch(user: any, targetBranchId?: string): boolean {
   if (!targetBranchId) return true;
   if (user?.role === 'ADMIN') return true;
@@ -1305,7 +1313,8 @@ export async function processDeliverToCustomer(
   db: Firestore,
   workOrderId: string,
   notes: string,
-  staffUser: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] }
+  staffUser: { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] },
+  paymentInput?: CustomerDeliveryPaymentInput
 ): Promise<{ success: boolean; workOrderId: string }> {
   const normalizedDeliveryNotes = String(notes || '').trim();
   if (normalizedDeliveryNotes.length < 5) throw new Error('DELIVERY_NOTES_REQUIRED');
@@ -1329,7 +1338,82 @@ export async function processDeliverToCustomer(
       throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên chi nhánh "${woData.branchId}".`);
     }
 
+    const finalAmount = Number(paymentInput?.finalAmount ?? woData.finalServiceAmount ?? woData.customerApprovedQuote ?? woData.totalEstimatedCost ?? 0);
+    const paidAmount = Number(paymentInput?.paidAmount ?? 0);
+    const paymentMethod = String(paymentInput?.paymentMethod || (paidAmount > 0 ? 'CASH' : 'DEBT')).toUpperCase();
+    if (!Number.isFinite(finalAmount) || finalAmount < 0 || !Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount > finalAmount) {
+      throw new Error('REPAIR_PAYMENT_AMOUNT_INVALID');
+    }
+    if (!['CASH', 'BANK', 'DEBT'].includes(paymentMethod)) throw new Error('REPAIR_PAYMENT_METHOD_INVALID');
+    if (paidAmount > 0 && paymentMethod === 'DEBT') throw new Error('REPAIR_PAYMENT_METHOD_INVALID');
+    if (paidAmount > 0 && !String(paymentInput?.fundId || '').trim()) throw new Error('REPAIR_PAYMENT_FUND_REQUIRED');
+
     const now = new Date().toISOString();
+    const fundRef = paidAmount > 0 ? db.collection('funds').doc(String(paymentInput?.fundId || '').trim()) : null;
+    const fundSnap = fundRef ? await transaction.get(fundRef) : null;
+    const fund = fundSnap?.data();
+    const expectedFundType = paymentMethod === 'CASH' ? 'CASH' : 'BANK';
+    if (paidAmount > 0) {
+      if (!fundSnap?.exists || !fund) throw new Error('REPAIR_PAYMENT_FUND_NOT_FOUND');
+      if (fund.isActive === false || fund.active === false || fund.isArchived) throw new Error('REPAIR_PAYMENT_FUND_INACTIVE');
+      if (String(fund.branchId || '') !== String(woData.branchId || '')) throw new Error('REPAIR_PAYMENT_FUND_BRANCH_MISMATCH');
+      if (String(fund.type || '').toUpperCase() !== expectedFundType) throw new Error('REPAIR_PAYMENT_FUND_TYPE_MISMATCH');
+    }
+    const balanceDue = Math.max(0, finalAmount - paidAmount);
+    const paymentStatus = finalAmount === 0 ? 'NOT_REQUIRED' : balanceDue === 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID';
+    const paymentTransactionId = paidAmount > 0 ? `TECH_REPAIR_RECEIPT_${workOrderId}` : null;
+
+    if (fundRef && fund) {
+      transaction.update(fundRef, {
+        currentBalance: Number(fund.currentBalance || 0) + paidAmount,
+        totalIncome: Number(fund.totalIncome || 0) + paidAmount,
+        updatedAt: now
+      });
+      transaction.set(db.collection('cashTransactions').doc(paymentTransactionId!), {
+        id: paymentTransactionId,
+        code: `PTSC-${String(woData.code || workOrderId)}`,
+        type: 'RECEIPT',
+        amount: paidAmount,
+        category: 'REPAIR_SERVICE_REVENUE',
+        categoryName: 'Thu sửa chữa',
+        fundId: fundRef.id,
+        fundName: fund.name || 'Quỹ thu tiền',
+        fundType: fund.type || expectedFundType,
+        partnerId: woData.customerId || '',
+        partnerName: woData.customerName || 'Khách sửa chữa',
+        partnerType: 'CUSTOMER',
+        branchId: woData.branchId,
+        referenceType: 'TECHNICAL_WORK_ORDER',
+        referenceId: workOrderId,
+        referenceCode: woData.code || workOrderId,
+        date: now,
+        notes: paymentInput?.note || `Thu tiền phiếu sửa ${woData.code || workOrderId}`,
+        creator: staffUser.name || 'Nhân viên bàn giao',
+        creatorUid: staffUser.uid,
+        isPLAccounted: true,
+        status: 'COMPLETED',
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
+    transaction.set(db.collection('repairPayments').doc(`REPAIR_PAYMENT_${workOrderId}`), {
+      id: `REPAIR_PAYMENT_${workOrderId}`,
+      workOrderId,
+      workOrderCode: woData.code || workOrderId,
+      branchId: woData.branchId,
+      customerName: woData.customerName || '',
+      finalAmount,
+      paidAmount,
+      balanceDue,
+      paymentMethod,
+      fundId: fundRef?.id || null,
+      cashTransactionId: paymentTransactionId,
+      collectedByUid: staffUser.uid,
+      collectedByName: staffUser.name || 'Nhân viên bàn giao',
+      collectedAt: now,
+      note: paymentInput?.note || '',
+      status: paymentStatus,
+      createdAt: FieldValue.serverTimestamp()
+    });
 
     // 1. Update Work Order
     transaction.update(woRef, {
@@ -1337,6 +1421,13 @@ export async function processDeliverToCustomer(
       deliveredAt: now,
       deliveredByUid: staffUser.uid,
       deliveryNotes: normalizedDeliveryNotes,
+      finalServiceAmount: finalAmount,
+      paidAmount,
+      balanceDue,
+      paymentStatus,
+      paymentMethod,
+      paymentFundId: fundRef?.id || null,
+      paymentTransactionId,
       updatedAt: FieldValue.serverTimestamp()
     });
 

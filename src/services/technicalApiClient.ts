@@ -464,9 +464,16 @@ export async function requestReturnToStock(
  */
 export async function requestDeliverToCustomer(
   workOrderId: string,
-  notes: string = ''
+  notes: string = '',
+  payment?: {
+    finalAmount: number;
+    paidAmount: number;
+    paymentMethod: 'CASH' | 'BANK' | 'DEBT';
+    fundId?: string;
+    note?: string;
+  }
 ): Promise<{ success: boolean; workOrderId: string }> {
-  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/deliver-customer`, { notes });
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/deliver-customer`, { notes, payment });
 }
 
 export interface TechnicalCommissionLedgerEntry {
@@ -494,6 +501,42 @@ export interface TechnicalCommissionLedgerEntry {
 
 export async function fetchTechnicalCommissionLedger(period: string): Promise<TechnicalCommissionLedgerEntry[]> {
   return await sendTechnicalApiRequest(`commissions?period=${encodeURIComponent(period)}`, {}, 'GET');
+}
+
+export interface RepairRevenueReport {
+  from: string;
+  to: string;
+  summary: {
+    deliveredCount: number;
+    warrantyCount: number;
+    serviceRevenue: number;
+    cashCollected: number;
+    outstanding: number;
+  };
+  items: Array<{
+    workOrderId: string;
+    code: string;
+    branchId: string;
+    type: string;
+    customerName: string;
+    customerPhone: string;
+    imei: string;
+    model: string;
+    deliveredAt: string;
+    finalAmount: number;
+    paidAmount: number;
+    balanceDue: number;
+    paymentStatus: string;
+    paymentMethod: string;
+    deliveryNotes: string;
+  }>;
+}
+
+export async function fetchRepairRevenueReport(from?: string, to?: string): Promise<RepairRevenueReport> {
+  const query = new URLSearchParams();
+  if (from) query.set('from', from);
+  if (to) query.set('to', to);
+  return await sendTechnicalApiRequest(`reports/repair-revenue${query.size ? `?${query.toString()}` : ''}`, {}, 'GET');
 }
 
 /**

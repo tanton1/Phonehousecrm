@@ -31,7 +31,7 @@ import { LeadKanbanBoard } from './features/crm/components/LeadKanbanBoard';
 import { CreateLeadModal } from './features/crm/components/CreateLeadModal';
 import { Customer360Drawer } from './features/crm/components/Customer360Drawer';
 import { CRMLeadsView } from './components/CRMLeadsView';
-import { RepairKanbanBoard } from './features/warranty/components/RepairKanbanBoard';
+import { RepairIntakeHub } from './features/warranty/components/RepairIntakeHub';
 import { RepairIntakeModal } from './features/warranty/components/RepairIntakeModal';
 import { TradeInCockpitView } from './features/tradein/components/TradeInCockpitView';
 import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
@@ -72,7 +72,6 @@ import {
   subscribeToTradeIns,
   addTradeInToFirestore,
   updateTradeInInFirestore,
-  subscribeToWarrantyTickets,
   subscribeToInvoices,
   cancelInvoiceInFirestore,
   subscribeToUsers,
@@ -186,10 +185,9 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [warrantyTickets, setWarrantyTickets] = useState<WarrantyTicket[]>(() => {
-    const saved = localStorage.getItem('istore_warranty');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Legacy warrantyTickets are intentionally no longer loaded into the application.
+  // New repair work is technicalWorkOrders only.
+  const [warrantyTickets] = useState<WarrantyTicket[]>([]);
 
   const [invoices, setInvoices] = useState<SalesInvoice[]>(() => {
     const saved = localStorage.getItem('istore_invoices');
@@ -583,7 +581,6 @@ export default function App() {
     });
     let unsubLeads = () => {};
     let unsubTradeIns = () => {};
-    let unsubWarranty = () => {};
     let unsubInvoices = () => {};
     let unsubUsers = () => {};
     let unsubPartners = () => {};
@@ -605,10 +602,6 @@ export default function App() {
 
     unsubTradeIns = subscribeToTradeIns((remoteTradeIns) => {
       setTradeIns(remoteTradeIns || []);
-    });
-
-    unsubWarranty = subscribeToWarrantyTickets((remoteWarranty) => {
-      setWarrantyTickets(remoteWarranty || []);
     });
 
     unsubInvoices = subscribeToInvoices((remoteInvoices) => {
@@ -683,7 +676,6 @@ export default function App() {
       unsubAuth();
       unsubLeads();
       unsubTradeIns();
-      unsubWarranty();
       unsubInvoices();
       unsubUsers();
       unsubPartners();
@@ -769,8 +761,9 @@ export default function App() {
   }, [tradeIns, safeSetLocalStorage]);
 
   useEffect(() => {
-    safeSetLocalStorage('istore_warranty', warrantyTickets);
-  }, [warrantyTickets, safeSetLocalStorage]);
+    // Remove only the browser cache of the retired legacy flow; no new ticket is stored there.
+    localStorage.removeItem('istore_warranty');
+  }, []);
 
   useEffect(() => {
     safeSetLocalStorage('istore_invoices', invoices);
@@ -1774,17 +1767,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'warranty' && (
-          <RepairKanbanBoard
-            tickets={filteredWarrantyTickets}
-            branches={branches}
-            selectedBranchId={selectedBranchId}
-            onSelectTicket={(ticket) => {
-              alert(`Chi tiết phiếu ${ticket.ticketNumber}:\nKhách: ${ticket.customerName} (${ticket.phone})\nMáy: ${ticket.model}\nLỗi: ${ticket.faultDescription || ticket.issueType}\nKTV: ${ticket.technician || 'Chưa gán'}`);
-            }}
-            onOpenCreateModal={() => setIsRepairIntakeOpen(true)}
-          />
-        )}
+        {activeTab === 'warranty' && <RepairIntakeHub onOpenIntake={() => setIsRepairIntakeOpen(true)} onOpenTechDesk={() => setActiveTab('tech-workspace')} />}
 
         {activeTab === 'pos' && (
           <POSCockpitView
@@ -1973,6 +1956,7 @@ export default function App() {
             devices={filteredDevices}
             branches={branches}
             warehouses={warehouses}
+            funds={funds}
             onCheckIn={handleCheckIn}
             onCheckOut={handleCheckOut}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}

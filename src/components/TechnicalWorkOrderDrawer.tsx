@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, DollarSign, Loader2, Package, RefreshCw, ScanLine, Wrench, X } from 'lucide-react';
-import { UserAccount, WarehouseInfo, WarrantyTicket } from '../types';
+import { FundAccount, UserAccount, WarehouseInfo, WarrantyTicket } from '../types';
 import {
   fetchTechnicalCostBreakdown,
   fetchTechnicalSpareParts,
@@ -17,6 +17,7 @@ import {
   requestFinalizeTechnicalCost,
   requestIssueSparePart,
   requestReserveSparePart,
+  requestTechnicalPartStockRequest,
   requestTechnicalPartException,
   requestRevealTechnicalPasscode,
   requestTechnicalHandoff,
@@ -29,6 +30,7 @@ import { uploadTechnicalEvidence } from '../services/technicalEvidenceService';
 interface TechnicalWorkOrderDrawerProps {
   task: WarrantyTicket | null;
   warehouses: WarehouseInfo[];
+  funds?: FundAccount[];
   currentUser?: UserAccount | null;
   onClose: () => void;
   onRefresh?: () => Promise<void> | void;
@@ -92,10 +94,11 @@ const taskPartRuleLabel = (rule: TaskPartRule) => {
   return `${target || 'Chưa định danh'} · tối đa ${maximum > 0 ? maximum : '—'}${rule.allowSubstitution ? ' · cho phép thay thế cùng nhóm' : ''}`;
 };
 
-export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> = ({ task, warehouses, currentUser, onClose, onRefresh }) => {
+export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> = ({ task, warehouses, funds = [], currentUser, onClose, onRefresh }) => {
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TASKS' | 'PARTS' | 'COST' | 'QC' | 'TIMELINE' | 'RETURN'>('OVERVIEW');
   const [details, setDetails] = useState<any>(null);
   const [parts, setParts] = useState<any[]>([]);
+  const [centralParts, setCentralParts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -105,6 +108,8 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const [partsWarehouseId, setPartsWarehouseId] = useState('');
   const [selectedLotId, setSelectedLotId] = useState('');
   const [issueQuantity, setIssueQuantity] = useState(1);
+  const [orderPartId, setOrderPartId] = useState('');
+  const [orderQuantity, setOrderQuantity] = useState(1);
   const [partExceptionReason, setPartExceptionReason] = useState('');
   const [settleQuantities, setSettleQuantities] = useState<Record<string, number>>({});
   const [settleNotes, setSettleNotes] = useState<Record<string, string>>({});
@@ -116,6 +121,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const [returnWarehouseId, setReturnWarehouseId] = useState('');
   const [returnScannedImei, setReturnScannedImei] = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [deliveryPayment, setDeliveryPayment] = useState({ finalAmount: 0, paidAmount: 0, paymentMethod: 'CASH' as 'CASH' | 'BANK' | 'DEBT', fundId: '', note: '' });
   const [revealedPasscode, setRevealedPasscode] = useState<string | null>(null);
   const [handoffTargetWarehouseId, setHandoffTargetWarehouseId] = useState('');
   const [handoffScannedImei, setHandoffScannedImei] = useState('');
@@ -129,6 +135,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const canReturnStock = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'].includes(role);
   const canManagePartExceptions = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'].includes(role);
   const canDeliverCustomer = ['ADMIN', 'MANAGER', 'SALES', 'SALE', 'TECH_LEAD'].includes(role);
+  const customerPaymentFunds = useMemo(() => funds.filter(fund => fund.isActive !== false && fund.isArchived !== true && fund.branchId === details?.workOrder?.branchId), [funds, details?.workOrder?.branchId]);
 
   const load = async () => {
     if (!workOrderId) return;
@@ -140,6 +147,11 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
       ]);
       setDetails(nextDetails);
       setParts(nextParts || []);
+      setDeliveryPayment(current => ({
+        ...current,
+        finalAmount: current.finalAmount || Number(nextDetails?.workOrder?.finalServiceAmount ?? nextDetails?.workOrder?.customerApprovedQuote ?? nextDetails?.workOrder?.totalEstimatedCost ?? 0),
+        paidAmount: current.paidAmount || Number(nextDetails?.workOrder?.paidAmount ?? 0)
+      }));
       const firstLine = nextDetails?.taskLines?.find((line: any) => line.id === (task as any)?.lineId) || nextDetails?.taskLines?.[0];
       if (!selectedLineId && firstLine) setSelectedLineId(firstLine.id);
       if (!partsWarehouseId) {
@@ -194,6 +206,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
   const selectedPart = parts.find((part: any) => part.id === selectedPartId);
   const selectedPartLots = Array.isArray(selectedPart?.lots) ? selectedPart.lots.filter((lot: any) => Number(lot.availableQuantity || 0) > 0) : [];
   const eligiblePartWarehouses = useMemo(() => warehouses.filter(item => item.isActive !== false && !item.isArchived && (!details?.workOrder?.branchId || item.branchId === details.workOrder.branchId)), [warehouses, details?.workOrder?.branchId]);
+  const centralPartWarehouse = useMemo(() => eligiblePartWarehouses.find(item => String(item.type || '') === 'CENTRAL'), [eligiblePartWarehouses]);
   const ownTechnicianPartWarehouses = useMemo(() => eligiblePartWarehouses.filter(item => item.type === 'TECHNICIAN_SUB'
     && (item.custodianUid === currentUser?.id || item.technicianId === currentUser?.id)), [eligiblePartWarehouses, currentUser?.id]);
   const selectablePartWarehouses = isTechnician ? ownTechnicianPartWarehouses : eligiblePartWarehouses;
@@ -202,6 +215,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
     return Array.isArray(snapshotRules) ? snapshotRules : [];
   }, [selectedLine]);
   const compatibleParts = useMemo(() => parts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [parts, taskPartRules]);
+  const orderableCentralParts = useMemo(() => centralParts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [centralParts, taskPartRules]);
   const incompatibleParts = useMemo(() => parts.filter((part: any) => Number(part.availableQuantity || 0) > 0 && !taskPartRules.some(rule => partMatchesTaskRule(part, rule))), [parts, taskPartRules]);
   const selectedPartRule = selectedPart ? taskPartRules.find(rule => partMatchesTaskRule(selectedPart, rule)) : undefined;
   const selectedPartMaximum = Number(selectedPartRule?.maxQuantity ?? selectedPartRule?.quantity ?? 0);
@@ -244,6 +258,19 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
       .catch(cause => { if (active) setError(cause?.message || 'Không thể tải tồn linh kiện của kho đã chọn.'); });
     return () => { active = false; };
   }, [task, workOrderId, partsWarehouseId]);
+
+  useEffect(() => {
+    if (!task || !workOrderId || !centralPartWarehouse?.id || !isTechnician) return;
+    let active = true;
+    fetchTechnicalSpareParts(centralPartWarehouse.id)
+      .then(nextParts => { if (active) setCentralParts(nextParts || []); })
+      .catch(cause => { if (active) setError(cause?.message || 'Không thể tải linh kiện từ Kho Tổng.'); });
+    return () => { active = false; };
+  }, [task, workOrderId, centralPartWarehouse?.id, isTechnician]);
+
+  useEffect(() => {
+    if (!orderPartId && orderableCentralParts.length > 0) setOrderPartId(orderableCentralParts[0].id);
+  }, [orderPartId, orderableCentralParts]);
 
   useEffect(() => {
     if (!isTechnician) return;
@@ -343,8 +370,9 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
             <section className="rounded-2xl border bg-white p-5">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black">Giữ trước hoặc xuất linh kiện cho task</h3><p className="mt-1 text-xs text-zinc-500">Chỉ linh kiện đúng policy của task mới được phát hành. Chọn sai sẽ chỉ tạo yêu cầu chờ Kho/Admin duyệt, không trừ tồn.</p></div>{isTechnician && <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">Chỉ dùng kho KTV cá nhân</span>}</div>
               {selectedLine && <div className={`mt-4 rounded-xl border p-3 text-sm ${taskPartRules.length ? 'border-emerald-200 bg-emerald-50/60 text-emerald-900' : 'border-amber-200 bg-amber-50 text-amber-900'}`}><p className="font-black">Policy linh kiện: {selectedLine.taskName}</p>{taskPartRules.length ? <ul className="mt-2 list-inside list-disc space-y-1 text-xs">{taskPartRules.map((rule, index) => <li key={`${rule.category || rule.sku || rule.partId || 'rule'}-${index}`}>{taskPartRuleLabel(rule)}</li>)}</ul> : <p className="mt-1 text-xs">Task này chưa có quy tắc linh kiện. KTV không được tự giữ/xuất; chỉ có thể gửi yêu cầu ngoại lệ để Kho/Admin duyệt.</p>}</div>}
-              {isTechnician && ownTechnicianPartWarehouses.length === 0 && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">Tài khoản KTV này chưa được gắn kho con kỹ thuật. Hãy vào Cài đặt → Kho hàng để gắn đúng kho KTV trước khi xuất linh kiện.</div>}
-              {isTechnician && taskPartRules.length > 0 && compatibleParts.length === 0 && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800">Kho KTV cá nhân chưa có linh kiện đúng task hoặc đã hết tồn. Mở <strong>Kho Linh Kiện &amp; Phụ Kiện → Linh kiện theo kho</strong>, chọn <strong>Yêu cầu Kho Tổng</strong> để cấp phát về kho cá nhân trước khi xuất.</div>}
+               {isTechnician && ownTechnicianPartWarehouses.length === 0 && <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">Tài khoản KTV này chưa được gắn kho con kỹ thuật. Hãy vào Cài đặt → Kho hàng để gắn đúng kho KTV trước khi xuất linh kiện.</div>}
+               {isTechnician && taskPartRules.length > 0 && compatibleParts.length === 0 && <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-800">Kho KTV cá nhân chưa có linh kiện đúng task hoặc đã hết tồn. Mở <strong>Kho Linh Kiện &amp; Phụ Kiện → Linh kiện theo kho</strong>, chọn <strong>Yêu cầu Kho Tổng</strong> để cấp phát về kho cá nhân trước khi xuất.</div>}
+               {isTechnician && taskPartRules.length > 0 && centralPartWarehouse && <section className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/70 p-3"><div><p className="text-sm font-black text-sky-950">Yêu cầu Kho Tổng cấp linh kiện</p><p className="mt-1 text-xs text-sky-800">Gửi yêu cầu ngay tại task này. Kho/Admin duyệt xong, linh kiện sẽ về kho cá nhân của bạn để xuất đúng quy trình.</p></div><div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_100px_auto]"><select value={orderPartId} onChange={event => setOrderPartId(event.target.value)} className="h-10 min-w-0 rounded-xl border border-sky-200 bg-white px-3 text-xs"><option value="">{orderableCentralParts.length ? 'Chọn linh kiện đúng task ở Kho Tổng' : 'Kho Tổng chưa có linh kiện đúng task'}</option>{orderableCentralParts.map(part => <option key={part.id} value={part.id}>{part.name} · còn {part.availableQuantity}</option>)}</select><input type="number" min={1} value={orderQuantity} onChange={event => setOrderQuantity(Number(event.target.value))} className="h-10 min-w-0 rounded-xl border border-sky-200 bg-white px-3 text-sm"/><button disabled={saving || !selectedLineId || !partsWarehouseId || !orderPartId || !Number.isFinite(orderQuantity) || orderQuantity <= 0} onClick={() => void run(async () => { const part = orderableCentralParts.find(item => item.id === orderPartId); if (!part) throw new Error('Hãy chọn linh kiện đúng task từ Kho Tổng.'); await requestTechnicalPartStockRequest({ sourceWarehouseId: centralPartWarehouse.id, targetWarehouseId: partsWarehouseId, partId: part.id, quantity: orderQuantity, reason: `Cấp ${part.name || part.sku} cho task ${selectedLine?.taskName || selectedLineId}.`, workOrderId, workOrderLineId: selectedLineId }); setOrderQuantity(1); }, 'Đã gửi yêu cầu Kho Tổng. Linh kiện chỉ về kho KTV sau khi được duyệt.')} className="h-10 rounded-xl bg-sky-700 px-3 text-xs font-black text-white disabled:opacity-40">Yêu cầu cấp</button></div></section>}
               <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <select value={selectedLineId} onChange={event => { setSelectedLineId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm">{(details?.taskLines || []).map((line: any) => <option key={line.id} value={line.id}>{line.taskName}</option>)}</select>
                 <select value={partsWarehouseId} onChange={event => { setPartsWarehouseId(event.target.value); setSelectedPartId(''); setSelectedLotId(''); setPartExceptionReason(''); }} disabled={isTechnician && ownTechnicianPartWarehouses.length <= 1} className="h-11 min-w-0 w-full rounded-xl border px-3 text-sm disabled:bg-zinc-100"><option value="">{isTechnician ? 'Kho KTV chưa được gắn' : 'Chọn kho xuất'}</option>{selectablePartWarehouses.map(item => <option key={item.id} value={item.id}>{item.name}{isTechnician ? ' · kho cá nhân' : ''}</option>)}</select>
@@ -383,7 +411,7 @@ export const TechnicalWorkOrderDrawer: React.FC<TechnicalWorkOrderDrawerProps> =
 
           {activeTab === 'TIMELINE' && <section className="overflow-hidden rounded-2xl border bg-white"><div className="border-b px-4 py-3 font-black">Ledger theo thời gian thực</div><div className="divide-y">{(details?.timeline || []).map((event: any) => <div key={event.id} className="grid gap-2 p-4 sm:grid-cols-[170px_1fr]"><time className="text-xs font-bold text-zinc-500">{new Date(event.occurredAt).toLocaleString('vi-VN')}</time><div><p className="font-bold">{event.title}</p><p className="mt-1 text-xs text-zinc-500">{event.actorName || event.actorUid || 'Không có dữ liệu người thực hiện'}{event.fromLocationId || event.toLocationId ? ` · ${event.fromLocationId || '—'} → ${event.toLocationId || '—'}` : ''}</p>{details.canViewCost && event.amount != null && <p className="mt-1 text-xs font-black text-orange-700">Biến động {money.format(Number(event.amount))} · Giá vốn sau {money.format(Number(event.costAfter || 0))}</p>}</div></div>)}{!details?.timeline?.length && <p className="p-8 text-center text-sm text-zinc-500">Không có dữ liệu lịch sử từ ledger.</p>}</div></section>}
 
-          {activeTab === 'RETURN' && (workOrder.assetOwnership === 'CUSTOMER' ? <section className="mx-auto max-w-xl rounded-2xl border bg-white p-5"><h3 className="font-black">Bàn giao máy cho khách</h3><p className="mt-1 text-sm text-zinc-500">Chỉ giao sau khi KCS đạt. Mật mã mở máy mã hóa sẽ bị xóa sau khi xác nhận.</p><textarea value={deliveryNotes} onChange={event => setDeliveryNotes(event.target.value)} rows={3} placeholder="Tình trạng bàn giao, phụ kiện đi kèm, người nhận..." className="mt-4 w-full rounded-xl border p-3 text-sm"/><button disabled={saving || !canDeliverCustomer || workOrder.status !== 'QC_PASSED' || deliveryNotes.trim().length < 5} onClick={() => void run(() => requestDeliverToCustomer(workOrderId, deliveryNotes.trim()), 'Đã bàn giao máy cho khách và chốt điều kiện hoa hồng.')} className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-sm font-black text-white disabled:opacity-40">Xác nhận bàn giao khách</button>{!canDeliverCustomer && <p className="mt-2 text-xs text-amber-700">Chỉ Sales, Trưởng kỹ thuật, Manager hoặc Admin được bàn giao.</p>}</section> : <section className="mx-auto max-w-xl rounded-2xl border bg-white p-5"><h3 className="font-black">Kho quét nhận máy sau sửa</h3><p className="mt-1 text-sm text-zinc-500">Chỉ mở nhập kho khi QC đạt, linh kiện đã đối soát và giá vốn đã POSTED.</p><select value={returnWarehouseId} onChange={event => setReturnWarehouseId(event.target.value)} className="mt-4 h-11 w-full rounded-xl border px-3"><option value="">Chọn kho nhận</option>{eligiblePartWarehouses.filter(item => ['CENTRAL','RETAIL_STORE'].includes(String(item.type || ''))).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><label className="mt-3 block"><span className="text-xs font-black">Quét IMEI thực nhận</span><div className="relative mt-1"><ScanLine className="absolute left-3 top-3 h-5 w-5 text-zinc-400"/><input value={returnScannedImei} onChange={event => setReturnScannedImei(event.target.value.replace(/\D/g,'').slice(0,15))} className="h-11 w-full rounded-xl border pl-11 pr-3 font-mono" placeholder={workOrder.imei || 'IMEI 5–15 số'}/></div></label><div className="mt-4 rounded-xl bg-zinc-50 p-3 text-sm"><p className="flex justify-between"><span>QC</span><strong>{workOrder.status === 'QC_PASSED' ? 'Đạt' : workOrder.status}</strong></p><p className="mt-2 flex justify-between"><span>Giá vốn</span><strong>{details?.costPostingStatus}</strong></p></div><button disabled={saving || !canReturnStock || details?.costPostingStatus !== 'POSTED' || !returnWarehouseId || !returnScannedImei} onClick={() => void run(() => requestReturnToStock(workOrderId, returnWarehouseId, returnScannedImei), 'Đã nhận lại đúng IMEI và mở tồn kho bán.' )} className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-sm font-black text-white disabled:opacity-40">Quét nhận và nhập lại kho</button>{!canReturnStock && <p className="mt-2 text-xs text-amber-700">Chỉ quản lý kho, Manager hoặc Admin được xác nhận nhận lại.</p>}</section>)}
+          {activeTab === 'RETURN' && (workOrder.assetOwnership === 'CUSTOMER' ? <section className="mx-auto max-w-xl rounded-2xl border bg-white p-5"><h3 className="font-black">Bàn giao máy & thu tiền</h3><p className="mt-1 text-sm text-zinc-500">KCS đạt rồi mới giao máy. Có thể thu đủ, thu một phần hoặc ghi nợ.</p><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="block"><span className="text-xs font-black text-zinc-600">Tổng tiền dịch vụ</span><input type="number" min={0} value={deliveryPayment.finalAmount} onChange={event => setDeliveryPayment(current => ({ ...current, finalAmount: Math.max(0, Number(event.target.value || 0)) }))} className="mt-1 h-11 w-full rounded-xl border px-3 font-bold"/></label><label className="block"><span className="text-xs font-black text-zinc-600">Khách thanh toán hôm nay</span><input type="number" min={0} max={deliveryPayment.finalAmount} value={deliveryPayment.paidAmount} onChange={event => setDeliveryPayment(current => ({ ...current, paidAmount: Math.max(0, Number(event.target.value || 0)) }))} className="mt-1 h-11 w-full rounded-xl border px-3 font-bold"/></label><label className="block"><span className="text-xs font-black text-zinc-600">Hình thức thu</span><select value={deliveryPayment.paymentMethod} onChange={event => setDeliveryPayment(current => ({ ...current, paymentMethod: event.target.value as 'CASH' | 'BANK' | 'DEBT', fundId: '' }))} className="mt-1 h-11 w-full rounded-xl border px-3"><option value="CASH">Tiền mặt</option><option value="BANK">Chuyển khoản</option><option value="DEBT">Ghi nợ</option></select></label>{deliveryPayment.paidAmount > 0 && deliveryPayment.paymentMethod !== 'DEBT' && <label className="block"><span className="text-xs font-black text-zinc-600">Quỹ nhận tiền</span><select value={deliveryPayment.fundId} onChange={event => setDeliveryPayment(current => ({ ...current, fundId: event.target.value }))} className="mt-1 h-11 w-full rounded-xl border px-3"><option value="">Chọn quỹ nhận</option>{customerPaymentFunds.filter(fund => String(fund.type).toUpperCase() === deliveryPayment.paymentMethod).map(fund => <option key={fund.id} value={fund.id}>{fund.name}</option>)}</select></label>}<label className="block sm:col-span-2"><span className="text-xs font-black text-zinc-600">Ghi chú thu tiền (không bắt buộc)</span><input value={deliveryPayment.note} onChange={event => setDeliveryPayment(current => ({ ...current, note: event.target.value }))} placeholder="Ví dụ: khách chuyển khoản, hẹn trả phần còn lại..." className="mt-1 h-11 w-full rounded-xl border px-3 text-sm"/></label></div><div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950"><p className="flex justify-between"><span>Đã thu</span><strong>{money.format(Number(deliveryPayment.paidAmount || 0))}</strong></p><p className="mt-1 flex justify-between"><span>Còn nợ</span><strong>{money.format(Math.max(0, Number(deliveryPayment.finalAmount || 0) - Number(deliveryPayment.paidAmount || 0)))}</strong></p></div><textarea value={deliveryNotes} onChange={event => setDeliveryNotes(event.target.value)} rows={3} placeholder="Tình trạng bàn giao, phụ kiện đi kèm, người nhận..." className="mt-4 w-full rounded-xl border p-3 text-sm"/><button disabled={saving || !canDeliverCustomer || workOrder.status !== 'QC_PASSED' || deliveryNotes.trim().length < 5 || deliveryPayment.paidAmount > deliveryPayment.finalAmount || (deliveryPayment.paidAmount > 0 && deliveryPayment.paymentMethod !== 'DEBT' && !deliveryPayment.fundId)} onClick={() => void run(() => requestDeliverToCustomer(workOrderId, deliveryNotes.trim(), { finalAmount: Number(deliveryPayment.finalAmount || 0), paidAmount: Number(deliveryPayment.paidAmount || 0), paymentMethod: deliveryPayment.paymentMethod, fundId: deliveryPayment.paidAmount > 0 && deliveryPayment.paymentMethod !== 'DEBT' ? deliveryPayment.fundId : undefined, note: deliveryPayment.note.trim() || undefined }), 'Đã bàn giao máy, ghi nhận khoản thu và chốt điều kiện hoa hồng.')} className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-sm font-black text-white disabled:opacity-40">Xác nhận giao máy & thu tiền</button>{!canDeliverCustomer && <p className="mt-2 text-xs text-amber-700">Chỉ Sales, Trưởng kỹ thuật, Manager hoặc Admin được bàn giao.</p>}</section> : <section className="mx-auto max-w-xl rounded-2xl border bg-white p-5"><h3 className="font-black">Kho quét nhận máy sau sửa</h3><p className="mt-1 text-sm text-zinc-500">Chỉ mở nhập kho khi QC đạt, linh kiện đã đối soát và giá vốn đã POSTED.</p><select value={returnWarehouseId} onChange={event => setReturnWarehouseId(event.target.value)} className="mt-4 h-11 w-full rounded-xl border px-3"><option value="">Chọn kho nhận</option>{eligiblePartWarehouses.filter(item => ['CENTRAL','RETAIL_STORE'].includes(String(item.type || ''))).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><label className="mt-3 block"><span className="text-xs font-black">Quét IMEI thực nhận</span><div className="relative mt-1"><ScanLine className="absolute left-3 top-3 h-5 w-5 text-zinc-400"/><input value={returnScannedImei} onChange={event => setReturnScannedImei(event.target.value.replace(/\D/g,'').slice(0,15))} className="h-11 w-full rounded-xl border pl-11 pr-3 font-mono" placeholder={workOrder.imei || 'IMEI 5–15 số'}/></div></label><div className="mt-4 rounded-xl bg-zinc-50 p-3 text-sm"><p className="flex justify-between"><span>QC</span><strong>{workOrder.status === 'QC_PASSED' ? 'Đạt' : workOrder.status}</strong></p><p className="mt-2 flex justify-between"><span>Giá vốn</span><strong>{details?.costPostingStatus}</strong></p></div><button disabled={saving || !canReturnStock || details?.costPostingStatus !== 'POSTED' || !returnWarehouseId || !returnScannedImei} onClick={() => void run(() => requestReturnToStock(workOrderId, returnWarehouseId, returnScannedImei), 'Đã nhận lại đúng IMEI và mở tồn kho bán.' )} className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-sm font-black text-white disabled:opacity-40">Quét nhận và nhập lại kho</button>{!canReturnStock && <p className="mt-2 text-xs text-amber-700">Chỉ quản lý kho, Manager hoặc Admin được xác nhận nhận lại.</p>}</section>)}
         </>}
       </main>
     </aside>

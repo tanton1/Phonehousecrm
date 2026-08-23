@@ -6,10 +6,10 @@ import {
 } from 'lucide-react';
 import { TechKanbanBoard } from './TechKanbanBoard';
 import { StaffHRView } from './StaffHRView';
-import { UserAccount, WarrantyTicket, DeviceItem, CommissionTransaction, StoreBranch, WarehouseInfo } from '../types';
+import { UserAccount, WarrantyTicket, DeviceItem, CommissionTransaction, StoreBranch, WarehouseInfo, FundAccount } from '../types';
 import { calculateStaffDualWallet } from '../utils/commissionEngine';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
-import { fetchMyTechnicalWork, fetchPendingTechnicalHandoffs, fetchTechnicalCommissionLedger, requestAcceptTechnicalHandoff, TechnicalCommissionLedgerEntry } from '../services/technicalApiClient';
+import { fetchMyTechnicalWork, fetchPendingTechnicalHandoffs, fetchRepairRevenueReport, fetchTechnicalCommissionLedger, requestAcceptTechnicalHandoff, RepairRevenueReport, TechnicalCommissionLedgerEntry } from '../services/technicalApiClient';
 import { TechnicalWorkOrderDrawer } from './TechnicalWorkOrderDrawer';
 import { uploadTechnicalEvidence } from '../services/technicalEvidenceService';
 
@@ -17,6 +17,7 @@ interface TechWorkspaceViewProps {
   devices: DeviceItem[];
   branches?: StoreBranch[];
   warehouses?: WarehouseInfo[];
+  funds?: FundAccount[];
   currentUser?: UserAccount | null;
   onCheckIn?: (time: string) => void;
   onCheckOut?: (time: string) => void;
@@ -30,6 +31,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   devices, 
   branches = [],
   warehouses = [],
+  funds = [],
   currentUser, 
   onCheckIn, 
   onCheckOut, 
@@ -38,7 +40,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   onSyncCommissions,
   onOpenRepairIntake
 }) => {
-  const [activeTab, setActiveTab] = useState<'KANBAN' | 'INVENTORY' | 'KPI' | 'HR'>('KANBAN');
+  const [activeTab, setActiveTab] = useState<'KANBAN' | 'INVENTORY' | 'KPI' | 'REPORT' | 'HR'>('KANBAN');
   const [walletFilter, setWalletFilter] = useState<'ALL' | 'KCS' | 'REPAIR' | 'WARRANTY' | 'TRADEIN'>('ALL');
   const [isSyncing, setIsSyncing] = useState(false);
   const [assignedWorkLines, setAssignedWorkLines] = useState<any[]>([]);
@@ -50,6 +52,13 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   const [handoffScan, setHandoffScan] = useState('');
   const [handoffNotes, setHandoffNotes] = useState('');
   const [handoffFiles, setHandoffFiles] = useState<File[]>([]);
+  const [repairReport, setRepairReport] = useState<RepairRevenueReport | null>(null);
+  const [repairReportLoading, setRepairReportLoading] = useState(false);
+  const [repairReportError, setRepairReportError] = useState('');
+  const [reportFrom, setReportFrom] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
+  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const currentRole = String(currentUser?.role || '').toUpperCase();
+  const canViewRepairReport = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(currentRole);
 
   const mapLedgerEntry = (entry: TechnicalCommissionLedgerEntry): CommissionTransaction => {
     const workOrderType = String(entry.workOrderType || '');
@@ -107,9 +116,26 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
     }
   };
 
+  const loadRepairReport = async () => {
+    if (!canViewRepairReport) return;
+    setRepairReportLoading(true);
+    setRepairReportError('');
+    try {
+      setRepairReport(await fetchRepairRevenueReport(reportFrom, reportTo));
+    } catch (error: any) {
+      setRepairReportError(error?.message || 'Không thể tải báo cáo doanh thu sửa chữa.');
+    } finally {
+      setRepairReportLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadAssignedWork();
   }, [currentUser?.id]);
+
+  useEffect(() => {
+    void loadRepairReport();
+  }, [currentUser?.id, canViewRepairReport]);
 
   // Active tech staff identification
   const currentStaffId = currentUser?.id || '';
@@ -145,6 +171,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
       onSyncCommissions();
     }
     await loadAssignedWork();
+    await loadRepairReport();
   };
 
   const acceptSelectedHandoff = async () => {
@@ -505,6 +532,15 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
               </div>
             </div>
           )}
+
+          {activeTab === 'REPORT' && canViewRepairReport && (
+            <div className="mx-auto max-w-5xl space-y-4">
+              <div className="rounded-3xl bg-gradient-to-r from-zinc-900 to-orange-800 p-5 text-white shadow-lg"><p className="text-xs font-black uppercase tracking-wider text-orange-200">Báo cáo tiếp nhận sửa chữa</p><h2 className="mt-1 text-xl font-black">Doanh thu theo máy đã trả khách</h2><p className="mt-1 text-xs text-zinc-200">Chỉ tính phiếu đã bàn giao; số tiền đã thu được ghi trực tiếp vào quỹ đã chọn.</p><div className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><label className="text-xs font-bold">Từ ngày<input type="date" value={reportFrom} onChange={event => setReportFrom(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border-0 px-3 text-zinc-900"/></label><label className="text-xs font-bold">Đến ngày<input type="date" value={reportTo} onChange={event => setReportTo(event.target.value)} className="mt-1 block h-10 w-full rounded-xl border-0 px-3 text-zinc-900"/></label><button onClick={() => void loadRepairReport()} disabled={repairReportLoading} className="self-end rounded-xl bg-white px-4 py-2.5 text-xs font-black text-orange-700 disabled:opacity-50"><RefreshCw className={`mr-1 inline h-3.5 w-3.5 ${repairReportLoading ? 'animate-spin' : ''}`}/>Xem báo cáo</button></div></div>
+              {repairReportError && <p className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{repairReportError}</p>}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><div className="rounded-2xl border bg-white p-4"><p className="text-xs font-bold text-zinc-500">Máy đã trả</p><p className="mt-1 text-2xl font-black">{repairReport?.summary.deliveredCount || 0}</p></div><div className="rounded-2xl border bg-white p-4"><p className="text-xs font-bold text-zinc-500">Doanh thu dịch vụ</p><p className="mt-1 text-lg font-black text-orange-700">{formatVND(repairReport?.summary.serviceRevenue || 0)}</p></div><div className="rounded-2xl border bg-white p-4"><p className="text-xs font-bold text-zinc-500">Đã thu vào quỹ</p><p className="mt-1 text-lg font-black text-emerald-700">{formatVND(repairReport?.summary.cashCollected || 0)}</p></div><div className="rounded-2xl border bg-white p-4"><p className="text-xs font-bold text-zinc-500">Còn khách nợ</p><p className="mt-1 text-lg font-black text-rose-700">{formatVND(repairReport?.summary.outstanding || 0)}</p></div></div>
+              <section className="overflow-hidden rounded-3xl border bg-white"><div className="border-b p-4"><h3 className="font-black">Chi tiết từng phiếu</h3><p className="mt-1 text-xs text-zinc-500">{repairReport?.summary.warrantyCount || 0} phiếu bảo hành trong khoảng thời gian này.</p></div><div className="divide-y">{repairReport?.items.map(item => <article key={item.workOrderId} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto]"><div><p className="font-black text-zinc-900">{item.model} <span className="font-mono text-xs text-zinc-500">· {item.imei || 'Không có IMEI'}</span></p><p className="mt-1 text-sm font-semibold text-zinc-700">{item.customerName} {item.customerPhone ? `· ${item.customerPhone}` : ''}</p><p className="mt-1 text-xs text-zinc-500">{item.code} · {item.deliveredAt ? new Date(item.deliveredAt).toLocaleString('vi-VN') : 'Chưa có thời gian'} · {item.type === 'WARRANTY' ? 'Bảo hành' : 'Sửa dịch vụ'}</p>{item.deliveryNotes && <p className="mt-2 text-xs text-zinc-600">{item.deliveryNotes}</p>}</div><div className="grid grid-cols-3 gap-3 text-right text-xs sm:block sm:space-y-1"><p><span className="block text-zinc-500">Tổng</span><strong>{formatVND(item.finalAmount)}</strong></p><p><span className="block text-zinc-500">Đã thu</span><strong className="text-emerald-700">{formatVND(item.paidAmount)}</strong></p><p><span className="block text-zinc-500">Còn nợ</span><strong className="text-rose-700">{formatVND(item.balanceDue)}</strong></p></div></article>)}{!repairReportLoading && !repairReport?.items.length && <p className="p-10 text-center text-sm text-zinc-500">Chưa có máy nào được bàn giao trong khoảng thời gian đã chọn.</p>}</div></section>
+            </div>
+          )}
           
           {activeTab === 'HR' && (
             <div className="h-full bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden p-3 sm:p-5">
@@ -546,6 +582,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
           <Zap className={`w-5 h-5 ${activeTab === 'KPI' ? 'scale-110' : ''}`} />
           <span className="text-[10px]">Ví Kỹ Thuật</span>
         </button>
+        {canViewRepairReport && <button onClick={() => setActiveTab('REPORT')} className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'REPORT' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}><DollarSign className={`w-5 h-5 ${activeTab === 'REPORT' ? 'scale-110' : ''}`} /><span className="text-[10px]">Doanh thu</span></button>}
         <button 
           onClick={() => setActiveTab('HR')}
           className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'HR' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
@@ -555,7 +592,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
         </button>
       </div>
       {selectedHandoff && <div className="fixed inset-0 z-[155] grid place-items-center bg-black/60 p-4" onMouseDown={event => { if (event.target === event.currentTarget) setSelectedHandoff(null); }}><section className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-zinc-900">Nhận bàn giao từ KTV khác</h3><p className="mt-1 text-xs text-zinc-500">IMEI {selectedHandoff.imei} · từ {selectedHandoff.fromTechnicianName || 'KTV trước'}</p></div><button onClick={() => setSelectedHandoff(null)} className="rounded-lg px-2 py-1 text-zinc-500">✕</button></div><div className="mt-4 space-y-3"><input value={handoffScan} onChange={event => setHandoffScan(event.target.value.replace(/\D/g, '').slice(0, 15))} placeholder="Quét IMEI thực nhận" className="h-11 w-full rounded-xl border px-3 font-mono text-sm"/><textarea value={handoffNotes} onChange={event => setHandoffNotes(event.target.value)} rows={3} placeholder="Tình trạng nhận máy và ghi chú" className="w-full rounded-xl border p-3 text-sm"/><label className="block rounded-xl border border-dashed p-4 text-xs font-bold">Ảnh máy lúc nhận trách nhiệm<input type="file" accept="image/*" multiple onChange={event => setHandoffFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/></label><button disabled={isSyncing || handoffScan.length < 5 || handoffFiles.length < 1} onClick={() => void acceptSelectedHandoff()} className="w-full rounded-xl bg-blue-700 py-3 text-sm font-black text-white disabled:opacity-40">Quét nhận và chịu trách nhiệm</button></div></section></div>}
-      <TechnicalWorkOrderDrawer task={selectedTechnicalTask} warehouses={warehouses} currentUser={currentUser} onClose={() => setSelectedTechnicalTask(null)} onRefresh={handleManualSync} />
+      <TechnicalWorkOrderDrawer task={selectedTechnicalTask} warehouses={warehouses} funds={funds} currentUser={currentUser} onClose={() => setSelectedTechnicalTask(null)} onRefresh={handleManualSync} />
     </div>
   );
 };

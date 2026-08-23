@@ -36,6 +36,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
   const [qcReason, setQcReason] = useState('');
   const [qcFiles, setQcFiles] = useState<File[]>([]);
   const [acceptanceFiles, setAcceptanceFiles] = useState<File[]>([]);
+  const [technicianFilter, setTechnicianFilter] = useState('ALL');
 
   const [preRepairInspection, setPreRepairInspection] = useState({
     appearance: 'GOOD' as 'GOOD' | 'SCRATCHED' | 'DENTED',
@@ -53,6 +54,10 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
     { id: 'DONE', title: 'Hoàn Thành (Chờ QC / Đã QC)', statuses: ['ready', 'delivered', 'COMPLETED', 'TECH_COMPLETED', 'QC_PASSED', 'VERIFIED'] }
   ];
 
+  const canFilterTechnician = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(currentUserRole || '').toUpperCase());
+  const technicians = useMemo(() => [...new Set(tasks.map(task => String(task.technician || 'Chưa gán KTV')).filter(Boolean))], [tasks]);
+  const visibleTasks = useMemo(() => technicianFilter === 'ALL' ? tasks : tasks.filter(task => String(task.technician || 'Chưa gán KTV') === technicianFilter), [tasks, technicianFilter]);
+
   const groupedTasks = useMemo(() => {
     const groups: Record<string, WarrantyTicket[]> = {
       'TODO': [],
@@ -61,7 +66,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
       'DONE': []
     };
 
-    tasks.forEach(task => {
+    visibleTasks.forEach(task => {
       const status = task.status || 'received';
       if (COLUMNS[0].statuses.includes(status)) groups['TODO'].push(task);
       else if (COLUMNS[1].statuses.includes(status)) groups['IN_PROGRESS'].push(task);
@@ -71,7 +76,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
     });
 
     return groups;
-  }, [tasks]);
+  }, [visibleTasks]);
 
   const handleAcceptCustodySubmit = async (task: WarrantyTicket) => {
     if (!scannedImei.trim()) {
@@ -243,6 +248,8 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         </div>
       )}
 
+      {canFilterTechnician && <div className="flex gap-2 overflow-x-auto pb-1"><button onClick={() => setTechnicianFilter('ALL')} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black ${technicianFilter === 'ALL' ? 'bg-zinc-900 text-white' : 'border bg-white text-zinc-600'}`}>Tất cả · {tasks.length}</button>{technicians.map(technician => <button key={technician} onClick={() => setTechnicianFilter(technician)} className={`shrink-0 rounded-xl px-3 py-2 text-xs font-black ${technicianFilter === technician ? 'bg-orange-600 text-white' : 'border bg-white text-zinc-600'}`}>{technician} · {tasks.filter(task => String(task.technician || 'Chưa gán KTV') === technician).length}</button>)}</div>}
+
       {/* Modal Quét IMEI nhận máy vật lý */}
       {scanModalTaskId && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -369,11 +376,11 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
 
       {qcTask && <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"><div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><h3 className="font-black text-zinc-950">KCS độc lập · 12 tiêu chí</h3><p className="text-xs text-zinc-500">{qcTask.ticketNumber} · IMEI {qcTask.imei}</p></div><button onClick={() => setQcTask(null)} className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold">Đóng</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{QC_STEPS.map(([key, label]) => <label key={key} className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${qcChecks[key] ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}><input type="checkbox" checked={Boolean(qcChecks[key])} onChange={e => setQcChecks(current => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-bold"><span>Kết quả KCS</span><select value={qcResult} onChange={e => setQcResult(e.target.value as 'PASS' | 'FAIL')} className="h-10 w-full rounded-xl border px-3"><option value="PASS">Đạt · chuyển bước tiếp</option><option value="FAIL">Không đạt · trả KTV làm lại</option></select></label><label className="space-y-1 text-xs font-bold"><span>Lý do/Ghi chú</span><input value={qcReason} onChange={e => setQcReason(e.target.value)} className="h-10 w-full rounded-xl border px-3" placeholder={qcResult === 'FAIL' ? 'Bắt buộc khi không đạt' : 'Ghi chú KCS'} /></label></div><label className="mt-4 block rounded-xl border border-dashed p-3 text-xs font-bold"><span>Ảnh bằng chứng KCS (bắt buộc)</span><input type="file" accept="image/*" multiple onChange={event => setQcFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block font-normal text-zinc-500">Đã chọn {qcFiles.length} ảnh · tối đa 8 ảnh, 10MB/ảnh.</span></label><button disabled={loadingTaskId === qcTask.id} onClick={() => void submitQc()} className="mt-4 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black text-white disabled:opacity-50">{loadingTaskId === qcTask.id ? 'Đang ghi nhận...' : 'Xác nhận kết quả KCS'}</button></div></div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4">
         {COLUMNS.map(col => {
           const colTasks = groupedTasks[col.id] || [];
           return (
-            <div key={col.id} className="bg-zinc-50 border border-zinc-200 rounded-xl p-3 flex flex-col h-full min-h-[500px]">
+            <section key={col.id} className="flex min-h-[500px] w-[86vw] max-w-sm shrink-0 snap-start flex-col rounded-2xl border border-zinc-200 bg-zinc-50 p-3 md:w-80">
               <div className="flex items-center justify-between pb-3 border-b border-zinc-200 mb-3">
                 <div className="flex items-center space-x-2">
                   <KanbanSquare className="w-4 h-4 text-zinc-400" />
@@ -433,7 +440,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
                   </div>
                 )}
               </div>
-            </div>
+            </section>
           );
         })}
       </div>
