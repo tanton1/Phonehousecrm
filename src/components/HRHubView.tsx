@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { 
   INITIAL_STAFF_MEMBERS,
   INITIAL_TODAY_ATTENDANCE_LIST,
-  INITIAL_WEEKLY_SCHEDULES,
   INITIAL_COMMISSIONS,
   INITIAL_LEAVE_REQUESTS,
   INITIAL_PAYROLL_LEDGER_CURRENT_USER,
@@ -36,11 +35,9 @@ import {
   WarrantyTicket, 
   StoreBranch, 
   SalaryPolicy, 
-  StaffMember,
-  WeeklyShiftSchedule 
+  StaffMember
 } from '../types';
-import { getVietnamWeekRange, getVietnamDateString } from '../utils/dateTimeUtils';
-import { subscribeToWeeklyShiftSchedules, saveWeeklyShiftScheduleToFirestore } from '../services/firestoreService';
+import ShiftSchedulingView from './ShiftSchedulingView';
 
 export interface HRHubViewProps {
   currentUser?: any;
@@ -49,6 +46,7 @@ export interface HRHubViewProps {
   invoices?: SalesInvoice[];
   warrantyTickets?: WarrantyTicket[];
   branches?: StoreBranch[];
+  initialSubModule?: HRSubModule;
 }
 
 // 3 Core Functional Groups under HR & Governance
@@ -72,11 +70,21 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   attendanceRecords = [], 
   invoices = [], 
   warrantyTickets = [],
-  branches = []
+  branches = [],
+  initialSubModule
 }) => {
   // Navigation State: Active Group + Sub-Module
   const [activeGroup, setActiveGroup] = useState<HRGroupCategory>('OPERATIONS');
-  const [activeSubModule, setActiveSubModule] = useState<HRSubModule>('OVERVIEW');
+  const [activeSubModule, setActiveSubModule] = useState<HRSubModule>(initialSubModule || 'OVERVIEW');
+
+  React.useEffect(() => {
+    if (initialSubModule) {
+      setActiveSubModule(initialSubModule);
+      setActiveGroup(initialSubModule === 'SHIFTS' || initialSubModule === 'OVERVIEW' ? 'OPERATIONS' : activeGroup);
+    }
+    // Only react to explicit navigation changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSubModule]);
 
   // Single-Row Filters
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
@@ -91,45 +99,8 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   const currentStaffId = currentUser?.id || staffList[0]?.id || '';
   const currentStaff = staffList.find(s => s && s.id === currentStaffId) || staffList[0];
 
-  // Dynamic Current Week Range in Vietnam Timezone
-  const currentWeek = React.useMemo(() => getVietnamWeekRange(), []);
-
   const [todayAttendance, setTodayAttendance] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
   const currentAttendanceList = attendanceRecords.length > 0 ? attendanceRecords : todayAttendance;
-  
-  // Weekly Schedules state initialized with active staff and dynamic current week
-  const [weeklySchedules, setWeeklySchedules] = useState<WeeklyShiftSchedule[]>(() => {
-    return staffList.map(st => {
-      const daysObj: Record<string, any> = {};
-      currentWeek.days.forEach(d => {
-        daysObj[d.dateStr] = {
-          shiftId: 'SHIFT_MORNING',
-          shiftName: 'Ca sáng',
-          startTime: '08:00',
-          endTime: '17:00',
-          status: 'SCHEDULED'
-        };
-      });
-      return {
-        id: `SCHED_${st.branchId || 'CN01'}_${currentWeek.weekStart}_${st.id}`,
-        branchId: st.branchId || 'CN01',
-        staffId: st.id,
-        staffName: st.name,
-        weekStart: currentWeek.weekStart,
-        days: daysObj,
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser?.displayName || 'System'
-      };
-    });
-  });
-
-  // Subscribe to real-time weekly shift schedules
-  React.useEffect(() => {
-    const unsub = subscribeToWeeklyShiftSchedules((remoteSchedules) => {
-      setWeeklySchedules(remoteSchedules || []);
-    }, selectedBranchId, currentWeek.weekStart);
-    return () => unsub();
-  }, [selectedBranchId, currentWeek.weekStart]);
 
   const [leaveRequests, setLeaveRequests] = useState(INITIAL_LEAVE_REQUESTS);
   const [commissions] = useState(INITIAL_COMMISSIONS);
@@ -159,48 +130,6 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
     }));
   };
 
-  const SHIFT_MAP: Record<string, { id: string; startTime: string | null; endTime: string | null; status: 'SCHEDULED' | 'OFF' }> = {
-    'Ca sáng': { id: 'SHIFT_MORNING', startTime: '08:00', endTime: '17:00', status: 'SCHEDULED' },
-    'Ca chiều': { id: 'SHIFT_AFTERNOON', startTime: '14:00', endTime: '21:00', status: 'SCHEDULED' },
-    'Ca tối': { id: 'SHIFT_EVENING', startTime: '17:00', endTime: '22:00', status: 'SCHEDULED' },
-    'Nghỉ': { id: 'OFF', startTime: null, endTime: null, status: 'OFF' }
-  };
-
-  const handleUpdateShift = async (staffId: string, dateKey: string, shiftName: string) => {
-    const shiftConfig = SHIFT_MAP[shiftName] || { id: 'OFF', startTime: null, endTime: null, status: 'OFF' };
-    let updatedSched: WeeklyShiftSchedule | null = null;
-    const newSchedules = weeklySchedules.map(sch => {
-      if (sch.staffId === staffId) {
-        updatedSched = {
-          ...sch,
-          days: {
-            ...sch.days,
-            [dateKey]: {
-              shiftId: shiftConfig.id,
-              shiftName,
-              startTime: shiftConfig.startTime as any,
-              endTime: shiftConfig.endTime as any,
-              status: shiftConfig.status
-            }
-          },
-          updatedAt: new Date().toISOString(),
-          updatedBy: currentUser?.displayName || 'Quản lý'
-        };
-        return updatedSched;
-      }
-      return sch;
-    });
-
-    setWeeklySchedules(newSchedules);
-    if (updatedSched) {
-      try {
-        await saveWeeklyShiftScheduleToFirestore(updatedSched);
-      } catch (err) {
-        console.warn('[WeeklyShiftSchedule Firestore write]', err);
-      }
-    }
-  };
-
   const handleUpdatePolicy = (updatedPolicy: SalaryPolicy) => {
     setPolicies(policies.map(p => p.id === updatedPolicy.id ? updatedPolicy : p));
   };
@@ -215,7 +144,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
       badge: `${activeCount}/${staffList.length} Vào ca`,
       subModules: [
         { id: 'OVERVIEW' as const, label: 'Chấm Công Realtime', desc: 'Quân số, GPS, đi trễ & trạng thái ca', icon: Activity },
-        { id: 'SHIFTS' as const, label: 'Lịch & Xếp Ca Tuần', desc: 'Ma trận 3 ca, AI chia ca & nghỉ phép', icon: CalendarDays, badge: pendingLeaveCount > 0 ? `${pendingLeaveCount} đơn nghỉ` : undefined }
+        { id: 'SHIFTS' as const, label: 'Lịch & Xếp Ca Tuần', desc: 'Theo bộ phận, bản nháp và đăng lịch', icon: CalendarDays, badge: pendingLeaveCount > 0 ? `${pendingLeaveCount} đơn nghỉ` : undefined }
       ]
     },
     {
@@ -278,7 +207,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
           </div>
 
           {/* 1-ROW COHESIVE FILTER TOOLBAR */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-0.5 sm:pb-0 shrink-0">
+          {activeSubModule !== 'SHIFTS' && <div className="flex items-center gap-2 overflow-x-auto pb-0.5 sm:pb-0 shrink-0">
             {/* Quick Status Indicator Pill */}
             <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-800 text-xs font-bold whitespace-nowrap">
               <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
@@ -316,7 +245,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
                 <option value="2026-06">Tháng 06/2026</option>
               </select>
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* 2. PRIMARY 3 HR GROUPS (Vận hành - Lương - Chính sách) */}
@@ -398,10 +327,12 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
 
       {/* 4. ACTIVE SUB-MODULE CONTENT RENDERING */}
       <div className="space-y-4">
-        <AttendanceAdminView
+        {activeSubModule === 'SHIFTS' ? (
+          <ShiftSchedulingView currentUser={currentUser} staffList={staffList} branches={branches} />
+        ) : <AttendanceAdminView
           staffList={staffList}
           todayAttendance={currentAttendanceList}
-          weeklySchedules={weeklySchedules}
+          weeklySchedules={[]}
           leaveRequests={leaveRequests}
           payrollSlips={payrollSlips}
           policies={policies}
@@ -411,12 +342,12 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
           onSelectAdminTab={(tab) => setActiveSubModule(tab as any)}
           onApproveLeave={handleApproveLeave}
           onAdvancePayrollApproval={handleAdvancePayrollApproval}
-          onUpdateShift={handleUpdateShift}
+          onUpdateShift={() => undefined}
           onUpdatePolicy={handleUpdatePolicy}
           invoices={invoices}
           warrantyTickets={warrantyTickets}
           hideHeaderAndTabs={true}
-        />
+        />}
       </div>
     </div>
   );

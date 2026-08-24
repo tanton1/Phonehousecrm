@@ -1255,6 +1255,8 @@ export interface UserAccount {
   kpiTargetOrders?: number;
   kpiTargetWarranty?: number;
   baseSalary?: number;
+  departmentId?: string;
+  departmentName?: string;
 }
 
 export interface RolePermissionInfo {
@@ -1437,6 +1439,8 @@ export interface StaffMember {
   facePhotoUrl?: string;
   faceEnrollmentDate?: string;
   faceFeatureVector?: number[];
+  departmentId?: string;
+  departmentName?: string;
 }
 
 export type ShiftType = 'MORNING' | 'AFTERNOON' | 'EVENING' | 'FULL_DAY' | 'OFF';
@@ -1451,6 +1455,10 @@ export interface ShiftDefinition {
   color: string;
   badgeBg: string;
   badgeText: string;
+  branchId?: string;
+  active?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DayShiftAssignment {
@@ -1459,6 +1467,9 @@ export interface DayShiftAssignment {
   startTime: string;
   endTime: string;
   status: 'SCHEDULED' | 'CHECKED_IN' | 'COMPLETED' | 'SWAP_REQUESTED' | 'SWAP_APPROVED' | 'OFF';
+  breakMinutes?: number;
+  note?: string;
+  isOff?: boolean;
 }
 
 export interface WeeklyShiftSchedule {
@@ -1467,7 +1478,15 @@ export interface WeeklyShiftSchedule {
   staffName: string;
   role: StaffRole;
   branchId: string;
-  weekStartDate: string; // YYYY-MM-DD
+  weekStartDate?: string; // YYYY-MM-DD (legacy UI field)
+  weekStart?: string; // YYYY-MM-DD (canonical server field)
+  departmentId?: string;
+  departmentName?: string;
+  status?: 'DRAFT' | 'PUBLISHED';
+  publishedAt?: string;
+  publishedBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
   days: {
     [dateStr: string]: DayShiftAssignment;
   };

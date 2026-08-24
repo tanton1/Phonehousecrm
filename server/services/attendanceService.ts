@@ -201,7 +201,9 @@ export async function resolveShiftAssignment(
   const docSnap = await db.collection('weeklyShiftSchedules').doc(canonicalDocId).get();
   if (docSnap.exists) {
     const data = docSnap.data();
-    if (data?.days && data.days[workDate]) {
+    // A draft is visible to managers for editing but must never authorize check-in.
+    // Legacy schedules without a status remain valid for backward compatibility.
+    if (data?.status !== 'DRAFT' && data?.days && data.days[workDate]) {
       daySchedule = data.days[workDate];
     }
   }
@@ -216,10 +218,9 @@ export async function resolveShiftAssignment(
       .get();
 
     if (!qSnap.empty) {
-      const data = qSnap.docs[0].data();
-      if (data?.days && data.days[workDate]) {
-        daySchedule = data.days[workDate];
-      }
+      const published = qSnap.docs.find((doc: any) => doc.data()?.status !== 'DRAFT' && doc.data()?.days?.[workDate]);
+      const data = published?.data();
+      if (data?.days && data.days[workDate]) daySchedule = data.days[workDate];
     }
   }
 

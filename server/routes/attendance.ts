@@ -3,9 +3,27 @@ import { Firestore } from 'firebase-admin/firestore';
 import { processServerCheckIn, processServerCheckOut } from '../services/attendanceService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
+import { requireRole } from '../middleware/requireRole';
+import { listShiftBoard, saveShiftBoard, upsertShiftDefinition } from '../services/shiftSchedulingService';
 
 export function createAttendanceRouter(db: Firestore | null): Router {
   const router = Router();
+
+  const getActor = (req: Request) => ({
+    uid: req.user!.uid,
+    role: req.user!.role,
+    branchId: req.user?.branchId,
+    assignedBranchIds: req.user?.assignedBranchIds || [],
+    name: req.user?.name || req.user?.email || req.user!.uid
+  });
+
+  const scheduleErrorStatus = (error: any) => {
+    const message = String(error?.message || error || '');
+    if (message.includes('FORBIDDEN')) return 403;
+    if (message.includes('NOT_FOUND')) return 404;
+    if (message.includes('FIRESTORE_NOT_CONFIGURED')) return 503;
+    return 400;
+  };
 
   // Helper to extract client IP safely
   const getClientIp = (req: Request) => {
@@ -170,6 +188,56 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         success: false,
         error: error?.message || 'Lỗi xử lý phê duyệt chấm công.'
       });
+    }
+  });
+
+  // 5. Weekly department/staff scheduling board.
+  router.get('/shift-board', authenticateFirebase, async (req: Request, res: Response) => {
+    try {
+      const result = await listShiftBoard(db, getActor(req), {
+        weekStart: String(req.query.weekStart || ''),
+        branchId: String(req.query.branchId || '')
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('[Shift Board List Error]:', error);
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'Không tải được lịch làm việc.' });
+    }
+  });
+
+  router.put('/shift-board', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      const result = await saveShiftBoard(db, getActor(req), {
+        branchId: String(req.body?.branchId || ''),
+        weekStart: String(req.body?.weekStart || ''),
+        status: req.body?.status,
+        entries: req.body?.entries,
+        operationKey: req.body?.operationKey
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('[Shift Board Save Error]:', error);
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'Không lưu được lịch làm việc.' });
+    }
+  });
+
+  router.post('/shift-definitions', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      const result = await upsertShiftDefinition(db, getActor(req), req.body || {});
+      return res.status(201).json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('[Shift Definition Create Error]:', error);
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'Không tạo được ca làm.' });
+    }
+  });
+
+  router.patch('/shift-definitions/:id', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      const result = await upsertShiftDefinition(db, getActor(req), { ...req.body, id: req.params.id });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('[Shift Definition Update Error]:', error);
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'Không cập nhật được ca làm.' });
     }
   });
 

@@ -21,7 +21,8 @@ import {
   DollarSign,
   Database,
   Award,
-  ScanFace
+  ScanFace,
+  CalendarDays
 } from 'lucide-react';
 import React from 'react';
 
@@ -100,6 +101,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     label: 'Nhân Sự & Hệ Thống',
     items: [
       { id: 'hr-attendance', label: 'Chấm Công & Ca Làm', icon: Clock },
+      { id: 'shift-scheduling', label: 'Xếp Ca Bộ Phận', icon: CalendarDays, roles: ['ADMIN', 'MANAGER'] },
       { id: 'staff-hr', label: 'Bàn Nhân Sự Cá Nhân', icon: CheckSquare },
       { id: 'checkin-portal', label: 'Điểm Danh Face ID', icon: ScanFace },
       { id: 'payroll', label: 'Bảng Lương & Hoa Hồng', icon: Award, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] },

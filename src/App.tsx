@@ -565,7 +565,9 @@ export default function App() {
           monthlyTargetRevenue: user.kpiTargetRevenue || 0,
           monthlyTargetOrders: user.kpiTargetOrders || 0,
           status: user.active === false ? 'INACTIVE' : 'ACTIVE',
-          joinDate: user.createdAt || ''
+          joinDate: user.createdAt || '',
+          departmentId: user.departmentId,
+          departmentName: user.departmentName
         } as unknown as StaffMember;
       })
       .filter((s): s is StaffMember => Boolean(s && s.id && s.name));
@@ -1906,7 +1908,7 @@ export default function App() {
           />
         )}
 
-        {(activeTab === 'hr-attendance' || activeTab === 'attendance' || activeTab === 'attendance-log' || activeTab === 'attendance-management') && (
+        {(activeTab === 'hr-attendance' || activeTab === 'shift-scheduling' || activeTab === 'attendance' || activeTab === 'attendance-log' || activeTab === 'attendance-management') && (
           <HRHubView
             currentUser={currentUser}
             staffList={staffMembers}
@@ -1914,6 +1916,7 @@ export default function App() {
             invoices={filteredInvoices}
             warrantyTickets={filteredWarrantyTickets}
             branches={branches}
+            initialSubModule={activeTab === 'shift-scheduling' ? 'SHIFTS' : undefined}
           />
         )}
 

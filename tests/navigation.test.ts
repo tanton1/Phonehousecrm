@@ -21,6 +21,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(allItemIds).toContain('store-settings');
     expect(allItemIds).toContain('master-catalog');
     expect(allItemIds).toContain('payroll');
+    expect(allItemIds).toContain('shift-scheduling');
   });
 
   it('Case 3: Sales có Sửa chữa lẻ theo chi nhánh, không thấy Sổ quỹ hay Phân quyền', () => {
@@ -41,6 +42,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(salesItemIds).not.toContain('purchase-orders');
     expect(salesItemIds).not.toContain('spare-parts');
     expect(salesItemIds).not.toContain('store-settings');
+    expect(salesItemIds).not.toContain('shift-scheduling');
   });
 
   it('Case 4: Kỹ thuật viên (TECH) chỉ thấy Bàn kỹ thuật, Kho Linh Kiện và Chuyển kho', () => {

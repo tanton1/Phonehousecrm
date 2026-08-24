@@ -351,22 +351,19 @@ service cloud.firestore {
 
     match /weeklyShiftSchedules/{scheduleId} {
       allow read: if isAuthenticated() && (isAdmin() || canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid);
-      allow create: if isAdmin() || (
-        isManager() &&
-        canAccessBranch(request.resource.data.branchId)
-      );
-      allow update: if isAdmin() || (
-        isManager() &&
-        canAccessBranch(resource.data.branchId) &&
-        canAccessBranch(request.resource.data.branchId) &&
-        request.resource.data.staffId == resource.data.staffId &&
-        request.resource.data.branchId == resource.data.branchId &&
-        request.resource.data.weekStart == resource.data.weekStart
-      );
-      allow delete: if isAdmin() || (
-        isManager() &&
-        canAccessBranch(resource.data.branchId)
-      );
+      allow write: if false; // Server-only: /api/attendance/shift-board validates branch, staff and shift snapshots.
+    }
+
+    match /shiftDefinitions/{shiftId} {
+      allow read, write: if false; // Managed only through the authenticated attendance API.
+    }
+
+    match /shiftScheduleAuditLogs/{auditId} {
+      allow read, write: if false;
+    }
+
+    match /shiftScheduleOperations/{operationId} {
+      allow read, write: if false;
     }
 
     match /sopTemplates/{templateId} {
