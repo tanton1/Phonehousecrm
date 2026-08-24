@@ -60,6 +60,22 @@ interface NormalizedMessage {
   messageKind: 'MESSAGE' | 'COMMENT';
 }
 
+interface NormalizedConversationEvent {
+  conversation: NormalizedConversation;
+  requestId: string;
+  version: number;
+  externalAssigneeIds: string[];
+  externalTagIds: string[];
+  seen?: boolean;
+  isReplied?: boolean;
+}
+
+interface NormalizedConnectStatusEvent {
+  pageId: string;
+  requestId: string;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
+}
+
 function asObject(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : {};
 }
@@ -238,6 +254,7 @@ function messageText(raw: Record<string, any>): string {
     raw.content,
     raw.body,
     raw.original_message,
+    raw.snippet,
     typeof raw.message === 'object' ? '' : raw.message,
     typeof raw.last_message === 'object' ? '' : raw.last_message,
     typeof raw.lastMessage === 'object' ? '' : raw.lastMessage,
@@ -727,7 +744,8 @@ export async function getPancakeChannels(db: Firestore | null, actor: PancakeAct
     try { branch = await resolvePancakeBranch(db, config); } catch (error: any) { branchError = error?.message || 'PANCAKE_BRANCH_NOT_FOUND'; }
     if (branch && !canAccessBranch(actor, branch.id)) continue;
     const mappingSnapshot = await db.collection('pancakePageMappings').doc(config.pageId).get();
-    const lastWebhookValue = mappingSnapshot.data()?.lastWebhookAt;
+    const mapping = asObject(mappingSnapshot.data());
+    const lastWebhookValue = mapping.lastWebhookAt;
     const webhookStatus = !asString(process.env.PANCAKE_WEBHOOK_SECRET)
       ? 'MISSING_SECRET'
       : lastWebhookValue
@@ -743,6 +761,10 @@ export async function getPancakeChannels(db: Firestore | null, actor: PancakeAct
       status: branchError ? 'CONFIG_ERROR' : config.pageAccessToken ? 'READY' : 'MISSING_TOKEN',
       webhookStatus,
       ...(lastWebhookValue ? { lastWebhookAt: firestoreTimestampIso(lastWebhookValue) } : {}),
+      ...(asString(mapping.lastWebhookEvent) ? { lastWebhookEvent: asString(mapping.lastWebhookEvent) } : {}),
+      connectionStatus: ['CONNECTED', 'DISCONNECTED'].includes(asString(mapping.pancakeConnectionStatus).toUpperCase())
+        ? asString(mapping.pancakeConnectionStatus).toUpperCase()
+        : 'UNKNOWN',
       error: branchError || undefined,
       requiredTokenEnv: config.pageAccessToken ? undefined : config.tokenEnv
     });
@@ -777,7 +799,10 @@ export async function getPancakeWebhookSetup(
     webhookStatus: mapping.lastWebhookAt ? 'RECEIVING' : 'NOT_SEEN',
     ...(mapping.lastWebhookAt ? { lastWebhookAt: firestoreTimestampIso(mapping.lastWebhookAt) } : {}),
     ...(asString(mapping.lastWebhookEvent) ? { lastWebhookEvent: asString(mapping.lastWebhookEvent) } : {}),
-    requiredEvents: ['messaging', 'conversation'],
+    connectionStatus: ['CONNECTED', 'DISCONNECTED'].includes(asString(mapping.pancakeConnectionStatus).toUpperCase())
+      ? asString(mapping.pancakeConnectionStatus).toUpperCase()
+      : 'UNKNOWN',
+    requiredEvents: ['messaging', 'conversation', 'connect_status'],
     docsUrl: 'https://developer.pancake.biz/webhook'
   };
 }
@@ -1258,12 +1283,63 @@ export function normalizePancakeWebhook(payload: unknown, config: PancakePageCon
   return { conversation, message };
 }
 
+export function normalizePancakeConversationEvent(
+  payload: unknown,
+  config: Pick<PancakePageConfig, 'pageId' | 'pageName'>
+): NormalizedConversationEvent | null {
+  const root = webhookPayloadRoot(payload);
+  if (asString(root.event_type || root.event || root.type).toLowerCase() !== 'conversation') return null;
+  const raw = asObject(root.conversation);
+  if (!Object.keys(raw).length) return null;
+  const seen = typeof raw.seen === 'boolean' ? raw.seen : undefined;
+  const isReplied = typeof raw.is_replied === 'boolean' ? raw.is_replied : undefined;
+  const normalized = normalizePancakeConversation({
+    ...raw,
+    page_id: identifyPancakeWebhookPageId(root, config.pageId),
+    page_name: root.page_name || config.pageName,
+    updated_at: raw.updated_at || raw.updatedAt || root.timestamp,
+    ...(seen === undefined ? {} : { unread_count: seen ? 0 : 1 })
+  }, config);
+  if (!normalized) return null;
+  return {
+    conversation: normalized,
+    requestId: asString(root.request_id || root.requestId),
+    version: Math.max(0, Math.floor(asNumber(raw.version))),
+    externalAssigneeIds: [...new Set((Array.isArray(raw.assignee_ids) ? raw.assignee_ids : []).map(asString).filter(Boolean))],
+    externalTagIds: [...new Set((Array.isArray(raw.tags) ? raw.tags : []).map(asString).filter(Boolean))],
+    ...(seen === undefined ? {} : { seen }),
+    ...(isReplied === undefined ? {} : { isReplied })
+  };
+}
+
+export function normalizePancakeConnectStatusEvent(payload: unknown): NormalizedConnectStatusEvent | null {
+  const root = webhookPayloadRoot(payload);
+  if (asString(root.event_type || root.event || root.type).toLowerCase() !== 'connect_status') return null;
+  const page = asObject(root.page || root.page_info || root.connection);
+  const rawStatus = asString(
+    root.connection_status
+      || root.connect_status
+      || root.status
+      || page.connection_status
+      || page.connect_status
+      || page.status
+  ).toLowerCase();
+  return {
+    pageId: identifyPancakeWebhookPageId(root),
+    requestId: asString(root.request_id || root.requestId),
+    status: rawStatus === 'connected' ? 'CONNECTED' : rawStatus === 'disconnected' ? 'DISCONNECTED' : 'UNKNOWN'
+  };
+}
+
 export async function processPancakeWebhook(db: Firestore | null, payload: unknown, fallbackPageId = '') {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   const pageId = identifyPancakeWebhookPageId(payload, fallbackPageId);
   const config = configByPageId(pageId);
   const branch = await resolvePancakeBranch(db, config);
   const webhookRoot = webhookPayloadRoot(payload);
+  const eventType = asString(webhookRoot.event_type || webhookRoot.event || webhookRoot.type || webhookRoot.action).toLowerCase() || 'unknown';
+  const requestId = asString(webhookRoot.request_id || webhookRoot.requestId);
+  const connectStatusEvent = normalizePancakeConnectStatusEvent(payload);
   await db.collection('pancakePageMappings').doc(config.pageId).set({
     pageId: config.pageId,
     pageName: config.pageName,
@@ -1271,8 +1347,70 @@ export async function processPancakeWebhook(db: Firestore | null, payload: unkno
     branchName: branch.name,
     isActive: true,
     lastWebhookAt: FieldValue.serverTimestamp(),
-    lastWebhookEvent: asString(webhookRoot.event_type || webhookRoot.event || webhookRoot.type || webhookRoot.action) || 'UNKNOWN'
+    lastWebhookEvent: eventType.toUpperCase(),
+    ...(requestId ? { lastWebhookRequestId: requestId } : {}),
+    ...(connectStatusEvent ? {
+      pancakeConnectionStatus: connectStatusEvent.status,
+      lastConnectStatusAt: FieldValue.serverTimestamp()
+    } : {})
   }, { merge: true });
+
+  if (connectStatusEvent) {
+    return {
+      accepted: true,
+      ignored: false,
+      eventType: 'connect_status',
+      connectionStatus: connectStatusEvent.status
+    };
+  }
+
+  const conversationEvent = normalizePancakeConversationEvent(payload, config);
+  if (conversationEvent) {
+    const conversationDoc = conversationDocument(conversationEvent.conversation, branch);
+    const conversationRef = db.collection('chatConversations').doc(conversationDoc.id);
+    const result = await db.runTransaction(async transaction => {
+      const existingSnapshot = await transaction.get(conversationRef);
+      const existing = existingSnapshot.data() || {};
+      const existingVersion = Math.max(0, Math.floor(asNumber(existing.pancakeVersion)));
+      if (conversationEvent.requestId && conversationEvent.requestId === asString(existing.lastPancakeRequestId)) {
+        return { applied: false, reason: 'DUPLICATE_REQUEST' };
+      }
+      if (conversationEvent.version > 0 && existingVersion >= conversationEvent.version) {
+        return { applied: false, reason: 'OUT_OF_ORDER_VERSION' };
+      }
+
+      const hasUsefulSnippet = Boolean(asString(asObject(webhookRoot.conversation).snippet));
+      const updates: Record<string, any> = {
+        ...conversationDoc,
+        createdAt: existing.createdAt || conversationDoc.createdAt,
+        externalAssigneeIds: conversationEvent.externalAssigneeIds,
+        externalTagIds: conversationEvent.externalTagIds,
+        ...(conversationEvent.version > 0 ? { pancakeVersion: conversationEvent.version } : {}),
+        ...(conversationEvent.requestId ? { lastPancakeRequestId: conversationEvent.requestId } : {}),
+        ...(conversationEvent.seen === undefined ? {} : { pancakeSeen: conversationEvent.seen }),
+        ...(conversationEvent.isReplied === undefined ? {} : { pancakeIsReplied: conversationEvent.isReplied }),
+        lastPancakeConversationEventAt: FieldValue.serverTimestamp()
+      };
+      if (existingSnapshot.exists && conversationEvent.conversation.customerName === 'Khách hàng') delete updates.customerName;
+      if (existingSnapshot.exists && !conversationEvent.conversation.customerPhone) delete updates.customerPhone;
+      if (existingSnapshot.exists && !conversationEvent.conversation.avatarUrl) delete updates.avatarUrl;
+      if (existingSnapshot.exists && !hasUsefulSnippet) {
+        delete updates.lastMessageSnippet;
+        delete updates.lastMessageTime;
+      }
+      transaction.set(conversationRef, updates, { merge: true });
+      return { applied: true, reason: '' };
+    });
+    return {
+      accepted: true,
+      ignored: !result.applied,
+      eventType: 'conversation',
+      reason: result.reason || undefined,
+      conversationId: conversationDoc.id,
+      version: conversationEvent.version
+    };
+  }
+
   const normalized = normalizePancakeWebhook(payload, config);
   if (!normalized) return { accepted: true, ignored: true, reason: 'UNSUPPORTED_EVENT' };
   const conversationDoc = conversationDocument(normalized.conversation, branch);
@@ -1285,8 +1423,35 @@ export async function processPancakeWebhook(db: Firestore | null, payload: unkno
       transaction.get(conversationRef),
       transaction.get(messageRef)
     ]);
-    if (existingMessage.exists) return { duplicate: true };
     const existing = existingConversation.data() || {};
+    if (existingMessage.exists) {
+      const currentMessage = existingMessage.data() || {};
+      const currentAttachments = Array.isArray(currentMessage.attachments) ? currentMessage.attachments.filter(Boolean) : [];
+      const messageChanged = asString(currentMessage.content) !== normalized.message.content
+        || JSON.stringify(currentAttachments) !== JSON.stringify(normalized.message.attachments)
+        || asString(currentMessage.senderName) !== normalized.message.senderName;
+      if (!messageChanged) return { duplicate: true, updated: false };
+      transaction.set(messageRef, {
+        content: normalized.message.content,
+        attachments: normalized.message.attachments,
+        sender: normalized.message.sender,
+        senderName: normalized.message.senderName,
+        timestamp: safeTimestamp(normalized.message.timestamp),
+        timestampIso: normalized.message.timestamp,
+        webhookUpdatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      const existingLastMessageMs = existing.lastMessageTime || existing.updatedAt
+        ? safeTimestamp(existing.lastMessageTime || existing.updatedAt).toMillis()
+        : 0;
+      if (safeTimestamp(normalized.message.timestamp).toMillis() >= existingLastMessageMs) {
+        transaction.set(conversationRef, {
+          lastMessageSnippet: normalized.message.content,
+          lastMessageTime: normalized.message.timestamp,
+          updatedAt: safeTimestamp(normalized.message.timestamp)
+        }, { merge: true });
+      }
+      return { duplicate: true, updated: true };
+    }
     const previousUnread = asNumber(existing.unreadCount);
     const inbound = normalized.message.sender === 'CUSTOMER';
     const workflowUpdates: Record<string, any> = {};
@@ -1324,9 +1489,9 @@ export async function processPancakeWebhook(db: Firestore | null, payload: unkno
       ...workflowUpdates
     }, { merge: true });
     transaction.create(messageRef, messageDoc);
-    return { duplicate: false };
+    return { duplicate: false, updated: false };
   });
-  return { accepted: true, ignored: false, duplicate: result.duplicate, conversationId: conversationDoc.id, messageId: messageDoc.id };
+  return { accepted: true, ignored: false, eventType: 'messaging', duplicate: result.duplicate, updated: result.updated, conversationId: conversationDoc.id, messageId: messageDoc.id };
 }
 
 export async function sendPancakeMessage(db: Firestore | null, input: { conversationId: string; text: string; operationKey: string }, actor: PancakeActor) {

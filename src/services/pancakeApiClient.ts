@@ -18,6 +18,8 @@ export interface PancakeChannelStatus {
   status: 'READY' | 'MISSING_TOKEN' | 'CONFIG_ERROR';
   webhookStatus?: 'RECEIVING' | 'NOT_SEEN' | 'MISSING_SECRET';
   lastWebhookAt?: string;
+  lastWebhookEvent?: string;
+  connectionStatus?: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
   error?: string;
   requiredTokenEnv?: string;
 }
@@ -37,6 +39,7 @@ export interface PancakeWebhookSetup {
   webhookStatus: 'RECEIVING' | 'NOT_SEEN';
   lastWebhookAt?: string;
   lastWebhookEvent?: string;
+  connectionStatus: 'CONNECTED' | 'DISCONNECTED' | 'UNKNOWN';
   requiredEvents: string[];
   docsUrl: string;
 }

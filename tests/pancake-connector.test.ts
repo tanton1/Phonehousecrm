@@ -3,11 +3,14 @@ import {
   getPancakePageConfigs,
   getPancakeChatSummary,
   identifyPancakeWebhookPageId,
+  normalizePancakeConnectStatusEvent,
   normalizePancakeConversation,
+  normalizePancakeConversationEvent,
   normalizePancakeMessage,
   normalizePancakeWebhook,
   pancakeConversationDocumentId,
   pancakeMessageDocumentId,
+  processPancakeWebhook,
   resolvePancakeBranch,
   setPancakeBranchMapping,
   verifyPancakeWebhookSecret
@@ -42,6 +45,56 @@ function branchDb(
       };
     }
   } as any;
+}
+
+function webhookDb(seed: Record<string, Record<string, any>>) {
+  const store = Object.fromEntries(Object.entries(seed).map(([name, values]) => [name, { ...values }])) as Record<string, Record<string, any>>;
+  const snapshot = (collectionName: string, id: string) => ({
+    id,
+    exists: Boolean(store[collectionName]?.[id]),
+    data: () => store[collectionName]?.[id]
+  });
+  const ref = (collectionName: string, id: string) => ({
+    id,
+    collectionName,
+    async get() { return snapshot(collectionName, id); },
+    async set(value: Record<string, any>, options?: { merge?: boolean }) {
+      store[collectionName] ||= {};
+      store[collectionName][id] = options?.merge ? { ...(store[collectionName][id] || {}), ...value } : value;
+    }
+  });
+  const db: any = {
+    collection(collectionName: string) {
+      store[collectionName] ||= {};
+      return {
+        doc(id: string) { return ref(collectionName, id); },
+        limit() {
+          return {
+            async get() {
+              return { docs: Object.keys(store[collectionName]).map(id => snapshot(collectionName, id)) };
+            }
+          };
+        }
+      };
+    },
+    async runTransaction(handler: (transaction: any) => Promise<any>) {
+      return handler({
+        async get(documentRef: any) { return snapshot(documentRef.collectionName, documentRef.id); },
+        set(documentRef: any, value: Record<string, any>, options?: { merge?: boolean }) {
+          store[documentRef.collectionName] ||= {};
+          store[documentRef.collectionName][documentRef.id] = options?.merge
+            ? { ...(store[documentRef.collectionName][documentRef.id] || {}), ...value }
+            : value;
+        },
+        create(documentRef: any, value: Record<string, any>) {
+          store[documentRef.collectionName] ||= {};
+          if (store[documentRef.collectionName][documentRef.id]) throw new Error('ALREADY_EXISTS');
+          store[documentRef.collectionName][documentRef.id] = value;
+        }
+      });
+    }
+  };
+  return { db, store };
 }
 
 describe('Pancake connector', () => {
@@ -297,6 +350,155 @@ describe('Pancake connector', () => {
       sender: 'CUSTOMER',
       timestamp: '2026-08-24T16:30:00.000Z'
     });
+  });
+
+  it('normalizes official conversation and connection status events', () => {
+    const config = getPancakePageConfigs({
+      PANCAKE_PAGE_ID: '332799593244601',
+      PANCAKE_PAGE_ACCESS_TOKEN: 'token'
+    } as NodeJS.ProcessEnv)[0];
+    const conversation = normalizePancakeConversationEvent({
+      page_id: '332799593244601',
+      event_type: 'conversation',
+      request_id: 'request-conv-306',
+      timestamp: 1_787_592_000,
+      data: {
+        conversation: {
+          id: 'official-conv-306',
+          from: { id: 'customer-306', name: 'Chị Lan' },
+          snippet: 'Mình cần tư vấn máy 15PM',
+          type: 'INBOX',
+          version: 306,
+          seen: false,
+          is_replied: false,
+          assignee_ids: ['pancake-user-1'],
+          tags: [2, 4]
+        }
+      }
+    }, config);
+    const connection = normalizePancakeConnectStatusEvent({
+      page_id: '332799593244601',
+      event_type: 'connect_status',
+      request_id: 'request-connect-1',
+      data: { status: 'disconnected' }
+    });
+
+    expect(conversation).toMatchObject({
+      requestId: 'request-conv-306',
+      version: 306,
+      externalAssigneeIds: ['pancake-user-1'],
+      externalTagIds: ['2', '4'],
+      seen: false,
+      isReplied: false,
+      conversation: {
+        externalConversationId: 'official-conv-306',
+        customerName: 'Chị Lan',
+        lastMessageSnippet: 'Mình cần tư vấn máy 15PM'
+      }
+    });
+    expect(connection).toEqual({
+      pageId: '332799593244601',
+      requestId: 'request-connect-1',
+      status: 'DISCONNECTED'
+    });
+  });
+
+  it('ignores an out-of-order conversation webhook version', async () => {
+    const previousEnv = {
+      pageId: process.env.PANCAKE_PAGE_ID,
+      branchId: process.env.PANCAKE_BRANCH_ID,
+      token: process.env.PANCAKE_PAGE_ACCESS_TOKEN
+    };
+    process.env.PANCAKE_PAGE_ID = '332799593244601';
+    process.env.PANCAKE_BRANCH_ID = 'BR-PH';
+    process.env.PANCAKE_PAGE_ACCESS_TOKEN = 'token';
+    const { db, store } = webhookDb({ branches: { 'BR-PH': { name: 'PhoneHouse', isActive: true } } });
+    const payload = (version: number, snippet: string, requestId: string) => ({
+      page_id: '332799593244601',
+      event_type: 'conversation',
+      request_id: requestId,
+      timestamp: '2026-08-25T00:00:00.000Z',
+      data: {
+        conversation: {
+          id: 'ordered-conv',
+          from: { id: 'customer-ordered', name: 'Anh Minh' },
+          snippet,
+          type: 'INBOX',
+          version,
+          seen: false
+        }
+      }
+    });
+
+    try {
+      const latest = await processPancakeWebhook(db, payload(3, 'Tin mới nhất', 'request-v3'));
+      const stale = await processPancakeWebhook(db, payload(2, 'Tin cũ đến trễ', 'request-v2'));
+      const conversationId = pancakeConversationDocumentId('332799593244601', 'ordered-conv');
+
+      expect(latest).toMatchObject({ accepted: true, ignored: false, eventType: 'conversation', version: 3 });
+      expect(stale).toMatchObject({ accepted: true, ignored: true, reason: 'OUT_OF_ORDER_VERSION', version: 2 });
+      expect(store.chatConversations[conversationId]).toMatchObject({
+        pancakeVersion: 3,
+        lastMessageSnippet: 'Tin mới nhất',
+        lastPancakeRequestId: 'request-v3'
+      });
+    } finally {
+      if (previousEnv.pageId === undefined) delete process.env.PANCAKE_PAGE_ID; else process.env.PANCAKE_PAGE_ID = previousEnv.pageId;
+      if (previousEnv.branchId === undefined) delete process.env.PANCAKE_BRANCH_ID; else process.env.PANCAKE_BRANCH_ID = previousEnv.branchId;
+      if (previousEnv.token === undefined) delete process.env.PANCAKE_PAGE_ACCESS_TOKEN; else process.env.PANCAKE_PAGE_ACCESS_TOKEN = previousEnv.token;
+    }
+  });
+
+  it('updates an edited Pancake message without increasing unread twice', async () => {
+    const previousEnv = {
+      pageId: process.env.PANCAKE_PAGE_ID,
+      branchId: process.env.PANCAKE_BRANCH_ID,
+      token: process.env.PANCAKE_PAGE_ACCESS_TOKEN
+    };
+    process.env.PANCAKE_PAGE_ID = '332799593244601';
+    process.env.PANCAKE_BRANCH_ID = 'BR-PH';
+    process.env.PANCAKE_PAGE_ACCESS_TOKEN = 'token';
+    const { db, store } = webhookDb({ branches: { 'BR-PH': { name: 'PhoneHouse', isActive: true } } });
+    const payload = (message: string) => ({
+      page_id: '332799593244601',
+      event_type: 'messaging',
+      data: {
+        conversation: {
+          id: 'edited-conv',
+          from: { id: 'customer-edited', name: 'Chị Thảo' },
+          snippet: message,
+          type: 'INBOX',
+          seen: false
+        },
+        message: {
+          id: 'edited-message-1',
+          conversation_id: 'edited-conv',
+          page_id: '332799593244601',
+          message,
+          inserted_at: '2026-08-25T00:00:00.000Z',
+          from: { id: 'customer-edited', name: 'Chị Thảo' }
+        }
+      }
+    });
+
+    try {
+      const first = await processPancakeWebhook(db, payload('Shop còn iPhone 15 không?'));
+      const edited = await processPancakeWebhook(db, payload('Shop còn iPhone 15 Pro không?'));
+      const conversationId = pancakeConversationDocumentId('332799593244601', 'edited-conv');
+      const messageId = pancakeMessageDocumentId('332799593244601', 'edited-conv', 'edited-message-1');
+
+      expect(first).toMatchObject({ eventType: 'messaging', duplicate: false, updated: false });
+      expect(edited).toMatchObject({ eventType: 'messaging', duplicate: true, updated: true });
+      expect(store.chatConversations[conversationId]).toMatchObject({
+        unreadCount: 1,
+        lastMessageSnippet: 'Shop còn iPhone 15 Pro không?'
+      });
+      expect(store.chatMessages[messageId]).toMatchObject({ content: 'Shop còn iPhone 15 Pro không?' });
+    } finally {
+      if (previousEnv.pageId === undefined) delete process.env.PANCAKE_PAGE_ID; else process.env.PANCAKE_PAGE_ID = previousEnv.pageId;
+      if (previousEnv.branchId === undefined) delete process.env.PANCAKE_BRANCH_ID; else process.env.PANCAKE_BRANCH_ID = previousEnv.branchId;
+      if (previousEnv.token === undefined) delete process.env.PANCAKE_PAGE_ACCESS_TOKEN; else process.env.PANCAKE_PAGE_ACCESS_TOKEN = previousEnv.token;
+    }
   });
 
   it('validates webhook secrets without accepting empty or partial values', () => {

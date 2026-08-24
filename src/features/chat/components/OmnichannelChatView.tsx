@@ -80,6 +80,8 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
 
   const activeConvo = conversations.find(conversation => conversation.id === selectedConvoId) || null;
   const activeChannel = useMemo(() => channels.find(channel => channel.branchId === currentBranchId) || channels[0], [channels, currentBranchId]);
+  const pageDisconnected = activeChannel?.connectionStatus === 'DISCONNECTED';
+  const webhookReceiving = activeChannel?.webhookStatus === 'RECEIVING' && !pageDisconnected;
 
   const loadConversations = useCallback(async (showSpinner = false, branchIdOverride = '') => {
     if (showSpinner) setLoading(true);
@@ -133,6 +135,18 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   }, [currentBranchId]);
 
   useEffect(() => { void loadChannelsAndConversations(); }, [loadChannelsAndConversations]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void requestPancakeChannels()
+        .then(result => {
+          setChannels(result.channels);
+          setBranchOptions(result.branches || []);
+        })
+        .catch(caught => console.warn('[Pancake channel health]', caught));
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const branchId = activeChannel?.branchId || currentBranchId;
@@ -197,12 +211,12 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   // an event (and also repairs historical messages saved with an old shape).
   useEffect(() => {
     if (!selectedConvoId) return undefined;
-    const interval = activeChannel?.webhookStatus === 'RECEIVING' ? 60_000 : 20_000;
+    const interval = webhookReceiving ? 60_000 : 20_000;
     const timer = window.setInterval(() => {
       void loadMessages(selectedConvoId, true, false);
     }, interval);
     return () => window.clearInterval(timer);
-  }, [activeChannel?.webhookStatus, loadMessages, selectedConvoId]);
+  }, [loadMessages, selectedConvoId, webhookReceiving]);
 
   const handleSelectConversation = (conversation: ChatConversation) => {
     const alreadySelected = conversation.id === selectedConvoId;
@@ -375,18 +389,20 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
           <div className="flex items-center gap-2 text-xs font-black text-zinc-900">
             <Link2 className="h-4 w-4 text-[#ff4b16]" />
             <span className="truncate">{activeChannel?.pageName || 'Pancake Inbox'}</span>
-            <span className={`h-2 w-2 rounded-full ${activeChannel?.status === 'READY' && activeChannel.webhookStatus === 'RECEIVING' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <span className={`h-2 w-2 rounded-full ${pageDisconnected ? 'bg-rose-500' : activeChannel?.status === 'READY' && webhookReceiving ? 'bg-emerald-500' : 'bg-amber-500'}`} />
           </div>
           <p className="mt-0.5 truncate text-[10px] font-semibold text-zinc-500">
             {activeChannel?.status === 'READY'
-              ? `${activeChannel.branchName} · ${activeChannel.webhookStatus === 'RECEIVING' ? 'Realtime đang hoạt động' : 'Tự làm mới mỗi 20 giây'}`
+              ? `${activeChannel.branchName} · ${pageDisconnected ? 'Page đang mất kết nối Pancake' : webhookReceiving ? 'Realtime đang hoạt động' : 'Tự làm mới mỗi 20 giây'}`
               : activeChannel?.status === 'MISSING_TOKEN'
                 ? `Chờ thiết lập ${activeChannel.requiredTokenEnv}`
                 : 'Đang kiểm tra cấu hình kết nối'}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <button onClick={() => void handleOpenWebhookSetup()} title={activeChannel?.webhookStatus === 'RECEIVING'
+          <button onClick={() => void handleOpenWebhookSetup()} title={pageDisconnected
+            ? 'Pancake báo Page đang mất kết nối với nền tảng. Hãy kết nối lại Page trong Pancake trước khi kiểm tra webhook.'
+            : activeChannel?.webhookStatus === 'RECEIVING'
             ? `Webhook đã nhận sự kiện${activeChannel.lastWebhookAt ? ` lúc ${new Date(activeChannel.lastWebhookAt).toLocaleString('vi-VN')}` : ''}. Hội thoại đang mở cập nhật realtime qua Firestore.`
             : activeChannel?.webhookStatus === 'MISSING_SECRET'
               ? 'Chưa cấu hình PANCAKE_WEBHOOK_SECRET. Hệ thống đang tự kiểm tra Pancake mỗi 20 giây để không bỏ sót tin nhắn.'
@@ -460,11 +476,11 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
                 <div className="grid min-h-48 place-items-center text-xs font-bold text-zinc-500"><Loader2 className="mb-2 h-6 w-6 animate-spin text-[#ff4b16]" />Đang kiểm tra cấu hình…</div>
               ) : webhookSetup ? (
                 <div className="space-y-4">
-                  <div className={`flex items-start gap-3 rounded-2xl border p-3 ${webhookSetup.webhookStatus === 'RECEIVING' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-                    {webhookSetup.webhookStatus === 'RECEIVING' ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /> : <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
+                  <div className={`flex items-start gap-3 rounded-2xl border p-3 ${webhookSetup.connectionStatus === 'DISCONNECTED' ? 'border-rose-200 bg-rose-50' : webhookSetup.webhookStatus === 'RECEIVING' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                    {webhookSetup.connectionStatus === 'DISCONNECTED' ? <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" /> : webhookSetup.webhookStatus === 'RECEIVING' ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /> : <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
                     <div>
-                      <p className="text-xs font-black text-zinc-950">{webhookSetup.webhookStatus === 'RECEIVING' ? 'Webhook đang hoạt động' : 'Pancake chưa gửi sự kiện webhook'}</p>
-                      <p className="mt-1 text-[11px] leading-5 text-zinc-600">{webhookSetup.lastWebhookAt ? `Nhận lần cuối ${new Date(webhookSetup.lastWebhookAt).toLocaleString('vi-VN')} · ${webhookSetup.lastWebhookEvent || 'messaging'}` : 'App đang dùng cơ chế dự phòng 20 giây cho đến khi hoàn tất các bước dưới đây.'}</p>
+                      <p className="text-xs font-black text-zinc-950">{webhookSetup.connectionStatus === 'DISCONNECTED' ? 'Page đang mất kết nối Pancake' : webhookSetup.webhookStatus === 'RECEIVING' ? 'Webhook đang hoạt động' : 'Pancake chưa gửi sự kiện webhook'}</p>
+                      <p className="mt-1 text-[11px] leading-5 text-zinc-600">{webhookSetup.lastWebhookAt ? `Nhận lần cuối ${new Date(webhookSetup.lastWebhookAt).toLocaleString('vi-VN')} · ${webhookSetup.lastWebhookEvent || 'messaging'} · kết nối ${webhookSetup.connectionStatus === 'CONNECTED' ? 'tốt' : webhookSetup.connectionStatus === 'DISCONNECTED' ? 'đã ngắt' : 'chưa xác định'}` : 'App đang dùng cơ chế dự phòng 20 giây cho đến khi hoàn tất các bước dưới đây.'}</p>
                     </div>
                   </div>
 
@@ -478,7 +494,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
                     <li className="rounded-xl bg-zinc-50 p-2.5"><b>1.</b> Kiểm tra gói Pancake còn ít nhất 1 connection slot trống cho Page này.</li>
                     <li className="rounded-xl bg-zinc-50 p-2.5"><b>2.</b> Nếu chưa thấy mục Webhook, liên hệ Pancake Support và gửi Page ID ở trên để bật tính năng.</li>
                     <li className="rounded-xl bg-zinc-50 p-2.5"><b>3.</b> Vào Pancake với quyền Admin → Tools → Webhook, dán URL vừa sao chép.</li>
-                    <li className="rounded-xl bg-zinc-50 p-2.5"><b>4.</b> Bật sự kiện <b>messaging</b> và <b>conversation</b>, lưu rồi nhắn thử từ một tài khoản Facebook khác.</li>
+                    <li className="rounded-xl bg-zinc-50 p-2.5"><b>4.</b> Bật <b>messaging</b>, <b>conversation</b> và <b>connect_status</b>, lưu rồi nhắn thử từ một tài khoản Facebook khác.</li>
                   </ol>
 
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
