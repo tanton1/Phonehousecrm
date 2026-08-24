@@ -140,6 +140,9 @@ export const PartsInventoryHub: React.FC<PartsInventoryHubProps> = ({
         <ProductsView
           embedded
           products={products}
+          warehouses={warehouses}
+          branches={branches}
+          currentUser={currentUser}
         />
       )}
 

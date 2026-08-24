@@ -696,7 +696,8 @@ export async function executeAtomicCheckout(
     }
 
     // 9. Deduct Accessory Stock (Global & Branch specific)
-    for (const acc of loadedAccessories) {
+    for (let accessoryIndex = 0; accessoryIndex < loadedAccessories.length; accessoryIndex++) {
+      const acc = loadedAccessories[accessoryIndex];
       transaction.update(acc.ref, {
         stockQuantity: FieldValue.increment(-acc.quantity)
       });
@@ -705,6 +706,26 @@ export async function executeAtomicCheckout(
         onHand: FieldValue.increment(-acc.quantity),
         available: FieldValue.increment(-acc.quantity),
         updatedAt: FieldValue.serverTimestamp()
+      });
+      const movementId = `MOV_STOCK_SALE_${invoiceId}_${accessoryIndex + 1}`;
+      transaction.set(db.collection('inventoryMovements').doc(movementId), {
+        id: movementId,
+        itemType: 'ACCESSORY',
+        productId: acc.id,
+        productMasterId: acc.data.productMasterId || null,
+        sku: acc.data.sku || acc.id,
+        quantity: acc.quantity,
+        branchId,
+        warehouseId,
+        movementType: 'STOCK_SALE',
+        fromLocationId: warehouseId,
+        toLocationId: null,
+        sourceType: 'SALES_INVOICE',
+        sourceId: invoiceId,
+        actorUid: authenticatedStaff?.uid || 'SYSTEM',
+        actorName: authenticatedStaff?.name || 'Thu Ngân',
+        occurredAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp()
       });
     }
 
@@ -730,6 +751,7 @@ export async function executeAtomicCheckout(
       id: invoiceId,
       invoiceCode,
       branchId,
+      warehouseId,
       customerId: payload.customerId || payload.customerPartner?.id || null,
       leadId: checkoutLeadId || null,
       quoteId: payload.quoteId || null,
@@ -774,6 +796,8 @@ export async function executeAtomicCheckout(
       ],
       accessories: loadedAccessories.map(a => ({
         productId: a.id,
+        balanceId: a.balanceRef.id,
+        warehouseId,
         name: a.data.name,
         quantity: a.quantity,
         price: a.authoritativePrice,
@@ -1154,12 +1178,56 @@ export async function executeAtomicInvoiceRefund(
       }
     }
 
-    const accessoryRestores: Array<{ ref: DocumentReference; quantity: number }> = [];
+    const accessoryRestores: Array<{
+      ref: DocumentReference;
+      balanceRef: DocumentReference;
+      quantity: number;
+      productId: string;
+      productMasterId?: string | null;
+      sku?: string;
+      warehouseId: string;
+    }> = [];
     for (const line of Array.isArray(invoice.accessories) ? invoice.accessories : []) {
       const quantity = Math.max(0, Number(line.quantity || 1));
       if (!line.name || quantity <= 0) continue;
-      const matches = await transaction.get(db.collection('products').where('name', '==', line.name).limit(1));
-      if (!matches.empty) accessoryRestores.push({ ref: matches.docs[0].ref, quantity });
+      const lineProductId = String(line.productId || line.id || '').trim();
+      const productMatches = lineProductId
+        ? null
+        : await transaction.get(db.collection('products').where('name', '==', line.name).limit(1));
+      const productRef = lineProductId
+        ? db.collection('products').doc(lineProductId)
+        : productMatches && !productMatches.empty
+          ? productMatches.docs[0].ref
+          : null;
+      if (!productRef) throw new Error('REFUND_ACCESSORY_PRODUCT_NOT_FOUND');
+      const productSnap = await transaction.get(productRef);
+      if (!productSnap.exists) throw new Error('REFUND_ACCESSORY_PRODUCT_NOT_FOUND');
+      const lineBalanceId = String(line.balanceId || '').trim();
+      const directBalance = lineBalanceId ? await transaction.get(db.collection('inventoryBalances').doc(lineBalanceId)) : null;
+      const balanceMatches = lineBalanceId
+        ? null
+        : await transaction.get(db.collection('inventoryBalances').where('productId', '==', productRef.id).limit(50));
+      const branchBalances = directBalance?.exists
+        ? [directBalance].filter(doc => String(doc.data()?.branchId || '') === branchId && String(doc.data()?.productId || '') === productRef.id)
+        : (balanceMatches?.docs || []).filter(doc => String(doc.data()?.branchId || '') === branchId);
+      const invoiceWarehouseId = String(invoice.warehouseId || '').trim();
+      const selectedBalance = invoiceWarehouseId
+        ? branchBalances.find(doc => String(doc.data()?.warehouseId || '') === invoiceWarehouseId)
+        : branchBalances.length === 1
+          ? branchBalances[0]
+          : null;
+      if (!selectedBalance) {
+        throw new Error(branchBalances.length > 1 ? 'REFUND_ACCESSORY_WAREHOUSE_AMBIGUOUS' : 'REFUND_ACCESSORY_BALANCE_NOT_FOUND');
+      }
+      accessoryRestores.push({
+        ref: productRef,
+        balanceRef: selectedBalance.ref,
+        quantity,
+        productId: productRef.id,
+        productMasterId: productSnap.data()?.productMasterId || null,
+        sku: productSnap.data()?.sku || productRef.id,
+        warehouseId: String(selectedBalance.data()?.warehouseId || '')
+      });
     }
 
     let customerRef: DocumentReference | null = null;
@@ -1230,7 +1298,35 @@ export async function executeAtomicInvoiceRefund(
       status: 'in_stock', soldDate: FieldValue.delete(), soldInvoiceId: FieldValue.delete(),
       customerName: FieldValue.delete(), customerPhone: FieldValue.delete(), updatedAt: now
     }));
-    accessoryRestores.forEach(item => transaction.update(item.ref, { stockQuantity: FieldValue.increment(item.quantity), updatedAt: now }));
+    accessoryRestores.forEach((item, index) => {
+      transaction.update(item.ref, { stockQuantity: FieldValue.increment(item.quantity), updatedAt: now });
+      transaction.update(item.balanceRef, {
+        onHand: FieldValue.increment(item.quantity),
+        available: FieldValue.increment(item.quantity),
+        updatedAt: now
+      });
+      const movementId = `MOV_STOCK_REFUND_${invoiceId}_${index + 1}`;
+      transaction.set(db.collection('inventoryMovements').doc(movementId), {
+        id: movementId,
+        itemType: 'ACCESSORY',
+        productId: item.productId,
+        productMasterId: item.productMasterId || null,
+        sku: item.sku || item.productId,
+        quantity: item.quantity,
+        branchId,
+        warehouseId: item.warehouseId,
+        movementType: 'STOCK_SALE_REVERSAL',
+        fromLocationId: null,
+        toLocationId: item.warehouseId,
+        sourceType: 'SALES_INVOICE',
+        sourceId: invoiceId,
+        actorUid: authenticatedStaff?.uid || 'SYSTEM',
+        actorName: authenticatedStaff?.name || 'Nhân viên',
+        note: reason,
+        occurredAt: now,
+        createdAt: now
+      });
+    });
     if (fundRef && refundTransaction) {
       transaction.update(fundRef, {
         currentBalance: Number(fund.currentBalance || 0) - refundAmount,

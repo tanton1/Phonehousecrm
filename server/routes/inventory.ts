@@ -3,6 +3,7 @@ import { Firestore } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { buildInventoryAuditReport, listInventoryDevicesForActor, processImportInventoryDevices } from '../services/inventoryDeviceService';
+import { getAccessoryStockTrace, listAccessoryStockBalances } from '../services/inventoryStockItemService';
 import { processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
 
 function sendInventoryError(res: Response, error: any) {
@@ -28,6 +29,26 @@ export function createInventoryRouter(db: Firestore | null): Router {
         search: String(req.query.search || '') || undefined,
         includeSummary: String(req.query.includeSummary || 'true') !== 'false'
       });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
+  router.get('/stock-items/accessories', async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await listAccessoryStockBalances(db, req.user!, String(req.query.warehouseId || '') || undefined);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
+  router.get('/stock-items/accessories/:productId/trace', async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await getAccessoryStockTrace(db, req.params.productId, req.user!);
       return res.json({ success: true, data: result });
     } catch (error: any) {
       return sendInventoryError(res, error);

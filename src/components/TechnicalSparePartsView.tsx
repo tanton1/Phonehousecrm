@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Boxes, Loader2, Plus, RefreshCw, Search, Warehouse, X } from 'lucide-react';
+import { Boxes, Loader2, Plus, RefreshCw, Search, Warehouse, X } from 'lucide-react';
 import { UserAccount, WarehouseInfo } from '../types';
 import type { MasterCatalogItem } from '../types';
 import { catalogApi } from '../services/catalogApiClient';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
+import { GroupedStockSkuView, StockSkuGroup, StockSkuTraceResult } from './GroupedStockSkuView';
 import { HelpHint } from './HelpHint';
 import {
   fetchTechnicalPartStockRequests,
@@ -111,10 +112,6 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
   const [selectedReceiptMaster, setSelectedReceiptMaster] = useState<MasterCatalogItem | null>(null);
-  const [tracePartId, setTracePartId] = useState('');
-  const [trace, setTrace] = useState<{ lots: any[]; receipts: any[]; movements: any[] } | null>(null);
-  const [traceLoading, setTraceLoading] = useState(false);
-  const [traceError, setTraceError] = useState('');
   const canReceive = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD'].includes(String(currentUser?.role || '').toUpperCase());
   const currentRole = String(currentUser?.role || '').toUpperCase();
   const canApproveSupply = SUPPLY_APPROVER_ROLES.has(currentRole);
@@ -294,6 +291,49 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
   }), { stock: 0, reserved: 0, available: 0, value: 0 }), [filteredByInventoryControls]);
   const inactiveOrHeldCount = useMemo(() => filteredByInventoryControls.filter(part => Number(part.availableQuantity || 0) <= 0 || Number(part.stockQuantity || 0) < Number(part.reservedQuantity || 0)).length, [filteredByInventoryControls]);
   const mayViewCost = parts.some(part => typeof part.currentCost === 'number');
+  const groupedParts = useMemo<StockSkuGroup[]>(() => {
+    const groups = new Map<string, StockSkuGroup>();
+    filteredByInventoryControls.forEach(part => {
+      const groupId = `SKU:${String(part.sku || part.id).trim().toUpperCase()}`;
+      const location = part.warehouseId ? warehouseById.get(part.warehouseId) : undefined;
+      const current = groups.get(groupId) || {
+        id: groupId,
+        itemType: 'PART' as const,
+        productMasterId: part.productMasterId || null,
+        sku: part.sku,
+        name: part.name,
+        category: part.catalogGroupCode || part.category || 'Linh kiện',
+        modelCode: null,
+        compatibleModels: [...(part.compatibleModels || [])],
+        locations: []
+      };
+      current.compatibleModels = [...new Set([...(current.compatibleModels || []), ...(part.compatibleModels || [])])];
+      current.locations.push({
+        id: part.id,
+        warehouseId: part.warehouseId,
+        warehouseName: location?.name || (part.warehouseId ? `Kho ${part.warehouseId}` : 'Chưa định danh kho'),
+        branchName: part.branchId || null,
+        stockQuantity: Number(part.stockQuantity || 0),
+        reservedQuantity: Number(part.reservedQuantity || 0),
+        availableQuantity: Number(part.availableQuantity || 0),
+        currentCost: typeof part.currentCost === 'number' ? part.currentCost : undefined,
+        traceId: part.id,
+        lots: (part.lots || []).map(lot => ({
+          id: lot.id,
+          code: lot.lotCode,
+          stockQuantity: Number(lot.stockQuantity || 0),
+          reservedQuantity: Number(lot.reservedQuantity || 0),
+          availableQuantity: Number(lot.availableQuantity || 0),
+          unitCost: typeof lot.unitCost === 'number' ? lot.unitCost : undefined,
+          receivedAt: lot.receivedAt
+        }))
+      });
+      groups.set(groupId, current);
+    });
+    return [...groups.values()].sort((left, right) => right.locations.reduce((sum, item) => sum + item.availableQuantity, 0)
+      - left.locations.reduce((sum, item) => sum + item.availableQuantity, 0)
+      || left.name.localeCompare(right.name, 'vi'));
+  }, [filteredByInventoryControls, warehouseById]);
   const selectedSupplyPart = useMemo(
     () => supplyParts.find(item => item.id === supplyForm.partId),
     [supplyForm.partId, supplyParts]
@@ -319,25 +359,31 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
     await Promise.all([load(), loadSupplyRequests()]);
   };
 
-  const toggleTrace = async (partId: string) => {
-    if (tracePartId === partId) {
-      setTracePartId('');
-      setTrace(null);
-      setTraceError('');
-      return;
-    }
-    setTracePartId(partId);
-    setTrace(null);
-    setTraceError('');
-    setTraceLoading(true);
-    try {
-      const result = await fetchTechnicalSparePartTrace(partId);
-      setTrace(result);
-    } catch (cause: any) {
-      setTraceError(cause?.message || 'Không thể tải lịch sử linh kiện.');
-    } finally {
-      setTraceLoading(false);
-    }
+  const loadGroupedTrace = async (group: StockSkuGroup): Promise<StockSkuTraceResult> => {
+    const traceIds = [...new Set(group.locations.map(location => location.traceId).filter(Boolean))] as string[];
+    const results = await Promise.all(traceIds.map(partId => fetchTechnicalSparePartTrace(partId)));
+    const events = results.flatMap(result => result.movements || []).map((movement: any) => {
+      const locationId = String(movement.warehouseId || movement.toWarehouseId || movement.fromWarehouseId || '');
+      const counterpartyId = String(movement.counterpartyWarehouseId || '');
+      return {
+        id: movement.id,
+        type: movement.movementType || movement.type || 'INVENTORY_MOVEMENT',
+        occurredAt: movement.occurredAt || movement.createdAt || null,
+        quantity: Number(movement.quantity || movement.quantityConsumed || 0),
+        warehouseName: warehouseById.get(locationId)?.name || (locationId ? `Kho ${locationId}` : null),
+        counterpartyWarehouseName: warehouseById.get(counterpartyId)?.name || null,
+        sourceCode: movement.workOrderCode || movement.sourceCode || null,
+        sourceId: movement.sourceId || movement.workOrderId || null,
+        actorName: movement.actorName || movement.issuedByName || movement.createdByName || null,
+        imei: movement.imei || null,
+        note: movement.note || movement.reason || movement.reversalReason || null,
+        status: movement.status || null
+      };
+    }).sort((left, right) => String(right.occurredAt || '').localeCompare(String(left.occurredAt || '')));
+    return {
+      events,
+      notice: 'Lịch sử được tổng hợp từ tất cả vị trí kho của cùng SKU. IMEI xuất hiện khi linh kiện đã gắn với một phiếu sửa máy.'
+    };
   };
 
   const submitSupplyRequest = async () => {
@@ -544,7 +590,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
 
       {showInventory && <InventoryMetricCarousel label="Báo cáo tồn linh kiện, vuốt để xem thêm">
         {[
-          ['SKU theo kho', filteredByInventoryControls.length],
+          ['SKU đã gom nhóm', groupedParts.length],
           ['Tổng tồn vật lý', totals.stock],
           ['Đang giữ trước', totals.reserved],
           ['Có thể xuất', totals.available],
@@ -574,33 +620,13 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         </div>
       </section>}
 
-      {showInventory && <section className="overflow-hidden rounded-2xl border border-zinc-100 bg-white shadow-2xs">
-        <div className="hidden grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px_90px] gap-3 border-b bg-zinc-50 px-4 py-3 text-xs font-black text-zinc-500 lg:grid">
-          <span>SKU</span><span>Linh kiện</span><span>Kho vật lý</span><span>Tồn</span><span>Đã giữ</span><span>Khả dụng</span><span>Giá vốn</span><span>Truy vết</span>
-        </div>
-        <div className="divide-y">
-          {filteredByInventoryControls.map(part => {
-            const location = part.warehouseId ? warehouseById.get(part.warehouseId) : undefined;
-            const hasMismatch = Number(part.stockQuantity || 0) < Number(part.reservedQuantity || 0);
-            const traceVisible = tracePartId === part.id;
-            return <article key={part.id} className="grid gap-3 p-4 lg:grid-cols-[120px_minmax(220px,1fr)_180px_90px_90px_110px_150px_90px] lg:items-center">
-              <span className="font-mono text-xs font-black text-orange-700">{part.sku}</span>
-              <div><p className="font-black text-zinc-900">{part.name}</p><div className="mt-1 flex flex-wrap gap-1.5"><span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-zinc-600">{part.catalogGroupCode || part.category || 'Chưa gán nhóm'}</span>{part.compatibleModels?.slice(0, 3).map(model => <span key={model} className="rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">{model}</span>)}{(part.compatibleModels?.length || 0) > 3 && <span className="rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">+{(part.compatibleModels?.length || 0) - 3}</span>}</div>{part.productMasterId ? <p className="mt-1 text-[10px] font-bold text-emerald-700">Đã liên kết Danh mục</p> : <p className="mt-1 text-[10px] font-bold text-amber-700">Mã cũ · chỉ dùng để đối soát</p>}</div>
-              <span className="text-sm font-bold text-zinc-600">{location?.name || (part.warehouseId ? `Kho ${part.warehouseId}` : 'Chưa định danh kho')}</span>
-              <span className="text-sm font-black"><span className="lg:hidden text-zinc-500">Tồn: </span>{part.stockQuantity}</span>
-              <span className="text-sm font-black"><span className="lg:hidden text-zinc-500">Đã giữ: </span>{part.reservedQuantity}</span>
-              <span className={`text-sm font-black ${hasMismatch ? 'text-red-700' : 'text-emerald-700'}`}><span className="lg:hidden text-zinc-500">Khả dụng: </span>{part.availableQuantity}</span>
-              <span className="text-sm font-black">{typeof part.currentCost === 'number' ? money.format(part.currentCost) : 'Không có quyền xem'}</span>
-              <button type="button" onClick={() => void toggleTrace(part.id)} className="h-9 rounded-lg border bg-white px-2 text-xs font-black text-orange-700 hover:bg-orange-50">{traceVisible ? 'Thu gọn' : 'Lịch sử'}</button>
-              {!!part.lots?.length && <div className="col-span-full flex flex-wrap gap-2">{part.lots.map(lot => <span key={lot.id} className="rounded-lg bg-zinc-100 px-2.5 py-1 text-[11px] font-bold text-zinc-600">Lô {lot.lotCode}: tồn {lot.stockQuantity}, giữ {lot.reservedQuantity}{typeof lot.unitCost === 'number' ? ` · ${money.format(lot.unitCost)}` : ''}</span>)}</div>}
-              {hasMismatch && <p className="col-span-full flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700"><AlertTriangle className="h-4 w-4" /> Tồn giữ trước lớn hơn tồn vật lý, cần đối soát ledger.</p>}
-              {traceVisible && <section className="col-span-full rounded-xl border border-sky-100 bg-sky-50/40 p-3"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-black text-sky-950">Lịch sử lô &amp; biến động</p><p className="mt-0.5 text-[11px] text-sky-800">IMEI chỉ hiện khi linh kiện đã gắn với một máy sửa.</p></div>{traceLoading && <Loader2 className="h-4 w-4 animate-spin text-sky-700" />}</div>{traceError && <p className="mt-2 text-xs font-bold text-red-600">{traceError}</p>}{!traceLoading && trace && <div className="mt-3 space-y-2">{trace.movements.length === 0 && <p className="text-xs text-zinc-500">Chưa có biến động được lưu.</p>}{trace.movements.map((movement: any) => <div key={movement.id} className="rounded-lg border border-sky-100 bg-white px-3 py-2 text-xs"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-black text-zinc-900">{movement.movementType}</span><span className="text-zinc-500">{formatRequestDate(movement.occurredAt || movement.createdAt)}</span></div><p className="mt-1 text-zinc-600">{movement.workOrderCode || movement.sourceCode || movement.sourceId || 'Chứng từ kho'}{movement.imei ? <span className="ml-2 rounded bg-sky-50 px-1.5 py-0.5 font-mono font-bold text-sky-800">IMEI {movement.imei}</span> : null}</p></div>)}</div>}</section>}
-            </article>;
-          })}
-          {!loading && filteredByInventoryControls.length === 0 && <p className="p-10 text-center text-sm text-zinc-500">Không có linh kiện phù hợp bộ lọc hiện tại.</p>}
-          {loading && <p className="flex items-center justify-center gap-2 p-10 text-sm font-bold text-zinc-500"><Loader2 className="h-5 w-5 animate-spin" /> Đang tải dữ liệu canonical...</p>}
-        </div>
-      </section>}
+      {showInventory && <GroupedStockSkuView
+        groups={groupedParts}
+        loading={loading}
+        canViewCost={mayViewCost}
+        onLoadTrace={loadGroupedTrace}
+        emptyMessage="Không có linh kiện phù hợp bộ lọc hiện tại."
+      />}
     </div>
   );
 };

@@ -57,6 +57,49 @@ export interface InventoryDevicePage {
   summary?: InventoryDeviceSummary;
 }
 
+export interface InventoryAccessoryBalanceRow {
+  id: string;
+  productId: string;
+  productMasterId?: string | null;
+  sku: string;
+  name: string;
+  category: string;
+  catalogGroupCode?: string | null;
+  catalogModelCode?: string | null;
+  brand?: string | null;
+  branchId?: string | null;
+  warehouseId?: string | null;
+  stockQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  sellPrice: number;
+  minStockLevel: number;
+  status: string;
+  compatibleModels?: string[];
+  currentCost?: number;
+}
+
+export interface InventoryAccessoryTrace {
+  product: Record<string, any>;
+  balances: Array<Record<string, any>>;
+  movements: Array<{
+    id: string;
+    type: string;
+    occurredAt?: string | null;
+    quantity?: number;
+    warehouseName?: string | null;
+    counterpartyWarehouseName?: string | null;
+    sourceCode?: string | null;
+    sourceId?: string | null;
+    actorName?: string | null;
+    imei?: string | null;
+    note?: string | null;
+    status?: string | null;
+    legacyDerived?: boolean;
+  }>;
+  notice?: string;
+}
+
 export async function fetchInventoryDevicePage(
   options: {
     limit?: number;
@@ -98,6 +141,23 @@ export async function fetchInventoryDevices(currentUser?: UserAccount): Promise<
     cursor = page.nextCursor;
   }
   throw new Error('INVENTORY_PAGINATION_LIMIT_EXCEEDED: Dữ liệu vượt 50.000 máy; cần lọc theo chi nhánh hoặc kho.');
+}
+
+export async function fetchInventoryAccessoryBalances(
+  currentUser?: UserAccount,
+  warehouseId?: string
+): Promise<InventoryAccessoryBalanceRow[]> {
+  const params = new URLSearchParams();
+  if (warehouseId) params.set('warehouseId', warehouseId);
+  const query = params.toString();
+  return sendInventoryRequest(`stock-items/accessories${query ? `?${query}` : ''}`, 'GET', undefined, currentUser);
+}
+
+export async function fetchInventoryAccessoryTrace(
+  productId: string,
+  currentUser?: UserAccount
+): Promise<InventoryAccessoryTrace> {
+  return sendInventoryRequest(`stock-items/accessories/${encodeURIComponent(productId)}/trace`, 'GET', undefined, currentUser);
 }
 
 export async function requestImportInventoryDevices(
