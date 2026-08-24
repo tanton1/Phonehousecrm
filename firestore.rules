@@ -366,6 +366,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /shiftDepartmentPolicies/{policyId} {
+      allow read, write: if false;
+    }
+
     match /sopTemplates/{templateId} {
       allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin() || isManager();

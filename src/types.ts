@@ -1492,6 +1492,19 @@ export interface WeeklyShiftSchedule {
   };
 }
 
+export interface ShiftDepartmentPolicy {
+  id: string;
+  branchId: string;
+  departmentId: string;
+  departmentName: string;
+  mode: 'FIXED' | 'ROTATING';
+  defaultShiftId?: string;
+  workDayIndexes: number[]; // 0 = Thứ 2 ... 6 = Chủ nhật
+  active: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export type AttendanceVerificationStatus = 'VERIFIED' | 'PENDING' | 'FAILED';
 
 export interface AttendanceRecord {

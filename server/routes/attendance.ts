@@ -4,7 +4,7 @@ import { processServerCheckIn, processServerCheckOut } from '../services/attenda
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
 import { requireRole } from '../middleware/requireRole';
-import { listShiftBoard, saveShiftBoard, upsertShiftDefinition } from '../services/shiftSchedulingService';
+import { listShiftBoard, saveShiftBoard, upsertShiftDefinition, upsertShiftDepartmentPolicy } from '../services/shiftSchedulingService';
 
 export function createAttendanceRouter(db: Firestore | null): Router {
   const router = Router();
@@ -238,6 +238,16 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     } catch (error: any) {
       console.error('[Shift Definition Update Error]:', error);
       return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'Không cập nhật được ca làm.' });
+    }
+  });
+
+  router.put('/shift-department-policies', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      const result = await upsertShiftDepartmentPolicy(db, getActor(req), req.body || {});
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('[Shift Department Policy Error]:', error);
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'Không lưu được quy tắc bộ phận.' });
     }
   });
 

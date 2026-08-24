@@ -104,9 +104,10 @@ export async function listShiftBoard(
   const canManage = MANAGER_ROLES.has(role);
   const requestedBranchId = String(input.branchId || '').trim();
 
-  const [scheduleSnapshot, definitionSnapshot] = await Promise.all([
+  const [scheduleSnapshot, definitionSnapshot, policySnapshot] = await Promise.all([
     db.collection('weeklyShiftSchedules').where('weekStart', '==', input.weekStart).limit(500).get(),
-    db.collection('shiftDefinitions').limit(100).get()
+    db.collection('shiftDefinitions').limit(100).get(),
+    db.collection('shiftDepartmentPolicies').limit(100).get()
   ]);
 
   const schedules = scheduleSnapshot.docs
@@ -127,10 +128,18 @@ export async function listShiftBoard(
     })
     .sort((a, b) => String(a.startTime || '').localeCompare(String(b.startTime || '')));
 
+  const policies = policySnapshot.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() } as any))
+    .filter((policy) => policy.active !== false)
+    .filter((policy) => canReadBranch(actor, policy.branchId))
+    .filter((policy) => !requestedBranchId || requestedBranchId === 'ALL' || policy.branchId === requestedBranchId)
+    .sort((a, b) => String(a.departmentName || '').localeCompare(String(b.departmentName || ''), 'vi'));
+
   return {
     weekStart: input.weekStart,
     schedules,
     definitions,
+    policies,
     permissions: { canManage, canConfigureShifts: canManage }
   };
 }
@@ -325,4 +334,71 @@ export async function upsertShiftDefinition(
   });
   await ref.set(definition, { merge: false });
   return definition;
+}
+
+export async function upsertShiftDepartmentPolicy(
+  db: Firestore | null,
+  actor: ShiftSchedulingActor,
+  input: {
+    branchId: string;
+    departmentId: string;
+    departmentName: string;
+    mode: 'FIXED' | 'ROTATING';
+    defaultShiftId?: string;
+    workDayIndexes?: number[];
+    active?: boolean;
+  }
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  assertCanManage(actor);
+  const branchId = String(input.branchId || '').trim();
+  assertBranchAccess(actor, branchId);
+  const departmentId = String(input.departmentId || '').trim().toUpperCase();
+  const departmentName = String(input.departmentName || '').trim();
+  if (!departmentId || !departmentName) throw new Error('SHIFT_DEPARTMENT_REQUIRED: Vui lòng chọn bộ phận.');
+  if (!['FIXED', 'ROTATING'].includes(input.mode)) throw new Error('SHIFT_POLICY_MODE_INVALID');
+
+  const workDayIndexes = [...new Set((input.workDayIndexes || []).map(Number))].sort((a, b) => a - b);
+  if (workDayIndexes.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
+    throw new Error('SHIFT_POLICY_WORK_DAYS_INVALID');
+  }
+  const defaultShiftId = String(input.defaultShiftId || '').trim();
+  if (input.mode === 'FIXED' && !defaultShiftId) {
+    throw new Error('SHIFT_POLICY_DEFAULT_REQUIRED: Bộ phận giờ hành chính phải chọn ca mặc định.');
+  }
+  if (input.mode === 'FIXED' && workDayIndexes.length === 0) {
+    throw new Error('SHIFT_POLICY_WORK_DAYS_REQUIRED: Hãy chọn ít nhất một ngày làm việc.');
+  }
+
+  const policyId = `POLICY_${branchId}_${departmentId.replace(/[^A-Z0-9_-]/g, '_')}`;
+  const policyRef = db.collection('shiftDepartmentPolicies').doc(policyId);
+  const reads = [policyRef.get()];
+  if (input.mode === 'FIXED') reads.push(db.collection('shiftDefinitions').doc(defaultShiftId).get());
+  const [existing, shiftSnapshot] = await Promise.all(reads);
+  if (input.mode === 'FIXED') {
+    if (!shiftSnapshot?.exists) throw new Error('SHIFT_DEFINITION_NOT_FOUND: Ca mặc định không tồn tại.');
+    const definition = shiftSnapshot.data();
+    if (definition?.active === false) throw new Error('SHIFT_DEFINITION_INACTIVE: Ca mặc định đã ngừng dùng.');
+    if (definition?.branchId && definition.branchId !== 'ALL' && definition.branchId !== branchId) {
+      throw new Error('SHIFT_DEFINITION_BRANCH_MISMATCH: Ca mặc định không thuộc chi nhánh này.');
+    }
+  }
+
+  const now = new Date().toISOString();
+  const policy = cleanObject({
+    id: policyId,
+    branchId,
+    departmentId,
+    departmentName,
+    mode: input.mode,
+    defaultShiftId: input.mode === 'FIXED' ? defaultShiftId : undefined,
+    workDayIndexes: input.mode === 'FIXED' ? workDayIndexes : [],
+    active: input.active !== false,
+    createdAt: existing.data()?.createdAt || now,
+    createdBy: existing.data()?.createdBy || actor.uid,
+    updatedAt: now,
+    updatedBy: actor.uid
+  });
+  await policyRef.set(policy, { merge: false });
+  return policy;
 }

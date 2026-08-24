@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { getWeekDates, resolveDepartment, saveShiftBoard } from '../server/services/shiftSchedulingService';
+import { getWeekDates, resolveDepartment, saveShiftBoard, upsertShiftDepartmentPolicy } from '../server/services/shiftSchedulingService';
 import { resolveShiftAssignment } from '../server/services/attendanceService';
+import { applyFixedDepartmentPolicies } from '../src/utils/shiftPolicy';
 
 type Ref = { col: string; id: string };
 
@@ -115,5 +116,45 @@ describe('Department shift scheduling', () => {
 
     await expect(resolveShiftAssignment(db, { staffId: 'STAFF_01', branchId: 'CN01', workDate: '2026-08-24' }))
       .rejects.toThrow('SHIFT_NOT_ASSIGNED');
+  });
+
+  it('stores a fixed administrative policy against a configured shift', async () => {
+    const { db, data } = createDb();
+    data.set('shiftDefinitions/SHIFT_OFFICE', { name: 'Giờ hành chính', startTime: '08:00', endTime: '17:30', branchId: 'CN01', active: true });
+    const policy = await upsertShiftDepartmentPolicy(db, actor, {
+      branchId: 'CN01',
+      departmentId: 'FINANCE',
+      departmentName: 'Kế toán',
+      mode: 'FIXED',
+      defaultShiftId: 'SHIFT_OFFICE',
+      workDayIndexes: [0, 1, 2, 3, 4, 5]
+    });
+
+    expect(policy).toMatchObject({ id: 'POLICY_CN01_FINANCE', mode: 'FIXED', defaultShiftId: 'SHIFT_OFFICE' });
+    expect(data.get('shiftDepartmentPolicies/POLICY_CN01_FINANCE').workDayIndexes).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('auto-fills fixed departments, leaves sales rotating, and preserves manual exceptions', () => {
+    const staff: any[] = [
+      { id: 'ACC_01', role: 'ACCOUNTANT' },
+      { id: 'SALE_01', role: 'SALES' }
+    ];
+    const dates = getWeekDates('2026-08-24');
+    const result = applyFixedDepartmentPolicies({
+      draft: { ACC_01: { '2026-08-26': { shiftId: 'OFF', note: 'Nghỉ phép đã duyệt' } } },
+      policies: [
+        { id: 'P1', branchId: 'CN01', departmentId: 'FINANCE', departmentName: 'Kế toán', mode: 'FIXED', defaultShiftId: 'SHIFT_OFFICE', workDayIndexes: [0, 1, 2, 3, 4], active: true },
+        { id: 'P2', branchId: 'CN01', departmentId: 'SALES', departmentName: 'Bán hàng & CSKH', mode: 'ROTATING', workDayIndexes: [], active: true }
+      ],
+      staffList: staff,
+      dates,
+      validShiftIds: new Set(['SHIFT_OFFICE'])
+    });
+
+    expect(result.draft.ACC_01['2026-08-24'].shiftId).toBe('SHIFT_OFFICE');
+    expect(result.draft.ACC_01['2026-08-26']).toEqual({ shiftId: 'OFF', note: 'Nghỉ phép đã duyệt' });
+    expect(result.draft.ACC_01['2026-08-30'].shiftId).toBe('OFF');
+    expect(result.draft.SALE_01).toBeUndefined();
+    expect(result.appliedCells).toBe(6);
   });
 });

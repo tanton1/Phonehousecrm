@@ -1,10 +1,11 @@
 import { auth } from '../lib/firebase';
-import { ShiftDefinition, WeeklyShiftSchedule } from '../types';
+import { ShiftDefinition, ShiftDepartmentPolicy, WeeklyShiftSchedule } from '../types';
 
 export interface ShiftBoardResponse {
   weekStart: string;
   schedules: WeeklyShiftSchedule[];
   definitions: ShiftDefinition[];
+  policies: ShiftDepartmentPolicy[];
   permissions: {
     canManage: boolean;
     canConfigureShifts: boolean;
@@ -79,6 +80,21 @@ export function updateShiftDefinition(id: string, payload: {
 }) {
   return request<ShiftDefinition>(`/shift-definitions/${encodeURIComponent(id)}`, {
     method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+}
+
+export function saveShiftDepartmentPolicy(payload: {
+  branchId: string;
+  departmentId: string;
+  departmentName: string;
+  mode: 'FIXED' | 'ROTATING';
+  defaultShiftId?: string;
+  workDayIndexes: number[];
+  active?: boolean;
+}) {
+  return request<ShiftDepartmentPolicy>('/shift-department-policies', {
+    method: 'PUT',
     body: JSON.stringify(payload)
   });
 }
