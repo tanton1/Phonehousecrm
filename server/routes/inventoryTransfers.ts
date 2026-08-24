@@ -4,11 +4,13 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import {
   listTechnicalTaskTypes,
+  listInterBranchDebts,
   processCancelTechnicalTransfer,
   processCompleteInterBranchTransfer,
   processCreateInterBranchTransfer,
   processCreateTechnicalTransfer,
-  processReceiveInterBranchTransfer
+  processReceiveInterBranchTransfer,
+  processSettleInterBranchDebt
 } from '../services/inventoryTransferService';
 
 function sendTransferError(res: Response, error: any) {
@@ -201,6 +203,37 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
       if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
       try {
         const data = await processCompleteInterBranchTransfer(db, req.params.id, req.user!);
+        return res.json({ success: true, data });
+      } catch (error: any) {
+        return sendTransferError(res, error);
+      }
+    }
+  );
+
+  router.get(
+    '/inter-branch-debts',
+    requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const data = await listInterBranchDebts(db, req.user!, {
+          branchId: String(req.query.branchId || ''),
+          financialStatus: String(req.query.financialStatus || '')
+        });
+        return res.json({ success: true, data });
+      } catch (error: any) {
+        return sendTransferError(res, error);
+      }
+    }
+  );
+
+  router.post(
+    '/inter-branch/:id/settlements',
+    requireRole('ADMIN', 'ACCOUNTANT'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const data = await processSettleInterBranchDebt(db, req.params.id, req.body, req.user!);
         return res.json({ success: true, data });
       } catch (error: any) {
         return sendTransferError(res, error);

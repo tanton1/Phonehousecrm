@@ -206,6 +206,7 @@ export type TechnicalTransferItemStatus =
   | 'RETURNED_TO_MAIN_WAREHOUSE'
   | 'CANCELLED';
 export type TransferReceiptItemStatus = 'PENDING' | 'RECEIVED' | 'MISSING' | 'WRONG_DEVICE' | 'DAMAGED';
+export type InterBranchFinancialStatus = 'PROVISIONAL' | 'OPEN' | 'PARTIALLY_SETTLED' | 'SETTLED' | 'VOID' | 'REVERSED';
 export type StockTransferStatus =
   | 'DRAFT'
   | 'APPROVED'
@@ -310,8 +311,48 @@ export interface StockTransferSlip {
   interBranchLedgerEntryId?: string;
   provisionalLedgerAmount?: number;
   postedLedgerAmount?: number;
+  settledLedgerAmount?: number;
+  outstandingLedgerAmount?: number;
+  financialStatus?: InterBranchFinancialStatus;
   handoverImageUrls?: string[];
   updatedAt?: string;
+}
+
+export interface InterBranchSettlementSummary {
+  id: string;
+  amount: number;
+  payerFundId: string;
+  payerFundName: string;
+  receiverFundId: string;
+  receiverFundName: string;
+  paymentTransactionId: string;
+  receiptTransactionId: string;
+  createdAt: string;
+  createdByUid: string;
+  createdByName?: string;
+  note?: string;
+}
+
+export interface InterBranchDebtLedger {
+  id: string;
+  transferId: string;
+  transferCode: string;
+  sourceBranchId: string;
+  sourceBranchName: string;
+  destinationBranchId: string;
+  destinationBranchName: string;
+  currency: 'VND';
+  provisionalAmount: number;
+  postedAmount: number;
+  settledAmount: number;
+  outstandingAmount: number;
+  financialStatus: InterBranchFinancialStatus;
+  status: 'PROVISIONAL' | 'POSTED' | 'VOID' | 'REVERSED';
+  imeis: Array<{ imei: string; deviceId?: string; name?: string; amount: number; receiptStatus?: TransferReceiptItemStatus }>;
+  settlements?: InterBranchSettlementSummary[];
+  createdAt: string;
+  updatedAt: string;
+  postedAt?: string | null;
 }
 
 // ==========================================
@@ -1323,6 +1364,7 @@ export type CashReceiptCategory =
   | 'REPAIR_SERVICE'       // Thu tiền dịch vụ sửa chữa / thay màn / pin
   | 'CAPITAL_INVEST'       // Thu bổ sung vốn chủ sở hữu / quỹ dự phòng
   | 'SUPPLIER_REFUND'      // NCC hoàn tiền hàng lỗi / chiết khấu
+  | 'INTER_BRANCH_RECEIPT' // Thu tiền đối soát từ chi nhánh khác (không vào P&L)
   | 'OTHER_INCOME';        // Thu nhập khác
 
 export type CashPaymentCategory = 
@@ -1335,6 +1377,7 @@ export type CashPaymentCategory =
   | 'UTILITIES'            // Chi điện, nước, internet, văn phòng phẩm
   | 'WARRANTY_PARTS'       // Chi mua linh kiện bảo hành / sửa chữa
   | 'CUSTOMER_REFUND'      // Chi hoàn tiền đổi trả cho khách
+  | 'INTER_BRANCH_PAYMENT' // Chi thanh toán công nợ cho chi nhánh khác (không vào P&L)
   | 'INTERNAL'             // Chi phí nội bộ / Phạt KTV
   | 'OTHER_EXPENSE';       // Chi phí khác
 
@@ -1354,7 +1397,14 @@ export interface CashTransaction {
   partnerName?: string;
   partnerType?: PartnerType;
   partnerPhone?: string;
+  referenceId?: string;
+  referenceType?: 'INVOICE' | 'PURCHASE_ORDER' | 'PAYMENT' | 'INTER_BRANCH_TRANSFER' | 'MANUAL';
   referenceCode?: string; // Mã Hóa đơn HD-..., Phiếu Nhập PN-..., Ticket BH-...
+  transferId?: string;
+  transferGroupId?: string;
+  interBranchSettlementId?: string;
+  counterpartyBranchId?: string;
+  creatorUid?: string;
   creator: string; // Nhật Tân (Admin), Thu ngân Linh...
   notes: string;
   status: 'COMPLETED' | 'PENDING' | 'CANCELLED';

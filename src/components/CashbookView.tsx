@@ -9,6 +9,7 @@ import {
   CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch 
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
+import { InterBranchDebtPanel } from '../features/finance/components/InterBranchDebtPanel';
 
 // format helpers
 const formatCurrency = (amount: number) => {
@@ -45,7 +46,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   onTransferFunds, 
   onAddPartner 
 }) => {
-  const [activeMainTab, setActiveMainTab] = useState<'TRANSACTIONS' | 'ACCOUNTS' | 'REPORTS'>('TRANSACTIONS');
+  const [activeMainTab, setActiveMainTab] = useState<'TRANSACTIONS' | 'INTER_BRANCH_DEBT' | 'ACCOUNTS' | 'REPORTS'>('TRANSACTIONS');
   const [selectedFundFilter, setSelectedFundFilter] = useState<string>('ALL');
   const [showBalance, setShowBalance] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -625,9 +626,10 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
       {/* 2. Sticky Tab Navigation Bar */}
       <div className="bg-white/95 backdrop-blur-md border border-zinc-200 rounded-2xl p-1.5 shadow-2xs sticky top-0 z-20 flex items-center justify-between">
-        <div className="flex space-x-1 sm:space-x-2">
+        <div className="flex min-w-0 space-x-1 overflow-x-auto sm:space-x-2">
           {[
             { id: 'TRANSACTIONS', label: 'Sổ Quỹ Thu Chi', count: transactions.length },
+            { id: 'INTER_BRANCH_DEBT', label: 'Công Nợ Chi Nhánh' },
             { id: 'ACCOUNTS', label: 'Tài Khoản Quỹ & Két', count: funds.length },
             { id: 'REPORTS', label: 'Báo Cáo Dòng Tiền' }
           ].map(tab => {
@@ -637,7 +639,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveMainTab(tab.id as any)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
+                className={`shrink-0 whitespace-nowrap px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                   isActive
                     ? 'bg-[#FF4B16] text-white shadow-xs'
                     : 'text-zinc-600 hover:bg-zinc-100'
@@ -1312,6 +1314,15 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         )}
 
 
+        {activeMainTab === 'INTER_BRANCH_DEBT' && currentUser && (
+          <InterBranchDebtPanel
+            currentUser={currentUser}
+            branches={branches}
+            funds={funds}
+            selectedBranchId={selectedBranchId}
+          />
+        )}
+
         {activeMainTab === 'REPORTS' && (
           <div className="text-center py-20 text-zinc-500 space-y-4">
             <FileText className="w-12 h-12 mx-auto text-zinc-300" />
@@ -1922,6 +1933,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             </div>
           </div>
         )}
+
         <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs font-bold text-zinc-700">
           <input type="checkbox" checked={fundFormData.isDefault} onChange={e => setFundFormData({...fundFormData, isDefault: e.target.checked})} />
           Đặt làm tài khoản mặc định cho loại thanh toán này tại chi nhánh

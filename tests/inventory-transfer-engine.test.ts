@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateTechnicalTaskQuote,
+  deriveInterBranchFinancialStatus,
   deriveInterBranchStatus,
   getCanonicalDeviceLocation,
   getDeviceCostSnapshot,
   processAcceptTechnicalTransfer,
   processCreateInterBranchTransfer,
   processCreateTechnicalTransfer,
-  processReceiveInterBranchTransfer
+  processReceiveInterBranchTransfer,
+  processSettleInterBranchDebt
 } from '../server/services/inventoryTransferService';
 
 type Ref = { col: string; id: string };
@@ -71,6 +73,13 @@ describe('Inventory transfer domain helpers', () => {
     expect(deriveInterBranchStatus([{ receiptStatus: 'RECEIVED' }, { receiptStatus: 'PENDING' }])).toBe('PARTIALLY_RECEIVED');
     expect(deriveInterBranchStatus([{ receiptStatus: 'RECEIVED' }, { receiptStatus: 'RECEIVED' }])).toBe('RECEIVED');
   });
+
+  it('derives financial state separately from warehouse state', () => {
+    expect(deriveInterBranchFinancialStatus(0, 0, 'PROVISIONAL')).toBe('PROVISIONAL');
+    expect(deriveInterBranchFinancialStatus(10_000_000, 0, 'POSTED')).toBe('OPEN');
+    expect(deriveInterBranchFinancialStatus(10_000_000, 4_000_000, 'POSTED')).toBe('PARTIALLY_SETTLED');
+    expect(deriveInterBranchFinancialStatus(10_000_000, 10_000_000, 'POSTED')).toBe('SETTLED');
+  });
 });
 
 describe('Technical custody transfer transaction', () => {
@@ -117,6 +126,10 @@ describe('Inter-branch transfer and balanced ledger transaction', () => {
       devices: {
         DEV_01: { id: 'DEV_01', imei: '111111111111111', model: 'iPhone 15', branchId: 'CN_TONG', currentLocationId: 'KHO_TONG', status: 'in_stock', currentCost: 15_000_000, buyPrice: 12_000_000 },
         DEV_02: { id: 'DEV_02', imei: '222222222222222', model: 'iPhone 14', branchId: 'CN_TONG', currentLocationId: 'KHO_TONG', status: 'in_stock', currentCost: 10_000_000 }
+      },
+      funds: {
+        FUND_PHONEHOUSE: { id: 'FUND_PHONEHOUSE', name: 'VCB PhoneHouse', branchId: 'CN_PHONEHOUSE', type: 'BANK', isActive: true, currentBalance: 20_000_000, totalExpense: 0 },
+        FUND_TONG: { id: 'FUND_TONG', name: 'VCB Tổng', branchId: 'CN_TONG', type: 'BANK', isActive: true, currentBalance: 5_000_000, totalIncome: 0 }
       }
     });
     const created = await processCreateInterBranchTransfer(store.db, {
@@ -130,6 +143,7 @@ describe('Inter-branch transfer and balanced ledger transaction', () => {
     expect(store.values('stockReceipts')[0].status).toBe('PENDING_RECEIPT');
     expect(store.values('interBranchLedger')).toHaveLength(1);
     expect(store.values('interBranchLedger')[0]).toMatchObject({ status: 'PROVISIONAL', provisionalAmount: 25_000_000, postedAmount: 0 });
+    expect(store.values('cashTransactions')).toHaveLength(0);
     expect(store.get('devices', 'DEV_01')).toMatchObject({ branchId: 'CN_TONG', currentLocationId: 'IN_TRANSIT', status: 'in_transit' });
 
     const received = await processReceiveInterBranchTransfer(store.db, created.transferId, {
@@ -144,6 +158,53 @@ describe('Inter-branch transfer and balanced ledger transaction', () => {
     expect(received.postedAmount).toBe(15_000_000);
     expect(store.get('devices', 'DEV_01')).toMatchObject({ branchId: 'CN_PHONEHOUSE', currentLocationId: 'KHO_PHONEHOUSE', status: 'in_stock' });
     expect(store.get('devices', 'DEV_02')).toMatchObject({ branchId: 'CN_TONG', currentLocationId: 'IN_TRANSIT', status: 'in_transit' });
-    expect(store.values('interBranchLedger')[0]).toMatchObject({ status: 'POSTED', postedAmount: 15_000_000 });
+    expect(store.values('interBranchLedger')[0]).toMatchObject({ status: 'POSTED', postedAmount: 15_000_000, settledAmount: 0, outstandingAmount: 15_000_000, financialStatus: 'OPEN' });
+    expect(store.values('cashTransactions')).toHaveLength(0);
+
+    const settlementInput = {
+      amount: 5_000_000,
+      payerFundId: 'FUND_PHONEHOUSE',
+      receiverFundId: 'FUND_TONG',
+      note: 'Thanh toán đợt 1',
+      idempotencyKey: 'inter-branch-settlement-test-0001'
+    };
+    const settled = await processSettleInterBranchDebt(store.db, created.transferId, settlementInput, admin);
+    expect(settled.debt).toMatchObject({ postedAmount: 15_000_000, settledAmount: 5_000_000, outstandingAmount: 10_000_000, financialStatus: 'PARTIALLY_SETTLED' });
+    expect(store.get('funds', 'FUND_PHONEHOUSE')).toMatchObject({ currentBalance: 15_000_000, totalExpense: 5_000_000 });
+    expect(store.get('funds', 'FUND_TONG')).toMatchObject({ currentBalance: 10_000_000, totalIncome: 5_000_000 });
+    expect(store.values('cashTransactions')).toHaveLength(2);
+    expect(store.values('cashTransactions')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'PAYMENT', category: 'INTER_BRANCH_PAYMENT', amount: 5_000_000, branchId: 'CN_PHONEHOUSE', isPLAccounted: false }),
+      expect.objectContaining({ type: 'RECEIPT', category: 'INTER_BRANCH_RECEIPT', amount: 5_000_000, branchId: 'CN_TONG', isPLAccounted: false })
+    ]));
+
+    const replay = await processSettleInterBranchDebt(store.db, created.transferId, settlementInput, admin);
+    expect(replay.idempotentReplay).toBe(true);
+    expect(store.values('cashTransactions')).toHaveLength(2);
+  });
+
+  it('rejects an overpayment without changing either fund or creating cash entries', async () => {
+    const store = createFirestoreMock({
+      transfers: {
+        IBT_01: { id: 'IBT_01', code: 'DC-01', transferType: 'INTER_BRANCH', sourceBranchId: 'CN_TONG', destinationBranchId: 'CN_PHONEHOUSE', interBranchLedgerEntryId: 'IBL_IBT_01', postedLedgerAmount: 8_000_000 }
+      },
+      interBranchLedger: {
+        IBL_IBT_01: { id: 'IBL_IBT_01', transferId: 'IBT_01', transferCode: 'DC-01', sourceBranchId: 'CN_TONG', destinationBranchId: 'CN_PHONEHOUSE', status: 'POSTED', postedAmount: 8_000_000, settledAmount: 0, outstandingAmount: 8_000_000 }
+      },
+      funds: {
+        PAY: { id: 'PAY', name: 'Quỹ PhoneHouse', branchId: 'CN_PHONEHOUSE', type: 'CASH', isActive: true, currentBalance: 2_000_000 },
+        RECEIVE: { id: 'RECEIVE', name: 'Quỹ Tổng', branchId: 'CN_TONG', type: 'CASH', isActive: true, currentBalance: 1_000_000 }
+      }
+    });
+    await expect(processSettleInterBranchDebt(store.db, 'IBT_01', {
+      amount: 3_000_000,
+      payerFundId: 'PAY',
+      receiverFundId: 'RECEIVE',
+      idempotencyKey: 'settlement-insufficient-fund-test-0001'
+    }, admin)).rejects.toThrow('INTER_BRANCH_PAYER_INSUFFICIENT_FUNDS');
+    expect(store.get('funds', 'PAY').currentBalance).toBe(2_000_000);
+    expect(store.get('funds', 'RECEIVE').currentBalance).toBe(1_000_000);
+    expect(store.values('cashTransactions')).toHaveLength(0);
+    expect(store.values('interBranchSettlements')).toHaveLength(0);
   });
 });

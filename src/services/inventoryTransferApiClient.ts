@@ -1,5 +1,7 @@
 import { auth } from '../lib/firebase';
 import {
+  CashTransaction,
+  InterBranchDebtLedger,
   StockTransferSlip,
   TechnicalPriority,
   TechnicalTaskTypeConfig,
@@ -123,4 +125,34 @@ export async function requestCompleteInterBranchTransfer(
   currentUser?: UserAccount
 ): Promise<{ transferId: string; transfer: StockTransferSlip }> {
   return sendInventoryTransferRequest(`inter-branch/${transferId}/complete`, 'POST', {}, currentUser);
+}
+
+export async function fetchInterBranchDebts(
+  filters: { branchId?: string; financialStatus?: string } = {},
+  currentUser?: UserAccount
+): Promise<{ debts: InterBranchDebtLedger[]; total: number }> {
+  const query = new URLSearchParams();
+  if (filters.branchId && filters.branchId !== 'ALL') query.set('branchId', filters.branchId);
+  if (filters.financialStatus && filters.financialStatus !== 'ALL') query.set('financialStatus', filters.financialStatus);
+  return sendInventoryTransferRequest(`inter-branch-debts${query.size ? `?${query.toString()}` : ''}`, 'GET', undefined, currentUser);
+}
+
+export async function requestSettleInterBranchDebt(
+  transferId: string,
+  payload: {
+    amount: number;
+    payerFundId: string;
+    receiverFundId: string;
+    note?: string;
+    idempotencyKey: string;
+  },
+  currentUser?: UserAccount
+): Promise<{
+  transferId: string;
+  debt: InterBranchDebtLedger;
+  settlement: Record<string, any>;
+  cashTransactions: CashTransaction[];
+  idempotentReplay?: boolean;
+}> {
+  return sendInventoryTransferRequest(`inter-branch/${transferId}/settlements`, 'POST', payload, currentUser);
 }

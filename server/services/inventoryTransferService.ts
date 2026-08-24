@@ -76,6 +76,79 @@ export interface InterBranchReceiptInput {
   idempotencyKey: string;
 }
 
+export interface InterBranchSettlementInput {
+  amount: number;
+  payerFundId: string;
+  receiverFundId: string;
+  note?: string;
+  idempotencyKey: string;
+}
+
+export type InterBranchFinancialStatus = 'PROVISIONAL' | 'OPEN' | 'PARTIALLY_SETTLED' | 'SETTLED' | 'VOID' | 'REVERSED';
+
+function safeMoney(value: unknown): number {
+  const amount = Number(value || 0);
+  return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0;
+}
+
+function normalizeDateString(value: any): string {
+  if (!value) return '';
+  if (typeof value?.toDate === 'function') return value.toDate().toISOString();
+  if (Number.isFinite(value?._seconds)) return new Date(Number(value._seconds) * 1000).toISOString();
+  const parsed = new Date(String(value));
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString();
+}
+
+export function deriveInterBranchFinancialStatus(
+  postedAmount: number,
+  settledAmount: number,
+  postingStatus?: string
+): InterBranchFinancialStatus {
+  if (postingStatus === 'VOID') return 'VOID';
+  if (postingStatus === 'REVERSED') return 'REVERSED';
+  if (postedAmount <= 0) return 'PROVISIONAL';
+  if (settledAmount <= 0) return 'OPEN';
+  if (settledAmount < postedAmount) return 'PARTIALLY_SETTLED';
+  return 'SETTLED';
+}
+
+export function normalizeInterBranchDebtRecord(record: any, transfer?: any) {
+  const postedAmount = safeMoney(record?.postedAmount ?? transfer?.postedLedgerAmount);
+  const settledAmount = Math.min(postedAmount, safeMoney(record?.settledAmount ?? transfer?.settledLedgerAmount));
+  const postingStatus = String(record?.status || (postedAmount > 0 ? 'POSTED' : 'PROVISIONAL')).toUpperCase();
+  const sourceBranchId = String(record?.sourceBranchId || transfer?.sourceBranchId || '');
+  const destinationBranchId = String(record?.destinationBranchId || transfer?.destinationBranchId || '');
+  const rawItems = Array.isArray(record?.imeis) && record.imeis.length ? record.imeis : (transfer?.items || []);
+  const imeis = rawItems.map((item: any) => ({
+    imei: String(item?.imei || ''),
+    ...(item?.deviceId || item?.id ? { deviceId: String(item.deviceId || item.id) } : {}),
+    ...(item?.name ? { name: String(item.name) } : {}),
+    amount: safeMoney(item?.amount ?? item?.costAtTransfer ?? item?.costPrice),
+    ...(item?.receiptStatus ? { receiptStatus: String(item.receiptStatus) } : {})
+  })).filter((item: any) => item.imei);
+  return {
+    ...record,
+    id: String(record?.id || transfer?.interBranchLedgerEntryId || `IBL_${transfer?.id || ''}`),
+    transferId: String(record?.transferId || transfer?.id || ''),
+    transferCode: String(record?.transferCode || transfer?.code || ''),
+    sourceBranchId,
+    sourceBranchName: String(record?.sourceBranchName || transfer?.sourceBranchName || sourceBranchId),
+    destinationBranchId,
+    destinationBranchName: String(record?.destinationBranchName || transfer?.destinationBranchName || destinationBranchId),
+    currency: 'VND',
+    provisionalAmount: safeMoney(record?.provisionalAmount ?? transfer?.provisionalLedgerAmount ?? transfer?.totalValue),
+    postedAmount,
+    settledAmount,
+    outstandingAmount: Math.max(0, postedAmount - settledAmount),
+    financialStatus: deriveInterBranchFinancialStatus(postedAmount, settledAmount, postingStatus),
+    status: postingStatus,
+    imeis,
+    settlements: Array.isArray(record?.settlements) ? record.settlements : [],
+    createdAt: normalizeDateString(record?.createdAt || transfer?.createdAt || transfer?.createdDate),
+    updatedAt: normalizeDateString(record?.updatedAt || transfer?.updatedAt || transfer?.createdAt)
+  };
+}
+
 export function getCanonicalDeviceLocation(device: any): string {
   return device?.currentLocationId || device?.warehouseId || device?.warehouse || '';
 }
@@ -754,6 +827,9 @@ export async function processCreateInterBranchTransfer(
       totalValue,
       provisionalLedgerAmount: totalValue,
       postedLedgerAmount: 0,
+      settledLedgerAmount: 0,
+      outstandingLedgerAmount: 0,
+      financialStatus: 'PROVISIONAL',
       expectedDeliveryAt: input.expectedDeliveryAt || null,
       transporter: input.transporter || '',
       notes: input.notes || '',
@@ -773,9 +849,18 @@ export async function processCreateInterBranchTransfer(
     });
     transaction.set(db.collection('interBranchLedger').doc(ledgerId), {
       id: ledgerId, transferId, sourceBranchId: input.sourceBranchId, destinationBranchId: input.destinationBranchId,
+      transferCode: code, sourceBranchName, destinationBranchName,
       currency: 'VND', provisionalAmount: totalValue, postedAmount: 0, status: 'PROVISIONAL',
-      sourceView: { account: 'INTER_BRANCH_RECEIVABLE', amount: totalValue },
-      destinationView: { account: 'INTER_BRANCH_PAYABLE', amount: totalValue },
+      settledAmount: 0, outstandingAmount: 0, financialStatus: 'PROVISIONAL', settlements: [],
+      imeis: items.map(item => ({
+        imei: item.imei,
+        deviceId: item.deviceId,
+        name: item.name,
+        amount: item.costAtTransfer,
+        receiptStatus: item.receiptStatus
+      })),
+      sourceView: { account: 'INTER_BRANCH_RECEIVABLE', provisionalAmount: totalValue, amount: 0, settledAmount: 0, outstandingAmount: 0 },
+      destinationView: { account: 'INTER_BRANCH_PAYABLE', provisionalAmount: totalValue, amount: 0, settledAmount: 0, outstandingAmount: 0 },
       createdAt: now, updatedAt: now
     });
     transaction.set(db.collection('transfers').doc(transferId), transfer);
@@ -860,7 +945,13 @@ export async function processReceiveInterBranchTransfer(
     const resultMap = new Map(input.results.map(result => [result.imei, result]));
     const nextItems = (transfer.items || []).map((item: any) => {
       const result = resultMap.get(item.imei);
-      return result ? { ...item, receiptStatus: result.result, scannedImei: result.scannedImei || '', receiptNotes: result.notes || '', receivedAt: ['RECEIVED', 'DAMAGED'].includes(result.result) ? now : undefined } : { ...item };
+      return result ? {
+        ...item,
+        receiptStatus: result.result,
+        scannedImei: result.scannedImei || '',
+        receiptNotes: result.notes || '',
+        ...(['RECEIVED', 'DAMAGED'].includes(result.result) ? { receivedAt: now } : {})
+      } : { ...item };
     });
     for (let index = 0; index < input.results.length; index++) {
       const result = input.results[index];
@@ -894,16 +985,34 @@ export async function processReceiveInterBranchTransfer(
     const postedAmount = nextItems
       .filter((item: any) => ['RECEIVED', 'DAMAGED'].includes(item.receiptStatus))
       .reduce((sum: number, item: any) => sum + Number(item.costAtTransfer || 0), 0);
+    const existingLedger = ledgerSnap.data()!;
+    const settledAmount = safeMoney(existingLedger.settledAmount ?? transfer.settledLedgerAmount);
+    if (settledAmount > postedAmount) throw new Error('INTER_BRANCH_LEDGER_SETTLEMENT_EXCEEDS_POSTED');
+    const outstandingAmount = Math.max(0, postedAmount - settledAmount);
     const nextStatus = deriveInterBranchStatus(nextItems);
     const ledgerStatus = postedAmount > 0 ? 'POSTED' : nextItems.every((item: any) => item.receiptStatus !== 'PENDING') ? 'VOID' : 'PROVISIONAL';
-    const nextTransfer = { ...transfer, items: nextItems, status: nextStatus, postedLedgerAmount: postedAmount, receivedDate: now, receiver: actor.name || actor.uid, updatedAt: now };
-    transaction.update(transferRef, { items: nextItems, status: nextStatus, postedLedgerAmount: postedAmount, receivedDate: now, receiver: actor.name || actor.uid, updatedAt: now });
+    const financialStatus = deriveInterBranchFinancialStatus(postedAmount, settledAmount, ledgerStatus);
+    const nextTransfer = { ...transfer, items: nextItems, status: nextStatus, postedLedgerAmount: postedAmount, settledLedgerAmount: settledAmount, outstandingLedgerAmount: outstandingAmount, financialStatus, receivedDate: now, receiver: actor.name || actor.uid, updatedAt: now };
+    transaction.update(transferRef, { items: nextItems, status: nextStatus, postedLedgerAmount: postedAmount, settledLedgerAmount: settledAmount, outstandingLedgerAmount: outstandingAmount, financialStatus, receivedDate: now, receiver: actor.name || actor.uid, updatedAt: now });
     transaction.update(receiptRef, { items: nextItems, status: nextStatus === 'RECEIVED' ? 'RECEIVED' : nextStatus, receivedByUid: actor.uid, receivedAt: now, updatedAt: now });
     transaction.update(ledgerRef, {
       status: ledgerStatus,
       postedAmount,
-      sourceView: { account: 'INTER_BRANCH_RECEIVABLE', amount: postedAmount },
-      destinationView: { account: 'INTER_BRANCH_PAYABLE', amount: postedAmount },
+      settledAmount,
+      outstandingAmount,
+      financialStatus,
+      transferCode: String(existingLedger.transferCode || transfer.code || ''),
+      sourceBranchName: String(existingLedger.sourceBranchName || transfer.sourceBranchName || transfer.sourceBranchId),
+      destinationBranchName: String(existingLedger.destinationBranchName || transfer.destinationBranchName || transfer.destinationBranchId),
+      imeis: nextItems.map((item: any) => ({
+        imei: String(item.imei || ''),
+        deviceId: String(item.deviceId || item.id || ''),
+        name: String(item.name || ''),
+        amount: safeMoney(item.costAtTransfer || item.costPrice),
+        receiptStatus: String(item.receiptStatus || 'PENDING')
+      })),
+      sourceView: { account: 'INTER_BRANCH_RECEIVABLE', amount: postedAmount, settledAmount, outstandingAmount },
+      destinationView: { account: 'INTER_BRANCH_PAYABLE', amount: postedAmount, settledAmount, outstandingAmount },
       postedAt: postedAmount > 0 ? now : null,
       updatedAt: now
     });
@@ -931,5 +1040,222 @@ export async function processCompleteInterBranchTransfer(db: Firestore, transfer
     const nextTransfer = { ...transfer, status: 'COMPLETED', completedAt: now, completedByUid: actor.uid, updatedAt: now };
     transaction.update(transferRef, { status: 'COMPLETED', completedAt: now, completedByUid: actor.uid, updatedAt: now });
     return { transferId, transfer: publicTransferRecord(nextTransfer) };
+  });
+}
+
+export async function listInterBranchDebts(
+  db: Firestore,
+  actor: TransferActor,
+  filters: { branchId?: string; financialStatus?: string } = {}
+) {
+  const requestedBranchId = String(filters.branchId || '').trim();
+  if (requestedBranchId && requestedBranchId !== 'ALL' && !canAccessBranch(actor, requestedBranchId)) {
+    throw new Error('BRANCH_FORBIDDEN');
+  }
+  const ledgerSnap = await db.collection('interBranchLedger').limit(250).get();
+  const rawLedgers = ledgerSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const missingTransferIds = rawLedgers
+    .filter((ledger: any) => !ledger.transferCode || !Array.isArray(ledger.imeis))
+    .map((ledger: any) => String(ledger.transferId || ''))
+    .filter(Boolean);
+  const transferSnaps = await Promise.all(missingTransferIds.map(id => db.collection('transfers').doc(id).get()));
+  const transferById = new Map(transferSnaps.filter(snap => snap.exists).map(snap => [snap.id, snap.data()]));
+  const requestedStatus = String(filters.financialStatus || '').trim().toUpperCase();
+  const debts = rawLedgers
+    .map((ledger: any) => normalizeInterBranchDebtRecord(ledger, transferById.get(String(ledger.transferId || ''))))
+    .filter((ledger: any) => canAccessBranch(actor, ledger.sourceBranchId) || canAccessBranch(actor, ledger.destinationBranchId))
+    .filter((ledger: any) => !requestedBranchId || requestedBranchId === 'ALL' || ledger.sourceBranchId === requestedBranchId || ledger.destinationBranchId === requestedBranchId)
+    .filter((ledger: any) => !requestedStatus || requestedStatus === 'ALL' || ledger.financialStatus === requestedStatus)
+    .sort((left: any, right: any) => String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || '')));
+  return { debts, total: debts.length };
+}
+
+export async function processSettleInterBranchDebt(
+  db: Firestore,
+  transferId: string,
+  input: InterBranchSettlementInput,
+  actor: TransferActor
+) {
+  assertIdempotencyKey(input.idempotencyKey);
+  const amount = Number(input.amount);
+  const payerFundId = String(input.payerFundId || '').trim();
+  const receiverFundId = String(input.receiverFundId || '').trim();
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('INTER_BRANCH_SETTLEMENT_AMOUNT_INVALID');
+  if (!payerFundId || !receiverFundId || payerFundId === receiverFundId) throw new Error('INTER_BRANCH_SETTLEMENT_FUNDS_INVALID');
+
+  const now = new Date().toISOString();
+  const settlementId = `IBS_${Date.now()}_${randomSuffix()}`;
+  const paymentTransactionId = `IBPAY_${settlementId}`;
+  const receiptTransactionId = `IBREC_${settlementId}`;
+  const idemRef = db.collection('interBranchSettlementIdempotency').doc(idempotencyDocId(`SETTLE_INTER_BRANCH_${transferId}`, input.idempotencyKey));
+
+  return db.runTransaction(async transaction => {
+    // Firestore transactions require every read to finish before the first write.
+    const idemSnap = await transaction.get(idemRef);
+    if (idemSnap.exists) return { ...idemSnap.data()!.result, idempotentReplay: true };
+
+    const transferRef = db.collection('transfers').doc(transferId);
+    const transferSnap = await transaction.get(transferRef);
+    if (!transferSnap.exists) throw new Error('TRANSFER_NOT_FOUND');
+    const transfer = transferSnap.data()!;
+    if (transfer.transferType !== 'INTER_BRANCH') throw new Error('TRANSFER_TYPE_MISMATCH');
+    const ledgerId = String(transfer.interBranchLedgerEntryId || `IBL_${transferId}`);
+    const ledgerRef = db.collection('interBranchLedger').doc(ledgerId);
+    const ledgerSnap = await transaction.get(ledgerRef);
+    if (!ledgerSnap.exists) throw new Error('INTER_BRANCH_LEDGER_NOT_FOUND');
+    const payerFundRef = db.collection('funds').doc(payerFundId);
+    const receiverFundRef = db.collection('funds').doc(receiverFundId);
+    const payerFundSnap = await transaction.get(payerFundRef);
+    const receiverFundSnap = await transaction.get(receiverFundRef);
+
+    const ledger = normalizeInterBranchDebtRecord({ id: ledgerSnap.id, ...ledgerSnap.data() }, transfer);
+    const settlementRole = String(actor.role || '').toUpperCase();
+    const canSettle = settlementRole === 'ADMIN' || (
+      settlementRole === 'ACCOUNTANT' && (canAccessBranch(actor, ledger.sourceBranchId) || canAccessBranch(actor, ledger.destinationBranchId))
+    );
+    if (!canSettle) {
+      throw new Error('INTER_BRANCH_SETTLEMENT_BRANCH_FORBIDDEN');
+    }
+    if (ledger.status !== 'POSTED' || ledger.postedAmount <= 0) throw new Error('INTER_BRANCH_DEBT_NOT_POSTED');
+    if (amount > ledger.outstandingAmount) throw new Error('INTER_BRANCH_SETTLEMENT_EXCEEDS_OUTSTANDING');
+    if (!payerFundSnap.exists || !receiverFundSnap.exists) throw new Error('INTER_BRANCH_SETTLEMENT_FUND_NOT_FOUND');
+    const payerFund = payerFundSnap.data()!;
+    const receiverFund = receiverFundSnap.data()!;
+    if (payerFund.isActive === false || payerFund.active === false || payerFund.isArchived === true) throw new Error('INTER_BRANCH_PAYER_FUND_INACTIVE');
+    if (receiverFund.isActive === false || receiverFund.active === false || receiverFund.isArchived === true) throw new Error('INTER_BRANCH_RECEIVER_FUND_INACTIVE');
+    if (String(payerFund.branchId || '') !== ledger.destinationBranchId) throw new Error('INTER_BRANCH_PAYER_FUND_BRANCH_MISMATCH');
+    if (String(receiverFund.branchId || '') !== ledger.sourceBranchId) throw new Error('INTER_BRANCH_RECEIVER_FUND_BRANCH_MISMATCH');
+    const payerBalance = Number(payerFund.currentBalance || 0);
+    if (!Number.isSafeInteger(payerBalance) || payerBalance < amount) throw new Error('INTER_BRANCH_PAYER_INSUFFICIENT_FUNDS');
+    const receiverBalance = Number(receiverFund.currentBalance || 0);
+    if (!Number.isSafeInteger(receiverBalance) || receiverBalance < 0) throw new Error('INTER_BRANCH_RECEIVER_BALANCE_INVALID');
+
+    const nextSettledAmount = ledger.settledAmount + amount;
+    const outstandingAmount = Math.max(0, ledger.postedAmount - nextSettledAmount);
+    const financialStatus = deriveInterBranchFinancialStatus(ledger.postedAmount, nextSettledAmount, ledger.status);
+    const actorName = String(actor.name || actor.uid);
+    const note = String(input.note || '').trim();
+    const settlementSummary = {
+      id: settlementId,
+      amount,
+      payerFundId,
+      payerFundName: String(payerFund.name || payerFundId),
+      receiverFundId,
+      receiverFundName: String(receiverFund.name || receiverFundId),
+      paymentTransactionId,
+      receiptTransactionId,
+      createdAt: now,
+      createdByUid: actor.uid,
+      createdByName: actorName,
+      ...(note ? { note } : {})
+    };
+    const settlement = {
+      ...settlementSummary,
+      transferId,
+      transferCode: ledger.transferCode,
+      ledgerId,
+      payerBranchId: ledger.destinationBranchId,
+      payerBranchName: ledger.destinationBranchName,
+      receiverBranchId: ledger.sourceBranchId,
+      receiverBranchName: ledger.sourceBranchName,
+      currency: 'VND',
+      status: 'COMPLETED'
+    };
+    const paymentTransaction = {
+      id: paymentTransactionId,
+      code: `PC-${ledger.transferCode || transferId}-${settlementId.slice(-6)}`,
+      branchId: ledger.destinationBranchId,
+      fundId: payerFundId,
+      fundName: String(payerFund.name || payerFundId),
+      fundType: String(payerFund.type || 'CASH'),
+      type: 'PAYMENT',
+      category: 'INTER_BRANCH_PAYMENT',
+      categoryName: 'Thanh toán công nợ chi nhánh',
+      amount,
+      date: now,
+      referenceId: transferId,
+      referenceCode: ledger.transferCode || transfer.code || transferId,
+      referenceType: 'INTER_BRANCH_TRANSFER',
+      transferId,
+      transferGroupId: settlementId,
+      interBranchSettlementId: settlementId,
+      counterpartyBranchId: ledger.sourceBranchId,
+      partnerId: ledger.sourceBranchId,
+      partnerName: ledger.sourceBranchName,
+      creator: actorName,
+      creatorUid: actor.uid,
+      notes: note || `Thanh toán công nợ ${ledger.transferCode || transferId} cho ${ledger.sourceBranchName}`,
+      status: 'COMPLETED',
+      isPLAccounted: false,
+      createdAt: now
+    };
+    const receiptTransaction = {
+      id: receiptTransactionId,
+      code: `PT-${ledger.transferCode || transferId}-${settlementId.slice(-6)}`,
+      branchId: ledger.sourceBranchId,
+      fundId: receiverFundId,
+      fundName: String(receiverFund.name || receiverFundId),
+      fundType: String(receiverFund.type || 'CASH'),
+      type: 'RECEIPT',
+      category: 'INTER_BRANCH_RECEIPT',
+      categoryName: 'Thu công nợ từ chi nhánh',
+      amount,
+      date: now,
+      referenceId: transferId,
+      referenceCode: ledger.transferCode || transfer.code || transferId,
+      referenceType: 'INTER_BRANCH_TRANSFER',
+      transferId,
+      transferGroupId: settlementId,
+      interBranchSettlementId: settlementId,
+      counterpartyBranchId: ledger.destinationBranchId,
+      partnerId: ledger.destinationBranchId,
+      partnerName: ledger.destinationBranchName,
+      creator: actorName,
+      creatorUid: actor.uid,
+      notes: note || `Thu công nợ ${ledger.transferCode || transferId} từ ${ledger.destinationBranchName}`,
+      status: 'COMPLETED',
+      isPLAccounted: false,
+      createdAt: now
+    };
+    const nextDebt = normalizeInterBranchDebtRecord({
+      ...ledger,
+      settledAmount: nextSettledAmount,
+      outstandingAmount,
+      financialStatus,
+      settlements: [...(ledger.settlements || []), settlementSummary].slice(-100),
+      updatedAt: now
+    }, transfer);
+    const result = { transferId, debt: nextDebt, settlement, cashTransactions: [paymentTransaction, receiptTransaction] };
+
+    transaction.update(payerFundRef, {
+      currentBalance: payerBalance - amount,
+      totalExpense: Number(payerFund.totalExpense || 0) + amount,
+      updatedAt: now
+    });
+    transaction.update(receiverFundRef, {
+      currentBalance: receiverBalance + amount,
+      totalIncome: Number(receiverFund.totalIncome || 0) + amount,
+      updatedAt: now
+    });
+    transaction.set(db.collection('cashTransactions').doc(paymentTransactionId), paymentTransaction);
+    transaction.set(db.collection('cashTransactions').doc(receiptTransactionId), receiptTransaction);
+    transaction.set(db.collection('interBranchSettlements').doc(settlementId), settlement);
+    transaction.update(ledgerRef, {
+      settledAmount: nextSettledAmount,
+      outstandingAmount,
+      financialStatus,
+      sourceView: { account: 'INTER_BRANCH_RECEIVABLE', amount: ledger.postedAmount, settledAmount: nextSettledAmount, outstandingAmount },
+      destinationView: { account: 'INTER_BRANCH_PAYABLE', amount: ledger.postedAmount, settledAmount: nextSettledAmount, outstandingAmount },
+      settlements: nextDebt.settlements,
+      updatedAt: now
+    });
+    transaction.update(transferRef, {
+      settledLedgerAmount: nextSettledAmount,
+      outstandingLedgerAmount: outstandingAmount,
+      financialStatus,
+      updatedAt: now
+    });
+    transaction.set(idemRef, { scope: 'SETTLE_INTER_BRANCH', transferId, settlementId, result, createdAt: now });
+    return result;
   });
 }

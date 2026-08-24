@@ -258,6 +258,17 @@ service cloud.firestore {
       allow write: if false; // One balanced entry, never two client-written debts
     }
 
+    match /interBranchSettlements/{settlementId} {
+      allow read: if isAuthenticated() && isActiveUser() && (
+        isAdmin() || canAccessBranch(resource.data.payerBranchId) || canAccessBranch(resource.data.receiverBranchId)
+      );
+      allow write: if false; // Server atomically updates both funds, both cash entries and the debt.
+    }
+
+    match /interBranchSettlementIdempotency/{keyId} {
+      allow read, write: if false;
+    }
+
     match /inventoryTransferIdempotency/{keyId} {
       allow read, write: if false;
     }
