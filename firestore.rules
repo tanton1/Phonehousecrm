@@ -346,6 +346,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /pancakePageMappings/{pageId} {
+      allow read, write: if false; // Server-only Page → branch mapping.
+    }
+
     // 7. Attendance & Human Resources (Strict Server Authority writes; employees read own records)
     match /attendance/{attId} {
       allow read: if isAdmin() || isManager() || (isAuthenticated() && isActiveUser() && resource.data.staffId == request.auth.uid);

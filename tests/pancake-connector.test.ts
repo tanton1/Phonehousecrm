@@ -8,22 +8,30 @@ import {
   pancakeConversationDocumentId,
   pancakeMessageDocumentId,
   resolvePancakeBranch,
+  setPancakeBranchMapping,
   verifyPancakeWebhookSecret
 } from '../server/services/pancakeService';
 
-function branchDb(branches: Record<string, any>, warehouses: Record<string, any> = {}) {
+function branchDb(
+  branches: Record<string, any>,
+  warehouses: Record<string, any> = {},
+  mappings: Record<string, any> = {}
+) {
   const docs = (values: Record<string, any>) => Object.entries(values).map(([id, value]) => ({
     id,
     data: () => value
   }));
   return {
     collection(name: string) {
-      const values = name === 'branches' ? branches : name === 'warehouses' ? warehouses : {};
+      const values = name === 'branches' ? branches : name === 'warehouses' ? warehouses : name === 'pancakePageMappings' ? mappings : {};
       return {
         doc(id: string) {
           return {
             async get() {
               return { id, exists: Boolean(values[id]), data: () => values[id] };
+            },
+            async set(value: Record<string, any>, options?: { merge?: boolean }) {
+              values[id] = options?.merge ? { ...(values[id] || {}), ...value } : value;
             }
           };
         },
@@ -93,6 +101,43 @@ describe('Pancake connector', () => {
       BR_01: { name: 'Phone House Hải Châu', isActive: true },
       BR_02: { name: 'PhoneHouse Huế', isActive: true }
     }), config)).rejects.toThrow('PANCAKE_BRANCH_AMBIGUOUS');
+  });
+
+  it('stores and reuses the selected CRM branch id for the Pancake page', async () => {
+    const mappings: Record<string, any> = {};
+    const db = branchDb({
+      'BR-PHONEHOUSE': { name: 'Cửa hàng 109', code: 'CN-109', isActive: true }
+    }, {}, mappings);
+
+    const linked = await setPancakeBranchMapping(db, {
+      pageId: '332799593244601',
+      branchId: 'BR-PHONEHOUSE'
+    }, {
+      uid: 'ADMIN-01',
+      role: 'ADMIN',
+      name: 'Quản trị viên'
+    });
+
+    expect(linked).toMatchObject({
+      pageId: '332799593244601',
+      branchId: 'BR-PHONEHOUSE',
+      branchName: 'Cửa hàng 109'
+    });
+    expect(mappings['332799593244601']).toMatchObject({
+      branchId: 'BR-PHONEHOUSE',
+      branchName: 'Cửa hàng 109',
+      branchCode: 'CN-109',
+      isActive: true
+    });
+
+    const config = getPancakePageConfigs({
+      PANCAKE_BRANCH_NAME: 'Tên không còn dùng để dò',
+      PANCAKE_PAGE_ACCESS_TOKEN: 'token'
+    } as NodeJS.ProcessEnv)[0];
+    await expect(resolvePancakeBranch(db, config)).resolves.toEqual({
+      id: 'BR-PHONEHOUSE',
+      name: 'Cửa hàng 109'
+    });
   });
 
   it('normalizes a Pancake conversation and preserves comment classification', () => {

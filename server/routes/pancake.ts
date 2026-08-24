@@ -10,6 +10,7 @@ import {
   PancakeActor,
   processPancakeWebhook,
   sendPancakeMessage,
+  setPancakeBranchMapping,
   syncPancakeConversations,
   verifyPancakeWebhookSecret
 } from '../services/pancakeService';
@@ -79,6 +80,21 @@ export function createPancakeRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       return res.json({ success: true, data: await getPancakeChannels(db, actor(req)) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.post('/channels/:pageId/branch', authenticateFirebase, requireRole(
+    'ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'
+  ), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await setPancakeBranchMapping(db, {
+        pageId: req.params.pageId,
+        branchId: req.body?.branchId
+      }, actor(req));
+      return res.json({ success: true, data });
     } catch (error: any) {
       return sendError(res, error);
     }

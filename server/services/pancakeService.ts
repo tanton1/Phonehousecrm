@@ -29,6 +29,10 @@ interface ResolvedBranch {
   name: string;
 }
 
+export interface PancakeBranchOption extends ResolvedBranch {
+  code: string;
+}
+
 interface NormalizedConversation {
   externalConversationId: string;
   pageId: string;
@@ -365,18 +369,43 @@ function assertBranchAccess(actor: PancakeActor, branchId: string) {
   if (!canAccessBranch(actor, branchId)) throw new Error('PANCAKE_BRANCH_FORBIDDEN');
 }
 
+function isActiveBranchData(data: Record<string, any>): boolean {
+  return data.isActive !== false && data.active !== false && data.isArchived !== true;
+}
+
+async function activeBranchById(db: Firestore, branchId: string): Promise<ResolvedBranch | null> {
+  if (!branchId) return null;
+  const snapshot = await db.collection('branches').doc(branchId).get();
+  if (!snapshot.exists || !isActiveBranchData(asObject(snapshot.data()))) return null;
+  return { id: snapshot.id, name: asString(snapshot.data()?.name) || asString(snapshot.data()?.code) || snapshot.id };
+}
+
+export async function listPancakeBranchOptions(db: Firestore, actor: PancakeActor): Promise<PancakeBranchOption[]> {
+  const snapshot = await db.collection('branches').limit(500).get();
+  return snapshot.docs
+    .filter(doc => isActiveBranchData(asObject(doc.data())) && canAccessBranch(actor, doc.id))
+    .map(doc => ({
+      id: doc.id,
+      name: asString(doc.data().name) || asString(doc.data().code) || doc.id,
+      code: asString(doc.data().code)
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, 'vi'));
+}
+
 export async function resolvePancakeBranch(db: Firestore, config: PancakePageConfig): Promise<ResolvedBranch> {
   if (config.branchId) {
-    const snapshot = await db.collection('branches').doc(config.branchId).get();
-    if (!snapshot.exists || snapshot.data()?.isActive === false) throw new Error('PANCAKE_BRANCH_NOT_FOUND');
-    return { id: snapshot.id, name: asString(snapshot.data()?.name) || config.branchName };
+    const configured = await activeBranchById(db, config.branchId);
+    if (!configured) throw new Error('PANCAKE_BRANCH_NOT_FOUND');
+    return configured;
+  }
+  const mappingSnapshot = await db.collection('pancakePageMappings').doc(config.pageId).get();
+  if (mappingSnapshot.exists && mappingSnapshot.data()?.isActive !== false) {
+    const mapped = await activeBranchById(db, asString(mappingSnapshot.data()?.branchId));
+    if (mapped) return mapped;
   }
   const snapshot = await db.collection('branches').limit(500).get();
   const target = normalizeText(config.branchName);
-  const active = snapshot.docs.filter(doc => {
-    const data = doc.data();
-    return data.isActive !== false && data.active !== false && data.isArchived !== true;
-  });
+  const active = snapshot.docs.filter(doc => isActiveBranchData(asObject(doc.data())));
   const exact = active.filter(doc => configuredBranchMatches(doc.data(), target, true));
   const candidates = exact.length ? exact : active.filter(doc => configuredBranchMatches(doc.data(), target, false));
   if (candidates.length === 1) {
@@ -403,6 +432,38 @@ export async function resolvePancakeBranch(db: Firestore, config: PancakePageCon
     return { id: linkedBranches[0].id, name: asString(linkedBranches[0].data().name) || config.branchName };
   }
   throw new Error(linkedBranches.length ? 'PANCAKE_BRANCH_AMBIGUOUS' : 'PANCAKE_BRANCH_NOT_FOUND');
+}
+
+export async function setPancakeBranchMapping(
+  db: Firestore | null,
+  input: { pageId: string; branchId: string },
+  actor: PancakeActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isManager(actor)) throw new Error('PANCAKE_BRANCH_MAPPING_FORBIDDEN');
+  const config = configByPageId(asString(input.pageId));
+  const branch = await activeBranchById(db, asString(input.branchId));
+  if (!branch) throw new Error('PANCAKE_BRANCH_NOT_FOUND');
+  assertBranchAccess(actor, branch.id);
+  const branchSnapshot = await db.collection('branches').doc(branch.id).get();
+  await db.collection('pancakePageMappings').doc(config.pageId).set({
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch.id,
+    branchName: branch.name,
+    branchCode: asString(branchSnapshot.data()?.code),
+    isActive: true,
+    updatedByUid: actor.uid,
+    updatedByName: asString(actor.name) || actor.uid,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+  return {
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch.id,
+    branchName: branch.name,
+    status: config.pageAccessToken ? 'READY' : 'MISSING_TOKEN'
+  };
 }
 
 function configByPageId(pageId: string, env: NodeJS.ProcessEnv = process.env): PancakePageConfig {
@@ -532,7 +593,7 @@ export async function getPancakeChannels(db: Firestore | null, actor: PancakeAct
       requiredTokenEnv: config.pageAccessToken ? undefined : config.tokenEnv
     });
   }
-  return { channels };
+  return { channels, branches: await listPancakeBranchOptions(db, actor) };
 }
 
 export async function listPancakeConversations(db: Firestore | null, input: { branchId?: string; cursor?: string; limit?: number }, actor: PancakeActor) {

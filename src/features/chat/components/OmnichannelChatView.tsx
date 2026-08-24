@@ -6,7 +6,9 @@ import { ConversationListPanel } from './ConversationListPanel';
 import { ChatStreamPanel } from './ChatStreamPanel';
 import { ChatCustomerSidebar } from './ChatCustomerSidebar';
 import {
+  PancakeBranchOption,
   PancakeChannelStatus,
+  requestLinkPancakeBranch,
   requestMarkPancakeRead,
   requestPancakeChannels,
   requestPancakeConversations,
@@ -28,8 +30,8 @@ function friendlyError(error: unknown) {
   const message = String((error as any)?.message || error || 'Không thể kết nối Pancake.');
   if (message.includes('PANCAKE_PAGE_TOKEN_NOT_CONFIGURED')) return 'Chưa có Page Access Token. Hãy thêm PANCAKE_PAGE_ACCESS_TOKEN trong Vercel rồi Redeploy.';
   if (message.includes('PANCAKE_TOKEN_INVALID')) return 'Page Access Token không hợp lệ hoặc đã được tạo lại trên Pancake.';
-  if (message.includes('PANCAKE_BRANCH_AMBIGUOUS')) return 'Có nhiều chi nhánh trùng tên Phonehouse. Cần cấu hình chính xác PANCAKE_BRANCH_ID.';
-  if (message.includes('PANCAKE_BRANCH_NOT_FOUND')) return 'Không tìm thấy chi nhánh Phonehouse đang hoạt động.';
+  if (message.includes('PANCAKE_BRANCH_AMBIGUOUS')) return 'Có nhiều chi nhánh phù hợp. Hãy chọn đúng chi nhánh CRM để gắn với Page.';
+  if (message.includes('PANCAKE_BRANCH_NOT_FOUND')) return 'Page chưa được gắn với chi nhánh CRM. Hãy chọn chi nhánh bên dưới.';
   if (message.includes('PANCAKE_RATE_LIMITED')) return 'Pancake đang giới hạn tần suất. Vui lòng chờ một chút rồi thử lại.';
   if (message.includes('PANCAKE_API_TIMEOUT')) return 'Pancake phản hồi quá chậm. Vui lòng thử lại.';
   return message;
@@ -44,6 +46,8 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const isManager = MANAGER_ROLES.has(String(currentUserRole || '').toUpperCase());
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [channels, setChannels] = useState<PancakeChannelStatus[]>([]);
+  const [branchOptions, setBranchOptions] = useState<PancakeBranchOption[]>([]);
+  const [mappingBranchId, setMappingBranchId] = useState('');
   const [selectedConvoId, setSelectedConvoId] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<'LIST' | 'CHAT' | 'SIDEBAR'>('LIST');
   const [loading, setLoading] = useState(true);
@@ -55,10 +59,10 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const activeConvo = conversations.find(conversation => conversation.id === selectedConvoId) || null;
   const activeChannel = useMemo(() => channels.find(channel => channel.branchId === currentBranchId) || channels[0], [channels, currentBranchId]);
 
-  const loadConversations = useCallback(async (showSpinner = false) => {
+  const loadConversations = useCallback(async (showSpinner = false, branchIdOverride = '') => {
     if (showSpinner) setLoading(true);
     try {
-      const page = await requestPancakeConversations({ branchId: currentBranchId, limit: 100 });
+      const page = await requestPancakeConversations({ branchId: branchIdOverride || activeChannel?.branchId || currentBranchId, limit: 100 });
       setConversations(current => page.items.map(item => {
         const previous = current.find(old => old.id === item.id);
         return { ...item, messages: previous?.messages || [] };
@@ -70,7 +74,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [currentBranchId]);
+  }, [activeChannel?.branchId, currentBranchId]);
 
   const loadChannelsAndConversations = useCallback(async () => {
     setLoading(true);
@@ -78,7 +82,10 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
       requestPancakeChannels(),
       requestPancakeConversations({ branchId: currentBranchId, limit: 100 })
     ]);
-    if (channelResult.status === 'fulfilled') setChannels(channelResult.value.channels);
+    if (channelResult.status === 'fulfilled') {
+      setChannels(channelResult.value.channels);
+      setBranchOptions(channelResult.value.branches || []);
+    }
     else setError(friendlyError(channelResult.reason));
     if (conversationResult.status === 'fulfilled') {
       setConversations(conversationResult.value.items);
@@ -88,6 +95,19 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   }, [currentBranchId]);
 
   useEffect(() => { void loadChannelsAndConversations(); }, [loadChannelsAndConversations]);
+
+  useEffect(() => {
+    if (activeChannel?.status !== 'CONFIG_ERROR' || mappingBranchId || !branchOptions.length) return;
+    const compact = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const target = compact(activeChannel.branchName);
+    const matching = branchOptions.filter(branch => {
+      const name = compact(branch.name);
+      const code = compact(branch.code);
+      return name === target || code === target || name.includes(target);
+    });
+    if (matching.length === 1) setMappingBranchId(matching[0].id);
+    else if (currentBranchId && branchOptions.some(branch => branch.id === currentBranchId)) setMappingBranchId(currentBranchId);
+  }, [activeChannel, branchOptions, currentBranchId, mappingBranchId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => { void loadConversations(false); }, 15_000);
@@ -157,11 +177,20 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const handleSync = async () => {
     if (!activeChannel) return setError('Chưa có Page Pancake được cấu hình.');
     if (activeChannel.status === 'MISSING_TOKEN') return setError(`Hãy thêm ${activeChannel.requiredTokenEnv || 'PANCAKE_PAGE_ACCESS_TOKEN'} trong Vercel rồi Redeploy.`);
-    if (activeChannel.status !== 'READY') return setError(activeChannel.error || 'Cấu hình Page chưa hợp lệ.');
+    if (activeChannel.status === 'CONFIG_ERROR' && !mappingBranchId) return setError('Hãy chọn chi nhánh CRM cần nhận hội thoại Pancake.');
     setSyncing(true);
     setError('');
-    setNotice('Đang lấy hội thoại trong 30 ngày gần nhất…');
+    setNotice(activeChannel.status === 'CONFIG_ERROR' ? 'Đang gắn Page với chi nhánh đã chọn…' : 'Đang lấy hội thoại trong 30 ngày gần nhất…');
     try {
+      let targetBranchId = activeChannel.branchId || currentBranchId || '';
+      if (activeChannel.status === 'CONFIG_ERROR') {
+        const linked = await requestLinkPancakeBranch(activeChannel.pageId, mappingBranchId);
+        targetBranchId = linked.branchId;
+        setChannels(current => current.map(channel => channel.pageId === linked.pageId
+          ? { ...channel, ...linked, status: linked.status, error: undefined }
+          : channel));
+        setNotice('Đã gắn Page. Đang lấy hội thoại trong 30 ngày gần nhất…');
+      }
       let cursor: string | null | undefined;
       let imported = 0;
       for (let page = 0; page < 50; page += 1) {
@@ -172,7 +201,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         if (result.done || !cursor) break;
       }
       setNotice(`Đã đồng bộ ${imported} hội thoại từ ${activeChannel.pageName}.`);
-      await loadConversations(false);
+      await loadConversations(false, targetBranchId);
     } catch (caught) {
       setNotice('');
       setError(friendlyError(caught));
@@ -201,9 +230,34 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         <div className="flex shrink-0 items-center gap-2">
           <span title="Tin nhắn được nhận qua webhook và gửi trực tiếp bằng API Pancake; token chỉ lưu trên server." className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-500"><HelpCircle className="h-4 w-4" /></span>
           <button onClick={() => void loadConversations(true)} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 text-zinc-600 disabled:opacity-50" title="Làm mới"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-          {isManager && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Đồng bộ 30 ngày</button>}
+          {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Đồng bộ 30 ngày</button>}
         </div>
       </section>
+
+      {isManager && activeChannel?.status === 'CONFIG_ERROR' && (
+        <section className="shrink-0 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+          <div className="flex items-start gap-2">
+            <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-black text-amber-950">Chọn chi nhánh nhận hội thoại</p>
+                <span title="Tên Page chỉ để hiển thị. Hệ thống cần lưu đúng ID chi nhánh CRM để đồng bộ và nhận webhook." className="text-amber-700"><HelpCircle className="h-3.5 w-3.5" /></span>
+              </div>
+              <p className="mt-0.5 text-[10px] font-semibold text-amber-800">{activeChannel.pageName} · Page ID {activeChannel.pageId}</p>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                <select value={mappingBranchId} onChange={event => setMappingBranchId(event.target.value)} className="h-10 min-w-0 flex-1 rounded-xl border border-amber-300 bg-white px-3 text-xs font-bold text-zinc-900 outline-none focus:border-[#ff4b16]">
+                  <option value="">Chọn chi nhánh CRM…</option>
+                  {branchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}{branch.code ? ` (${branch.code})` : ''}</option>)}
+                </select>
+                <button onClick={() => void handleSync()} disabled={syncing || !mappingBranchId} className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[#ff4b16] px-4 text-[11px] font-black text-white disabled:opacity-50">
+                  {syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Gắn & đồng bộ 30 ngày
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {(error || notice) && <div className={`flex shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-[11px] font-bold ${error ? 'border border-rose-200 bg-rose-50 text-rose-700' : 'border border-blue-200 bg-blue-50 text-blue-700'}`}><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{error || notice}</span></div>}
 

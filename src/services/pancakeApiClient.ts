@@ -19,6 +19,12 @@ export interface PancakeChannelStatus {
   requiredTokenEnv?: string;
 }
 
+export interface PancakeBranchOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
 export interface PancakeConversationPage {
   items: ChatConversation[];
   nextCursor: string | null;
@@ -63,7 +69,14 @@ export function createPancakeOperationKey(prefix = 'PCK_SEND') {
 }
 
 export function requestPancakeChannels() {
-  return requestPancakeApi<{ channels: PancakeChannelStatus[] }>('channels');
+  return requestPancakeApi<{ channels: PancakeChannelStatus[]; branches: PancakeBranchOption[] }>('channels');
+}
+
+export function requestLinkPancakeBranch(pageId: string, branchId: string) {
+  return requestPancakeApi<Pick<PancakeChannelStatus, 'pageId' | 'pageName' | 'branchId' | 'branchName' | 'status'>>(
+    `channels/${encodeURIComponent(pageId)}/branch`,
+    { method: 'POST', payload: { branchId } }
+  );
 }
 
 export function requestPancakeConversations(input: { branchId?: string; cursor?: string; limit?: number } = {}) {
