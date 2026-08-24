@@ -11,6 +11,7 @@ import {
 import { CreatePartnerModal } from './CreatePartnerModal';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { catalogApi } from '../services/catalogApiClient';
+import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
 
 interface UniformEntryFormProps {
   isOpen: boolean;
@@ -43,6 +44,15 @@ interface FormValues {
   items: FormItem[];
   paymentMethod: 'BANK' | 'CASH' | 'DEBT';
   amountPaid: number;
+}
+
+interface UniformEntryDraft {
+  values: FormValues;
+  selectedFundId: string;
+  selectedCatalogItems: Record<string, MasterCatalogItem>;
+  mobileTab: 'CATALOG' | 'ITEMS' | 'PAYMENT';
+  catalogSearch: string;
+  isCustomPaid: boolean;
 }
 
 /**
@@ -102,6 +112,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const [selectedCatalogItems, setSelectedCatalogItems] = useState<Record<string, MasterCatalogItem>>({});
   const catalogRequestVersion = useRef(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCustomPaid, setIsCustomPaid] = useState(false);
+  const entryDraftKey = browserDraftKey('purchase-imei', currentUser?.id, defaultBranchId);
+  const wasOpenRef = useRef(false);
+  const draftHydratedRef = useRef(false);
+  const skipPaymentSyncRef = useRef(false);
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
@@ -124,6 +139,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const watchAmountPaid = useWatch({ control, name: "amountPaid" });
   const watchBranchId = useWatch({ control, name: "branchId" });
   const watchWarehouseId = useWatch({ control, name: "warehouseId" });
+  const watchedFormValues = useWatch({ control }) as FormValues;
   const [selectedFundId, setSelectedFundId] = useState<string>('');
 
   const activeRowSearch = activeSearchRowIndex === null
@@ -185,13 +201,6 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     return () => window.clearTimeout(timer);
   }, [isOpen, effectiveCatalogSearch, loadCatalogPage]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setCatalogSearch('');
-    setActiveSearchRowIndex(null);
-    setSelectedCatalogItems({});
-  }, [isOpen]);
-
   const loadMoreCatalogItems = () => {
     if (!catalogNextCursor || catalogLoadState === 'loading') return;
     void loadCatalogPage(effectiveCatalogSearch, catalogNextCursor, true);
@@ -202,8 +211,18 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     () => warehouses.filter(warehouse => warehouse.branchId === watchBranchId && isWarehouseActive(warehouse)),
     [warehouses, watchBranchId]
   );
+
+  const defaultFormValues = useCallback((): FormValues => ({
+    branchId: defaultBranchId,
+    warehouseId: warehouses.find(warehouse => warehouse.branchId === defaultBranchId && isWarehouseActive(warehouse))?.id || '',
+    supplierId: suppliers[0]?.id || '',
+    items: [{ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 }],
+    paymentMethod: 'BANK',
+    amountPaid: 0
+  }), [defaultBranchId, suppliers, warehouses]);
   
   useEffect(() => {
+    if (!funds.length) return;
     const matchingFunds = funds.filter(f => f.type === watchPaymentMethod && f.branchId === watchBranchId && f.isArchived !== true && f.isActive !== false);
     if (matchingFunds.length > 0) {
       if (!matchingFunds.find(f => f.id === selectedFundId)) {
@@ -215,25 +234,45 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   }, [watchPaymentMethod, watchBranchId, funds]);
 
   useEffect(() => {
+    if (!warehouses.length) return;
     const selectedIsValid = branchWarehouses.some(warehouse => warehouse.id === watchWarehouseId);
     if (!selectedIsValid) setValue('warehouseId', branchWarehouses[0]?.id || '');
-  }, [branchWarehouses, watchWarehouseId, setValue]);
+  }, [branchWarehouses, warehouses.length, watchWarehouseId, setValue]);
 
   useEffect(() => {
-    if (isOpen) {
-      reset({
-        branchId: defaultBranchId,
-        warehouseId: warehouses.find(warehouse => warehouse.branchId === defaultBranchId && isWarehouseActive(warehouse))?.id || '',
-        supplierId: suppliers[0]?.id || '',
-        items: [{ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 }],
-        paymentMethod: 'BANK',
-        amountPaid: 0
-      });
-      setMobileTab('ITEMS');
-      setSelectedFundId('');
-      setIsSubmitting(false);
+    if (!suppliers.length) return;
+    const currentSupplierId = String(watchedFormValues?.supplierId || '');
+    if (!suppliers.some(supplier => supplier.id === currentSupplierId)) {
+      setValue('supplierId', suppliers[0]?.id || '');
     }
-  }, [isOpen, reset, defaultBranchId, warehouses, suppliers]);
+  }, [setValue, suppliers, watchedFormValues?.supplierId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      draftHydratedRef.current = false;
+      return;
+    }
+    // Firestore refreshes replace warehouses/suppliers with new array
+    // identities. Initialize only on the closed -> open transition so those
+    // refreshes can never reset a form while staff are typing.
+    if (wasOpenRef.current) return;
+    wasOpenRef.current = true;
+    draftHydratedRef.current = false;
+
+    const saved = readBrowserDraft<UniformEntryDraft>(entryDraftKey);
+    const nextValues = saved?.values?.items?.length ? saved.values : defaultFormValues();
+    skipPaymentSyncRef.current = true;
+    reset(nextValues);
+    setMobileTab(saved?.mobileTab || 'ITEMS');
+    setSelectedFundId(saved?.selectedFundId || '');
+    setSelectedCatalogItems(saved?.selectedCatalogItems || {});
+    setCatalogSearch(saved?.catalogSearch || '');
+    setActiveSearchRowIndex(null);
+    setIsCustomPaid(saved?.isCustomPaid === true);
+    setIsSubmitting(false);
+    draftHydratedRef.current = true;
+  }, [defaultFormValues, entryDraftKey, isOpen, reset]);
 
   const totalAmount = useMemo(() => {
     if (!Array.isArray(watchItems)) return 0;
@@ -254,9 +293,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     }, 0);
   }, [watchItems]);
 
-  const [isCustomPaid, setIsCustomPaid] = useState(false);
-
   useEffect(() => {
+    if (skipPaymentSyncRef.current) {
+      skipPaymentSyncRef.current = false;
+      return;
+    }
     if (watchPaymentMethod === 'DEBT') {
       setValue('amountPaid', 0);
       setIsCustomPaid(false);
@@ -264,6 +305,35 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       setValue('amountPaid', totalAmount);
     }
   }, [watchPaymentMethod, totalAmount, isCustomPaid, setValue]);
+
+  useEffect(() => {
+    if (!isOpen || !draftHydratedRef.current || !watchedFormValues?.items) return;
+    const timer = window.setTimeout(() => {
+      writeBrowserDraft<UniformEntryDraft>(entryDraftKey, {
+        values: watchedFormValues,
+        selectedFundId,
+        selectedCatalogItems,
+        mobileTab,
+        catalogSearch,
+        isCustomPaid
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [catalogSearch, entryDraftKey, isCustomPaid, isOpen, mobileTab, selectedCatalogItems, selectedFundId, watchedFormValues]);
+
+  const discardDraft = () => {
+    draftHydratedRef.current = false;
+    skipPaymentSyncRef.current = true;
+    removeBrowserDraft(entryDraftKey);
+    reset(defaultFormValues());
+    setSelectedFundId('');
+    setSelectedCatalogItems({});
+    setCatalogSearch('');
+    setActiveSearchRowIndex(null);
+    setMobileTab('ITEMS');
+    setIsCustomPaid(false);
+    window.setTimeout(() => { draftHydratedRef.current = true; }, 0);
+  };
 
   const rawAmountPaid = Number(watchAmountPaid) || 0;
   const actualPaidAmount = watchPaymentMethod === 'DEBT' ? 0 : Math.min(rawAmountPaid, totalAmount);
@@ -442,6 +512,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       try {
         setIsSubmitting(true);
         await onAddPurchaseOrder(purchaseOrder, true);
+        removeBrowserDraft(entryDraftKey);
         onClose();
       } catch (error: any) {
         alert(error?.message || 'Không thể tạo phiếu nhập. Không có dữ liệu nào được ghi.');
@@ -454,20 +525,20 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-xs flex flex-col h-screen w-screen overflow-hidden select-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex h-[100dvh] w-screen select-none flex-col overflow-hidden bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
       
       {/* 1. Dark Document Header with Subtle Orange Glow */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0 shadow-md relative overflow-hidden">
         <div className="absolute top-0 right-1/4 w-96 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
         
-        <div className="flex items-center space-x-3 relative z-10">
+        <div className="relative z-10 flex min-w-0 items-center space-x-3">
           <div className="w-8 h-8 rounded-xl bg-[#FF4B16] text-white flex items-center justify-center font-bold shadow-md shadow-[#FF4B16]/20 shrink-0">
             <PackagePlus className="w-4 h-4" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center space-x-2">
-              <span className="text-sm font-bold tracking-tight text-white uppercase">Phiếu Nhập Hàng Kho</span>
-              <span className="px-2 py-0.2 text-[10px] font-mono font-semibold bg-[#FF4B16]/20 text-[#FF4B16] border border-[#FF4B16]/30 rounded-full">
+              <span className="truncate text-sm font-bold uppercase tracking-tight text-white">Phiếu Nhập Hàng Kho</span>
+              <span className="hidden rounded-full border border-[#FF4B16]/30 bg-[#FF4B16]/20 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#FF4B16] sm:inline-block">
                 Mã: cấp tự động khi lưu
               </span>
               <span className="hidden sm:inline-block px-2 py-0.2 text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-full">
@@ -480,7 +551,16 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center space-x-2 relative z-10">
+        <div className="relative z-10 flex shrink-0 items-center space-x-1.5">
+          <span className="hidden text-[10px] font-semibold text-emerald-300 sm:inline">Tự lưu nháp</span>
+          <button
+            type="button"
+            onClick={discardDraft}
+            className="rounded-xl border border-zinc-800 p-1.5 text-zinc-400 transition-colors hover:bg-rose-950/60 hover:text-rose-300"
+            title="Xóa toàn bộ dữ liệu nháp"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
           <button
             type="button"
             onClick={onClose}

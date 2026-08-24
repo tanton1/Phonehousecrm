@@ -622,7 +622,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
     const currentPaymentConfig = PAYMENT_STATUS_CONFIG[paymentStatusKey] || PAYMENT_STATUS_CONFIG.UNPAID;
 
     return (
-      <div className="w-full -mx-2 space-y-3 pb-6 animate-fadeIn sm:-mx-4 sm:space-y-4">
+      <div className="w-full space-y-3 pb-6 animate-fadeIn sm:space-y-4">
         
         {/* Sync Toast Notification */}
         {syncToast && (
@@ -760,7 +760,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
 
         {/* 2. Supplier Information Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
+        <div className="rounded-none border border-zinc-200/80 bg-white p-3.5 shadow-2xs sm:rounded-2xl sm:p-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-9 h-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-medium text-sm">
               <Building2 className="w-4 h-4" />
@@ -795,7 +795,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
 
         {/* 3. Products & Line Items Breakdown List */}
-        <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-2xs divide-y divide-zinc-100 overflow-hidden">
+        <div className="overflow-hidden rounded-none border border-zinc-200/80 bg-white shadow-2xs sm:rounded-2xl divide-y divide-zinc-100">
           <div className="px-4 py-2.5 bg-zinc-50/80 flex items-center justify-between border-b border-zinc-200/60">
             <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5">
               <PackageCheck className="w-3.5 h-3.5 text-orange-600" />
@@ -886,7 +886,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
 
         {/* 4. Payment & Financial Summary Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs space-y-2 text-xs">
+        <div className="space-y-2 rounded-none border border-zinc-200/80 bg-white p-3.5 text-xs shadow-2xs sm:rounded-2xl sm:p-4">
           <div className="flex justify-between items-center text-zinc-500 font-normal">
             <span>Tiền hàng tạm tính</span>
             <span className="font-mono">{selectedOrder.subTotal.toLocaleString('vi-VN')} đ</span>
@@ -941,7 +941,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
 
         {/* 5. Editable Notes Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs space-y-2">
+        <div className="space-y-2 rounded-none border border-zinc-200/80 bg-white p-3.5 shadow-2xs sm:rounded-2xl sm:p-4">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5">
               <FileText className="w-3.5 h-3.5 text-orange-600" />
@@ -993,13 +993,13 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
 
         {/* 6. Activity Log / History Card */}
         {selectedOrder.history && selectedOrder.history.length > 0 && (
-          <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs">
+          <div className="rounded-none border border-zinc-200/80 bg-white p-3.5 shadow-2xs sm:rounded-2xl sm:p-4">
             <ActivityLog logs={selectedOrder.history} className="space-y-2.5" />
           </div>
         )}
 
         {/* 7. Metadata Details Card */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs grid grid-cols-2 gap-3 sm:gap-4 text-xs">
+        <div className="grid grid-cols-2 gap-3 rounded-none border border-zinc-200/80 bg-white p-3.5 text-xs shadow-2xs sm:gap-4 sm:rounded-2xl sm:p-4">
           <div>
             <span className="text-zinc-400 block text-[11px] font-normal">Người lập phiếu</span>
             <span className="font-medium text-zinc-800 mt-0.5 block">
@@ -1271,7 +1271,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
       )}
 
-      <section className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-4 text-white shadow-xl sm:p-5">
+      <section className="relative overflow-hidden rounded-none bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-4 text-white shadow-xl sm:rounded-[1.5rem] sm:p-5">
         <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-orange-500/25 blur-3xl" />
         <div className="relative flex items-end justify-between gap-4">
           <div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-orange-300"><PackageCheck className="h-3.5 w-3.5" /> Sổ nhập hàng</div><h1 className="mt-1 text-xl font-black tracking-tight sm:text-2xl">Phiếu nhập nhà cung cấp</h1><p className="mt-1 text-xs text-zinc-300">Theo dõi kho nhận, công nợ và khoản chi.</p></div>
@@ -1417,7 +1417,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       </div>
 
       {/* 3. Total Amount Summary Card (Matching InvoicesView format) */}
-      <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between">
+      <div className="flex items-center justify-between rounded-none border border-zinc-200/80 bg-white p-4 shadow-2xs sm:rounded-2xl">
         <div>
           <div className="text-xs font-semibold text-zinc-700 flex items-center gap-1">
             <span>Tổng giá trị nhập hàng</span>
@@ -1448,7 +1448,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
 
       {/* 4. Purchase Orders Grouped by Date */}
       {Object.keys(groupedOrders).length === 0 ? (
-        <div className="bg-white rounded-2xl p-8 border border-zinc-200/80 text-center space-y-3">
+        <div className="space-y-3 rounded-none border border-zinc-200/80 bg-white p-8 text-center sm:rounded-2xl">
           <div className="w-12 h-12 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center mx-auto">
             <PackageCheck className="w-6 h-6" />
           </div>
@@ -1476,7 +1476,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
                 </div>
 
                 {/* Orders in this Date Group */}
-                <div className="bg-white rounded-2xl border border-zinc-200/80 shadow-2xs divide-y divide-zinc-100 overflow-hidden">
+                <div className="divide-y divide-zinc-100 overflow-hidden rounded-none border border-zinc-200/80 bg-white shadow-2xs sm:rounded-2xl">
                   {orderList.map((order) => {
                     const summary = getOrderSummary(order);
                     const orderCode = order.code || order.id;

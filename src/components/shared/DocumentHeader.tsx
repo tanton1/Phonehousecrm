@@ -27,7 +27,7 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
   extraInfo
 }) => {
   return (
-    <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white p-4 sm:p-5 rounded-t-2xl sm:rounded-t-3xl border-b border-zinc-800 shrink-0 relative overflow-hidden">
+    <div className="relative shrink-0 overflow-hidden rounded-none border-b border-zinc-800 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black p-4 text-white sm:rounded-t-3xl sm:p-5">
       {/* Subtle orange glow */}
       <div className="absolute top-0 left-1/3 w-80 h-10 bg-[#FF4B16]/15 blur-2xl pointer-events-none" />
       

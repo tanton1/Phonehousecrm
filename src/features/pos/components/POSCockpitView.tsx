@@ -4,13 +4,14 @@ import { ProductSearchPanel } from './ProductSearchPanel';
 import { CartPanel } from './CartPanel';
 import { PaymentPanel } from './PaymentPanel';
 import { useCheckout } from '../hooks/useCheckout';
-import { Receipt, Sparkles, CheckCircle2, AlertCircle, Printer } from 'lucide-react';
+import { Receipt, Sparkles, CheckCircle2, AlertCircle, Printer, Trash2 } from 'lucide-react';
 import { ThermalReceiptK80 } from './ThermalReceiptK80';
 import { usePosHotkeys } from '../hooks/usePosHotkeys';
 import { PosHotkeysBar } from './PosHotkeysBar';
 import { CreatePartnerModal } from '../../../components/CreatePartnerModal';
 import { getCachedOperationalConfigs } from '../../../services/configurationApiClient';
 import { resolveRetailPrice } from '../../../utils/retailPricing';
+import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../../../utils/browserDraft';
 
 export interface POSCockpitViewProps {
   devices: DeviceItem[];
@@ -32,6 +33,23 @@ export interface POSCockpitViewProps {
     updatedFund: FundAccount | null
   ) => void;
 }
+
+type PosDraft = {
+  selectedDevices: DeviceItem[];
+  selectedAccessories: { product: ProductItem; quantity: number }[];
+  commissionTagSelections: Record<string, string[]>;
+  linePriceEdits: Record<string, { unitPrice: number; reason: string }>;
+  warrantyPackage: string;
+  discountAmount: number;
+  tradeInDeduction: number;
+  tradeInDevice: DeviceItem | null;
+  customerName: string;
+  customerPhone: string;
+  paymentMethod: 'Tiền mặt' | 'Chuyển khoản QR' | 'Quẹt thẻ POS' | 'Trả góp qua Cty Tài Chính (HD/Home/Mpos)';
+  selectedFundId: string;
+  downPaymentAmount: number;
+  mobileTab: 'PRODUCTS' | 'CART' | 'PAYMENT';
+};
 
 export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   devices,
@@ -68,6 +86,30 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     return branchFunds.find(f => f.isDefault)?.id || branchFunds[0]?.id || '';
   });
   const [downPaymentAmount, setDownPaymentAmount] = useState(0);
+  const [mobileTab, setMobileTab] = useState<'PRODUCTS' | 'CART' | 'PAYMENT'>('PRODUCTS');
+  const [receiptData, setReceiptData] = useState<any | null>(null);
+  const posDraftKey = browserDraftKey('pos', currentUser?.id, currentBranch.id);
+  const hydratedDraftKeyRef = useRef('');
+
+  useEffect(() => {
+    if (hydratedDraftKeyRef.current === posDraftKey) return;
+    const saved = readBrowserDraft<PosDraft>(posDraftKey);
+    setSelectedDevices(Array.isArray(saved?.selectedDevices) ? saved.selectedDevices : []);
+    setSelectedAccessories(Array.isArray(saved?.selectedAccessories) ? saved.selectedAccessories : []);
+    setCommissionTagSelections(saved?.commissionTagSelections || {});
+    setLinePriceEdits(saved?.linePriceEdits || {});
+    setWarrantyPackage(saved?.warrantyPackage || '');
+    setDiscountAmount(Number(saved?.discountAmount || 0));
+    setTradeInDeduction(Number(saved?.tradeInDeduction || 0));
+    setTradeInDevice(saved?.tradeInDevice || null);
+    setCustomerName(saved?.customerName || '');
+    setCustomerPhone(saved?.customerPhone || '');
+    setPaymentMethod(saved?.paymentMethod || 'Tiền mặt');
+    setSelectedFundId(saved?.selectedFundId || '');
+    setDownPaymentAmount(Number(saved?.downPaymentAmount || 0));
+    setMobileTab(saved?.mobileTab || 'PRODUCTS');
+    hydratedDraftKeyRef.current = posDraftKey;
+  }, [posDraftKey]);
 
   // Sync incoming contexts
   useEffect(() => {
@@ -94,15 +136,53 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     }
   }, [tradeInAppraisal]);
 
-  // 3. Thermal Receipt Preview State
-  const [receiptData, setReceiptData] = useState<any | null>(null);
-
   // 4. Refs for Keyboard Shortcuts
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const phoneInputRef = useRef<HTMLInputElement | null>(null);
 
   // 5. Hook for Atomic Checkout
   const { checkoutInfo, runCheckout, resetCheckout, isProcessing } = useCheckout();
+
+  useEffect(() => {
+    if (!funds.length) return;
+    const branchFunds = funds.filter(fund => fund.branchId === currentBranch.id && fund.isArchived !== true && fund.isActive !== false);
+    setSelectedFundId(current => branchFunds.some(fund => fund.id === current)
+      ? current
+      : (branchFunds.find(fund => fund.isDefault)?.id || branchFunds[0]?.id || ''));
+  }, [currentBranch.id, funds]);
+
+  useEffect(() => {
+    if (hydratedDraftKeyRef.current !== posDraftKey) return;
+    const hasDraftContent = selectedDevices.length > 0
+      || selectedAccessories.length > 0
+      || Boolean(customerName.trim() || customerPhone.trim())
+      || discountAmount > 0
+      || tradeInDeduction > 0
+      || Boolean(tradeInDevice);
+    const timer = window.setTimeout(() => {
+      if (!hasDraftContent) {
+        removeBrowserDraft(posDraftKey);
+        return;
+      }
+      writeBrowserDraft<PosDraft>(posDraftKey, {
+        selectedDevices,
+        selectedAccessories,
+        commissionTagSelections,
+        linePriceEdits,
+        warrantyPackage,
+        discountAmount,
+        tradeInDeduction,
+        tradeInDevice,
+        customerName,
+        customerPhone,
+        paymentMethod,
+        selectedFundId,
+        downPaymentAmount,
+        mobileTab
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [commissionTagSelections, customerName, customerPhone, discountAmount, downPaymentAmount, linePriceEdits, mobileTab, paymentMethod, posDraftKey, selectedAccessories, selectedDevices, selectedFundId, tradeInDeduction, tradeInDevice, warrantyPackage]);
 
   // Calculations: dated price policy first, then the audited price entered on this POS slip.
   const retailPricing = getCachedOperationalConfigs().retailPricing;
@@ -234,6 +314,24 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setTradeInDevice(null);
     setCommissionTagSelections({});
     setLinePriceEdits({});
+    resetCheckout();
+  };
+
+  const handleDiscardPosDraft = () => {
+    removeBrowserDraft(posDraftKey);
+    setSelectedDevices([]);
+    setSelectedAccessories([]);
+    setCommissionTagSelections({});
+    setLinePriceEdits({});
+    setWarrantyPackage('');
+    setDiscountAmount(0);
+    setTradeInDeduction(0);
+    setTradeInDevice(null);
+    setCustomerName('');
+    setCustomerPhone('');
+    setPaymentMethod('Tiền mặt');
+    setDownPaymentAmount(0);
+    setMobileTab('PRODUCTS');
     resetCheckout();
   };
 
@@ -467,6 +565,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     const completedInvoice = await runCheckout(payload as any);
 
     if (completedInvoice) {
+      removeBrowserDraft(posDraftKey);
       setReceiptData(completedInvoice);
       onCheckoutSuccess?.(
         completedInvoice,
@@ -491,11 +590,10 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     }
   };
 
-  const [mobileTab, setMobileTab] = useState<'PRODUCTS' | 'CART' | 'PAYMENT'>('PRODUCTS');
   const totalItemsCount = selectedDevices.length + selectedAccessories.reduce((s, a) => s + a.quantity, 0);
 
   return (
-    <div className="flex flex-col w-full h-[calc(100vh-64px)] overflow-hidden select-none bg-zinc-50">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-50 select-none">
       {/* 1. Slim Full-Bleed POS Header Bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0">
         <div className="flex items-center space-x-2">
@@ -512,6 +610,17 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {(totalItemsCount > 0 || customerName || customerPhone) && <span className="hidden text-[10px] font-semibold text-emerald-300 sm:inline">Đã lưu nháp</span>}
+          {(totalItemsCount > 0 || customerName || customerPhone) && (
+            <button
+              type="button"
+              onClick={handleDiscardPosDraft}
+              className="rounded-xl border border-zinc-700/80 bg-zinc-800/90 p-1.5 text-zinc-300 transition hover:border-rose-700 hover:bg-rose-950/60 hover:text-rose-300"
+              title="Xóa đơn bán nháp"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
           {onNavigateToInvoices && (
             <button
               onClick={onNavigateToInvoices}

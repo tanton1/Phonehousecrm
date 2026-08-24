@@ -1010,7 +1010,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   // ----------------------------------------------------
   return (
     <div className="relative w-full space-y-4 pb-28 animate-fadeIn">
-      <section className="relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-5 text-white shadow-xl sm:p-6">
+      <section className="relative overflow-hidden rounded-none bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-4 text-white shadow-xl sm:rounded-[1.75rem] sm:p-6">
         <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-orange-500/25 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-64 rounded-full bg-amber-300/10 blur-3xl" />
         <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -1029,7 +1029,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       </section>
 
       {/* 2. Filter Bar (Segmented Pills & Filter Button) */}
-      <div className="flex items-center gap-1.5 overflow-x-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-sm scrollbar-none">
+      <div className="flex items-center gap-1.5 overflow-x-auto rounded-none border border-zinc-200 bg-white p-2 shadow-sm scrollbar-none sm:rounded-2xl">
         <button
           onClick={() => setStatusFilter('all')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${
@@ -1186,7 +1186,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
       {/* 5. Invoices Grouped by Date */}
       {Object.keys(groupedInvoices).length === 0 ? (
-        <div className="bg-white rounded-2xl p-8 border border-zinc-200/80 text-center space-y-3">
+        <div className="space-y-3 rounded-none border border-zinc-200/80 bg-white p-8 text-center sm:rounded-2xl">
           <div className="w-12 h-12 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center mx-auto">
             <FileText className="w-6 h-6" />
           </div>
@@ -1230,7 +1230,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <div
                         key={inv.id}
                         onClick={() => setSelectedInvoice(inv)}
-                        className={`group flex cursor-pointer items-center justify-between gap-3 rounded-2xl border p-3.5 shadow-sm transition-all sm:p-4 ${
+                        className={`group flex cursor-pointer items-center justify-between gap-3 rounded-none border p-3.5 shadow-sm transition-all sm:rounded-2xl sm:p-4 ${
                           selectedInvoice?.id === inv.id ? 'border-orange-400 bg-orange-50 shadow-orange-100' : 'border-zinc-200 bg-white hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md'
                         }`}
                       >
@@ -1303,7 +1303,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             onClick={() => setSelectedInvoice(null)}
           />
           {/* Drawer / Sheet Panel */}
-          <div className="relative z-50 flex h-[calc(100dvh-0.5rem)] w-full flex-col overflow-hidden rounded-t-[2rem] border border-zinc-200 bg-[#FAFAFA] shadow-2xl sm:h-full sm:w-[640px] sm:rounded-none sm:border-y-0 sm:border-r-0 sm:border-l lg:w-[720px]">
+          <div className="relative z-50 flex h-[100dvh] w-full flex-col overflow-hidden rounded-none border-0 bg-[#FAFAFA] shadow-2xl sm:h-full sm:w-[640px] sm:border-l sm:border-zinc-200 lg:w-[720px]">
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {renderInvoiceDetail(selectedInvoice)}
             </div>

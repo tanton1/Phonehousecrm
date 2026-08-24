@@ -60,6 +60,8 @@ export const AppShell: React.FC<AppShellProps> = ({
         <main className={`flex-1 ${
           activeTab === 'pos'
             ? 'p-0 overflow-hidden'
+            : ['purchase-orders', 'invoices'].includes(activeTab)
+              ? 'overflow-y-auto p-0 pb-20 lg:pb-0 scrollbar-thin scrollbar-thumb-zinc-200'
             : activeTab === 'dashboard'
               ? 'p-0 overflow-y-auto'
               : 'overflow-y-auto p-2 sm:p-4 lg:p-5 pb-20 lg:pb-6 scrollbar-thin scrollbar-thumb-zinc-200'
@@ -67,7 +69,9 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className={`${
             activeTab === 'pos' || activeTab === 'dashboard'
               ? 'w-full h-full max-w-none'
-              : ['chat', 'crm', 'warranty', 'tradein', 'funds', 'inventory', 'purchase-orders', 'invoices'].includes(activeTab)
+              : ['purchase-orders', 'invoices'].includes(activeTab)
+                ? 'w-full max-w-none'
+              : ['chat', 'crm', 'warranty', 'tradein', 'funds', 'inventory'].includes(activeTab)
                 ? 'w-full max-w-none px-2 sm:px-4'
                 : 'max-w-7xl mx-auto w-full'
           }`}>
