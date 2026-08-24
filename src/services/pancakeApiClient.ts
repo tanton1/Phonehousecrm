@@ -1,4 +1,5 @@
-import { auth } from '../lib/firebase';
+import { collection, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 import { ChatConversation, ChatMessage } from '../features/chat/types';
 
 interface PancakeApiEnvelope<T> {
@@ -15,6 +16,8 @@ export interface PancakeChannelStatus {
   historyDays: number;
   includeComments: boolean;
   status: 'READY' | 'MISSING_TOKEN' | 'CONFIG_ERROR';
+  webhookStatus?: 'RECEIVING' | 'NOT_SEEN' | 'MISSING_SECRET';
+  lastWebhookAt?: string;
   error?: string;
   requiredTokenEnv?: string;
 }
@@ -38,6 +41,16 @@ export interface PancakeSyncResult {
   nextCursor: string | null;
   done: boolean;
   cutoffAt: string;
+}
+
+export interface PancakeRepairResult {
+  pageId: string;
+  scanned: number;
+  conversations: number;
+  repaired: number;
+  removed: number;
+  failed: number;
+  hasMore: boolean;
 }
 
 async function requestPancakeApi<T>(
@@ -90,6 +103,48 @@ export function requestPancakeMessages(conversationId: string, refresh = true) {
   );
 }
 
+function firestoreDateIso(value: any): string {
+  if (value?.toDate instanceof Function) return value.toDate().toISOString();
+  if (value?.seconds !== undefined) return new Date(Number(value.seconds) * 1000).toISOString();
+  const parsed = new Date(String(value || ''));
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+}
+
+/**
+ * Realtime stream for the conversation currently open on screen. Pancake
+ * webhook writes remain server-only; the client only listens to authorized
+ * branch data through Firestore Rules.
+ */
+export function subscribePancakeMessages(
+  conversationId: string,
+  branchId: string,
+  onMessages: (messages: ChatMessage[]) => void,
+  onError?: (error: unknown) => void
+) {
+  const streamQuery = query(
+    collection(db, 'chatMessages'),
+    where('branchId', '==', branchId),
+    where('conversationId', '==', conversationId),
+    orderBy('timestamp', 'asc'),
+    limit(500)
+  );
+  return onSnapshot(streamQuery, snapshot => {
+    onMessages(snapshot.docs.map(document => {
+      const data = document.data() as Record<string, any>;
+      return {
+        id: document.id,
+        externalMessageId: data.externalMessageId,
+        sender: data.sender || 'CUSTOMER',
+        senderName: data.senderName || 'Khách hàng',
+        content: typeof data.content === 'string' ? data.content : '',
+        timestamp: data.timestampIso || firestoreDateIso(data.timestamp),
+        attachments: Array.isArray(data.attachments) ? data.attachments.filter((item: unknown) => typeof item === 'string') : [],
+        messageKind: data.messageKind || 'MESSAGE'
+      } as ChatMessage;
+    }));
+  }, error => onError?.(error));
+}
+
 export function requestSendPancakeMessage(conversationId: string, text: string) {
   return requestPancakeApi<{ message: ChatMessage; idempotentReplay: boolean }>(
     `conversations/${encodeURIComponent(conversationId)}/send`,
@@ -108,5 +163,12 @@ export function requestSyncPancakePage(pageId: string, cursor?: string | null) {
   return requestPancakeApi<PancakeSyncResult>('sync', {
     method: 'POST',
     payload: { pageId, cursor: cursor || undefined }
+  });
+}
+
+export function requestRepairPancakeMessages(pageId: string, limit = 5) {
+  return requestPancakeApi<PancakeRepairResult>('repair-messages', {
+    method: 'POST',
+    payload: { pageId, limit }
   });
 }

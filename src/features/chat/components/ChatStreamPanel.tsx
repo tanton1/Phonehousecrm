@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatConversation, ChatMessage, QuickSnippet } from '../types';
 import { Button } from '../../../shared/ui/Button/Button';
-import { Send, Smartphone, Sparkles, Image, MessageSquare, Zap, ChevronLeft, ShoppingCart, Info } from 'lucide-react';
+import { Send, Smartphone, MessageSquare, Zap, ChevronLeft, ShoppingCart, Info, RefreshCw } from 'lucide-react';
 
 export interface ChatStreamPanelProps {
   conversation: ChatConversation | null;
   onSendMessage: (convoId: string, text: string) => Promise<void> | void;
+  onRefresh?: () => Promise<void> | void;
   loadingMessages?: boolean;
   onBack?: () => void;
   onOpenInfo?: () => void;
@@ -22,6 +23,7 @@ const QUICK_SNIPPETS: QuickSnippet[] = [
 export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
   conversation,
   onSendMessage,
+  onRefresh,
   loadingMessages = false,
   onBack,
   onOpenInfo,
@@ -62,6 +64,10 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
     setInputText(snippet.content);
   };
 
+  const visibleMessages = conversation.messages.filter(message =>
+    Boolean(message.content?.trim()) || Boolean(message.attachments?.length) || Boolean(message.productCard)
+  );
+
   return (
     <div className="bg-white border border-zinc-200/80 rounded-2xl flex flex-col h-full overflow-hidden shadow-2xs">
       {/* 1. Chat Header */}
@@ -90,6 +96,16 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
         </div>
 
         <div className="flex items-center space-x-1.5 shrink-0">
+          {onRefresh && (
+            <button
+              onClick={() => void onRefresh()}
+              disabled={loadingMessages}
+              className="grid h-8 w-8 place-items-center rounded-xl bg-zinc-100 text-zinc-600 transition-colors hover:bg-zinc-200 disabled:opacity-50"
+              title="Làm mới tin nhắn từ Pancake"
+            >
+              <RefreshCw className={`h-4 w-4 ${loadingMessages ? 'animate-spin' : ''}`} />
+            </button>
+          )}
           {onConvertToPOS && (
             <button
               onClick={onConvertToPOS}
@@ -120,13 +136,13 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
 
       {/* 2. Chat Stream Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[300px] scrollbar-thin scrollbar-thumb-zinc-200">
-        {loadingMessages && conversation.messages.length === 0 && (
+        {loadingMessages && visibleMessages.length === 0 && (
           <div className="py-8 text-center text-xs font-semibold text-zinc-400">Đang tải lịch sử hội thoại…</div>
         )}
-        {!loadingMessages && conversation.messages.length === 0 && (
+        {!loadingMessages && visibleMessages.length === 0 && (
           <div className="py-8 text-center text-xs font-semibold text-zinc-400">Chưa có tin nhắn được đồng bộ.</div>
         )}
-        {conversation.messages.map(msg => {
+        {visibleMessages.map(msg => {
           const isStaff = msg.sender === 'STAFF';
 
           return (

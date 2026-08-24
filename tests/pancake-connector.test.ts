@@ -180,6 +180,53 @@ describe('Pancake connector', () => {
     expect(staff?.sender).toBe('STAFF');
   });
 
+  it('reads Pancake text stored directly in the message field', () => {
+    const message = normalizePancakeMessage({
+      id: 'msg-string-body',
+      message: 'Dạ em cần tư vấn iPhone 15 Pro Max',
+      from: { id: 'customer-15', name: 'Chị An' },
+      created_time: '2026-08-24T15:30:00.000Z'
+    }, '332799593244601');
+
+    expect(message).toMatchObject({
+      externalMessageId: 'msg-string-body',
+      content: 'Dạ em cần tư vấn iPhone 15 Pro Max',
+      sender: 'CUSTOMER',
+      senderName: 'Chị An',
+      timestamp: '2026-08-24T15:30:00.000Z'
+    });
+  });
+
+  it('reads nested data messages and attachment-only messages', () => {
+    const nested = normalizePancakeMessage({
+      id: 'msg-nested-data',
+      data: {
+        message: 'Cho em xin địa chỉ shop',
+        sender: { id: 'customer-16', name: 'Anh Bình' },
+        created_time: 1_787_589_600
+      }
+    }, '332799593244601');
+    const attachmentOnly = normalizePancakeMessage({
+      id: 'msg-photo',
+      from: { id: 'customer-17', name: 'Chị Hà' },
+      attachments: [{ payload: { image: { full_url: 'https://cdn.example.com/photo.jpg' } } }],
+      created_time: '2026-08-24T16:00:00.000Z'
+    }, '332799593244601');
+
+    expect(nested?.content).toBe('Cho em xin địa chỉ shop');
+    expect(nested?.senderName).toBe('Anh Bình');
+    expect(attachmentOnly?.content).toBe('Đã gửi tệp đính kèm');
+    expect(attachmentOnly?.attachments).toEqual(['https://cdn.example.com/photo.jpg']);
+  });
+
+  it('does not create empty bubbles for unsupported Pancake events', () => {
+    expect(normalizePancakeMessage({
+      id: 'read-receipt-01',
+      type: 'read_receipt',
+      created_time: '2026-08-24T16:05:00.000Z'
+    }, '332799593244601')).toBeNull();
+  });
+
   it('normalizes webhook payloads and creates deterministic Firestore ids', () => {
     const config = getPancakePageConfigs({
       PANCAKE_PAGE_ID: '332799593244601',

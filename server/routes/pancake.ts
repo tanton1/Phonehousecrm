@@ -9,6 +9,7 @@ import {
   markPancakeConversationRead,
   PancakeActor,
   processPancakeWebhook,
+  repairPancakeEmptyMessages,
   sendPancakeMessage,
   setPancakeBranchMapping,
   syncPancakeConversations,
@@ -160,6 +161,21 @@ export function createPancakeRouter(db: Firestore | null): Router {
       const data = await syncPancakeConversations(db, {
         pageId: req.body?.pageId,
         cursor: req.body?.cursor
+      }, actor(req));
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.post('/repair-messages', authenticateFirebase, requireRole(
+    'ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'
+  ), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await repairPancakeEmptyMessages(db, {
+        pageId: req.body?.pageId,
+        limit: req.body?.limit
       }, actor(req));
       return res.json({ success: true, data });
     } catch (error: any) {

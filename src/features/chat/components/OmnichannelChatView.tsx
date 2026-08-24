@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, HelpCircle, Link2, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, HelpCircle, Link2, Loader2, RefreshCw, WandSparkles } from 'lucide-react';
 import { ChatConversation } from '../types';
 import { DeviceItem } from '../../../types';
 import { ConversationListPanel } from './ConversationListPanel';
@@ -13,8 +13,10 @@ import {
   requestPancakeChannels,
   requestPancakeConversations,
   requestPancakeMessages,
+  requestRepairPancakeMessages,
   requestSendPancakeMessage,
-  requestSyncPancakePage
+  requestSyncPancakePage,
+  subscribePancakeMessages
 } from '../../../services/pancakeApiClient';
 
 export interface OmnichannelChatViewProps {
@@ -53,6 +55,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [repairing, setRepairing] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
@@ -88,7 +91,10 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
     }
     else setError(friendlyError(channelResult.reason));
     if (conversationResult.status === 'fulfilled') {
-      setConversations(conversationResult.value.items);
+      setConversations(current => conversationResult.value.items.map(item => {
+        const previous = current.find(old => old.id === item.id);
+        return { ...item, messages: previous?.messages || [] };
+      }));
       setSelectedConvoId(current => current || conversationResult.value.items[0]?.id || null);
     } else setError(friendlyError(conversationResult.reason));
     setLoading(false);
@@ -114,31 +120,50 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
     return () => window.clearInterval(timer);
   }, [loadConversations]);
 
-  const loadMessages = useCallback(async (conversation: ChatConversation) => {
-    setLoadingMessages(true);
+  const loadMessages = useCallback(async (conversationId: string, refreshFromPancake = true, showSpinner = true) => {
+    if (showSpinner) setLoadingMessages(true);
     try {
-      const result = await requestPancakeMessages(conversation.id, true);
-      setConversations(current => current.map(item => item.id === conversation.id ? { ...item, messages: result.items } : item));
+      const result = await requestPancakeMessages(conversationId, refreshFromPancake);
+      setConversations(current => current.map(item => item.id === conversationId ? { ...item, messages: result.items } : item));
       if (result.warning && !result.items.length) setError(friendlyError(result.warning));
     } catch (caught) {
-      setError(friendlyError(caught));
+      if (showSpinner) setError(friendlyError(caught));
     } finally {
-      setLoadingMessages(false);
+      if (showSpinner) setLoadingMessages(false);
     }
   }, []);
 
   useEffect(() => {
-    const selected = conversations.find(conversation => conversation.id === selectedConvoId);
-    if (selected && selected.messages.length === 0) void loadMessages(selected);
-    // Messages are loaded once for each newly selected conversation; polling preserves the loaded array.
+    if (selectedConvoId) void loadMessages(selectedConvoId, true, true);
   }, [selectedConvoId, loadMessages]);
+
+  useEffect(() => {
+    if (!selectedConvoId || !activeConvo?.branchId) return undefined;
+    return subscribePancakeMessages(selectedConvoId, activeConvo.branchId, messages => {
+      setConversations(current => current.map(item => item.id === selectedConvoId ? { ...item, messages } : item));
+    }, caught => {
+      console.warn('[Pancake realtime]', caught);
+    });
+  }, [activeConvo?.branchId, selectedConvoId]);
+
+  // Webhook + Firestore listener is instant when Pancake calls our endpoint.
+  // This slower source refresh is a safety net while webhook has not yet sent
+  // an event (and also repairs historical messages saved with an old shape).
+  useEffect(() => {
+    if (!selectedConvoId) return undefined;
+    const interval = activeChannel?.webhookStatus === 'RECEIVING' ? 60_000 : 20_000;
+    const timer = window.setInterval(() => {
+      void loadMessages(selectedConvoId, true, false);
+    }, interval);
+    return () => window.clearInterval(timer);
+  }, [activeChannel?.webhookStatus, loadMessages, selectedConvoId]);
 
   const handleSelectConversation = (conversation: ChatConversation) => {
     const alreadySelected = conversation.id === selectedConvoId;
     setSelectedConvoId(conversation.id);
     setMobilePanel('CHAT');
     setConversations(current => current.map(item => item.id === conversation.id ? { ...item, unreadCount: 0 } : item));
-    if (alreadySelected && conversation.messages.length === 0) void loadMessages(conversation);
+    if (alreadySelected) void loadMessages(conversation.id, true, true);
     if (conversation.unreadCount > 0) {
       void requestMarkPancakeRead(conversation.id).catch(caught => setError(friendlyError(caught)));
     }
@@ -210,6 +235,47 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
     }
   };
 
+  const handleManualRefresh = async () => {
+    await Promise.all([
+      loadChannelsAndConversations(),
+      selectedConvoId ? loadMessages(selectedConvoId, true, false) : Promise.resolve()
+    ]);
+  };
+
+  const handleRepairHistory = async () => {
+    if (!activeChannel || repairing) return;
+    setRepairing(true);
+    setError('');
+    setNotice('Đang sửa các tin nhắn rỗng đã đồng bộ trước đây…');
+    let repaired = 0;
+    let removed = 0;
+    let failed = 0;
+    let hasMore = true;
+    try {
+      // Each server request only handles a small batch, preventing long Vercel
+      // requests and allowing a safe retry when Pancake rate-limits the page.
+      for (let batch = 0; batch < 12 && hasMore; batch += 1) {
+        const result = await requestRepairPancakeMessages(activeChannel.pageId, 5);
+        repaired += result.repaired;
+        removed += result.removed;
+        failed += result.failed;
+        hasMore = result.hasMore;
+        setNotice(`Đã khôi phục ${repaired} tin nhắn, bỏ ${removed} sự kiện rỗng…`);
+        if (!result.scanned || (result.repaired + result.removed === 0 && result.failed > 0)) break;
+      }
+      setNotice(`Hoàn tất: khôi phục ${repaired} tin nhắn, bỏ ${removed} sự kiện rỗng${failed ? `, ${failed} hội thoại sẽ thử lại sau` : ''}.`);
+      await Promise.all([
+        loadConversations(false),
+        selectedConvoId ? loadMessages(selectedConvoId, false, false) : Promise.resolve()
+      ]);
+    } catch (caught) {
+      setNotice('');
+      setError(friendlyError(caught));
+    } finally {
+      setRepairing(false);
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-140px)] min-h-[580px] flex-col gap-2">
       <section className="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-zinc-200/80 bg-white px-3 py-2 shadow-sm">
@@ -217,19 +283,25 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
           <div className="flex items-center gap-2 text-xs font-black text-zinc-900">
             <Link2 className="h-4 w-4 text-[#ff4b16]" />
             <span className="truncate">{activeChannel?.pageName || 'Pancake Inbox'}</span>
-            <span className={`h-2 w-2 rounded-full ${activeChannel?.status === 'READY' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            <span className={`h-2 w-2 rounded-full ${activeChannel?.status === 'READY' && activeChannel.webhookStatus === 'RECEIVING' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
           </div>
           <p className="mt-0.5 truncate text-[10px] font-semibold text-zinc-500">
             {activeChannel?.status === 'READY'
-              ? `${activeChannel.branchName} · tin nhắn và bình luận · ${activeChannel.historyDays} ngày`
+              ? `${activeChannel.branchName} · ${activeChannel.webhookStatus === 'RECEIVING' ? 'Realtime đang hoạt động' : 'Tự làm mới mỗi 20 giây'}`
               : activeChannel?.status === 'MISSING_TOKEN'
                 ? `Chờ thiết lập ${activeChannel.requiredTokenEnv}`
                 : 'Đang kiểm tra cấu hình kết nối'}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span title="Tin nhắn được nhận qua webhook và gửi trực tiếp bằng API Pancake; token chỉ lưu trên server." className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-500"><HelpCircle className="h-4 w-4" /></span>
-          <button onClick={() => void loadConversations(true)} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 text-zinc-600 disabled:opacity-50" title="Làm mới"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+          <span title={activeChannel?.webhookStatus === 'RECEIVING'
+            ? `Webhook đã nhận sự kiện${activeChannel.lastWebhookAt ? ` lúc ${new Date(activeChannel.lastWebhookAt).toLocaleString('vi-VN')}` : ''}. Hội thoại đang mở cập nhật realtime qua Firestore.`
+            : activeChannel?.webhookStatus === 'MISSING_SECRET'
+              ? 'Chưa cấu hình PANCAKE_WEBHOOK_SECRET. Hệ thống đang tự kiểm tra Pancake mỗi 20 giây để không bỏ sót tin nhắn.'
+              : 'Chưa nhận sự kiện webhook từ Pancake. Hệ thống đang tự kiểm tra Pancake mỗi 20 giây để không bỏ sót tin nhắn.'
+          } className="hidden h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-500 sm:grid"><HelpCircle className="h-4 w-4" /></span>
+          {isManager && activeChannel?.status === 'READY' && <button onClick={() => void handleRepairHistory()} disabled={repairing} className="grid h-9 w-9 place-items-center rounded-xl border border-blue-200 bg-blue-50 text-blue-700 disabled:opacity-50" title="Khôi phục nội dung các tin nhắn rỗng đã đồng bộ trước đây">{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}</button>}
+          <button onClick={() => void handleManualRefresh()} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 text-zinc-600 disabled:opacity-50" title="Làm mới Page, hội thoại và tin nhắn đang mở"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
           {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Đồng bộ 30 ngày</button>}
         </div>
       </section>
@@ -268,12 +340,12 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
           <>
             <div className="h-full lg:hidden">
               {mobilePanel === 'LIST' && <ConversationListPanel conversations={conversations} selectedConversationId={selectedConvoId} onSelectConversation={handleSelectConversation} />}
-              {mobilePanel === 'CHAT' && <ChatStreamPanel conversation={activeConvo} onSendMessage={handleSendMessage} onBack={() => setMobilePanel('LIST')} onOpenInfo={() => setMobilePanel('SIDEBAR')} onConvertToPOS={() => activeConvo && onConvertToPOS(activeConvo)} loadingMessages={loadingMessages} />}
+              {mobilePanel === 'CHAT' && <ChatStreamPanel conversation={activeConvo} onSendMessage={handleSendMessage} onRefresh={() => selectedConvoId && loadMessages(selectedConvoId, true, true)} onBack={() => setMobilePanel('LIST')} onOpenInfo={() => setMobilePanel('SIDEBAR')} onConvertToPOS={() => activeConvo && onConvertToPOS(activeConvo)} loadingMessages={loadingMessages} />}
               {mobilePanel === 'SIDEBAR' && <div className="flex h-full flex-col"><div className="flex items-center justify-between border-b border-zinc-200 bg-white p-2.5"><button onClick={() => setMobilePanel('CHAT')} className="text-xs font-bold text-[#ff4b16]">❮ Quay lại đoạn chat</button></div><div className="flex-1 overflow-y-auto"><ChatCustomerSidebar conversation={activeConvo} devices={devices} onSendProductCard={handleSendProductCard} onConvertToPOS={onConvertToPOS} /></div></div>}
             </div>
             <div className="hidden h-full grid-cols-[300px_1fr_300px] gap-3.5 lg:grid">
               <ConversationListPanel conversations={conversations} selectedConversationId={selectedConvoId} onSelectConversation={handleSelectConversation} />
-              <ChatStreamPanel conversation={activeConvo} onSendMessage={handleSendMessage} loadingMessages={loadingMessages} />
+              <ChatStreamPanel conversation={activeConvo} onSendMessage={handleSendMessage} onRefresh={() => selectedConvoId && loadMessages(selectedConvoId, true, true)} loadingMessages={loadingMessages} />
               <ChatCustomerSidebar conversation={activeConvo} devices={devices} onSendProductCard={handleSendProductCard} onConvertToPOS={onConvertToPOS} />
             </div>
           </>

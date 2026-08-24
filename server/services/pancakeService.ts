@@ -229,18 +229,98 @@ function firstPhone(customer: Record<string, any>, raw: Record<string, any>): st
 
 function messageText(raw: Record<string, any>): string {
   const nested = asObject(raw.message);
+  const data = asObject(raw.data);
+  const payload = asObject(raw.payload);
   const comment = asObject(raw.comment);
-  return asString(raw.text || raw.content || raw.body || nested.text || nested.content || comment.message || comment.text);
+  const candidates = [
+    raw.text,
+    raw.content,
+    raw.body,
+    typeof raw.message === 'object' ? '' : raw.message,
+    typeof raw.last_message === 'object' ? '' : raw.last_message,
+    typeof raw.lastMessage === 'object' ? '' : raw.lastMessage,
+    raw.caption,
+    nested.text,
+    nested.content,
+    nested.body,
+    typeof nested.message === 'object' ? '' : nested.message,
+    nested.caption,
+    data.text,
+    data.content,
+    data.body,
+    typeof data.message === 'object' ? '' : data.message,
+    payload.text,
+    payload.content,
+    payload.body,
+    typeof payload.message === 'object' ? '' : payload.message,
+    comment.message,
+    comment.text,
+    comment.content
+  ];
+  for (const candidate of candidates) {
+    const value = asString(candidate);
+    if (value) return value;
+  }
+  return '';
 }
 
 function attachmentUrls(raw: Record<string, any>): string[] {
   const nested = asObject(raw.message);
-  const values = [raw.attachments, nested.attachments, raw.attachment, nested.attachment].flatMap(value => Array.isArray(value) ? value : value ? [value] : []);
-  const urls = values.map(value => {
-    if (typeof value === 'string') return value;
+  const data = asObject(raw.data);
+  const payload = asObject(raw.payload);
+  const values = [
+    raw.attachments,
+    nested.attachments,
+    data.attachments,
+    payload.attachments,
+    raw.attachment,
+    nested.attachment,
+    data.attachment,
+    payload.attachment,
+    raw.images,
+    raw.image,
+    raw.photos,
+    raw.photo,
+    raw.video,
+    raw.file,
+    raw.sticker,
+    raw.media,
+    nested.images,
+    nested.image,
+    nested.video,
+    nested.file,
+    nested.sticker,
+    nested.media
+  ].flatMap(value => Array.isArray(value) ? value : value ? [value] : []);
+
+  const findUrl = (value: unknown, depth = 0): string => {
+    if (typeof value === 'string') return asString(value);
+    if (depth > 3) return '';
     const item = asObject(value);
-    const payload = asObject(item.payload);
-    return asString(item.url || item.file_url || item.image_url || item.src || payload.url || payload.src);
+    const direct = [
+      item.url,
+      item.file_url,
+      item.download_url,
+      item.image_url,
+      item.full_url,
+      item.large_url,
+      item.preview_url,
+      item.playable_url,
+      item.src
+    ];
+    for (const candidate of direct) {
+      const url = asString(candidate);
+      if (url) return url;
+    }
+    for (const child of [item.payload, item.file, item.image, item.photo, item.video, item.sticker, item.media, item.data]) {
+      const url = findUrl(child, depth + 1);
+      if (url) return url;
+    }
+    return '';
+  };
+
+  const urls = values.map(value => {
+    return findUrl(value);
   }).filter(Boolean);
   return [...new Set(urls)];
 }
@@ -251,7 +331,16 @@ export function normalizePancakeConversation(rawValue: unknown, config: Pick<Pan
   if (!externalConversationId) return null;
   const customer = findCustomer(raw);
   const lastMessage = asObject(raw.last_message || raw.lastMessage || (Array.isArray(raw.messages) ? raw.messages[0] : null));
-  const updatedAt = toIso(raw.updated_at || raw.updatedAt || raw.last_sent_at || raw.last_message_at || lastMessage.created_at || lastMessage.timestamp);
+  const updatedAt = toIso(
+    raw.updated_at
+      || raw.updatedAt
+      || raw.updated_time
+      || raw.last_sent_at
+      || raw.last_message_at
+      || lastMessage.created_at
+      || lastMessage.created_time
+      || lastMessage.timestamp
+  );
   const rawType = normalizeText(raw.conversation_type || raw.type || raw.kind || lastMessage.type);
   const isComment = rawType.includes('comment') || Boolean(raw.post_id || raw.comment_id || lastMessage.comment_id);
   return {
@@ -267,23 +356,39 @@ export function normalizePancakeConversation(rawValue: unknown, config: Pick<Pan
     lastMessageTime: updatedAt,
     unreadCount: Math.max(0, asNumber(raw.unread_count ?? raw.unreadCount ?? (raw.unread ? 1 : 0))),
     updatedAt,
-    createdAt: toIso(raw.created_at || raw.createdAt, updatedAt)
+    createdAt: toIso(raw.created_at || raw.created_time || raw.createdAt, updatedAt)
   };
 }
 
 export function normalizePancakeMessage(rawValue: unknown, pageId: string, fallbackConversationType: 'INBOX' | 'COMMENT' = 'INBOX'): NormalizedMessage | null {
   const raw = asObject(rawValue);
   const nested = asObject(raw.message);
+  const data = asObject(raw.data);
   const externalMessageId = asString(raw.id || raw.message_id || raw.messageId || nested.id || raw.comment_id);
   const content = messageText(raw) || messageText(nested);
   const attachments = attachmentUrls(raw);
-  if (!externalMessageId && !content && attachments.length === 0) return null;
-  const sender = asObject(raw.from || raw.sender || nested.from || nested.sender || raw.user);
+  // Read receipts and unsupported system events may have an id but no visible
+  // content. They must not become empty chat bubbles.
+  if (!content && attachments.length === 0) return null;
+  const sender = asObject(raw.from || raw.sender || nested.from || nested.sender || raw.user || data.from || data.sender);
   const senderId = asString(sender.id || sender.uid || raw.sender_id || raw.from_id);
   const senderType = normalizeText(raw.sender_type || sender.type || raw.from_type);
   const fromPage = raw.is_from_page === true || raw.from_page === true || senderId === pageId || ['page', 'admin', 'agent', 'staff'].some(type => senderType.includes(type));
   const fromBot = raw.is_bot === true || senderType.includes('bot');
-  const timestamp = toIso(raw.created_at || raw.timestamp || raw.inserted_at || nested.created_at || nested.timestamp);
+  const timestamp = toIso(
+    raw.created_at
+      || raw.created_time
+      || raw.sent_at
+      || raw.timestamp
+      || raw.inserted_at
+      || nested.created_at
+      || nested.created_time
+      || nested.sent_at
+      || nested.timestamp
+      || data.created_at
+      || data.created_time
+      || data.timestamp
+  );
   return {
     externalMessageId: externalMessageId || hashId('EXT', pageId, timestamp, content, attachments.join(',')),
     sender: fromBot ? 'BOT' : fromPage ? 'STAFF' : 'CUSTOMER',
@@ -581,6 +686,13 @@ export async function getPancakeChannels(db: Firestore | null, actor: PancakeAct
     let branchError = '';
     try { branch = await resolvePancakeBranch(db, config); } catch (error: any) { branchError = error?.message || 'PANCAKE_BRANCH_NOT_FOUND'; }
     if (branch && !canAccessBranch(actor, branch.id)) continue;
+    const mappingSnapshot = await db.collection('pancakePageMappings').doc(config.pageId).get();
+    const lastWebhookValue = mappingSnapshot.data()?.lastWebhookAt;
+    const webhookStatus = !asString(process.env.PANCAKE_WEBHOOK_SECRET)
+      ? 'MISSING_SECRET'
+      : lastWebhookValue
+        ? 'RECEIVING'
+        : 'NOT_SEEN';
     channels.push({
       pageId: config.pageId,
       pageName: config.pageName,
@@ -589,6 +701,8 @@ export async function getPancakeChannels(db: Firestore | null, actor: PancakeAct
       historyDays: config.historyDays,
       includeComments: config.includeComments,
       status: branchError ? 'CONFIG_ERROR' : config.pageAccessToken ? 'READY' : 'MISSING_TOKEN',
+      webhookStatus,
+      ...(lastWebhookValue ? { lastWebhookAt: firestoreTimestampIso(lastWebhookValue) } : {}),
       error: branchError || undefined,
       requiredTokenEnv: config.pageAccessToken ? undefined : config.tokenEnv
     });
@@ -675,6 +789,98 @@ export async function listPancakeMessages(db: Firestore | null, conversationId: 
   return { items: snapshot.docs.map(clientMessage), warning: warning || undefined };
 }
 
+export async function repairPancakeEmptyMessages(
+  db: Firestore | null,
+  input: { pageId: string; limit?: number },
+  actor: PancakeActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isManager(actor)) throw new Error('PANCAKE_REPAIR_FORBIDDEN');
+  const config = configByPageId(asString(input.pageId));
+  const branch = await resolvePancakeBranch(db, config);
+  assertBranchAccess(actor, branch.id);
+  const limit = Math.min(10, Math.max(1, asNumber(input.limit, 5)));
+  const emptySnapshot = await db.collection('chatMessages')
+    .where('branchId', '==', branch.id)
+    .where('pageId', '==', config.pageId)
+    .where('content', '==', '')
+    .limit(limit)
+    .get();
+
+  if (emptySnapshot.empty) {
+    return { pageId: config.pageId, scanned: 0, conversations: 0, repaired: 0, removed: 0, failed: 0, hasMore: false };
+  }
+
+  const byConversation = new Map<string, any[]>();
+  for (const messageSnapshot of emptySnapshot.docs) {
+    const conversationId = asString(messageSnapshot.data().conversationId);
+    if (!conversationId) continue;
+    const current = byConversation.get(conversationId) || [];
+    current.push(messageSnapshot);
+    byConversation.set(conversationId, current);
+  }
+
+  const results = await Promise.allSettled([...byConversation.entries()].map(async ([conversationId, blankMessages]) => {
+    const conversationSnapshot = await db.collection('chatConversations').doc(conversationId).get();
+    if (!conversationSnapshot.exists) return { blankMessages, messages: [] as NormalizedMessage[], missingConversation: true };
+    const conversation = { id: conversationSnapshot.id, ...conversationSnapshot.data() } as any;
+    if (conversation.branchId !== branch.id || conversation.pageId !== config.pageId) throw new Error('PANCAKE_REPAIR_SCOPE_MISMATCH');
+    const messages = await fetchConversationMessages(config, conversation.externalConversationId, conversation.conversationType || 'INBOX');
+    await persistMessages(db, conversation, messages);
+    await conversationSnapshot.ref.set({ lastSyncedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return { blankMessages, messages, missingConversation: false };
+  }));
+
+  const cleanupBatch = db.batch();
+  let cleanupWrites = 0;
+  let repaired = 0;
+  let removed = 0;
+  let failed = 0;
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      failed += 1;
+      continue;
+    }
+    const normalizedIds = new Set(result.value.messages.map(message => message.externalMessageId));
+    for (const blankSnapshot of result.value.blankMessages) {
+      const data = blankSnapshot.data();
+      const attachments = Array.isArray(data.attachments) ? data.attachments.filter(Boolean) : [];
+      if (attachments.length) {
+        cleanupBatch.set(blankSnapshot.ref, { content: 'Đã gửi tệp đính kèm' }, { merge: true });
+        cleanupWrites += 1;
+        repaired += 1;
+      } else if (normalizedIds.has(asString(data.externalMessageId))) {
+        // persistMessages already rewrote this deterministic document with the
+        // corrected body produced by the new Pancake normalizer.
+        repaired += 1;
+      } else {
+        // The old record is a read receipt or another unsupported event. It had
+        // no visible content and should never render as a message.
+        cleanupBatch.delete(blankSnapshot.ref);
+        cleanupWrites += 1;
+        removed += 1;
+      }
+    }
+  }
+  if (cleanupWrites) await cleanupBatch.commit();
+
+  const remainingSnapshot = await db.collection('chatMessages')
+    .where('branchId', '==', branch.id)
+    .where('pageId', '==', config.pageId)
+    .where('content', '==', '')
+    .limit(1)
+    .get();
+  return {
+    pageId: config.pageId,
+    scanned: emptySnapshot.size,
+    conversations: byConversation.size,
+    repaired,
+    removed,
+    failed,
+    hasMore: !remainingSnapshot.empty
+  };
+}
+
 export async function syncPancakeConversations(db: Firestore | null, input: { pageId: string; cursor?: string }, actor: PancakeActor) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   if (!isManager(actor)) throw new Error('PANCAKE_SYNC_FORBIDDEN');
@@ -757,6 +963,16 @@ export async function processPancakeWebhook(db: Firestore | null, payload: unkno
   const pageId = identifyPancakeWebhookPageId(payload, fallbackPageId);
   const config = configByPageId(pageId);
   const branch = await resolvePancakeBranch(db, config);
+  const webhookRoot = webhookPayloadRoot(payload);
+  await db.collection('pancakePageMappings').doc(config.pageId).set({
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch.id,
+    branchName: branch.name,
+    isActive: true,
+    lastWebhookAt: FieldValue.serverTimestamp(),
+    lastWebhookEvent: asString(webhookRoot.event || webhookRoot.type || webhookRoot.action) || 'UNKNOWN'
+  }, { merge: true });
   const normalized = normalizePancakeWebhook(payload, config);
   if (!normalized) return { accepted: true, ignored: true, reason: 'UNSUPPORTED_EVENT' };
   const conversationDoc = conversationDocument(normalized.conversation, branch);
