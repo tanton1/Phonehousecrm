@@ -25,6 +25,7 @@ export interface LeadKanbanBoardProps {
   onUpdateLeadStatus: (leadId: string, newStatus: LeadStatus, lostReason?: string) => Promise<void> | void;
   onOpenCreateModal: () => void;
   onOpenCareModal?: (lead: Lead) => void;
+  canUpdateStatus?: boolean;
 }
 
 const STAGES: { id: LeadStatus; label: string; color: string; badgeBg: string }[] = [
@@ -56,7 +57,8 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
   onSelectLead,
   onUpdateLeadStatus,
   onOpenCreateModal,
-  onOpenCareModal
+  onOpenCareModal,
+  canUpdateStatus = true
 }) => {
   const [sourceFilter, setSourceFilter] = useState('ALL');
   const [selectedMobileStage, setSelectedMobileStage] = useState<string>('ALL');
@@ -76,9 +78,10 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
     contacted: 'negotiating',
     negotiating: 'appointment_scheduled',
     consulting: 'appointment_scheduled',
-    appointment_scheduled: 'deposit',
-    deposit: 'won',
-    deposit_paid: 'won',
+    // Đặt cọc phải được tạo từ nghiệp vụ thu tiền; WON chỉ được POS xác nhận cùng invoiceId.
+    appointment_scheduled: null,
+    deposit: null,
+    deposit_paid: null,
     won: null,
     lost: null
   };
@@ -188,6 +191,7 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
         {STAGES.map(stage => {
           const count = filteredLeads.filter(l => {
             if (stage.id === 'deposit') return l.status === 'deposit' || l.status === 'deposit_paid';
+            if (stage.id === 'negotiating') return l.status === 'negotiating' || l.status === 'consulting';
             return l.status === stage.id;
           }).length;
 
@@ -219,6 +223,7 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
             if (stage.id === 'deposit') {
               return l.status === 'deposit' || l.status === 'deposit_paid';
             }
+            if (stage.id === 'negotiating') return l.status === 'negotiating' || l.status === 'consulting';
             return l.status === stage.id;
           });
 
@@ -308,7 +313,7 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
                           )}
 
                           <div className="flex items-center space-x-1">
-                            {stage.id !== 'won' && stage.id !== 'lost' && (
+                            {canUpdateStatus && stage.id !== 'won' && stage.id !== 'lost' && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -322,7 +327,7 @@ export const LeadKanbanBoard: React.FC<LeadKanbanBoardProps> = ({
                               </button>
                             )}
 
-                            {nextStage && (
+                            {canUpdateStatus && nextStage && (
                               <button
                                 type="button"
                                 onClick={(e) => {

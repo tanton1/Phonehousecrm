@@ -1,6 +1,9 @@
 import { NAVIGATION_GROUPS, NavigationGroup, NavigationItem } from './navigationConfig';
 
 export function isItemAuthorized(item: NavigationItem, userRole: string = 'SALES'): boolean {
+  if (userRole === 'CUSTOMER_CARE' || userRole === 'CSKH') {
+    return ['dashboard', 'crm', 'omnichannel-chat', 'hr-attendance', 'staff-hr', 'checkin-portal'].includes(item.id);
+  }
   if (!item.roles || item.roles.length === 0) return true;
   if (userRole === 'ADMIN') return true;
   return item.roles.includes(userRole);

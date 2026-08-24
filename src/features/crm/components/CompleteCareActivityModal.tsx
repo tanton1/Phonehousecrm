@@ -21,6 +21,7 @@ import {
   calculateCareQualityBreakdown, 
   OBJECTION_TAXONOMY 
 } from '../utils/crmEngine';
+import { uploadCrmEvidence } from '../../../services/crmEvidenceService';
 import { 
   Phone, 
   MessageSquare, 
@@ -93,15 +94,15 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
   const [objectionCategory, setObjectionCategory] = useState<ObjectionCategory | ''>('');
   const [objectionCode, setObjectionCode] = useState<ObjectionCode | ''>('');
   const [competitorName, setCompetitorName] = useState('');
-  const [storePrice, setStorePrice] = useState<number>(lead.budget || 28990000);
-  const [competitorPrice, setCompetitorPrice] = useState<number>(28200000);
-  const [customerExpectedPrice, setCustomerExpectedPrice] = useState<number>(28000000);
+  const [storePrice, setStorePrice] = useState<number>(0);
+  const [competitorPrice, setCompetitorPrice] = useState<number>(0);
+  const [customerExpectedPrice] = useState<number>(0);
 
   // Step 4: Evidence
-  const [evidenceType, setEvidenceType] = useState<EvidenceType>('CALL_LOG');
-  const [callDurationSeconds, setCallDurationSeconds] = useState<number>(45);
+  const [evidenceType, setEvidenceType] = useState<EvidenceType>('SELF_REPORTED');
+  const [callDurationSeconds, setCallDurationSeconds] = useState<number>(0);
   const [screenshotFileName, setScreenshotFileName] = useState<string>('');
-  const [screenshotBase64, setScreenshotBase64] = useState<string>('');
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
 
   // Step 5: Next Action
   const [nextActionType, setNextActionType] = useState<'CALL' | 'ZALO' | 'SEND_QUOTE' | 'APPOINTMENT' | 'LONG_TERM_NURTURE' | 'CLOSE_DEAL'>('CALL');
@@ -109,7 +110,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
     const tomorrow = new Date(Date.now() + 86400000);
     return `${getVietnamDateString(tomorrow)} 09:30`;
   });
-  const [nextActionNotes, setNextActionNotes] = useState('Theo dõi phản hồi & giải đáp thắc mắc thêm');
+  const [nextActionNotes, setNextActionNotes] = useState('');
 
   // Price gap calculation
   const priceGap = useMemo(() => {
@@ -138,12 +139,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
     const file = e.target.files?.[0];
     if (file) {
       setScreenshotFileName(file.name);
-      const reader = new FileReader();
-      reader.onload = () => {
-        setScreenshotBase64(reader.result as string);
-        setEvidenceType('SCREENSHOT_UPLOAD');
-      };
-      reader.readAsDataURL(file);
+      setScreenshotFile(file);
+      setEvidenceType('SCREENSHOT_UPLOAD');
     }
   };
 
@@ -191,6 +188,9 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
 
     setIsSubmitting(true);
     try {
+      const uploadedScreenshotUrl = screenshotFile
+        ? await uploadCrmEvidence(lead.id, screenshotFile)
+        : undefined;
       const isMeaningful = outcome === 'CONNECTED' || outcome === 'REPLIED' || outcome === 'APPOINTMENT_CREATED' || outcome === 'DEPOSIT_CREATED';
       const meaningfulCareNo = isMeaningful ? nextMeaningfulNo : undefined;
 
@@ -253,7 +253,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
           callStartedAt: channel === 'CALL' ? getVietnamDateTimeString() : undefined,
           conversationId: (channel === 'ZALO' || channel === 'FACEBOOK') ? `CONV_${lead.phoneNormalized || lead.phone}` : undefined,
           messageCount: (channel === 'ZALO' || channel === 'FACEBOOK') ? 3 : undefined,
-          screenshotUrl: screenshotBase64 || undefined,
+          screenshotUrl: uploadedScreenshotUrl,
           screenshotFileName: screenshotFileName || undefined
         },
         qualityScoreBreakdown: qualityBreakdown,
@@ -325,8 +325,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
   const currentBranchName = branches.find(b => b.id === (currentUser?.branchId || lead.branchId))?.name || 'Chi Nhánh Showroom';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-950/80 backdrop-blur-sm animate-fadeIn overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden my-auto animate-scaleUp">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/80 backdrop-blur-sm animate-fadeIn sm:items-center sm:p-4">
+      <div className="relative flex h-[100dvh] w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl animate-scaleUp sm:h-auto sm:max-h-[94vh] sm:rounded-3xl sm:border sm:border-zinc-200">
         
         {/* Header */}
         <div className="bg-gradient-to-r from-orange-500 to-[#FF4B16] p-5 sm:p-6 text-white relative">
@@ -398,7 +398,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
         )}
 
         {/* Body */}
-        <div className="p-5 sm:p-6 max-h-[60vh] overflow-y-auto space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
           
           {/* STEP 1: Channel & Action */}
           {step === 1 && (

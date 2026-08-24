@@ -156,15 +156,7 @@ service cloud.firestore {
     // LEADS: Status transition, assignment & WON linkage are Server Authoritative Only via /api/crm/leads/transition
     match /leads/{leadId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
-      allow create: if isAuthenticated() && canAccessBranch(request.resource.data.branchId) &&
-        request.resource.data.status == 'new';
-      allow update: if isAuthenticated() && 
-        canAccessBranch(resource.data.branchId) && 
-        canAccessBranch(request.resource.data.branchId) &&
-        request.resource.data.status == resource.data.status && // Status transitions must go through Server API
-        (!('wonInvoiceId' in request.resource.data) || request.resource.data.wonInvoiceId == resource.data.wonInvoiceId) &&
-        (!('assignedStaffId' in request.resource.data) || isManager() || request.resource.data.assignedStaffId == resource.data.assignedStaffId);
-      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
+      allow write: if false; // Tạo, chăm sóc, phân công và chuyển trạng thái chỉ qua /api/crm.
     }
 
     match /tradeIns/{tradeInId} {
@@ -454,51 +446,43 @@ service cloud.firestore {
       allow read: if isAdmin() || (
         isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid)
       );
-      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId) && (
-        isManager() || (request.resource.data.verificationStatus != 'MANAGER_VERIFIED')
-      );
-      allow update: if isAuthenticated() && isActiveUser() && (
-        (isManager() && canAccessBranch(resource.data.branchId)) || (
-          canAccessBranch(resource.data.branchId) &&
-          resource.data.staffId == request.auth.uid &&
-          resource.data.verificationStatus != 'MANAGER_VERIFIED' &&
-          request.resource.data.verificationStatus != 'MANAGER_VERIFIED' &&
-          (!('qaReview' in request.resource.data) || request.resource.data.qaReview == resource.data.qaReview)
-        )
-      );
-      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
+      allow write: if false;
     }
 
     match /leadAppointments/{apptId} {
       allow read: if isAdmin() || (
         isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.assignedStaffId == request.auth.uid || resource.data.staffId == request.auth.uid)
       );
-      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId);
-      allow update: if isAuthenticated() && isActiveUser() && (
-        isAdmin() || (isManager() && canAccessBranch(resource.data.branchId)) || (
-          canAccessBranch(resource.data.branchId) && (resource.data.assignedStaffId == request.auth.uid || resource.data.staffId == request.auth.uid)
-        )
-      );
-      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
+      allow write: if false;
     }
 
     match /leadQuotes/{quoteId} {
       allow read: if isAdmin() || (
         isActiveUser() && (canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid)
       );
-      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId);
-      allow update: if isAuthenticated() && isActiveUser() && (
-        isAdmin() || (isManager() && canAccessBranch(resource.data.branchId)) || (
-          canAccessBranch(resource.data.branchId) && resource.data.staffId == request.auth.uid
-        )
-      );
-      allow delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
+      allow write: if false;
     }
 
     match /leadEvidence/{evidenceId} {
       allow read: if isAdmin() || (isActiveUser() && canAccessBranch(resource.data.branchId));
-      allow create: if isAuthenticated() && isActiveUser() && canAccessBranch(request.resource.data.branchId);
-      allow update, delete: if isAdmin() || (isManager() && canAccessBranch(resource.data.branchId));
+      allow write: if false;
+    }
+
+    match /crmOperations/{operationId} {
+      allow read, write: if false;
+    }
+
+    match /crmPhoneRegistry/{phoneId} {
+      allow read, write: if false;
+    }
+
+    match /crmCustomerProfiles/{customerId} {
+      allow read, write: if false; // Hồ sơ 360 chỉ trả qua API có kiểm tra chi nhánh/quyền sở hữu.
+    }
+
+    match /leadAssignmentHistory/{historyId} {
+      allow read: if isAdmin() || isManager();
+      allow write: if false;
     }
 
     match /customerActivities/{activityId} {

@@ -114,7 +114,7 @@ export async function processCareActivityReview(
   }
 
   // 1. Role Verification: Admin or Manager required
-  const isAuthorized = reviewerRole === 'ADMIN' || reviewerRole === 'MANAGER';
+  const isAuthorized = ['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(String(reviewerRole || '').toUpperCase());
   if (!isAuthorized) {
     throw new Error('PERMISSION_DENIED: Chỉ Quản lý cửa hàng (Manager) hoặc Quản trị viên (Admin) mới có quyền duyệt QA chăm sóc.');
   }

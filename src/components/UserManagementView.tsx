@@ -304,6 +304,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-50 text-rose-700 border border-rose-200 flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Quản Lý Cửa Hàng</span>;
       case 'SALES':
         return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1"><BadgePercent className="w-3 h-3" /> Nhân Viên Bán Hàng</span>;
+      case 'CUSTOMER_CARE':
+        return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-cyan-50 text-cyan-700 border border-cyan-200 flex items-center gap-1"><Users className="w-3 h-3" /> Chăm Sóc Khách Hàng</span>;
       case 'TECHNICIAN':
         return <span className="px-2.5 py-1 text-xs font-bold rounded-lg bg-orange-50 text-orange-700 border border-orange-200 flex items-center gap-1"><Smartphone className="w-3 h-3" /> Kỹ Thuật Viên</span>;
       case 'ACCOUNTANT':
@@ -395,6 +397,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 <option value="ADMIN">Quản Trị Viên (Admin)</option>
                 <option value="MANAGER">Quản Lý Cửa Hàng (Manager)</option>
                 <option value="SALES">Nhân Viên Bán Hàng (Sales)</option>
+                <option value="CUSTOMER_CARE">Chăm Sóc Khách Hàng (CSKH)</option>
                 <option value="TECHNICIAN">Kỹ Thuật Viên (Technician)</option>
                 <option value="ACCOUNTANT">Kế Toán (Accountant)</option>
               </select>
@@ -714,6 +717,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                   <option value="ADMIN">🔴 Quản Trị Viên (Root Admin - Toàn quyền)</option>
                   <option value="MANAGER">🟣 Quản Lý Cửa Hàng (Store Manager - Xem giá vốn, duyệt thu cũ)</option>
                   <option value="SALES">🟠 Nhân Viên Bán Hàng (Sales Rep - Bán POS, ẩn giá vốn)</option>
+                  <option value="CUSTOMER_CARE">🩵 Chăm Sóc Khách Hàng (CRM trước/sau bán)</option>
                   <option value="TECHNICIAN">🔵 Kỹ Thuật Viên (Technician - Tiếp nhận bảo hành, sửa chữa)</option>
                   <option value="ACCOUNTANT">🟢 Kế Toán / Thu Ngân (Accountant - Kiểm soát hóa đơn, dòng tiền)</option>
                 </select>

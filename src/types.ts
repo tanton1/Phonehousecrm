@@ -927,7 +927,18 @@ export interface CRMTask {
   id: string;
   leadId?: string;
   customerId?: string;
-  type: 'NEW_LEAD_SLA' | 'CARE_FOLLOW_UP' | 'APPOINTMENT_REMINDER' | 'NO_SHOW_RECOVERY' | 'QUOTE_EXPIRY' | 'PAYDAY_NURTURE' | 'STOCK_AVAILABLE';
+  type:
+    | 'NEW_LEAD_SLA'
+    | 'CARE_FOLLOW_UP'
+    | 'APPOINTMENT_REMINDER'
+    | 'NO_SHOW_RECOVERY'
+    | 'QUOTE_EXPIRY'
+    | 'PAYDAY_NURTURE'
+    | 'STOCK_AVAILABLE'
+    | 'POST_SALE_FOLLOW_UP'
+    | 'CUSTOMER_RECOVERY'
+    | 'WARRANTY_FOLLOW_UP';
+  scope?: 'PRE_SALE' | 'POST_SALE';
   priority: 'P0' | 'P1' | 'P2' | 'P3';
   dueAt: string;
   assignedStaffId: string;
@@ -935,10 +946,15 @@ export interface CRMTask {
   branchId: string;
   title: string;
   description?: string;
-  sourceEntityType?: 'LEAD' | 'CARE_ACTIVITY' | 'APPOINTMENT' | 'QUOTE';
+  sourceEntityType?: 'LEAD' | 'CARE_ACTIVITY' | 'APPOINTMENT' | 'QUOTE' | 'INVOICE' | 'WARRANTY';
   sourceEntityId?: string;
   status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  completedBy?: string;
+  outcome?: string;
+  updatedAt?: string;
 }
 
 export interface LeadNextAction {
@@ -956,7 +972,7 @@ export interface Lead {
   phone: string;
   phoneNormalized?: string;
   zalo?: string;
-  source: 'Facebook Ads' | 'TikTok' | 'Zalo OA' | 'Khách Vãng Lai' | 'Khách Quen Giới Thiệu';
+  source: string;
   interestedModel: string;
   budget: number;
   tradeInRequirose: boolean;
@@ -979,6 +995,18 @@ export interface Lead {
   lostReasonDetails?: string;
   assignedStaff: string;
   assignedStaffId?: string;
+  salesOwnerId?: string;
+  salesOwnerName?: string;
+  customerCareOwnerId?: string;
+  customerCareOwnerName?: string;
+  assignmentMode?: 'AUTO_SHIFT_LOAD' | 'MANUAL' | 'CREATOR_FALLBACK' | 'LEGACY';
+  assignmentVersion?: number;
+  currentTaskId?: string;
+  firstResponseDueAt?: string;
+  firstRespondedAt?: string;
+  lastActivitySummary?: string;
+  openTaskCount?: number;
+  overdueTaskCount?: number;
   followUpDate: string;
   nextAction?: LeadNextAction;
   nextActionAt?: string;
@@ -987,6 +1015,10 @@ export interface Lead {
   lastContactedAt?: string;
   notes: string;
   lastMessageSnippet?: string;
+  updatedAt?: string;
+  wonAt?: string;
+  wonInvoiceId?: string;
+  lostAt?: string;
 }
 
 export interface TradeInAppraisal {
@@ -1228,7 +1260,7 @@ export interface ERPNextModuleDocType {
   }[];
 }
 
-export type UserRole = 'ADMIN' | 'MANAGER' | 'SALES' | 'TECHNICIAN' | 'ACCOUNTANT';
+export type UserRole = 'ADMIN' | 'MANAGER' | 'SALES' | 'CUSTOMER_CARE' | 'TECHNICIAN' | 'ACCOUNTANT';
 
 export interface UserAccount {
   id: string;
@@ -1409,6 +1441,7 @@ export interface Partner {
 export type StaffRole = 
   | 'SALES'          // Nhân viên bán hàng showroom
   | 'SALE_ONLINE'    // Sale Online / Trực page / Telesale
+  | 'CUSTOMER_CARE'  // Chăm sóc khách hàng trước/sau bán
   | 'TECHNICIAN'     // Kỹ thuật viên sửa chữa & kiểm định
   | 'CASHIER'        // Thu ngân
   | 'WAREHOUSE'      // Thủ kho

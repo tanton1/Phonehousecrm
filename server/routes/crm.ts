@@ -9,15 +9,184 @@ import {
 import { emitCrmEvent, normalizeCustomerId } from '../services/crmEventService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
+import {
+  getCrmCustomer360,
+  getCrmDashboard,
+  getCrmDispatchBoard,
+  getCrmWorkQueue,
+  listCrmCareActivities,
+  listCrmLeads,
+  processAssignCrmLead,
+  processCreateCrmAppointment,
+  processCreateCrmLead,
+  processCreateCrmQuote,
+  processCrmCare,
+  processUpdateCrmAppointment
+} from '../services/crmOperationsService';
+
+function crmActor(req: Request) {
+  return {
+    uid: req.user!.uid,
+    role: req.user!.role,
+    branchId: req.user!.branchId,
+    assignedBranchIds: req.user!.assignedBranchIds,
+    name: req.user!.name || req.user!.email || req.user!.uid
+  };
+}
+
+function crmErrorStatus(error: any) {
+  const message = String(error?.message || 'CRM_REQUEST_FAILED');
+  if (/FORBIDDEN|OWNERSHIP/.test(message)) return 403;
+  if (/NOT_FOUND/.test(message)) return 404;
+  if (/DUPLICATE|ALREADY|IDEMPOTENCY|CONFLICT/.test(message)) return 409;
+  return 400;
+}
+
+function sendCrmError(res: Response, error: any) {
+  return res.status(crmErrorStatus(error)).json({ success: false, error: error?.message || 'CRM_REQUEST_FAILED' });
+}
 
 export function createCrmRouter(db: Firestore | null): Router {
   const router = Router();
+
+  /** CRM Hub lists only the requested branch/owner page; it never streams the whole collection. */
+  router.get('/leads', authenticateFirebase, async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await listCrmLeads(db, {
+        branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+        ownerId: typeof req.query.ownerId === 'string' ? req.query.ownerId : undefined,
+        status: typeof req.query.status === 'string' ? req.query.status : undefined,
+        source: typeof req.query.source === 'string' ? req.query.source : undefined,
+        search: typeof req.query.search === 'string' ? req.query.search : undefined,
+        cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined
+      }, crmActor(req));
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.post('/leads', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processCreateCrmLead(db, req.body || {}, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.get('/work-queue', authenticateFirebase, async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await getCrmWorkQueue(db, {
+        branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+        ownerId: typeof req.query.ownerId === 'string' ? req.query.ownerId : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined
+      }, crmActor(req));
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.get('/care/activities', authenticateFirebase, async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await listCrmCareActivities(db, {
+        branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+        staffId: typeof req.query.staffId === 'string' ? req.query.staffId : undefined,
+        verificationStatus: typeof req.query.verificationStatus === 'string' ? req.query.verificationStatus : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined
+      }, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.post('/leads/:leadId/assign', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processAssignCrmLead(db, { ...req.body, leadId: req.params.leadId }, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.post('/leads/:leadId/care', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processCrmCare(db, { ...req.body, leadId: req.params.leadId }, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.post('/appointments', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processCreateCrmAppointment(db, req.body || {}, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.patch('/appointments/:appointmentId', authenticateFirebase, async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processUpdateCrmAppointment(db, req.params.appointmentId, req.body || {}, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.post('/quotes', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await processCreateCrmQuote(db, req.body || {}, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.get('/customers/:leadId/360', authenticateFirebase, async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await getCrmCustomer360(db, req.params.leadId, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.get('/dashboard', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await getCrmDashboard(db, {
+        branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+        dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined,
+        dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined
+      }, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
+
+  router.get('/dispatch', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const branchId = String(req.query.branchId || req.user?.branchId || '');
+      return res.json({ success: true, data: await getCrmDispatchBoard(db, branchId, crmActor(req)) });
+    } catch (error: any) {
+      return sendCrmError(res, error);
+    }
+  });
 
   /**
    * 1. Authoritative QA Review Endpoint (Requires Admin or Manager)
    * POST /api/crm/care/review
    */
-  router.post('/care/review', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
+  router.post('/care/review', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
     try {
       if (!db) {
         return res.status(503).json({

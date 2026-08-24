@@ -12,7 +12,8 @@ export function resolveStaffDepartment(staff: Pick<StaffMember, 'role' | 'depart
   }
   const role = String(staff.role || '').toUpperCase();
   if (['TECH', 'TECHNICIAN', 'TECH_LEAD'].includes(role)) return { id: 'TECHNICAL', name: 'Kỹ thuật' };
-  if (['SALES', 'SALE', 'SALE_ONLINE', 'CASHIER', 'CSKH'].includes(role)) return { id: 'SALES', name: 'Bán hàng & CSKH' };
+  if (['SALES', 'SALE', 'SALE_ONLINE', 'CASHIER'].includes(role)) return { id: 'SALES', name: 'Bán hàng' };
+  if (['CUSTOMER_CARE', 'CSKH'].includes(role)) return { id: 'CUSTOMER_CARE', name: 'Chăm sóc khách hàng' };
   if (['WAREHOUSE', 'INVENTORY_MANAGER'].includes(role)) return { id: 'WAREHOUSE', name: 'Kho hàng' };
   if (role === 'ACCOUNTANT') return { id: 'FINANCE', name: 'Kế toán' };
   if (['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(role)) return { id: 'MANAGEMENT', name: 'Quản lý' };

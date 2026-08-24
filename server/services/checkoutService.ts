@@ -2,6 +2,7 @@ import { Firestore, FieldValue, DocumentReference } from 'firebase-admin/firesto
 import crypto from 'crypto';
 import { imeiRegistryId, normalizeImei } from './inventoryDeviceService';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
+import { buildCrmSearchPrefixes, normalizeCrmPhone, prepareCrmPostSalePlan } from './crmOperationsService';
 
 export interface CheckoutResult {
   success: boolean;
@@ -127,6 +128,24 @@ export async function executeAtomicCheckout(
     } : null
   };
   const currentPayloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayloadObj)).digest('hex');
+  const checkoutBranchForCare = payload.branchId || payload.invoice?.branchId || authenticatedStaff?.branchId || 'CN01';
+  const rawCustomerPhone = String(payload.customerPhone || payload.invoice?.customerPhone || payload.customerPartner?.phone || '').trim();
+  let normalizedCustomerPhone = '';
+  try { normalizedCustomerPhone = rawCustomerPhone ? normalizeCrmPhone(rawCustomerPhone) : ''; } catch { normalizedCustomerPhone = ''; }
+  let postSalePlan: Awaited<ReturnType<typeof prepareCrmPostSalePlan>> | null = null;
+  if (normalizedCustomerPhone || payload.leadId || payload.invoice?.leadId) {
+    try {
+      postSalePlan = await prepareCrmPostSalePlan(db, checkoutBranchForCare, {
+        id: authenticatedStaff?.uid || 'SYSTEM', name: authenticatedStaff?.name || 'Nhân viên bán hàng'
+      });
+    } catch {
+      // POS must not fail just because no CSKH shift has been configured yet.
+      postSalePlan = {
+        assignee: { id: authenticatedStaff?.uid || 'SYSTEM', name: authenticatedStaff?.name || 'Nhân viên bán hàng', role: authenticatedStaff?.role || 'SALES', openTasks: 0, scheduledNow: true },
+        days: [1, 3, 7, 30], policyId: 'CRM_SAFE_DEFAULT', policyVersion: '1'
+      };
+    }
+  }
 
   return await db.runTransaction(async (transaction) => {
     // 1. Real Idempotency Check with Payload Hash Verification
@@ -629,6 +648,10 @@ export async function executeAtomicCheckout(
     const newInvRef = db.collection('invoices').doc();
     const invoiceId = payload.invoice?.id || newInvRef.id;
     const invoiceCode = payload.invoice?.invoiceCode || `HD-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const effectiveLeadId = checkoutLeadId || (normalizedCustomerPhone ? `LEAD_POS_${invoiceId}` : '');
+    const checkoutLeadData = leadSnap && typeof (leadSnap as any).data === 'function' ? (leadSnap as any).data() : null;
+    const effectiveCustomerId = customerId || checkoutLeadData?.customerId
+      || (normalizedCustomerPhone ? `CUST_${normalizedCustomerPhone}` : `CUST_LEAD_${String(effectiveLeadId || invoiceId).replace(/[^A-Za-z0-9_-]/g, '_')}`);
 
     // 8. Single Writer: Mark Devices as Sold in POS Transaction & Release/Consume Reservations
     for (const dev of loadedDevices) {
@@ -753,7 +776,7 @@ export async function executeAtomicCheckout(
       branchId,
       warehouseId,
       customerId: payload.customerId || payload.customerPartner?.id || null,
-      leadId: checkoutLeadId || null,
+      leadId: effectiveLeadId || null,
       quoteId: payload.quoteId || null,
       customerName: payload.customerName || payload.invoice?.customerName || 'Khách vãng lai',
       customerPhone: payload.customerPhone || payload.invoice?.customerPhone || '',
@@ -1048,16 +1071,69 @@ export async function executeAtomicCheckout(
       }
     }
 
-    // 15. If LeadId attached, update Lead status to WON
-    if (checkoutLeadId && leadRef && leadSnap) {
-      if (leadSnap.exists) {
-        transaction.update(leadRef, {
-          status: 'won',
-          wonInvoiceId: invoiceId,
-          wonAt: new Date().toISOString(),
-          updatedAt: FieldValue.serverTimestamp()
+    // 15. Link the sale to CRM and schedule after-sale care. This stays in the
+    // same checkout transaction, so an invoice can never exist without its
+    // corresponding WON state and follow-up tasks.
+    if (effectiveLeadId && postSalePlan) {
+      const effectiveLeadRef = checkoutLeadId && leadRef ? leadRef : db.collection('leads').doc(effectiveLeadId);
+      const nowIso = new Date().toISOString();
+      const firstDueAt = new Date(Date.now() + postSalePlan.days[0] * 86_400_000).toISOString();
+      const customerName = String(invoiceRecord.customerName || 'Khách hàng').trim();
+      const interestedModel = loadedDevices.map(device => device.data.model).filter(Boolean).join(', ')
+        || loadedAccessories.map(accessory => accessory.data.name).filter(Boolean).join(', ')
+        || 'Đơn hàng tại PhoneHouse';
+      const leadUpdate = {
+        status: 'won', wonInvoiceId: invoiceId, wonAt: nowIso,
+        customerCareOwnerId: postSalePlan.assignee.id, customerCareOwnerName: postSalePlan.assignee.name,
+        nextActionAt: firstDueAt, followUpDate: firstDueAt,
+        nextActionNotes: `Chăm sóc sau bán hóa đơn ${invoiceCode}`,
+        currentTaskId: `TASK_POSTSALE_${invoiceId}_${postSalePlan.days[0]}`,
+        openTaskCount: postSalePlan.days.length, overdueTaskCount: 0,
+        updatedAt: FieldValue.serverTimestamp()
+      };
+      if (checkoutLeadId && leadSnap?.exists) {
+        transaction.update(effectiveLeadRef, leadUpdate);
+      } else {
+        transaction.set(effectiveLeadRef, {
+          id: effectiveLeadId, customerId: effectiveCustomerId, branchId,
+          name: customerName, phone: rawCustomerPhone, phoneNormalized: normalizedCustomerPhone,
+          source: 'POS', interestedModel, budget: finalAmount, tradeInRequirose: Boolean(loadedTradeIn),
+          status: 'won', careStatus: 'CARE_1_PENDING', careAttempts: 0, meaningfulCareCount: 0, careQualityScore: 0,
+          assignedStaff: authenticatedStaff?.name || 'Nhân viên bán hàng', assignedStaffId: authenticatedStaff?.uid || 'SYSTEM',
+          salesOwnerId: authenticatedStaff?.uid || 'SYSTEM', salesOwnerName: authenticatedStaff?.name || 'Nhân viên bán hàng',
+          customerCareOwnerId: postSalePlan.assignee.id, customerCareOwnerName: postSalePlan.assignee.name,
+          assignmentMode: 'AUTO_SHIFT_LOAD', assignmentVersion: 1, followUpDate: firstDueAt, nextActionAt: firstDueAt,
+          nextActionNotes: `Chăm sóc sau bán hóa đơn ${invoiceCode}`, currentTaskId: `TASK_POSTSALE_${invoiceId}_${postSalePlan.days[0]}`,
+          openTaskCount: postSalePlan.days.length, overdueTaskCount: 0, wonInvoiceId: invoiceId, wonAt: nowIso,
+          notes: `Khách mua theo hóa đơn ${invoiceCode}`, searchPrefixes: buildCrmSearchPrefixes(customerName, normalizedCustomerPhone, interestedModel),
+          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
         });
       }
+      postSalePlan.days.forEach((day, index) => {
+        const taskId = `TASK_POSTSALE_${invoiceId}_${day}`;
+        transaction.set(db.collection('crmTasks').doc(taskId), {
+          id: taskId, leadId: effectiveLeadId, customerId: effectiveCustomerId,
+          type: 'POST_SALE_FOLLOW_UP', scope: 'POST_SALE', priority: index === 0 ? 'P1' : index < 3 ? 'P2' : 'P3',
+          dueAt: new Date(Date.now() + day * 86_400_000).toISOString(), assignedStaffId: postSalePlan!.assignee.id,
+          assignedStaffName: postSalePlan!.assignee.name, branchId, title: `CSKH ngày ${day}: ${customerName}`,
+          description: `Hỏi trải nghiệm sử dụng, hỗ trợ và ghi nhận phản hồi cho hóa đơn ${invoiceCode}.`,
+          sourceEntityType: 'INVOICE', sourceEntityId: invoiceId, status: 'PENDING',
+          policyId: postSalePlan!.policyId, policyVersion: postSalePlan!.policyVersion,
+          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+        });
+      });
+      transaction.set(db.collection('crmCustomerProfiles').doc(effectiveCustomerId), {
+        id: effectiveCustomerId, branchId, name: customerName, phone: rawCustomerPhone,
+        phoneNormalized: normalizedCustomerPhone, lastLeadId: effectiveLeadId, lastInvoiceId: invoiceId,
+        customerCareOwnerId: postSalePlan.assignee.id, customerCareOwnerName: postSalePlan.assignee.name,
+        totalSpent: FieldValue.increment(finalAmount), updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      transaction.set(db.collection('customerActivities').doc(`SALE_${invoiceId}`), {
+        id: `SALE_${invoiceId}`, customerId: effectiveCustomerId, leadId: effectiveLeadId,
+        type: 'PURCHASE', entityId: invoiceId, staffId: authenticatedStaff?.uid || 'SYSTEM',
+        staffName: authenticatedStaff?.name || 'Nhân viên bán hàng', branchId,
+        summary: `Mua hàng theo hóa đơn ${invoiceCode}`, details: { finalAmount, invoiceCode }, createdAt: FieldValue.serverTimestamp()
+      });
     }
 
     // 16. Commit Idempotency Record (Includes Canonical Payload Hash)

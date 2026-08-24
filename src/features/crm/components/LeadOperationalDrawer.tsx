@@ -100,23 +100,24 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
   // Lead Temperature & Priority calculation
   const temp = calculateLeadTemperature(lead);
   const prio = calculateLeadPriority(lead);
+  const canCreateQuote = ['ADMIN', 'MANAGER', 'SALES'].includes(String(currentUser?.role || ''));
 
   // Appointment Form State
   const [isCreatingAppt, setIsCreatingAppt] = useState(false);
   const [apptDate, setApptDate] = useState<string>(() => {
     const tomorrow = new Date(Date.now() + 86400000);
-    return `${getVietnamDateString(tomorrow)} 15:00`;
+    return tomorrow.toISOString().slice(0, 11) + '15:00';
   });
-  const [apptBranchId, setApptBranchId] = useState<string>(lead.branchId || currentUser?.branchId || branches[0]?.id || 'CN01');
-  const [apptNotes, setApptNotes] = useState<string>('Khách ghé trải nghiệm máy');
+  const [apptBranchId, setApptBranchId] = useState<string>(lead.branchId || currentUser?.branchId || branches[0]?.id || '');
+  const [apptNotes, setApptNotes] = useState<string>('');
 
   // Quote Form State
   const [isCreatingQuote, setIsCreatingQuote] = useState(false);
-  const [quoteModel, setQuoteModel] = useState<string>(lead.interestedModel || 'iPhone 16 Pro Max 256GB');
-  const [quoteUnitPrice, setQuoteUnitPrice] = useState<number>(lead.budget || 28990000);
-  const [quoteTradeInSubsidy, setQuoteTradeInSubsidy] = useState<number>(lead.tradeInRequirose ? 12000000 : 0);
-  const [quoteDiscount, setQuoteDiscount] = useState<number>(500000);
-  const [quoteWarrantyPackage, setQuoteWarrantyPackage] = useState<string>('Bảo hành VIP 12 tháng 1 đổi 1');
+  const [quoteModel, setQuoteModel] = useState<string>(lead.interestedModel || '');
+  const [quoteUnitPrice, setQuoteUnitPrice] = useState<number>(0);
+  const [quoteTradeInSubsidy, setQuoteTradeInSubsidy] = useState<number>(0);
+  const [quoteDiscount, setQuoteDiscount] = useState<number>(0);
+  const [quoteWarrantyPackage, setQuoteWarrantyPackage] = useState<string>('');
   const [quoteReservedDeviceId, setQuoteReservedDeviceId] = useState<string>('');
 
   const quoteFinalPrice = quoteUnitPrice - quoteTradeInSubsidy - quoteDiscount;
@@ -152,7 +153,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
     e.preventDefault();
     const effectiveStaffId = currentUser?.id || lead.assignedStaffId || 'STAFF';
     const effectiveStaffName = currentUser?.displayName || lead.assignedStaff || 'Chuyên viên';
-    const effectiveBranchId = currentUser?.branchId || lead.branchId || branches[0]?.id || 'CN01';
+    const effectiveBranchId = currentUser?.branchId || lead.branchId || branches[0]?.id || '';
 
     const newQuote: LeadQuote = {
       id: `QUOTE_${lead.id}_${Date.now()}`,
@@ -227,7 +228,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                   <span>•</span>
                   <span className="text-zinc-200">{lead.interestedModel}</span>
                   <span>•</span>
-                  <span className="font-bold text-emerald-400">~{lead.budget.toLocaleString('vi-VN')} đ</span>
+                  <span className="font-bold text-emerald-400">~{Number(lead.budget || 0).toLocaleString('vi-VN')} đ</span>
                 </div>
               </div>
             </div>
@@ -268,7 +269,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
               <span>+ Chăm sóc</span>
             </button>
 
-            <button
+            {canCreateQuote && <button
               onClick={() => {
                 setActiveTab('QUOTES');
                 setIsCreatingQuote(true);
@@ -277,7 +278,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
             >
               <FileText className="w-3.5 h-3.5 text-amber-400" />
               <span>+ Báo giá</span>
-            </button>
+            </button>}
 
             <button
               onClick={() => {
@@ -465,15 +466,15 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                 <h4 className="text-xs font-black uppercase tracking-wider text-zinc-900">
                   Bảng Báo Giá Đã Gửi Khách ({leadQuotes.length})
                 </h4>
-                <button
+                {canCreateQuote && <button
                   onClick={() => setIsCreatingQuote(!isCreatingQuote)}
                   className="px-3 py-1.5 rounded-xl bg-[#FF4B16] text-white text-xs font-bold hover:bg-[#E94312] cursor-pointer"
                 >
                   {isCreatingQuote ? 'Đóng form' : '+ Tạo báo giá mới'}
-                </button>
+                </button>}
               </div>
 
-              {isCreatingQuote && (
+              {canCreateQuote && isCreatingQuote && (
                 <form onSubmit={handleCreateQuoteSubmit} className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200 space-y-3 text-xs">
                   <div className="font-bold text-zinc-900 text-sm">Soạn bảng báo giá & Giữ tồn kho</div>
                   
@@ -491,6 +492,8 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                       <label className="text-[11px] font-bold text-zinc-600 block mb-1">Giá niêm yết (VNĐ)</label>
                       <input 
                         type="number" 
+                        required
+                        min={1}
                         value={quoteUnitPrice} 
                         onChange={e => setQuoteUnitPrice(Number(e.target.value))} 
                         className="w-full p-2 bg-white border border-zinc-200 rounded-xl font-bold"
@@ -529,7 +532,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                       <option value="">-- Không giữ máy cụ thể (Chỉ báo giá dòng) --</option>
                       {devices.filter(d => d.status === 'in_stock').slice(0, 10).map(dev => (
                         <option key={dev.id} value={dev.id}>
-                          {dev.name} - IMEI: {dev.imei || dev.id} ({dev.sellingPrice.toLocaleString('vi-VN')} đ)
+                          {dev.name || dev.model} - IMEI: {dev.imei || dev.id} ({Number(dev.sellingPrice || dev.sellPrice || 0).toLocaleString('vi-VN')} đ)
                         </option>
                       ))}
                     </select>
@@ -537,7 +540,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
 
                   <div className="bg-white p-3 rounded-xl border border-zinc-200 flex items-center justify-between font-bold text-sm">
                     <span>Giá thanh toán cuối:</span>
-                    <span className="text-[#FF4B16] text-base">{quoteFinalPrice.toLocaleString('vi-VN')} đ</span>
+                    <span className="text-[#FF4B16] text-base">{Number(quoteFinalPrice || 0).toLocaleString('vi-VN')} đ</span>
                   </div>
 
                   <button
@@ -565,7 +568,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                       </div>
                       <div className="font-bold text-zinc-900">{q.model}</div>
                       <div className="flex items-center justify-between text-zinc-600 pt-1 border-t border-zinc-100">
-                        <span>Giá chốt: <strong className="text-zinc-900">{q.finalPrice.toLocaleString('vi-VN')} đ</strong></span>
+                        <span>Giá chốt: <strong className="text-zinc-900">{Number(q.finalPrice || 0).toLocaleString('vi-VN')} đ</strong></span>
                         <button
                           onClick={() => onConvertQuoteToPOS(q, lead)}
                           className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer shadow-xs"
@@ -602,10 +605,9 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                   <div>
                     <label className="text-[11px] font-bold text-zinc-600 block mb-1">Thời gian hẹn</label>
                     <input 
-                      type="text" 
+                      type="datetime-local"
                       value={apptDate} 
                       onChange={e => setApptDate(e.target.value)} 
-                      placeholder="YYYY-MM-DD HH:mm"
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl font-mono font-bold"
                     />
                   </div>

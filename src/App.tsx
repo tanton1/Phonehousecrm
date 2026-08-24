@@ -27,10 +27,6 @@ import {
 import { AppShell } from './app/AppShell';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { POSCockpitView } from './features/pos/components/POSCockpitView';
-import { LeadKanbanBoard } from './features/crm/components/LeadKanbanBoard';
-import { CreateLeadModal } from './features/crm/components/CreateLeadModal';
-import { Customer360Drawer } from './features/crm/components/Customer360Drawer';
-import { CRMLeadsView } from './components/CRMLeadsView';
 import { RetailRepairView } from './features/warranty/components/RetailRepairView';
 import { RepairIntakeModal } from './features/warranty/components/RepairIntakeModal';
 import { TradeInCockpitView } from './features/tradein/components/TradeInCockpitView';
@@ -60,6 +56,8 @@ import { AICopilotModal } from './components/AICopilotModal';
 import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
+
+const CRMLeadsView = React.lazy(() => import('./components/CRMLeadsView').then(module => ({ default: module.CRMLeadsView })));
 import { fetchOperationalConfigs, fetchSystemSetupStatus } from './services/configurationApiClient';
 import { testFirestoreConnection, auth } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -324,6 +322,9 @@ export default function App() {
     const role = currentUser.role?.toUpperCase();
     if (role === 'TECHNICIAN') {
       setWorkspaceMode('TECH');
+    } else if (role === 'CUSTOMER_CARE') {
+      setWorkspaceMode('SALES');
+      setActiveTab('crm');
     } else if (role === 'SALES') {
       setWorkspaceMode('SALES');
     } else {
@@ -338,9 +339,6 @@ export default function App() {
   const [posCustomerContext, setPosCustomerContext] = useState<{ name?: string; phone?: string } | null>(null);
   const [posTradeInContext, setPosTradeInContext] = useState<any | null>(null);
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(true);
-  const [isCreateLeadModalOpen, setIsCreateLeadModalOpen] = useState(false);
-  const [selectedCustomer360Lead, setSelectedCustomer360Lead] = useState<Lead | null>(null);
-  const [crmViewMode, setCrmViewMode] = useState<'KANBAN' | 'TABLE'>('KANBAN');
 
   // Global Branch Selection for ADMIN
   const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
@@ -556,6 +554,8 @@ export default function App() {
                   ? 'Kỹ thuật viên'
                   : user.role === 'SALES'
                     ? 'Nhân viên bán hàng'
+                    : user.role === 'CUSTOMER_CARE'
+                      ? 'Chăm sóc khách hàng'
                     : 'Nhân viên',
           branchId: user.branchId || '',
           assignedBranchIds: user.assignedBranchIds || [],
@@ -1592,126 +1592,28 @@ export default function App() {
         )}
 
         {activeTab === 'crm' && (
-          <div className="space-y-3">
-            {/* View Mode Toggle Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white p-3 rounded-2xl border border-zinc-200/80 shadow-2xs">
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setCrmViewMode('KANBAN')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    crmViewMode === 'KANBAN'
-                      ? 'bg-[#ff4b16] text-white shadow-xs'
-                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                  }`}
-                >
-                  📊 Kanban Pipeline
-                </button>
-                <button
-                  onClick={() => setCrmViewMode('TABLE')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    crmViewMode === 'TABLE'
-                      ? 'bg-[#ff4b16] text-white shadow-xs'
-                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                  }`}
-                >
-                  📋 Bảng Danh Sách & Chăm Sóc Lead
-                </button>
-              </div>
-
-              <button
-                onClick={() => setIsCreateLeadModalOpen(true)}
-                className="bg-[#ff4b16] hover:bg-[#e03e0e] text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm shadow-orange-500/20 cursor-pointer transition-all active:scale-95"
-              >
-                <span>+ Thêm Lead Mới (F4)</span>
-              </button>
-            </div>
-
-            {crmViewMode === 'KANBAN' ? (
-              <LeadKanbanBoard
-                leads={filteredLeads}
-                onSelectLead={(lead) => {
-                  setSelectedCustomer360Lead(lead);
-                }}
-                onUpdateLeadStatus={async (leadId, newStatus) => {
-                  const lead = leads.find(l => l.id === leadId);
-                  if (lead) {
-                    await handleUpdateLead({ ...lead, status: newStatus });
-                  }
-                }}
-                onOpenCreateModal={() => setIsCreateLeadModalOpen(true)}
-              />
-            ) : (
-              <CRMLeadsView
-                currentUser={currentUser}
-                branches={branches}
-                leads={filteredLeads}
-                devices={filteredDevices}
-                invoices={filteredInvoices}
-                warrantyTickets={filteredWarrantyTickets}
-                onAddLead={handleAddLead}
-                onUpdateLead={handleUpdateLead}
-                onConvertLeadToSale={(lead) => {
-                  setPosCustomerContext({ name: lead.name, phone: lead.phone });
-                  if (lead.interestedModel) {
-                    const found = devices.find(d => d.status === 'in_stock' && d.model.toLowerCase().includes(lead.interestedModel.toLowerCase()));
-                    if (found) setPosPreSelectedDevice(found);
-                  }
-                  setActiveTab('pos');
-                }}
-                onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
-              />
-            )}
-
-            {/* Create Lead Modal */}
-            <CreateLeadModal
-              isOpen={isCreateLeadModalOpen}
-              onClose={() => setIsCreateLeadModalOpen(false)}
-              branches={branches}
-              staffList={users as any}
-              currentBranch={resolvedCurrentBranch}
-              currentUser={currentUser ? {
-                id: currentUser.id,
-                uid: currentUser.id,
-                name: currentUser.displayName,
-                email: currentUser.email,
-                role: currentUser.role,
-                branchId: currentUser.branchId || 'CN01',
-                assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
-                isActive: currentUser.active
-              } : null}
-              onSaveLead={async (newLead) => {
-                await handleAddLead(newLead);
-                setIsCreateLeadModalOpen(false);
-              }}
-            />
-
-            {/* Customer 360 Drawer */}
-            <Customer360Drawer
-              lead={selectedCustomer360Lead}
-              leads={leads}
-              isOpen={!!selectedCustomer360Lead}
-              onClose={() => setSelectedCustomer360Lead(null)}
-              invoices={filteredInvoices}
-              warrantyTickets={filteredWarrantyTickets}
-              onAddTimelineNote={async (leadId, note) => {
-                const lead = leads.find(l => l.id === leadId);
-                if (lead) {
-                  const updatedNotes = lead.notes ? `${lead.notes}\n• [${new Date().toLocaleDateString('vi-VN')}]: ${note}` : note;
-                  await handleUpdateLead({ ...lead, notes: updatedNotes });
-                  setSelectedCustomer360Lead({ ...lead, notes: updatedNotes });
-                }
-              }}
-              onTriggerNextBestAction={(action) => {
-                if (action.actionType === 'TRADE_IN') {
-                  setSelectedCustomer360Lead(null);
-                  setActiveTab('pos');
-                } else if (action.actionType === 'WARRANTY_CARE') {
-                  setSelectedCustomer360Lead(null);
-                  setActiveTab('warranty');
-                }
-              }}
-            />
-          </div>
+          <React.Suspense fallback={<div className="rounded-3xl bg-white p-12 text-center text-sm font-bold text-zinc-500">Đang mở trung tâm chăm sóc khách hàng…</div>}>
+          <CRMLeadsView
+            currentUser={currentUser}
+            branches={branches}
+            users={users}
+            leads={filteredLeads}
+            devices={filteredDevices}
+            invoices={filteredInvoices}
+            warrantyTickets={filteredWarrantyTickets}
+            onAddLead={handleAddLead}
+            onUpdateLead={handleUpdateLead}
+            onConvertLeadToSale={(lead) => {
+              setPosCustomerContext({ name: lead.name, phone: lead.phone });
+              if (lead.interestedModel) {
+                const found = devices.find(device => device.status === 'in_stock' && device.model.toLowerCase().includes(lead.interestedModel.toLowerCase()));
+                if (found) setPosPreSelectedDevice(found);
+              }
+              setActiveTab('pos');
+            }}
+            onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
+          />
+          </React.Suspense>
         )}
 
         {(activeTab === 'omnichannel-chat' || activeTab === 'chat') && (

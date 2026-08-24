@@ -4,12 +4,13 @@ import {
   RefreshCw, TrendingUp, Bell, Target, ArrowRight, Zap, ScanFace
 } from 'lucide-react';
 import { POSSalesView } from './POSSalesView';
-import { CRMLeadsView } from './CRMLeadsView';
 import { EmployeeDashboardView } from './EmployeeDashboardView';
 import { StaffHRView } from './StaffHRView';
 import { TradeInView } from './TradeInView';
 import { UserAccount, WarrantyTicket, TradeInAppraisal } from '../types';
 import { DeviceItem, SalesInvoice, Lead, StoreBranch, WarehouseInfo, StoreSettings, FundAccount, CashTransaction } from '../types';
+
+const CRMLeadsView = React.lazy(() => import('./CRMLeadsView').then(module => ({ default: module.CRMLeadsView })));
 
 interface SalesWorkspaceViewProps {
   devices: DeviceItem[];
@@ -204,14 +205,21 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
           
           {activeMode === 'CRM' && (
             <div className="flex-1 overflow-auto">
+              <React.Suspense fallback={<div className="p-10 text-center text-sm font-bold text-zinc-500">Đang mở CRM…</div>}>
               <CRMLeadsView
+                currentUser={currentUser}
+                branches={branches || []}
+                users={users}
                 leads={leads}
                 devices={devices}
+                invoices={invoices}
+                warrantyTickets={warrantyTickets}
                 attendanceRecords={attendanceRecords}
                 onAddLead={onAddLead}
                 onUpdateLead={onUpdateLead}
                 onConvertLeadToSale={onConvertLeadToSale}
               />
+              </React.Suspense>
             </div>
           )}
           

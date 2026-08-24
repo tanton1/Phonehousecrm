@@ -12,6 +12,8 @@ interface CreateLeadModalProps {
   existingLeads?: Lead[];
   currentUser?: UserAccount | null;
   staffList?: (StaffMember | UserAccount)[];
+  currentBranchId?: string;
+  currentBranch?: StoreBranch;
 }
 
 export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
@@ -21,9 +23,16 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   branches,
   existingLeads = [],
   currentUser,
-  staffList = []
+  staffList = [],
+  currentBranchId,
+  currentBranch: suppliedCurrentBranch
 }) => {
-  const currentBranch = branches[0] || { id: 'CN-01', name: 'PhoneHouse Showroom' };
+  const currentBranch = suppliedCurrentBranch
+    || branches.find(branch => branch.id === currentBranchId)
+    || branches.find(branch => branch.id === currentUser?.branchId)
+    || branches[0]
+    || { id: currentUser?.branchId || '', name: 'Chi nhánh hiện tại' };
+  const canChooseStaff = ['ADMIN', 'MANAGER'].includes(String(currentUser?.role || ''));
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -32,7 +41,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   const [demandModel, setDemandModel] = useState('');
   const [budget, setBudget] = useState<number>(15000000);
   const [notes, setNotes] = useState('');
-  const [selectedStaffId, setSelectedStaffId] = useState<string>(currentUser?.id || '');
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('AUTO');
   const [nextActionType, setNextActionType] = useState<LeadNextAction['type']>('CALL');
   const [nextActionDate, setNextActionDate] = useState<string>(
     new Date(Date.now() + 2 * 3600 * 1000).toISOString().slice(0, 16)
@@ -52,7 +61,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   if (!isOpen) return null;
 
   const assignedStaffObj = staffList.find(s => s.id === selectedStaffId || (s as any).uid === selectedStaffId);
-  const assignedStaffName = assignedStaffObj?.name || (assignedStaffObj as any)?.displayName || currentUser?.displayName || 'Nhân viên tư vấn';
+  const assignedStaffName = selectedStaffId === 'AUTO'
+    ? 'Hệ thống tự phân công'
+    : assignedStaffObj?.name || (assignedStaffObj as any)?.displayName || currentUser?.displayName || 'Nhân viên tư vấn';
 
   const handleApplyDuplicate = () => {
     if (duplicateLead) {
@@ -91,7 +102,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
         tradeInRequirose: false,
         notes: notes.trim() || '',
         assignedStaff: assignedStaffName,
-        assignedStaffId: selectedStaffId,
+        assignedStaffId: selectedStaffId === 'AUTO' ? undefined : selectedStaffId,
         followUpDate: nextActionDate,
         nextAction: {
           type: nextActionType,
@@ -110,8 +121,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-zinc-100 space-y-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 sm:items-center sm:p-5">
+      <div className="flex h-[100dvh] w-full max-w-lg flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[94vh] sm:rounded-3xl sm:border sm:border-zinc-100">
+        <div className="flex-1 space-y-4 overflow-y-auto p-5 sm:p-6">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
           <div className="flex items-center space-x-2.5">
@@ -220,7 +232,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
             </div>
           </div>
 
-          {/* Budget & Assigned Staff */}
+          {/* Budget & automatic assignment */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="font-bold text-zinc-800 block">Ngân Sách Dự Kiến (VNĐ):</label>
@@ -233,22 +245,15 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
             </div>
 
             <div className="space-y-1">
-              <label className="font-bold text-zinc-800 block">Nhân Viên Phụ Trách:</label>
-              <select
-                value={selectedStaffId}
-                onChange={e => setSelectedStaffId(e.target.value)}
-                className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
-              >
-                {staffList.length > 0 ? (
-                  staffList.map(s => (
-                    <option key={s.id || s.uid} value={s.id || s.uid}>
-                      {s.name || s.displayName} ({s.role})
-                    </option>
-                  ))
-                ) : (
-                  <option value={currentUser?.uid || 'STAFF_01'}>{currentUser?.displayName || 'Nhân viên tư vấn'}</option>
-                )}
-              </select>
+              <label className="font-bold text-zinc-800 flex items-center gap-1.5">Người phụ trách <span title="Hệ thống ưu tiên nhân viên đang trong ca và có ít việc hơn." className="text-zinc-400">?</span></label>
+              {canChooseStaff ? <select value={selectedStaffId} onChange={e => setSelectedStaffId(e.target.value)} className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl font-semibold text-zinc-800 focus:outline-none focus:border-[#ff4b16]">
+                <option value="AUTO">Tự động theo ca & tải việc</option>
+                {staffList.filter(s => {
+                  const active = (s as any).active !== false && (s as any).isActive !== false;
+                  const branchIds = [(s as any).branchId, ...((s as any).assignedBranchIds || [])].filter(Boolean);
+                  return active && ['SALES', 'CUSTOMER_CARE'].includes(String(s.role)) && (!currentBranch.id || branchIds.includes(currentBranch.id));
+                }).map(s => <option key={s.id || s.uid} value={s.id || s.uid}>{s.name || s.displayName}</option>)}
+              </select> : <div className="flex h-9 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-3 font-bold text-emerald-700">Tự động theo ca & tải việc</div>}
             </div>
           </div>
 
@@ -256,7 +261,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
           <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-2xl space-y-2">
             <label className="font-bold text-zinc-800 block flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-[#ff4b16]" />
-              <span>Kế Hoạch Chăm Sóc Kế Tiếp (Next Action):</span>
+              <span>Việc cần làm tiếp theo</span>
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <select
@@ -271,7 +276,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
                 <option value="CHECK_STOCK">📦 Kiểm tra tồn kho & giữ máy</option>
               </select>
               <input
-                type="date"
+                type="datetime-local"
                 value={nextActionDate}
                 onChange={e => setNextActionDate(e.target.value)}
                 className="w-full h-8 px-2.5 bg-white border border-zinc-200 rounded-lg text-zinc-700 font-semibold focus:outline-none"
@@ -292,8 +297,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
           </div>
         </div>
 
+        </div>
         {/* Footer Actions */}
-        <div className="flex items-center justify-end space-x-2.5 pt-2 border-t border-zinc-100">
+        <div className="flex shrink-0 items-center justify-end space-x-2.5 border-t border-zinc-100 bg-white p-4 sm:px-6">
           <Button variant="outline" size="md" onClick={onClose} disabled={isSubmitting}>
             Hủy
           </Button>
@@ -304,7 +310,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
             onClick={handleSave}
             leftIcon={<Plus className="w-4 h-4" />}
           >
-            Lưu Khách Tiềm Năng
+            Lưu & phân công
           </Button>
         </div>
       </div>

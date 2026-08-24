@@ -48,7 +48,7 @@ describe('Department shift scheduling', () => {
       '2026-08-24', '2026-08-25', '2026-08-26', '2026-08-27', '2026-08-28', '2026-08-29', '2026-08-30'
     ]);
     expect(resolveDepartment({ role: 'TECHNICIAN' })).toEqual({ departmentId: 'TECHNICAL', departmentName: 'Kỹ thuật' });
-    expect(resolveDepartment({ role: 'SALES' })).toEqual({ departmentId: 'SALES', departmentName: 'Bán hàng & CSKH' });
+    expect(resolveDepartment({ role: 'SALES' })).toEqual({ departmentId: 'SALES', departmentName: 'Bán hàng' });
     expect(resolveDepartment({ role: 'SALES', departmentId: 'CSKH', departmentName: 'Chăm sóc khách hàng' })).toEqual({ departmentId: 'CSKH', departmentName: 'Chăm sóc khách hàng' });
   });
 

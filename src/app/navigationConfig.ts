@@ -120,6 +120,16 @@ export const MOBILE_PRIMARY_TABS = [
 ];
 
 export function getMobilePrimaryTabs(userRole?: string) {
+  if (userRole === 'CUSTOMER_CARE' || userRole === 'CSKH') {
+    return [
+      { id: 'dashboard', label: 'Hôm nay', icon: LayoutDashboard },
+      { id: 'crm', label: 'Khách CRM', icon: Users },
+      { id: 'omnichannel-chat', label: 'Inbox', icon: MessageSquare },
+      { id: 'checkin-portal', label: 'Điểm danh', icon: ScanFace },
+      { id: 'more', label: 'Thêm', icon: Settings }
+    ];
+  }
+
   if (userRole === 'SALES') {
     return [
       { id: 'dashboard', label: 'Hôm nay', icon: LayoutDashboard },

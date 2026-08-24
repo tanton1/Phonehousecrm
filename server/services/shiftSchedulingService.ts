@@ -63,7 +63,8 @@ export function resolveDepartment(input: { role?: unknown; departmentId?: unknow
 
   const role = String(input.role || '').toUpperCase();
   if (['TECH', 'TECHNICIAN', 'TECH_LEAD'].includes(role)) return { departmentId: 'TECHNICAL', departmentName: 'Kỹ thuật' };
-  if (['SALES', 'SALE', 'SALE_ONLINE', 'CASHIER', 'CSKH'].includes(role)) return { departmentId: 'SALES', departmentName: 'Bán hàng & CSKH' };
+  if (['SALES', 'SALE', 'SALE_ONLINE', 'CASHIER'].includes(role)) return { departmentId: 'SALES', departmentName: 'Bán hàng' };
+  if (['CUSTOMER_CARE', 'CSKH'].includes(role)) return { departmentId: 'CUSTOMER_CARE', departmentName: 'Chăm sóc khách hàng' };
   if (['WAREHOUSE', 'INVENTORY_MANAGER'].includes(role)) return { departmentId: 'WAREHOUSE', departmentName: 'Kho hàng' };
   if (['ACCOUNTANT'].includes(role)) return { departmentId: 'FINANCE', departmentName: 'Kế toán' };
   if (['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(role)) return { departmentId: 'MANAGEMENT', departmentName: 'Quản lý' };

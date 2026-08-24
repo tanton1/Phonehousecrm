@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NAVIGATION_GROUPS, MOBILE_PRIMARY_TABS } from '../src/app/navigationConfig';
+import { NAVIGATION_GROUPS, MOBILE_PRIMARY_TABS, getMobilePrimaryTabs } from '../src/app/navigationConfig';
 import { getAuthorizedNavigation, isItemAuthorized } from '../src/app/permissionNavigation';
 
 describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
@@ -56,5 +56,12 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(techItemIds).toContain('checkin-portal');
     expect(techItemIds).not.toContain('funds');
     expect(techItemIds).not.toContain('users');
+  });
+
+  it('Case 5: CSKH tập trung vào CRM, Inbox và chấm công', () => {
+    const ids = getAuthorizedNavigation('CUSTOMER_CARE').flatMap(group => group.items.map(item => item.id));
+    expect(ids).toEqual(expect.arrayContaining(['dashboard', 'crm', 'omnichannel-chat', 'hr-attendance', 'checkin-portal']));
+    expect(ids).not.toEqual(expect.arrayContaining(['pos', 'inventory', 'funds', 'users']));
+    expect(getMobilePrimaryTabs('CUSTOMER_CARE').map(item => item.id)).toEqual(['dashboard', 'crm', 'omnichannel-chat', 'checkin-portal', 'more']);
   });
 });
