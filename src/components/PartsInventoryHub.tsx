@@ -13,9 +13,6 @@ interface PartsInventoryHubProps {
   branches: StoreBranch[];
   funds: FundAccount[];
   currentUser?: UserAccount | null;
-  onAddProduct: (product: ProductItem) => void;
-  onUpdateProduct: (product: ProductItem) => void;
-  onDeleteProduct: (productId: string) => void;
   onAddPurchaseOrder: (order: PurchaseOrder, postToInventory: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
   onOpenPurchaseOrders?: () => void;
   /** Keeps old deep-links to `spare-parts` useful while there is only one visible page. */
@@ -43,9 +40,6 @@ export const PartsInventoryHub: React.FC<PartsInventoryHubProps> = ({
   branches,
   funds,
   currentUser,
-  onAddProduct,
-  onUpdateProduct,
-  onDeleteProduct,
   onAddPurchaseOrder,
   onOpenPurchaseOrders,
   preferredSection
@@ -146,9 +140,6 @@ export const PartsInventoryHub: React.FC<PartsInventoryHubProps> = ({
         <ProductsView
           embedded
           products={products}
-          onAddProduct={onAddProduct}
-          onUpdateProduct={onUpdateProduct}
-          onDeleteProduct={onDeleteProduct}
         />
       )}
 

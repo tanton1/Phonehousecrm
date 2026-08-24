@@ -622,7 +622,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
     const currentPaymentConfig = PAYMENT_STATUS_CONFIG[paymentStatusKey] || PAYMENT_STATUS_CONFIG.UNPAID;
 
     return (
-      <div className="w-full max-w-2xl mx-auto space-y-3 sm:space-y-4 pb-28 animate-fadeIn px-3 sm:px-0">
+      <div className="w-full -mx-2 space-y-3 pb-6 animate-fadeIn sm:-mx-4 sm:space-y-4">
         
         {/* Sync Toast Notification */}
         {syncToast && (
@@ -633,7 +633,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         )}
 
         {/* 1. Top Bar: Back, Code, Quick Status Selector & Actions */}
-        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-zinc-200/80 shadow-2xs flex items-center justify-between sticky top-14 z-20">
+        <div className="relative z-20 flex items-center justify-between rounded-none border border-zinc-200/80 bg-white p-3 shadow-2xs sm:rounded-2xl sm:p-4">
           <div className="flex items-center space-x-2.5">
             <button
               onClick={() => setSelectedOrder(null)}
@@ -1023,8 +1023,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
 
         {/* 8. Sticky Bottom Action Bar */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 py-2.5 px-4 z-30 shadow-lg">
-          <div className="max-w-2xl mx-auto grid grid-cols-2 gap-3">
+        <div className="relative rounded-none border border-zinc-200/80 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur-md sm:rounded-2xl">
+          <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => setIsPrintModalOpen(true)}
               className="py-2.5 px-4 bg-white hover:bg-orange-50 text-orange-600 border border-orange-200 font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-2xs active:scale-95 cursor-pointer"
@@ -1261,7 +1261,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   // (Identical clean layout as InvoicesView)
   // ====================================================
   return (
-    <div className="w-full max-w-2xl mx-auto space-y-3 sm:space-y-4 pb-28 animate-fadeIn px-3 sm:px-0">
+    <div className="w-full space-y-3 pb-28 animate-fadeIn sm:space-y-4">
       
       {/* Sync Toast Notification */}
       {syncToast && (
@@ -1271,15 +1271,17 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
       )}
 
+      <section className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-4 text-white shadow-xl sm:p-5">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-orange-500/25 blur-3xl" />
+        <div className="relative flex items-end justify-between gap-4">
+          <div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-orange-300"><PackageCheck className="h-3.5 w-3.5" /> Sổ nhập hàng</div><h1 className="mt-1 text-xl font-black tracking-tight sm:text-2xl">Phiếu nhập nhà cung cấp</h1><p className="mt-1 text-xs text-zinc-300">Theo dõi kho nhận, công nợ và khoản chi.</p></div>
+          <button type="button" onClick={() => setIsCreateModalOpen(true)} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-orange-500 px-3 text-xs font-black text-white shadow-lg shadow-orange-950/40 hover:bg-orange-400"><Plus className="h-4 w-4" /> Nhập hàng</button>
+        </div>
+        <div className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/15 py-2.5 text-center backdrop-blur-sm"><div><p className="text-[10px] font-bold text-zinc-400">PHIẾU</p><p className="mt-1 text-base font-black">{filteredOrders.length}</p></div><div><p className="text-[10px] font-bold text-zinc-400">GIÁ TRỊ</p><p className="mt-1 truncate px-2 text-sm font-black text-orange-200">{totalImportValue.toLocaleString('vi-VN')}đ</p></div><div><p className="text-[10px] font-bold text-zinc-400">CÒN NỢ</p><p className="mt-1 truncate px-2 text-sm font-black text-rose-200">{totalOutstandingDebt.toLocaleString('vi-VN')}đ</p></div></div>
+      </section>
+
       {/* 1. Quick Horizontal Status Filter Pills */}
       <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-1">
-        <button
-          type="button"
-          onClick={() => setIsCreateModalOpen(true)}
-          className="sticky left-0 z-10 flex shrink-0 items-center gap-1.5 rounded-full bg-orange-600 px-3 py-1.5 text-xs font-black text-white shadow-sm"
-        >
-          <Plus className="h-3.5 w-3.5" /> Nhập hàng / IMEI
-        </button>
         <button
           onClick={() => setStatusFilter('all')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${

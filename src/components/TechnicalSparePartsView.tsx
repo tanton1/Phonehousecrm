@@ -264,6 +264,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
 
   const showInventory = mode !== 'requests';
   const showRequests = mode !== 'inventory';
+  const showLocalHeader = !(embedded && mode === 'inventory');
   const groupOptions = useMemo<string[]>(() => Array.from(new Set<string>(parts
     .map(part => String(part.catalogGroupCode || part.category || '').trim())
     .filter(Boolean))).sort((left, right) => left.localeCompare(right, 'vi')),
@@ -426,7 +427,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4 pb-24 sm:space-y-6 sm:pb-8">
-      <header className={`flex flex-col justify-between gap-3 ${embedded ? 'rounded-2xl border border-zinc-100 bg-white p-4 shadow-2xs' : ''} sm:flex-row sm:items-center`}>
+      {showLocalHeader && <header className={`flex flex-col justify-between gap-3 ${embedded ? 'rounded-2xl border border-zinc-100 bg-white p-4 shadow-2xs' : ''} sm:flex-row sm:items-center`}>
         <div>
           {embedded ? (
             <h3 className="flex items-center gap-2 text-base font-black text-zinc-900 sm:text-lg"><Boxes className="h-5 w-5 text-orange-600" /> {showRequests ? 'Điều chuyển linh kiện & phiếu duyệt' : 'Danh sách tồn linh kiện theo kho'} <HelpHint title={showRequests ? 'Điều chuyển & duyệt' : 'Danh sách tồn linh kiện'}>{showRequests ? 'KTV tạo yêu cầu từ kho cá nhân. Khi Kho Tổng, Kế toán hoặc Admin duyệt, hệ thống mới chuyển tồn. Mỗi phiếu có thể gắn IMEI và phiếu kỹ thuật để truy vết.' : 'Mỗi dòng là một SKU ở một vị trí kho. Mở Lịch sử để xem lô, phiếu nhập, cấp phát, xuất dùng và IMEI nếu linh kiện đã gắn vào máy sửa.'}</HelpHint></h3>
@@ -442,7 +443,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
             {loading || supplyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Làm mới
           </button>
         </div>
-      </header>
+      </header>}
 
       {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{error}</div>}
       {supplyError && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{supplyError}</div>}
@@ -554,7 +555,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
 
       {showInventory && <section className="rounded-2xl border border-zinc-100 bg-white p-3 shadow-2xs">
         <div className="flex flex-col gap-2 lg:flex-row">
-        <label className="relative">
+        <label className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-3 h-5 w-5 text-zinc-400" />
           <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Tìm SKU, tên, model tương thích..." className="h-11 w-full rounded-xl border pl-11 pr-3 text-sm" />
         </label>
@@ -565,6 +566,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
             {warehouses.filter(item => item.isActive !== false && !item.isArchived).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
+        <button type="button" onClick={() => void refreshAll()} disabled={loading || supplyLoading} className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-black text-zinc-700 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading || supplyLoading ? 'animate-spin' : ''}`} /> Làm mới</button>
         </div>
         <div className="mt-2 flex gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <select aria-label="Lọc nhóm linh kiện" value={groupFilter} onChange={event => setGroupFilter(event.target.value)} className="h-9 shrink-0 rounded-xl border bg-white px-2.5 text-xs font-bold text-zinc-700"><option value="ALL">Tất cả nhóm</option>{groupOptions.map(group => <option key={group} value={group}>{group}</option>)}</select>

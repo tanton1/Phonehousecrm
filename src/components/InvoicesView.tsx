@@ -412,7 +412,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     const totalQty = displayItems.reduce((sum, it) => sum + (it.quantity || 1), 0);
 
     return (
-      <div className="w-full flex flex-col min-h-full space-y-4 pb-28 sm:pb-24">
+      <div className="flex min-h-full w-full flex-col space-y-3 pb-6 sm:space-y-4">
         {/* Firestore Sync Toast Notification */}
         {syncToast && (
           <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-zinc-900/90 backdrop-blur-md text-white text-xs px-4 py-2 rounded-full shadow-lg flex items-center space-x-2 animate-fadeIn border border-white/10">
@@ -502,7 +502,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             }
           />
 
-        <section className="mx-4 rounded-2xl border border-orange-100 bg-gradient-to-br from-white to-orange-50/70 p-4 shadow-sm sm:mx-5 sm:p-5">
+        <section className="mx-0 rounded-none border border-orange-100 bg-gradient-to-br from-white to-orange-50/70 p-4 shadow-sm sm:mx-4 sm:rounded-2xl sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center space-x-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-[#ff4b16] text-white flex items-center justify-center font-bold text-sm shadow-sm shadow-orange-500/20">
@@ -534,7 +534,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </section>
 
         {/* 3. Line Items Breakdown List */}
-        <section className="mx-4 overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-sm divide-y divide-zinc-100 sm:mx-5">
+        <section className="mx-0 divide-y divide-zinc-100 overflow-hidden rounded-none border border-zinc-200/80 bg-white shadow-sm sm:mx-4 sm:rounded-2xl">
           <div className="px-4 py-2.5 bg-zinc-50/80 flex items-center justify-between border-b border-zinc-200/60">
             <span className="text-xs font-semibold text-zinc-700 flex items-center gap-1.5">
               <Package className="w-3.5 h-3.5 text-orange-600" />
@@ -590,7 +590,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </section>
 
         {/* 4. Financial & Payment Summary Card with Soft Brand Gradient */}
-        <section className="mx-4 space-y-2.5 rounded-2xl border border-orange-200/60 bg-gradient-to-br from-white via-orange-50/20 to-white p-3.5 text-xs shadow-sm sm:mx-5 sm:p-4 sm:text-sm">
+        <section className="mx-0 space-y-2.5 rounded-none border border-orange-200/60 bg-gradient-to-br from-white via-orange-50/20 to-white p-3.5 text-xs shadow-sm sm:mx-4 sm:rounded-2xl sm:p-4 sm:text-sm">
           <div className="flex justify-between items-center py-1">
             <span className="text-zinc-600 flex items-center space-x-1.5 font-normal">
               <span>Tổng tiền hàng ({totalQty} món)</span>
@@ -709,7 +709,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </section>
 
         {/* 5. Notes Card */}
-        <section className="mx-4 space-y-2 rounded-2xl border border-zinc-200/80 bg-white p-3.5 shadow-sm sm:mx-5 sm:p-4">
+        <section className="mx-0 space-y-2 rounded-none border border-zinc-200/80 bg-white p-3.5 shadow-sm sm:mx-4 sm:rounded-2xl sm:p-4">
           <div className="flex justify-between items-center">
             <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
               Ghi chú đơn hàng
@@ -760,13 +760,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
         {/* 6a. Activity Log / History Card */}
         {selectedInvoice.history && selectedInvoice.history.length > 0 && (
-          <div className="mx-4 rounded-2xl border border-zinc-200/80 bg-white p-3.5 shadow-sm sm:mx-5 sm:p-4">
+          <div className="mx-0 rounded-none border border-zinc-200/80 bg-white p-3.5 shadow-sm sm:mx-4 sm:rounded-2xl sm:p-4">
             <ActivityLog logs={selectedInvoice.history} className="space-y-2.5" />
           </div>
         )}
 
         {/* 6. Metadata Details Card */}
-        <section className="mx-4 grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200/80 bg-white p-3.5 text-xs shadow-sm sm:mx-5 sm:gap-4 sm:p-4">
+        <section className="mx-0 grid grid-cols-2 gap-3 rounded-none border border-zinc-200/80 bg-white p-3.5 text-xs shadow-sm sm:mx-4 sm:rounded-2xl sm:gap-4 sm:p-4">
           <div>
             <span className="text-zinc-400 block text-[11px] font-normal">Bảng giá</span>
             <span className="font-medium text-zinc-800 mt-0.5 block">
@@ -811,8 +811,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </section>
 
         {/* 7. Sticky Bottom Action Bar (Docked above bottom menu on mobile) */}
-        <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-zinc-200/80 px-4 pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] z-40 shadow-[0_-12px_30px_rgba(24,24,27,0.12)]">
-          <div className="max-w-2xl mx-auto grid grid-cols-2 gap-3">
+        <div className="relative border border-zinc-200/80 bg-white/95 px-4 pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-sm backdrop-blur-md sm:mx-4 sm:rounded-2xl">
+          <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => setIsPrintModalOpen(true)}
               className="py-2.5 px-4 bg-white hover:bg-orange-50 text-orange-600 border border-orange-200 font-semibold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-2xs active:scale-95 cursor-pointer"

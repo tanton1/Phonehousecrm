@@ -67,7 +67,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           <div className={`${
             activeTab === 'pos' || activeTab === 'dashboard'
               ? 'w-full h-full max-w-none'
-              : ['chat', 'crm', 'warranty', 'tradein', 'funds', 'inventory', 'purchase-orders'].includes(activeTab)
+              : ['chat', 'crm', 'warranty', 'tradein', 'funds', 'inventory', 'purchase-orders', 'invoices'].includes(activeTab)
                 ? 'w-full max-w-none px-2 sm:px-4'
                 : 'max-w-7xl mx-auto w-full'
           }`}>

@@ -91,9 +91,6 @@ import {
   executeFundTransferInFirestore,
   subscribeToTransfers,
   subscribeToProducts,
-  addProductToFirestore,
-  updateProductInFirestore,
-  deleteProductFromFirestore,
   subscribeToBranches,
   addBranchToFirestore,
   updateBranchInFirestore,
@@ -1314,11 +1311,6 @@ export default function App() {
     }
   };
 
-  const handleUpdateProduct = (updatedProduct: ProductItem) => {
-    setProducts(prev => prev.map(p => p.id === updatedProduct.id ? updatedProduct : p));
-    updateProductInFirestore(updatedProduct);
-  };
-
   
   const handleSettlePartnerDebt = async (input: {
     partnerId: string;
@@ -1594,15 +1586,6 @@ export default function App() {
             preferredSection={activeTab === 'spare-parts' ? 'technical' : undefined}
             onAddPurchaseOrder={handleAddPurchaseOrder}
             onOpenPurchaseOrders={() => setActiveTab('purchase-orders')}
-            onAddProduct={(p) => {
-              setProducts([...products, p]);
-              addProductToFirestore(p);
-            }}
-            onUpdateProduct={handleUpdateProduct}
-            onDeleteProduct={(id) => {
-              setProducts(products.filter(p => p.id !== id));
-              deleteProductFromFirestore(id);
-            }}
           />
         )}
 

@@ -294,8 +294,11 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if isAuthenticated() && isActiveUser();
-      allow create, update: if canManageInventory();
-      allow delete: if isAdmin();
+      // POS product projections are created and reversed only by the
+      // server-side receipt, sale and cancellation transactions.  Allowing
+      // browser writes here made it possible to create "ảo" stock with no
+      // supplier, fund, debt or inventory movement counterpart.
+      allow write: if false;
     }
 
     match /spareParts/{partId} {
