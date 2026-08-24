@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ChatConversation, ChatChannel } from '../types';
-import { MessageSquare, Search, Facebook, MessageCircle, Video, Globe, Phone } from 'lucide-react';
+import { MessageSquare, Search, Facebook, Instagram, MessageCircle, Video, Globe } from 'lucide-react';
 
 export interface ConversationListPanelProps {
   conversations: ChatConversation[];
@@ -34,6 +34,8 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
     switch (channel) {
       case 'FACEBOOK':
         return <Facebook className="w-3.5 h-3.5 text-blue-600" />;
+      case 'INSTAGRAM':
+        return <Instagram className="w-3.5 h-3.5 text-pink-600" />;
       case 'ZALO':
         return <MessageCircle className="w-3.5 h-3.5 text-blue-500" />;
       case 'TIKTOK':
@@ -88,6 +90,14 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
             }`}
           >
             Zalo
+          </button>
+          <button
+            onClick={() => setChannelFilter('INSTAGRAM')}
+            className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+              channelFilter === 'INSTAGRAM' ? 'bg-pink-600 text-white' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+            }`}
+          >
+            Instagram
           </button>
           <button
             onClick={() => setChannelFilter('TIKTOK')}
@@ -147,7 +157,10 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
                       {convo.customerName}
                     </h4>
                     <span className="text-[10px] text-zinc-400 font-mono">
-                      {convo.lastMessageTime}
+                      {(() => {
+                        const date = new Date(convo.lastMessageTime);
+                        return Number.isNaN(date.getTime()) ? convo.lastMessageTime : date.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+                      })()}
                     </span>
                   </div>
 

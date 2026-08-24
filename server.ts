@@ -159,6 +159,8 @@ app.use('/api/configuration', createConfigurationRouter(adminDb));
 // -------------------------------------------------------------
 import { createCrmRouter } from './server/routes/crm';
 app.use('/api/crm', createCrmRouter(adminDb));
+import { createPancakeRouter } from './server/routes/pancake';
+app.use('/api/pancake', createPancakeRouter(adminDb));
 
 // -------------------------------------------------------------
 // 6. TECHNICAL WORK ORDERS, CUSTODY & QC ROUTER
@@ -462,70 +464,6 @@ app.post('/api/telegram/webhook', async (req, res) => {
   }
 
   res.status(200).send('OK');
-});
-
-// ============================================================================
-// PANCAKE & OMNICHANNEL WEBHOOK INGESTION ENGINE (PR 4)
-// ============================================================================
-
-// Webhook Verification (Challenge-response for Pancake / Meta Webhook setup)
-app.get('/api/pancake/webhook', (req, res) => {
-  const secret = req.query['secret'] || req.query['hub.verify_token'];
-  const challenge = req.query['challenge'] || req.query['hub.challenge'];
-  const configuredSecret = process.env.PANCAKE_WEBHOOK_SECRET;
-
-  if (configuredSecret && secret === configuredSecret) {
-    console.log('✅ Pancake Webhook Challenge verified successfully.');
-    return res.status(200).send(challenge ? String(challenge) : 'OK');
-  } else {
-    console.warn('❌ Pancake Webhook verification failed: Invalid Secret Token.');
-    return res.status(403).json({ success: false, message: 'Invalid verification secret token' });
-  }
-});
-
-// Inbound Pancake / Multi-channel Message & Lead Ingestion
-app.post('/api/pancake/webhook', async (req, res) => {
-  const providedSecret = 
-    req.headers['x-pancake-secret'] || 
-    req.headers['x-webhook-secret'] || 
-    req.query['secret'];
-  
-  const configuredSecret = process.env.PANCAKE_WEBHOOK_SECRET;
-
-  // Strict Secret Validation (Fail-Closed)
-  if (!configuredSecret || !providedSecret || providedSecret !== configuredSecret) {
-    console.warn('🚨 Unauthorized Pancake Webhook Call: Secret mismatch or missing');
-    return res.status(401).json({ success: false, error: 'Unauthorized: Secret key invalid or missing' });
-  }
-
-  const payload = req.body || {};
-  console.log('📩 Inbound Pancake Event Received:', JSON.stringify(payload).slice(0, 200));
-
-  try {
-    // Extract standard lead/message attributes
-    const customerName = payload.customer?.name || payload.sender_name || payload.name || 'Khách Hàng Pancake';
-    const rawPhone = payload.customer?.phone || payload.phone || '';
-    const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
-    const messageContent = payload.message?.text || payload.content || payload.text || 'Khách quan tâm sản phẩm qua Inbox';
-    const channel = payload.channel || payload.page_type || 'FACEBOOK';
-    const pageName = payload.page_name || 'PhoneHouse Apple Store';
-
-    // Return success response to webhook source immediately (prevent webhook timeouts)
-    res.status(200).json({
-      success: true,
-      message: 'Pancake webhook received and processed successfully',
-      event: {
-        customerName,
-        phone: cleanPhone,
-        channel,
-        pageName,
-        timestamp: new Date().toISOString()
-      }
-    });
-  } catch (error: any) {
-    console.error('Error processing Pancake webhook:', error);
-    res.status(500).json({ success: false, error: error?.message || String(error) });
-  }
 });
 
 // 2. High-Precision Offline Local Trade-in Estimation & Market Valuation Engine (Unified with Client Engine)

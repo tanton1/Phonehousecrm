@@ -323,16 +323,16 @@ service cloud.firestore {
         resource.data.assignedUserId == request.auth.uid ||
         (resource.data.participantIds is list && request.auth.uid in resource.data.participantIds)
       );
-      allow create: if isAuthenticated() && (
-        isAdmin() ||
-        canAccessBranch(request.resource.data.branchId)
-      );
-      allow update: if isAuthenticated() && (
-        isAdmin() ||
-        canAccessBranch(resource.data.branchId) ||
-        resource.data.assignedUserId == request.auth.uid
-      );
-      allow delete: if isAdmin();
+      allow write: if false; // Server-only: webhook, sync, send and read-state APIs.
+    }
+
+    match /chatMessages/{messageId} {
+      allow read: if isAuthenticated() && (isAdmin() || canAccessBranch(resource.data.branchId));
+      allow write: if false;
+    }
+
+    match /pancakeSendOperations/{operationId} {
+      allow read, write: if false;
     }
 
     // 7. Attendance & Human Resources (Strict Server Authority writes; employees read own records)

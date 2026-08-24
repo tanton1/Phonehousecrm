@@ -1,4 +1,4 @@
-export type ChatChannel = 'FACEBOOK' | 'ZALO' | 'TIKTOK' | 'WEB';
+export type ChatChannel = 'FACEBOOK' | 'INSTAGRAM' | 'ZALO' | 'TIKTOK' | 'WHATSAPP' | 'WEB';
 
 export interface ChatMessage {
   id: string;
@@ -7,6 +7,8 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   attachments?: string[];
+  externalMessageId?: string;
+  messageKind?: 'MESSAGE' | 'COMMENT';
   productCard?: {
     model: string;
     price: number;
@@ -19,6 +21,12 @@ export interface ChatMessage {
 
 export interface ChatConversation {
   id: string;
+  pageId?: string;
+  pageName?: string;
+  externalConversationId?: string;
+  branchId?: string;
+  branchName?: string;
+  conversationType?: 'INBOX' | 'COMMENT';
   channel: ChatChannel;
   customerName: string;
   customerPhone?: string;

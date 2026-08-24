@@ -1619,6 +1619,8 @@ export default function App() {
         {(activeTab === 'omnichannel-chat' || activeTab === 'chat') && (
           <OmnichannelChatView
             devices={filteredDevices}
+            currentBranchId={resolvedCurrentBranch?.id || currentUser?.branchId}
+            currentUserRole={currentUser?.role}
             onConvertToPOS={(conversation, selectedDevice) => {
               if (selectedDevice) {
                 setPosPreSelectedDevice(selectedDevice);

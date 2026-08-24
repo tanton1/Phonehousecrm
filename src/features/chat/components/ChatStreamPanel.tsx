@@ -6,6 +6,7 @@ import { Send, Smartphone, Sparkles, Image, MessageSquare, Zap, ChevronLeft, Sho
 export interface ChatStreamPanelProps {
   conversation: ChatConversation | null;
   onSendMessage: (convoId: string, text: string) => Promise<void> | void;
+  loadingMessages?: boolean;
   onBack?: () => void;
   onOpenInfo?: () => void;
   onConvertToPOS?: () => void;
@@ -21,6 +22,7 @@ const QUICK_SNIPPETS: QuickSnippet[] = [
 export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
   conversation,
   onSendMessage,
+  loadingMessages = false,
   onBack,
   onOpenInfo,
   onConvertToPOS
@@ -118,6 +120,12 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
 
       {/* 2. Chat Stream Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[300px] scrollbar-thin scrollbar-thumb-zinc-200">
+        {loadingMessages && conversation.messages.length === 0 && (
+          <div className="py-8 text-center text-xs font-semibold text-zinc-400">Đang tải lịch sử hội thoại…</div>
+        )}
+        {!loadingMessages && conversation.messages.length === 0 && (
+          <div className="py-8 text-center text-xs font-semibold text-zinc-400">Chưa có tin nhắn được đồng bộ.</div>
+        )}
         {conversation.messages.map(msg => {
           const isStaff = msg.sender === 'STAFF';
 
@@ -134,6 +142,18 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
                 }`}
               >
                 <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+
+                {msg.attachments?.length ? (
+                  <div className="grid gap-2 pt-1">
+                    {msg.attachments.map((attachment, index) => (
+                      <a key={`${attachment}-${index}`} href={attachment} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-black/10 bg-white/80 text-[10px] font-bold text-blue-700">
+                        {/\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(attachment)
+                          ? <img src={attachment} alt="Ảnh trong hội thoại" className="max-h-56 w-full object-cover" />
+                          : <span className="block truncate px-2 py-2">Mở tệp đính kèm</span>}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
 
                 {/* Product Card if attached */}
                 {msg.productCard && (
@@ -157,7 +177,10 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
               </div>
 
               <span className="text-[9px] text-zinc-400 font-mono mt-1 px-1">
-                {msg.senderName} • {msg.timestamp}
+                {msg.senderName} • {(() => {
+                  const date = new Date(msg.timestamp);
+                  return Number.isNaN(date.getTime()) ? msg.timestamp : date.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+                })()}
               </span>
             </div>
           );
