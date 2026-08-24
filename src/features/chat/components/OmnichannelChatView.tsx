@@ -1,21 +1,29 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, HelpCircle, Link2, Loader2, RefreshCw, WandSparkles } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Copy, ExternalLink, HelpCircle, Link2, Loader2, RefreshCw, WandSparkles, X } from 'lucide-react';
 import { ChatConversation } from '../types';
 import { DeviceItem } from '../../../types';
 import { ConversationListPanel } from './ConversationListPanel';
 import { ChatStreamPanel } from './ChatStreamPanel';
 import { ChatCustomerSidebar } from './ChatCustomerSidebar';
+import { ChatSummaryCarousel } from './ChatSummaryCarousel';
 import {
   PancakeBranchOption,
+  PancakeChatSummary,
+  PancakeChatStaffOption,
   PancakeChannelStatus,
+  PancakeWebhookSetup,
   requestLinkPancakeBranch,
   requestMarkPancakeRead,
   requestPancakeChannels,
+  requestPancakeChatSummary,
+  requestPancakeChatStaff,
   requestPancakeConversations,
   requestPancakeMessages,
   requestRepairPancakeMessages,
   requestSendPancakeMessage,
   requestSyncPancakePage,
+  requestPancakeWebhookSetup,
+  requestUpdatePancakeWorkflow,
   subscribePancakeMessages
 } from '../../../services/pancakeApiClient';
 
@@ -23,6 +31,8 @@ export interface OmnichannelChatViewProps {
   devices: DeviceItem[];
   currentBranchId?: string;
   currentUserRole?: string;
+  currentUserId?: string;
+  currentUserName?: string;
   onConvertToPOS: (conversation: ChatConversation, selectedDevice?: DeviceItem) => void;
 }
 
@@ -43,12 +53,17 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   devices,
   currentBranchId,
   currentUserRole,
+  currentUserId,
+  currentUserName,
   onConvertToPOS
 }) => {
   const isManager = MANAGER_ROLES.has(String(currentUserRole || '').toUpperCase());
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [channels, setChannels] = useState<PancakeChannelStatus[]>([]);
   const [branchOptions, setBranchOptions] = useState<PancakeBranchOption[]>([]);
+  const [chatStaff, setChatStaff] = useState<PancakeChatStaffOption[]>([]);
+  const [chatSummary, setChatSummary] = useState<PancakeChatSummary | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const [mappingBranchId, setMappingBranchId] = useState('');
   const [selectedConvoId, setSelectedConvoId] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<'LIST' | 'CHAT' | 'SIDEBAR'>('LIST');
@@ -56,6 +71,10 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [repairing, setRepairing] = useState(false);
+  const [showWebhookSetup, setShowWebhookSetup] = useState(false);
+  const [loadingWebhookSetup, setLoadingWebhookSetup] = useState(false);
+  const [webhookSetup, setWebhookSetup] = useState<PancakeWebhookSetup | null>(null);
+  const [workflowUpdating, setWorkflowUpdating] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
@@ -76,6 +95,19 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
       setError(friendlyError(caught));
     } finally {
       if (showSpinner) setLoading(false);
+    }
+  }, [activeChannel?.branchId, currentBranchId]);
+
+  const loadSummary = useCallback(async (branchIdOverride = '') => {
+    const branchId = branchIdOverride || activeChannel?.branchId || currentBranchId || '';
+    if (!branchId) return;
+    setLoadingSummary(true);
+    try {
+      setChatSummary(await requestPancakeChatSummary(branchId, 30));
+    } catch (caught) {
+      console.warn('[Pancake summary]', caught);
+    } finally {
+      setLoadingSummary(false);
     }
   }, [activeChannel?.branchId, currentBranchId]);
 
@@ -101,6 +133,20 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   }, [currentBranchId]);
 
   useEffect(() => { void loadChannelsAndConversations(); }, [loadChannelsAndConversations]);
+
+  useEffect(() => {
+    const branchId = activeChannel?.branchId || currentBranchId;
+    if (!branchId) return;
+    void requestPancakeChatStaff(branchId)
+      .then(result => setChatStaff(result.items))
+      .catch(caught => console.warn('[Pancake staff]', caught));
+  }, [activeChannel?.branchId, currentBranchId]);
+
+  useEffect(() => {
+    void loadSummary();
+    const timer = window.setInterval(() => { void loadSummary(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [loadSummary]);
 
   useEffect(() => {
     if (activeChannel?.status !== 'CONFIG_ERROR' || mappingBranchId || !branchOptions.length) return;
@@ -184,6 +230,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         };
       }));
       setError('');
+      void loadSummary();
     } catch (caught) {
       setError(friendlyError(caught));
       throw caught;
@@ -226,7 +273,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         if (result.done || !cursor) break;
       }
       setNotice(`Đã đồng bộ ${imported} hội thoại từ ${activeChannel.pageName}.`);
-      await loadConversations(false, targetBranchId);
+      await Promise.all([loadConversations(false, targetBranchId), loadSummary(targetBranchId)]);
     } catch (caught) {
       setNotice('');
       setError(friendlyError(caught));
@@ -238,6 +285,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const handleManualRefresh = async () => {
     await Promise.all([
       loadChannelsAndConversations(),
+      loadSummary(),
       selectedConvoId ? loadMessages(selectedConvoId, true, false) : Promise.resolve()
     ]);
   };
@@ -276,6 +324,50 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
     }
   };
 
+  const handleOpenWebhookSetup = async () => {
+    if (!activeChannel) return;
+    setShowWebhookSetup(true);
+    setLoadingWebhookSetup(true);
+    try {
+      setWebhookSetup(await requestPancakeWebhookSetup(activeChannel.pageId));
+      setError('');
+    } catch (caught) {
+      setError(friendlyError(caught));
+    } finally {
+      setLoadingWebhookSetup(false);
+    }
+  };
+
+  const handleCopyWebhookUrl = async () => {
+    if (!webhookSetup?.callbackUrl) return;
+    try {
+      await navigator.clipboard.writeText(webhookSetup.callbackUrl);
+      setNotice('Đã sao chép URL webhook bảo mật. Dán URL này vào Pancake → Tools → Webhook.');
+    } catch {
+      setError('Trình duyệt không cho sao chép tự động. Hãy mở trang này bằng HTTPS và thử lại.');
+    }
+  };
+
+  const handleUpdateWorkflow = async (
+    conversationId: string,
+    input: Parameters<typeof requestUpdatePancakeWorkflow>[1]
+  ) => {
+    setWorkflowUpdating(true);
+    try {
+      const updated = await requestUpdatePancakeWorkflow(conversationId, input);
+      setConversations(current => current.map(conversation => conversation.id === conversationId
+        ? { ...updated, messages: conversation.messages }
+        : conversation));
+      setError('');
+      void loadSummary();
+    } catch (caught) {
+      setError(friendlyError(caught));
+      throw caught;
+    } finally {
+      setWorkflowUpdating(false);
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-140px)] min-h-[580px] flex-col gap-2">
       <section className="flex shrink-0 items-center justify-between gap-3 rounded-2xl border border-zinc-200/80 bg-white px-3 py-2 shadow-sm">
@@ -294,15 +386,14 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span title={activeChannel?.webhookStatus === 'RECEIVING'
+          <button onClick={() => void handleOpenWebhookSetup()} title={activeChannel?.webhookStatus === 'RECEIVING'
             ? `Webhook đã nhận sự kiện${activeChannel.lastWebhookAt ? ` lúc ${new Date(activeChannel.lastWebhookAt).toLocaleString('vi-VN')}` : ''}. Hội thoại đang mở cập nhật realtime qua Firestore.`
             : activeChannel?.webhookStatus === 'MISSING_SECRET'
               ? 'Chưa cấu hình PANCAKE_WEBHOOK_SECRET. Hệ thống đang tự kiểm tra Pancake mỗi 20 giây để không bỏ sót tin nhắn.'
               : 'Chưa nhận sự kiện webhook từ Pancake. Hệ thống đang tự kiểm tra Pancake mỗi 20 giây để không bỏ sót tin nhắn.'
-          } className="hidden h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-500 sm:grid"><HelpCircle className="h-4 w-4" /></span>
-          {isManager && activeChannel?.status === 'READY' && <button onClick={() => void handleRepairHistory()} disabled={repairing} className="grid h-9 w-9 place-items-center rounded-xl border border-blue-200 bg-blue-50 text-blue-700 disabled:opacity-50" title="Khôi phục nội dung các tin nhắn rỗng đã đồng bộ trước đây">{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}</button>}
+          } className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-500"><HelpCircle className="h-4 w-4" /></button>
           <button onClick={() => void handleManualRefresh()} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 text-zinc-600 disabled:opacity-50" title="Làm mới Page, hội thoại và tin nhắn đang mở"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-          {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Đồng bộ 30 ngày</button>}
+          {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}<span className="hidden sm:inline">Đồng bộ 30 ngày</span><span className="sm:hidden">Đồng bộ</span></button>}
         </div>
       </section>
 
@@ -333,6 +424,8 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
 
       {(error || notice) && <div className={`flex shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-[11px] font-bold ${error ? 'border border-rose-200 bg-rose-50 text-rose-700' : 'border border-blue-200 bg-blue-50 text-blue-700'}`}><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{error || notice}</span></div>}
 
+      {activeChannel?.status === 'READY' && <ChatSummaryCarousel summary={chatSummary} loading={loadingSummary} />}
+
       <div className="min-h-0 flex-1">
         {loading && !conversations.length ? (
           <div className="grid h-full place-items-center rounded-2xl border border-zinc-200 bg-white"><div className="text-center text-xs font-bold text-zinc-500"><Loader2 className="mx-auto mb-2 h-6 w-6 animate-spin text-[#ff4b16]" />Đang tải hộp thư…</div></div>
@@ -341,16 +434,65 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
             <div className="h-full lg:hidden">
               {mobilePanel === 'LIST' && <ConversationListPanel conversations={conversations} selectedConversationId={selectedConvoId} onSelectConversation={handleSelectConversation} />}
               {mobilePanel === 'CHAT' && <ChatStreamPanel conversation={activeConvo} onSendMessage={handleSendMessage} onRefresh={() => selectedConvoId && loadMessages(selectedConvoId, true, true)} onBack={() => setMobilePanel('LIST')} onOpenInfo={() => setMobilePanel('SIDEBAR')} onConvertToPOS={() => activeConvo && onConvertToPOS(activeConvo)} loadingMessages={loadingMessages} />}
-              {mobilePanel === 'SIDEBAR' && <div className="flex h-full flex-col"><div className="flex items-center justify-between border-b border-zinc-200 bg-white p-2.5"><button onClick={() => setMobilePanel('CHAT')} className="text-xs font-bold text-[#ff4b16]">❮ Quay lại đoạn chat</button></div><div className="flex-1 overflow-y-auto"><ChatCustomerSidebar conversation={activeConvo} devices={devices} onSendProductCard={handleSendProductCard} onConvertToPOS={onConvertToPOS} /></div></div>}
+              {mobilePanel === 'SIDEBAR' && <div className="flex h-full flex-col"><div className="flex items-center justify-between border-b border-zinc-200 bg-white p-2.5"><button onClick={() => setMobilePanel('CHAT')} className="text-xs font-bold text-[#ff4b16]">❮ Quay lại đoạn chat</button></div><div className="flex-1 overflow-y-auto"><ChatCustomerSidebar conversation={activeConvo} devices={devices} onSendProductCard={handleSendProductCard} onConvertToPOS={onConvertToPOS} staffOptions={chatStaff} currentUserId={currentUserId} canAssignOthers={isManager} workflowUpdating={workflowUpdating} onUpdateWorkflow={handleUpdateWorkflow} /></div></div>}
             </div>
             <div className="hidden h-full grid-cols-[300px_1fr_300px] gap-3.5 lg:grid">
               <ConversationListPanel conversations={conversations} selectedConversationId={selectedConvoId} onSelectConversation={handleSelectConversation} />
               <ChatStreamPanel conversation={activeConvo} onSendMessage={handleSendMessage} onRefresh={() => selectedConvoId && loadMessages(selectedConvoId, true, true)} loadingMessages={loadingMessages} />
-              <ChatCustomerSidebar conversation={activeConvo} devices={devices} onSendProductCard={handleSendProductCard} onConvertToPOS={onConvertToPOS} />
+              <ChatCustomerSidebar conversation={activeConvo} devices={devices} onSendProductCard={handleSendProductCard} onConvertToPOS={onConvertToPOS} staffOptions={chatStaff} currentUserId={currentUserId} canAssignOthers={isManager} workflowUpdating={workflowUpdating} onUpdateWorkflow={handleUpdateWorkflow} />
             </div>
           </>
         )}
       </div>
+
+      {showWebhookSetup && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+          <section className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-t-[28px] bg-white shadow-2xl sm:rounded-[28px]">
+            <header className="flex items-center justify-between border-b border-zinc-100 px-4 py-3.5">
+              <div className="min-w-0">
+                <h3 className="text-sm font-black text-zinc-950">Kích hoạt webhook Pancake</h3>
+                <p className="truncate text-[10px] font-semibold text-zinc-500">{activeChannel?.pageName} · Page ID {activeChannel?.pageId}</p>
+              </div>
+              <button onClick={() => setShowWebhookSetup(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-600" title="Đóng"><X className="h-4 w-4" /></button>
+            </header>
+            <div className="overflow-y-auto p-4">
+              {loadingWebhookSetup ? (
+                <div className="grid min-h-48 place-items-center text-xs font-bold text-zinc-500"><Loader2 className="mb-2 h-6 w-6 animate-spin text-[#ff4b16]" />Đang kiểm tra cấu hình…</div>
+              ) : webhookSetup ? (
+                <div className="space-y-4">
+                  <div className={`flex items-start gap-3 rounded-2xl border p-3 ${webhookSetup.webhookStatus === 'RECEIVING' ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                    {webhookSetup.webhookStatus === 'RECEIVING' ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /> : <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
+                    <div>
+                      <p className="text-xs font-black text-zinc-950">{webhookSetup.webhookStatus === 'RECEIVING' ? 'Webhook đang hoạt động' : 'Pancake chưa gửi sự kiện webhook'}</p>
+                      <p className="mt-1 text-[11px] leading-5 text-zinc-600">{webhookSetup.lastWebhookAt ? `Nhận lần cuối ${new Date(webhookSetup.lastWebhookAt).toLocaleString('vi-VN')} · ${webhookSetup.lastWebhookEvent || 'messaging'}` : 'App đang dùng cơ chế dự phòng 20 giây cho đến khi hoàn tất các bước dưới đây.'}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <p className="text-[11px] font-black text-zinc-900">URL bảo mật dành riêng cho PhoneHouse</p>
+                    <code className="mt-2 block break-all rounded-xl bg-zinc-900 p-2.5 text-[10px] text-zinc-200">{webhookSetup.callbackUrl.replace(/secret=[^&]+/, 'secret=••••••')}</code>
+                    <button onClick={() => void handleCopyWebhookUrl()} className="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#ff4b16] text-xs font-black text-white"><Copy className="h-4 w-4" />Sao chép URL webhook</button>
+                  </div>
+
+                  <ol className="space-y-2 text-[11px] leading-5 text-zinc-700">
+                    <li className="rounded-xl bg-zinc-50 p-2.5"><b>1.</b> Kiểm tra gói Pancake còn ít nhất 1 connection slot trống cho Page này.</li>
+                    <li className="rounded-xl bg-zinc-50 p-2.5"><b>2.</b> Nếu chưa thấy mục Webhook, liên hệ Pancake Support và gửi Page ID ở trên để bật tính năng.</li>
+                    <li className="rounded-xl bg-zinc-50 p-2.5"><b>3.</b> Vào Pancake với quyền Admin → Tools → Webhook, dán URL vừa sao chép.</li>
+                    <li className="rounded-xl bg-zinc-50 p-2.5"><b>4.</b> Bật sự kiện <b>messaging</b> và <b>conversation</b>, lưu rồi nhắn thử từ một tài khoản Facebook khác.</li>
+                  </ol>
+
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <a href={webhookSetup.docsUrl} target="_blank" rel="noreferrer" className="flex h-10 items-center justify-center gap-2 rounded-xl border border-zinc-200 text-xs font-bold text-zinc-700"><ExternalLink className="h-4 w-4" />Tài liệu Pancake</a>
+                    {isManager && <button onClick={() => void handleRepairHistory()} disabled={repairing} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-bold text-blue-700 disabled:opacity-50">{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}Sửa tin nhắn cũ</button>}
+                  </div>
+                </div>
+              ) : (
+                <div className="py-10 text-center text-xs font-bold text-rose-600">Không thể tải cấu hình webhook. Xem thông báo lỗi phía trên và thử lại.</div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };

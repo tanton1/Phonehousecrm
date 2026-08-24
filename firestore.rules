@@ -346,6 +346,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /chatConversationEvents/{eventId} {
+      allow read: if isAuthenticated() && (isAdmin() || canAccessBranch(resource.data.branchId));
+      allow write: if false; // Server-only immutable workflow audit trail.
+    }
+
     match /pancakePageMappings/{pageId} {
       allow read, write: if false; // Server-only Page → branch mapping.
     }

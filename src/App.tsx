@@ -1621,6 +1621,8 @@ export default function App() {
             devices={filteredDevices}
             currentBranchId={resolvedCurrentBranch?.id || currentUser?.branchId}
             currentUserRole={currentUser?.role}
+            currentUserId={currentUser?.id}
+            currentUserName={currentUser?.displayName}
             onConvertToPOS={(conversation, selectedDevice) => {
               if (selectedDevice) {
                 setPosPreSelectedDevice(selectedDevice);

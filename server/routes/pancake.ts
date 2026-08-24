@@ -4,6 +4,9 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import {
   getPancakeChannels,
+  getPancakeChatSummary,
+  getPancakeWebhookSetup,
+  listPancakeChatStaff,
   listPancakeConversations,
   listPancakeMessages,
   markPancakeConversationRead,
@@ -13,6 +16,7 @@ import {
   sendPancakeMessage,
   setPancakeBranchMapping,
   syncPancakeConversations,
+  updatePancakeConversationWorkflow,
   verifyPancakeWebhookSecret
 } from '../services/pancakeService';
 
@@ -101,6 +105,24 @@ export function createPancakeRouter(db: Firestore | null): Router {
     }
   });
 
+  router.get('/channels/:pageId/webhook-setup', authenticateFirebase, requireRole(
+    'ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'
+  ), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const forwardedHost = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+      const forwardedProtocol = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+      const origin = forwardedHost ? `${forwardedProtocol}://${forwardedHost}` : '';
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return res.json({
+        success: true,
+        data: await getPancakeWebhookSetup(db, req.params.pageId, actor(req), origin)
+      });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
   router.get('/conversations', authenticateFirebase, async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
@@ -108,6 +130,54 @@ export function createPancakeRouter(db: Firestore | null): Router {
         branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
         cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
         limit: req.query.limit ? Number(req.query.limit) : undefined
+      }, actor(req));
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.get('/staff', authenticateFirebase, async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await listPancakeChatStaff(
+        db,
+        typeof req.query.branchId === 'string' ? req.query.branchId : '',
+        actor(req)
+      );
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.get('/summary', authenticateFirebase, async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await getPancakeChatSummary(
+        db,
+        typeof req.query.branchId === 'string' ? req.query.branchId : '',
+        actor(req),
+        req.query.periodDays ? Number(req.query.periodDays) : 30
+      );
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.patch('/conversations/:conversationId/workflow', authenticateFirebase, requireRole(
+    'ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER', 'CUSTOMER_CARE', 'CSKH', 'SALE_ONLINE', 'SALES', 'SALE'
+  ), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await updatePancakeConversationWorkflow(db, req.params.conversationId, {
+        assignedStaffId: req.body?.assignedStaffId,
+        workflowStatus: req.body?.workflowStatus,
+        priority: req.body?.priority,
+        nextFollowUpAt: req.body?.nextFollowUpAt,
+        outcomeNote: req.body?.outcomeNote
       }, actor(req));
       return res.json({ success: true, data });
     } catch (error: any) {

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ChatConversation, ChatChannel } from '../types';
+import { ChatConversation, ChatChannel, ChatWorkflowStatus } from '../types';
 import { MessageSquare, Search, Facebook, Instagram, MessageCircle, Video, Globe } from 'lucide-react';
 
 export interface ConversationListPanelProps {
@@ -14,21 +14,24 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
   onSelectConversation
 }) => {
   const [channelFilter, setChannelFilter] = useState<'ALL' | ChatChannel>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'UNASSIGNED' | ChatWorkflowStatus>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredConversations = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     return conversations.filter(c => {
       const matchChannel = channelFilter === 'ALL' || c.channel === channelFilter;
+      const matchStatus = statusFilter === 'ALL'
+        || (statusFilter === 'UNASSIGNED' ? !c.assignedStaffId : (c.workflowStatus || 'NEW') === statusFilter);
       const matchSearch =
         !q ||
         c.customerName.toLowerCase().includes(q) ||
         (c.customerPhone && c.customerPhone.includes(q)) ||
         c.lastMessageSnippet.toLowerCase().includes(q);
 
-      return matchChannel && matchSearch;
+      return matchChannel && matchStatus && matchSearch;
     });
-  }, [conversations, channelFilter, searchQuery]);
+  }, [conversations, channelFilter, searchQuery, statusFilter]);
 
   const channelIcon = (channel: ChatChannel) => {
     switch (channel) {
@@ -110,15 +113,26 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
         </div>
 
         {/* Search Bar */}
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Tìm tên khách, SĐT, tin nhắn..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full h-8 pl-8 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:border-[#ff4b16]"
-          />
+        <div className="flex gap-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-2.5 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Tìm khách, SĐT..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full h-8 pl-8 pr-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:border-[#ff4b16]"
+            />
+          </div>
+          <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="h-8 w-[104px] rounded-xl border border-zinc-200 bg-white px-2 text-[10px] font-bold text-zinc-700 outline-none">
+            <option value="ALL">Mọi trạng thái</option>
+            <option value="UNASSIGNED">Chưa nhận</option>
+            <option value="NEW">Mới</option>
+            <option value="OPEN">Đang tư vấn</option>
+            <option value="WAITING_CUSTOMER">Chờ khách</option>
+            <option value="FOLLOW_UP">Chăm sóc lại</option>
+            <option value="WON">Đã chốt</option>
+          </select>
         </div>
       </div>
 
@@ -131,6 +145,14 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
         ) : (
           filteredConversations.map(convo => {
             const isSelected = selectedConversationId === convo.id;
+            const dueAt = convo.firstResponseDueAt ? new Date(convo.firstResponseDueAt).getTime() : 0;
+            const remainingMinutes = dueAt ? Math.ceil((dueAt - Date.now()) / 60_000) : 0;
+            const slaLabel = convo.firstResponseAt
+              ? convo.slaMet === false ? 'SLA trễ' : convo.slaMet === true ? 'SLA đạt' : ''
+              : convo.awaitingStaffReply && dueAt
+                ? remainingMinutes < 0 ? `Trễ ${Math.abs(remainingMinutes)}p` : `Còn ${remainingMinutes}p`
+                : '';
+            const workflowLabel: Record<string, string> = { NEW: 'Mới', OPEN: 'Đang tư vấn', WAITING_CUSTOMER: 'Chờ khách', FOLLOW_UP: 'Chăm sóc lại', WON: 'Đã chốt', LOST: 'Không chốt', CLOSED: 'Đã đóng' };
 
             return (
               <div
@@ -167,6 +189,12 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
                   <p className="text-[11px] text-zinc-500 truncate mt-0.5">
                     {convo.lastMessageSnippet}
                   </p>
+
+                  <div className="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black ${(convo.workflowStatus || 'NEW') === 'WON' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>{workflowLabel[convo.workflowStatus || 'NEW'] || 'Mới'}</span>
+                    <span className="min-w-0 truncate rounded bg-blue-50 px-1.5 py-0.5 text-[8px] font-bold text-blue-700">{convo.assignedStaffName || 'Chưa nhận'}</span>
+                    {slaLabel && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black ${slaLabel.includes('Trễ') ? 'bg-rose-100 text-rose-700' : slaLabel.includes('Còn') ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{slaLabel}</span>}
+                  </div>
 
                   {convo.interestedModel && (
                     <span className="inline-block mt-1 text-[9px] font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-600">

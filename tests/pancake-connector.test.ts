@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getPancakePageConfigs,
+  getPancakeChatSummary,
   identifyPancakeWebhookPageId,
   normalizePancakeConversation,
   normalizePancakeMessage,
@@ -255,9 +256,110 @@ describe('Pancake connector', () => {
     expect(pancakeMessageDocumentId(config.pageId, 'conv-100', 'msg-100')).not.toBe(pancakeMessageDocumentId(config.pageId, 'conv-100', 'msg-101'));
   });
 
+  it('normalizes the official Pancake messaging webhook payload', () => {
+    const config = getPancakePageConfigs({
+      PANCAKE_PAGE_ID: '332799593244601',
+      PANCAKE_PAGE_ACCESS_TOKEN: 'token'
+    } as NodeJS.ProcessEnv)[0];
+    const normalized = normalizePancakeWebhook({
+      page_id: '332799593244601',
+      event_type: 'messaging',
+      data: {
+        conversation: {
+          id: 'official-conv-01',
+          from: { id: 'customer-official', name: 'Anh Nam' },
+          snippet: 'Shop còn máy không?',
+          type: 'INBOX',
+          seen: false
+        },
+        message: {
+          id: 'official-msg-01',
+          conversation_id: 'official-conv-01',
+          page_id: '332799593244601',
+          message: 'Shop còn máy không?',
+          original_message: 'Shop còn máy không?',
+          type: 'INBOX',
+          inserted_at: '2026-08-24T16:30:00.000Z',
+          from: { id: 'customer-official', name: 'Anh Nam' },
+          attachments: []
+        }
+      }
+    }, config);
+
+    expect(normalized?.conversation).toMatchObject({
+      externalConversationId: 'official-conv-01',
+      conversationType: 'INBOX',
+      customerName: 'Anh Nam'
+    });
+    expect(normalized?.message).toMatchObject({
+      externalMessageId: 'official-msg-01',
+      content: 'Shop còn máy không?',
+      sender: 'CUSTOMER',
+      timestamp: '2026-08-24T16:30:00.000Z'
+    });
+  });
+
   it('validates webhook secrets without accepting empty or partial values', () => {
     expect(verifyPancakeWebhookSecret('secret-123', 'secret-123')).toBe(true);
     expect(verifyPancakeWebhookSecret('secret', 'secret-123')).toBe(false);
     expect(verifyPancakeWebhookSecret('', '')).toBe(false);
+  });
+
+  it('summarizes assignment, SLA and conversion without counting closed chats as pending', async () => {
+    const now = Date.now();
+    const conversations = [
+      {
+        branchId: 'BR-PH',
+        updatedAt: new Date(now - 60_000).toISOString(),
+        workflowStatus: 'OPEN',
+        awaitingStaffReply: true,
+        firstResponseDueAt: new Date(now - 5 * 60_000).toISOString()
+      },
+      {
+        branchId: 'BR-PH',
+        updatedAt: new Date(now - 120_000).toISOString(),
+        workflowStatus: 'WON',
+        assignedStaffId: 'STAFF-1',
+        assignedStaffName: 'CSKH Mai',
+        firstResponseAt: new Date(now - 100_000).toISOString(),
+        firstResponseSeconds: 120,
+        slaMet: true
+      },
+      {
+        branchId: 'BR-PH',
+        updatedAt: new Date(now - 180_000).toISOString(),
+        workflowStatus: 'LOST',
+        assignedStaffId: 'STAFF-1',
+        assignedStaffName: 'CSKH Mai',
+        firstResponseAt: new Date(now - 150_000).toISOString(),
+        firstResponseSeconds: 300,
+        slaMet: false
+      }
+    ];
+    const docs = conversations.map((data, index) => ({ id: `CONV-${index + 1}`, data: () => data }));
+    const query: any = {
+      where: () => query,
+      orderBy: () => query,
+      limit: () => query,
+      get: async () => ({ docs, size: docs.length })
+    };
+    const db = { collection: () => query } as any;
+
+    const summary = await getPancakeChatSummary(db, 'BR-PH', { uid: 'ADMIN-1', role: 'ADMIN' }, 30);
+
+    expect(summary).toMatchObject({
+      total: 3,
+      unassigned: 1,
+      awaitingReply: 1,
+      overdue: 2,
+      won: 1,
+      lost: 1,
+      conversionRate: 50,
+      slaMeasured: 2,
+      slaMet: 1,
+      slaRate: 50,
+      averageFirstResponseSeconds: 210
+    });
+    expect(summary.byStaff[0]).toMatchObject({ staffId: 'STAFF-1', total: 2, won: 1, overdue: 1 });
   });
 });

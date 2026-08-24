@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'crypto';
 import { FieldPath, FieldValue, Firestore, Timestamp } from 'firebase-admin/firestore';
+import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
 
 const PANCAKE_PAGE_API_V1 = 'https://pages.fm/api/public_api/v1';
 const PANCAKE_PAGE_API_V2 = 'https://pages.fm/api/public_api/v2';
@@ -236,6 +237,7 @@ function messageText(raw: Record<string, any>): string {
     raw.text,
     raw.content,
     raw.body,
+    raw.original_message,
     typeof raw.message === 'object' ? '' : raw.message,
     typeof raw.last_message === 'object' ? '' : raw.last_message,
     typeof raw.lastMessage === 'object' ? '' : raw.lastMessage,
@@ -465,6 +467,29 @@ function isManager(actor: PancakeActor): boolean {
   return ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(normalizedRole(actor));
 }
 
+const CHAT_STAFF_ROLES = new Set(['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER', 'CUSTOMER_CARE', 'CSKH', 'SALE_ONLINE', 'SALES', 'SALE']);
+const CHAT_WORKFLOW_STATUSES = new Set(['NEW', 'OPEN', 'WAITING_CUSTOMER', 'FOLLOW_UP', 'WON', 'LOST', 'CLOSED']);
+const CHAT_PRIORITIES = new Set(['NORMAL', 'HIGH', 'URGENT']);
+
+function canWorkChat(actor: PancakeActor): boolean {
+  return CHAT_STAFF_ROLES.has(normalizedRole(actor));
+}
+
+async function activeCustomerCarePolicy(db: Firestore) {
+  const snapshot = await db.collection('operationalConfigs').doc('customerCare').get();
+  return selectEffectiveOperationalPolicy(normalizeOperationalPolicyVersions('customerCare', snapshot.exists ? snapshot.data() : null));
+}
+
+async function firstResponseMinutes(db: Firestore): Promise<number | null> {
+  const value = asNumber((await activeCustomerCarePolicy(db))?.firstResponseMinutes, Number.NaN);
+  return Number.isFinite(value) && value > 0 ? Math.min(24 * 60, Math.max(1, value)) : null;
+}
+
+function dueAtFrom(timestamp: string, minutes: number | null): Timestamp | null {
+  if (!minutes) return null;
+  return Timestamp.fromMillis(safeTimestamp(timestamp).toMillis() + minutes * 60_000);
+}
+
 function canAccessBranch(actor: PancakeActor, branchId: string): boolean {
   if (normalizedRole(actor) === 'ADMIN') return true;
   return [actor.branchId, ...(actor.assignedBranchIds || [])].filter(Boolean).includes(branchId);
@@ -628,6 +653,7 @@ function firestoreTimestampIso(value: any): string {
 
 function clientConversation(snapshot: any) {
   const data = snapshot.data ? snapshot.data() : snapshot;
+  const optionalIso = (value: any) => value ? firestoreTimestampIso(value) : '';
   return {
     id: snapshot.id || data.id,
     pageId: data.pageId,
@@ -644,6 +670,20 @@ function clientConversation(snapshot: any) {
     lastMessageTime: data.lastMessageTime || firestoreTimestampIso(data.updatedAt),
     unreadCount: asNumber(data.unreadCount),
     assignedStaff: data.assignedStaffName || '',
+    assignedStaffId: data.assignedStaffId || '',
+    assignedStaffName: data.assignedStaffName || '',
+    workflowStatus: data.workflowStatus || 'NEW',
+    priority: data.priority || 'NORMAL',
+    firstResponseDueAt: optionalIso(data.firstResponseDueAt),
+    firstResponseAt: optionalIso(data.firstResponseAt),
+    firstCustomerMessageAt: optionalIso(data.firstCustomerMessageAt),
+    lastCustomerMessageAt: optionalIso(data.lastCustomerMessageAt),
+    lastStaffMessageAt: optionalIso(data.lastStaffMessageAt),
+    nextFollowUpAt: optionalIso(data.nextFollowUpAt),
+    awaitingStaffReply: data.awaitingStaffReply === true,
+    firstResponseSeconds: asNumber(data.firstResponseSeconds),
+    slaMet: typeof data.slaMet === 'boolean' ? data.slaMet : undefined,
+    outcomeNote: data.outcomeNote || '',
     interestedModel: data.interestedModel || '',
     messages: []
   };
@@ -710,6 +750,38 @@ export async function getPancakeChannels(db: Firestore | null, actor: PancakeAct
   return { channels, branches: await listPancakeBranchOptions(db, actor) };
 }
 
+export async function getPancakeWebhookSetup(
+  db: Firestore | null,
+  pageId: string,
+  actor: PancakeActor,
+  requestOrigin: string
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isManager(actor)) throw new Error('PANCAKE_WEBHOOK_SETUP_FORBIDDEN');
+  const config = configByPageId(asString(pageId));
+  const branch = await resolvePancakeBranch(db, config);
+  assertBranchAccess(actor, branch.id);
+  const secret = asString(process.env.PANCAKE_WEBHOOK_SECRET);
+  if (!secret) throw new Error('PANCAKE_WEBHOOK_SECRET_NOT_CONFIGURED');
+  const mappingSnapshot = await db.collection('pancakePageMappings').doc(config.pageId).get();
+  const mapping = asObject(mappingSnapshot.data());
+  const origin = asString(process.env.APP_URL || requestOrigin).replace(/\/$/, '');
+  if (!origin) throw new Error('PANCAKE_WEBHOOK_ORIGIN_NOT_CONFIGURED');
+  const callbackUrl = `${origin}/api/pancake/webhook?secret=${encodeURIComponent(secret)}&page_id=${encodeURIComponent(config.pageId)}`;
+  return {
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch.id,
+    branchName: branch.name,
+    callbackUrl,
+    webhookStatus: mapping.lastWebhookAt ? 'RECEIVING' : 'NOT_SEEN',
+    ...(mapping.lastWebhookAt ? { lastWebhookAt: firestoreTimestampIso(mapping.lastWebhookAt) } : {}),
+    ...(asString(mapping.lastWebhookEvent) ? { lastWebhookEvent: asString(mapping.lastWebhookEvent) } : {}),
+    requiredEvents: ['messaging', 'conversation'],
+    docsUrl: 'https://developer.pancake.biz/webhook'
+  };
+}
+
 export async function listPancakeConversations(db: Firestore | null, input: { branchId?: string; cursor?: string; limit?: number }, actor: PancakeActor) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   let branchId = asString(input.branchId || actor.branchId);
@@ -734,6 +806,234 @@ export async function listPancakeConversations(db: Firestore | null, input: { br
     nextCursor: snapshot.docs.length > limit && last ? encodeCursor(last.data().updatedAt, last.id) : null,
     hasMore: snapshot.docs.length > limit
   };
+}
+
+export async function listPancakeChatStaff(db: Firestore | null, branchIdInput: string, actor: PancakeActor) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!canWorkChat(actor)) throw new Error('PANCAKE_CHAT_STAFF_FORBIDDEN');
+  const branchId = asString(branchIdInput || actor.branchId);
+  if (!branchId) throw new Error('PANCAKE_BRANCH_REQUIRED');
+  assertBranchAccess(actor, branchId);
+  const snapshot = await db.collection('users').where('active', '==', true).limit(500).get();
+  const items = snapshot.docs
+    .map(document => ({ id: document.id, ...document.data() } as any))
+    .filter(user => {
+      const role = asString(user.role).toUpperCase();
+      const branches = new Set([user.branchId, ...(Array.isArray(user.assignedBranchIds) ? user.assignedBranchIds : [])].filter(Boolean));
+      return CHAT_STAFF_ROLES.has(role) && (role === 'ADMIN' || branches.has(branchId));
+    })
+    .map(user => ({
+      id: user.id,
+      name: asString(user.displayName || user.name || user.email) || user.id,
+      role: asString(user.role).toUpperCase(),
+      branchId: asString(user.branchId)
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, 'vi'));
+  return { branchId, items };
+}
+
+export async function getPancakeChatSummary(
+  db: Firestore | null,
+  branchIdInput: string,
+  actor: PancakeActor,
+  periodDaysInput = 30
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  let branchId = asString(branchIdInput || actor.branchId);
+  if (!branchId && normalizedRole(actor) === 'ADMIN') {
+    const firstConfig = getPancakePageConfigs()[0];
+    if (firstConfig) branchId = (await resolvePancakeBranch(db, firstConfig)).id;
+  }
+  if (!branchId) throw new Error('PANCAKE_BRANCH_REQUIRED');
+  assertBranchAccess(actor, branchId);
+
+  const periodDays = Math.min(90, Math.max(1, asNumber(periodDaysInput, 30)));
+  const cutoffMs = Date.now() - periodDays * 24 * 60 * 60 * 1000;
+  const snapshot = await db.collection('chatConversations')
+    .where('branchId', '==', branchId)
+    .orderBy('updatedAt', 'desc')
+    .limit(2000)
+    .get();
+  const conversations = snapshot.docs
+    .map(document => ({ id: document.id, ...document.data() } as Record<string, any>))
+    .filter(conversation => safeTimestamp(conversation.updatedAt || conversation.lastMessageTime).toMillis() >= cutoffMs);
+
+  const terminalStatuses = new Set(['WON', 'LOST', 'CLOSED']);
+  const nowMs = Date.now();
+  let unassigned = 0;
+  let awaitingReply = 0;
+  let overdue = 0;
+  let followUpDue = 0;
+  let won = 0;
+  let lost = 0;
+  let slaMeasured = 0;
+  let slaMet = 0;
+  let totalFirstResponseSeconds = 0;
+  const byStaff = new Map<string, { staffId: string; staffName: string; total: number; open: number; won: number; overdue: number }>();
+
+  for (const conversation of conversations) {
+    const status = asString(conversation.workflowStatus || 'NEW').toUpperCase();
+    const isTerminal = terminalStatuses.has(status);
+    const dueAtMs = conversation.firstResponseDueAt ? safeTimestamp(conversation.firstResponseDueAt).toMillis() : 0;
+    const isCurrentOverdue = !conversation.firstResponseAt && conversation.awaitingStaffReply === true && dueAtMs > 0 && dueAtMs < nowMs;
+    const isSlaMissed = conversation.slaMet === false || isCurrentOverdue;
+    if (!conversation.assignedStaffId && !isTerminal) unassigned += 1;
+    if (conversation.awaitingStaffReply === true && !isTerminal) awaitingReply += 1;
+    if (isSlaMissed) overdue += 1;
+    if (conversation.nextFollowUpAt && safeTimestamp(conversation.nextFollowUpAt).toMillis() <= nowMs && !isTerminal) followUpDue += 1;
+    if (status === 'WON') won += 1;
+    if (status === 'LOST') lost += 1;
+    if (conversation.firstResponseAt || asNumber(conversation.firstResponseSeconds) > 0) {
+      slaMeasured += 1;
+      totalFirstResponseSeconds += Math.max(0, asNumber(conversation.firstResponseSeconds));
+      if (conversation.slaMet === true) slaMet += 1;
+    }
+
+    const staffId = asString(conversation.assignedStaffId);
+    if (staffId) {
+      const current = byStaff.get(staffId) || {
+        staffId,
+        staffName: asString(conversation.assignedStaffName) || staffId,
+        total: 0,
+        open: 0,
+        won: 0,
+        overdue: 0
+      };
+      current.total += 1;
+      if (!isTerminal) current.open += 1;
+      if (status === 'WON') current.won += 1;
+      if (isSlaMissed) current.overdue += 1;
+      byStaff.set(staffId, current);
+    }
+  }
+
+  const decided = won + lost;
+  return {
+    branchId,
+    periodDays,
+    total: conversations.length,
+    unassigned,
+    awaitingReply,
+    overdue,
+    followUpDue,
+    won,
+    lost,
+    conversionRate: decided ? Math.round((won / decided) * 1000) / 10 : 0,
+    slaMeasured,
+    slaMet,
+    slaRate: slaMeasured ? Math.round((slaMet / slaMeasured) * 1000) / 10 : 0,
+    averageFirstResponseSeconds: slaMeasured ? Math.round(totalFirstResponseSeconds / slaMeasured) : 0,
+    sampleCapped: snapshot.size >= 2000,
+    byStaff: [...byStaff.values()].sort((left, right) => right.total - left.total || left.staffName.localeCompare(right.staffName, 'vi')),
+    generatedAt: new Date().toISOString()
+  };
+}
+
+export async function updatePancakeConversationWorkflow(
+  db: Firestore | null,
+  conversationId: string,
+  input: {
+    assignedStaffId?: string;
+    workflowStatus?: string;
+    priority?: string;
+    nextFollowUpAt?: string | null;
+    outcomeNote?: string;
+  },
+  actor: PancakeActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!canWorkChat(actor)) throw new Error('PANCAKE_WORKFLOW_FORBIDDEN');
+  const conversationRef = db.collection('chatConversations').doc(asString(conversationId));
+  const eventRef = db.collection('chatConversationEvents').doc();
+  const slaMinutes = await firstResponseMinutes(db);
+
+  await db.runTransaction(async transaction => {
+    const conversationSnapshot = await transaction.get(conversationRef);
+    if (!conversationSnapshot.exists) throw new Error('PANCAKE_CONVERSATION_NOT_FOUND');
+    const conversation = conversationSnapshot.data()!;
+    assertBranchAccess(actor, asString(conversation.branchId));
+
+    const manager = isManager(actor);
+    const requestedAssigneeId = input.assignedStaffId === undefined ? undefined : asString(input.assignedStaffId);
+    let assignee: { id: string; name: string } | null | undefined;
+    if (requestedAssigneeId !== undefined) {
+      if (!requestedAssigneeId) {
+        if (!manager) throw new Error('PANCAKE_UNASSIGN_FORBIDDEN');
+        assignee = null;
+      } else {
+        const assigneeSnapshot = await transaction.get(db.collection('users').doc(requestedAssigneeId));
+        if (!assigneeSnapshot.exists || assigneeSnapshot.data()?.active !== true) throw new Error('PANCAKE_ASSIGNEE_NOT_ACTIVE');
+        const user = assigneeSnapshot.data()!;
+        const role = asString(user.role).toUpperCase();
+        const branches = new Set([user.branchId, ...(Array.isArray(user.assignedBranchIds) ? user.assignedBranchIds : [])].filter(Boolean));
+        if (!CHAT_STAFF_ROLES.has(role) || (role !== 'ADMIN' && !branches.has(conversation.branchId))) throw new Error('PANCAKE_ASSIGNEE_BRANCH_MISMATCH');
+        if (!manager && requestedAssigneeId !== actor.uid) throw new Error('PANCAKE_ASSIGN_OTHER_FORBIDDEN');
+        if (!manager && conversation.assignedStaffId && conversation.assignedStaffId !== actor.uid) throw new Error('PANCAKE_CONVERSATION_OWNED_BY_OTHER');
+        assignee = { id: assigneeSnapshot.id, name: asString(user.displayName || user.name || user.email) || assigneeSnapshot.id };
+      }
+    } else if (!manager && conversation.assignedStaffId && conversation.assignedStaffId !== actor.uid) {
+      throw new Error('PANCAKE_CONVERSATION_OWNED_BY_OTHER');
+    } else if (!manager && !conversation.assignedStaffId) {
+      assignee = { id: actor.uid, name: asString(actor.name) || actor.uid };
+    }
+
+    const workflowStatus = input.workflowStatus === undefined ? undefined : asString(input.workflowStatus).toUpperCase();
+    const priority = input.priority === undefined ? undefined : asString(input.priority).toUpperCase();
+    if (workflowStatus !== undefined && !CHAT_WORKFLOW_STATUSES.has(workflowStatus)) throw new Error('PANCAKE_WORKFLOW_STATUS_INVALID');
+    if (priority !== undefined && !CHAT_PRIORITIES.has(priority)) throw new Error('PANCAKE_PRIORITY_INVALID');
+    const outcomeNote = input.outcomeNote === undefined ? undefined : asString(input.outcomeNote).slice(0, 1000);
+    let nextFollowUpAt: Timestamp | null | undefined;
+    if (input.nextFollowUpAt !== undefined) {
+      if (!input.nextFollowUpAt) nextFollowUpAt = null;
+      else {
+        const parsedFollowUp = new Date(asString(input.nextFollowUpAt));
+        if (Number.isNaN(parsedFollowUp.getTime())) throw new Error('PANCAKE_FOLLOW_UP_TIME_INVALID');
+        nextFollowUpAt = Timestamp.fromDate(parsedFollowUp);
+      }
+    }
+
+    const updates: Record<string, any> = {
+      ...(assignee === null ? { assignedStaffId: '', assignedStaffName: '' } : assignee ? { assignedStaffId: assignee.id, assignedStaffName: assignee.name } : {}),
+      ...(workflowStatus !== undefined ? { workflowStatus } : {}),
+      ...(priority !== undefined ? { priority } : {}),
+      ...(nextFollowUpAt !== undefined ? { nextFollowUpAt } : {}),
+      ...(outcomeNote !== undefined ? { outcomeNote } : {}),
+      workflowUpdatedAt: FieldValue.serverTimestamp(),
+      workflowUpdatedByUid: actor.uid,
+      workflowUpdatedByName: asString(actor.name) || actor.uid
+    };
+    if (!conversation.firstResponseAt && !conversation.firstResponseDueAt && conversation.firstCustomerMessageAt) {
+      const dueAt = dueAtFrom(firestoreTimestampIso(conversation.firstCustomerMessageAt), slaMinutes);
+      if (dueAt) updates.firstResponseDueAt = dueAt;
+    }
+    if (workflowStatus && ['WON', 'LOST', 'CLOSED'].includes(workflowStatus)) {
+      updates.closedAt = FieldValue.serverTimestamp();
+      updates.awaitingStaffReply = false;
+    }
+    transaction.set(conversationRef, updates, { merge: true });
+    transaction.create(eventRef, {
+      id: eventRef.id,
+      conversationId: conversationSnapshot.id,
+      pageId: conversation.pageId,
+      branchId: conversation.branchId,
+      eventType: 'WORKFLOW_UPDATED',
+      before: {
+        assignedStaffId: conversation.assignedStaffId || '',
+        workflowStatus: conversation.workflowStatus || 'NEW',
+        priority: conversation.priority || 'NORMAL'
+      },
+      changes: {
+        ...(requestedAssigneeId !== undefined ? { assignedStaffId: requestedAssigneeId } : {}),
+        ...(workflowStatus !== undefined ? { workflowStatus } : {}),
+        ...(priority !== undefined ? { priority } : {})
+      },
+      actorUid: actor.uid,
+      actorName: asString(actor.name) || actor.uid,
+      createdAt: FieldValue.serverTimestamp()
+    });
+  });
+
+  return clientConversation(await conversationRef.get());
 }
 
 async function persistMessages(db: Firestore, conversation: any, messages: NormalizedMessage[]) {
@@ -942,8 +1242,8 @@ export function normalizePancakeWebhook(payload: unknown, config: PancakePageCon
     page_name: root.page_name || config.pageName,
     customer: root.customer || root.sender || asObject(root.message).from,
     channel: root.channel || root.platform || root.page_type,
-    type: root.conversation_type || root.type || root.event,
-    updated_at: root.updated_at || root.timestamp || asObject(root.message).created_at,
+    type: root.conversation_type || root.type || root.event || root.event_type || asObject(root.conversation).type || asObject(root.message).type,
+    updated_at: root.updated_at || root.timestamp || asObject(root.message).created_at || asObject(root.message).inserted_at,
     last_message: root.message || root.comment || root
   };
   const messageRaw = Object.keys(asObject(root.message)).length
@@ -971,7 +1271,7 @@ export async function processPancakeWebhook(db: Firestore | null, payload: unkno
     branchName: branch.name,
     isActive: true,
     lastWebhookAt: FieldValue.serverTimestamp(),
-    lastWebhookEvent: asString(webhookRoot.event || webhookRoot.type || webhookRoot.action) || 'UNKNOWN'
+    lastWebhookEvent: asString(webhookRoot.event_type || webhookRoot.event || webhookRoot.type || webhookRoot.action) || 'UNKNOWN'
   }, { merge: true });
   const normalized = normalizePancakeWebhook(payload, config);
   if (!normalized) return { accepted: true, ignored: true, reason: 'UNSUPPORTED_EVENT' };
@@ -979,20 +1279,49 @@ export async function processPancakeWebhook(db: Firestore | null, payload: unkno
   const messageDoc = messageDocument(normalized.message, conversationDoc);
   const conversationRef = db.collection('chatConversations').doc(conversationDoc.id);
   const messageRef = db.collection('chatMessages').doc(messageDoc.id);
+  const slaMinutes = normalized.message.sender === 'CUSTOMER' ? await firstResponseMinutes(db) : null;
   const result = await db.runTransaction(async transaction => {
     const [existingConversation, existingMessage] = await Promise.all([
       transaction.get(conversationRef),
       transaction.get(messageRef)
     ]);
     if (existingMessage.exists) return { duplicate: true };
-    const previousUnread = asNumber(existingConversation.data()?.unreadCount);
+    const existing = existingConversation.data() || {};
+    const previousUnread = asNumber(existing.unreadCount);
     const inbound = normalized.message.sender === 'CUSTOMER';
+    const workflowUpdates: Record<string, any> = {};
+    if (inbound) {
+      workflowUpdates.lastCustomerMessageAt = safeTimestamp(normalized.message.timestamp);
+      workflowUpdates.awaitingStaffReply = true;
+      if (!existing.firstCustomerMessageAt) workflowUpdates.firstCustomerMessageAt = safeTimestamp(normalized.message.timestamp);
+      if (!existing.firstResponseAt && !existing.firstResponseDueAt) {
+        const dueAt = dueAtFrom(normalized.message.timestamp, slaMinutes);
+        if (dueAt) workflowUpdates.firstResponseDueAt = dueAt;
+      }
+      workflowUpdates.workflowStatus = ['WON', 'LOST', 'CLOSED'].includes(asString(existing.workflowStatus).toUpperCase())
+        ? 'OPEN'
+        : existing.workflowStatus || 'NEW';
+    } else {
+      workflowUpdates.lastStaffMessageAt = safeTimestamp(normalized.message.timestamp);
+      workflowUpdates.awaitingStaffReply = false;
+      workflowUpdates.workflowStatus = !existing.workflowStatus || existing.workflowStatus === 'NEW' ? 'OPEN' : existing.workflowStatus;
+      if (!existing.firstResponseAt && existing.firstCustomerMessageAt) {
+        const firstCustomerAt = safeTimestamp(existing.firstCustomerMessageAt);
+        const responseAt = safeTimestamp(normalized.message.timestamp);
+        const responseSeconds = Math.max(0, Math.round((responseAt.toMillis() - firstCustomerAt.toMillis()) / 1000));
+        workflowUpdates.firstResponseAt = responseAt;
+        workflowUpdates.firstResponseSeconds = responseSeconds;
+        if (existing.firstResponseDueAt) workflowUpdates.slaMet = responseAt.toMillis() <= safeTimestamp(existing.firstResponseDueAt).toMillis();
+      }
+    }
     transaction.set(conversationRef, {
       ...conversationDoc,
+      createdAt: existing.createdAt || conversationDoc.createdAt,
       unreadCount: inbound ? previousUnread + 1 : previousUnread,
       lastMessageSnippet: normalized.message.content,
       lastMessageTime: normalized.message.timestamp,
-      updatedAt: safeTimestamp(normalized.message.timestamp)
+      updatedAt: safeTimestamp(normalized.message.timestamp),
+      ...workflowUpdates
     }, { merge: true });
     transaction.create(messageRef, messageDoc);
     return { duplicate: false };
@@ -1053,15 +1382,61 @@ export async function sendPancakeMessage(db: Firestore | null, input: { conversa
       created_at: rawMessage.created_at || new Date().toISOString()
     }, config.pageId, conversation.conversationType || 'INBOX')!;
     const document = messageDocument(normalized, conversation);
+    const conversationRef = conversationSnapshot.ref;
+    const assignmentEventRef = db.collection('chatConversationEvents').doc();
+    const slaMinutes = await firstResponseMinutes(db);
     await db.runTransaction(async transaction => {
-      const [messageSnapshot] = await Promise.all([transaction.get(db.collection('chatMessages').doc(document.id))]);
+      const [messageSnapshot, currentConversationSnapshot] = await Promise.all([
+        transaction.get(db.collection('chatMessages').doc(document.id)),
+        transaction.get(conversationRef)
+      ]);
+      if (!currentConversationSnapshot.exists) throw new Error('PANCAKE_CONVERSATION_NOT_FOUND');
+      const currentConversation = currentConversationSnapshot.data()!;
       if (!messageSnapshot.exists) transaction.create(db.collection('chatMessages').doc(document.id), document);
-      transaction.set(conversationSnapshot.ref, {
+      const workflowUpdates: Record<string, any> = {
+        lastStaffMessageAt: safeTimestamp(normalized.timestamp),
+        awaitingStaffReply: false,
+        workflowStatus: ['WON', 'LOST', 'CLOSED'].includes(asString(currentConversation.workflowStatus).toUpperCase())
+          ? 'OPEN'
+          : !currentConversation.workflowStatus || currentConversation.workflowStatus === 'NEW'
+            ? 'OPEN'
+            : currentConversation.workflowStatus
+      };
+      if (!currentConversation.assignedStaffId) {
+        workflowUpdates.assignedStaffId = actor.uid;
+        workflowUpdates.assignedStaffName = asString(actor.name) || actor.uid;
+        transaction.create(assignmentEventRef, {
+          id: assignmentEventRef.id,
+          conversationId: currentConversationSnapshot.id,
+          pageId: currentConversation.pageId,
+          branchId: currentConversation.branchId,
+          eventType: 'AUTO_ASSIGNED_ON_REPLY',
+          actorUid: actor.uid,
+          actorName: asString(actor.name) || actor.uid,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      }
+      if (!currentConversation.firstResponseAt && currentConversation.firstCustomerMessageAt) {
+        const firstCustomerAt = safeTimestamp(currentConversation.firstCustomerMessageAt);
+        const responseAt = safeTimestamp(normalized.timestamp);
+        const dueAt = currentConversation.firstResponseDueAt
+          ? safeTimestamp(currentConversation.firstResponseDueAt)
+          : dueAtFrom(firestoreTimestampIso(firstCustomerAt), slaMinutes);
+        const responseSeconds = Math.max(0, Math.round((responseAt.toMillis() - firstCustomerAt.toMillis()) / 1000));
+        workflowUpdates.firstResponseAt = responseAt;
+        workflowUpdates.firstResponseSeconds = responseSeconds;
+        if (dueAt) {
+          workflowUpdates.firstResponseDueAt = dueAt;
+          workflowUpdates.slaMet = responseAt.toMillis() <= dueAt.toMillis();
+        }
+      }
+      transaction.set(conversationRef, {
         lastMessageSnippet: normalized.content,
         lastMessageTime: normalized.timestamp,
         unreadCount: 0,
         updatedAt: safeTimestamp(normalized.timestamp),
-        lastSyncedAt: FieldValue.serverTimestamp()
+        lastSyncedAt: FieldValue.serverTimestamp(),
+        ...workflowUpdates
       }, { merge: true });
       transaction.set(operationRef, { status: 'SENT', message: clientMessage(document), completedAt: FieldValue.serverTimestamp() }, { merge: true });
     });

@@ -28,6 +28,46 @@ export interface PancakeBranchOption {
   code: string;
 }
 
+export interface PancakeWebhookSetup {
+  pageId: string;
+  pageName: string;
+  branchId: string;
+  branchName: string;
+  callbackUrl: string;
+  webhookStatus: 'RECEIVING' | 'NOT_SEEN';
+  lastWebhookAt?: string;
+  lastWebhookEvent?: string;
+  requiredEvents: string[];
+  docsUrl: string;
+}
+
+export interface PancakeChatStaffOption {
+  id: string;
+  name: string;
+  role: string;
+  branchId: string;
+}
+
+export interface PancakeChatSummary {
+  branchId: string;
+  periodDays: number;
+  total: number;
+  unassigned: number;
+  awaitingReply: number;
+  overdue: number;
+  followUpDue: number;
+  won: number;
+  lost: number;
+  conversionRate: number;
+  slaMeasured: number;
+  slaMet: number;
+  slaRate: number;
+  averageFirstResponseSeconds: number;
+  sampleCapped: boolean;
+  byStaff: Array<{ staffId: string; staffName: string; total: number; open: number; won: number; overdue: number }>;
+  generatedAt: string;
+}
+
 export interface PancakeConversationPage {
   items: ChatConversation[];
   nextCursor: string | null;
@@ -55,7 +95,7 @@ export interface PancakeRepairResult {
 
 async function requestPancakeApi<T>(
   endpoint: string,
-  options: { method?: 'GET' | 'POST'; query?: Record<string, unknown>; payload?: Record<string, unknown> } = {}
+  options: { method?: 'GET' | 'POST' | 'PATCH'; query?: Record<string, unknown>; payload?: Record<string, unknown> } = {}
 ): Promise<T> {
   const user = auth.currentUser;
   if (!user) throw new Error('Bạn chưa đăng nhập hoặc phiên làm việc đã hết hạn.');
@@ -92,8 +132,38 @@ export function requestLinkPancakeBranch(pageId: string, branchId: string) {
   );
 }
 
+export function requestPancakeWebhookSetup(pageId: string) {
+  return requestPancakeApi<PancakeWebhookSetup>(
+    `channels/${encodeURIComponent(pageId)}/webhook-setup`
+  );
+}
+
 export function requestPancakeConversations(input: { branchId?: string; cursor?: string; limit?: number } = {}) {
   return requestPancakeApi<PancakeConversationPage>('conversations', { query: input });
+}
+
+export function requestPancakeChatStaff(branchId: string) {
+  return requestPancakeApi<{ branchId: string; items: PancakeChatStaffOption[] }>('staff', { query: { branchId } });
+}
+
+export function requestPancakeChatSummary(branchId: string, periodDays = 30) {
+  return requestPancakeApi<PancakeChatSummary>('summary', { query: { branchId, periodDays } });
+}
+
+export function requestUpdatePancakeWorkflow(
+  conversationId: string,
+  input: {
+    assignedStaffId?: string;
+    workflowStatus?: string;
+    priority?: string;
+    nextFollowUpAt?: string | null;
+    outcomeNote?: string;
+  }
+) {
+  return requestPancakeApi<ChatConversation>(
+    `conversations/${encodeURIComponent(conversationId)}/workflow`,
+    { method: 'PATCH', payload: input }
+  );
 }
 
 export function requestPancakeMessages(conversationId: string, refresh = true) {
