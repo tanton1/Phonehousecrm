@@ -88,6 +88,30 @@ function normalizeText(value: unknown): string {
     .trim();
 }
 
+function compactNormalizedText(value: unknown): string {
+  return normalizeText(value).replace(/\s+/g, '');
+}
+
+function configuredBranchMatches(data: Record<string, any>, target: string, exactOnly: boolean): boolean {
+  const targetCompact = compactNormalizedText(target);
+  if (!targetCompact) return false;
+  const values = [
+    data.name,
+    data.code,
+    data.shortName,
+    data.systemName,
+    data.systemType,
+    data.brandName
+  ];
+  return values.some((value) => {
+    const normalized = normalizeText(value);
+    const compact = compactNormalizedText(value);
+    if (!compact) return false;
+    if (normalized === target || compact === targetCompact) return true;
+    return !exactOnly && (normalized.includes(target) || compact.includes(targetCompact));
+  });
+}
+
 function normalizePhone(value: unknown): string {
   return asString(value).replace(/[^0-9+]/g, '');
 }
@@ -341,7 +365,7 @@ function assertBranchAccess(actor: PancakeActor, branchId: string) {
   if (!canAccessBranch(actor, branchId)) throw new Error('PANCAKE_BRANCH_FORBIDDEN');
 }
 
-async function resolveBranch(db: Firestore, config: PancakePageConfig): Promise<ResolvedBranch> {
+export async function resolvePancakeBranch(db: Firestore, config: PancakePageConfig): Promise<ResolvedBranch> {
   if (config.branchId) {
     const snapshot = await db.collection('branches').doc(config.branchId).get();
     if (!snapshot.exists || snapshot.data()?.isActive === false) throw new Error('PANCAKE_BRANCH_NOT_FOUND');
@@ -349,13 +373,36 @@ async function resolveBranch(db: Firestore, config: PancakePageConfig): Promise<
   }
   const snapshot = await db.collection('branches').limit(500).get();
   const target = normalizeText(config.branchName);
-  const active = snapshot.docs.filter(doc => doc.data().isActive !== false);
-  const exact = active.filter(doc => normalizeText(doc.data().name) === target || normalizeText(doc.data().code) === target);
-  const candidates = exact.length ? exact : active.filter(doc => normalizeText(doc.data().name).includes(target));
-  if (candidates.length !== 1) {
-    throw new Error(candidates.length ? 'PANCAKE_BRANCH_AMBIGUOUS' : 'PANCAKE_BRANCH_NOT_FOUND');
+  const active = snapshot.docs.filter(doc => {
+    const data = doc.data();
+    return data.isActive !== false && data.active !== false && data.isArchived !== true;
+  });
+  const exact = active.filter(doc => configuredBranchMatches(doc.data(), target, true));
+  const candidates = exact.length ? exact : active.filter(doc => configuredBranchMatches(doc.data(), target, false));
+  if (candidates.length === 1) {
+    return { id: candidates[0].id, name: asString(candidates[0].data().name) || config.branchName };
   }
-  return { id: candidates[0].id, name: asString(candidates[0].data().name) || config.branchName };
+  if (candidates.length > 1) throw new Error('PANCAKE_BRANCH_AMBIGUOUS');
+
+  // Some legacy branches were named by address while their warehouse carries
+  // the PhoneHouse/XStore system identity. Resolve that relationship without
+  // relying on a guessed Firestore document id.
+  const warehouseSnapshot = await db.collection('warehouses').limit(1000).get();
+  const linkedBranchIds = new Set(
+    warehouseSnapshot.docs
+      .filter(doc => {
+        const data = doc.data();
+        const isActive = data.isActive !== false && data.active !== false && data.isArchived !== true;
+        return isActive && configuredBranchMatches(data, target, false);
+      })
+      .map(doc => asString(doc.data().branchId))
+      .filter(Boolean)
+  );
+  const linkedBranches = active.filter(doc => linkedBranchIds.has(doc.id));
+  if (linkedBranches.length === 1) {
+    return { id: linkedBranches[0].id, name: asString(linkedBranches[0].data().name) || config.branchName };
+  }
+  throw new Error(linkedBranches.length ? 'PANCAKE_BRANCH_AMBIGUOUS' : 'PANCAKE_BRANCH_NOT_FOUND');
 }
 
 function configByPageId(pageId: string, env: NodeJS.ProcessEnv = process.env): PancakePageConfig {
@@ -471,7 +518,7 @@ export async function getPancakeChannels(db: Firestore | null, actor: PancakeAct
   for (const config of getPancakePageConfigs()) {
     let branch: ResolvedBranch | null = null;
     let branchError = '';
-    try { branch = await resolveBranch(db, config); } catch (error: any) { branchError = error?.message || 'PANCAKE_BRANCH_NOT_FOUND'; }
+    try { branch = await resolvePancakeBranch(db, config); } catch (error: any) { branchError = error?.message || 'PANCAKE_BRANCH_NOT_FOUND'; }
     if (branch && !canAccessBranch(actor, branch.id)) continue;
     channels.push({
       pageId: config.pageId,
@@ -493,7 +540,7 @@ export async function listPancakeConversations(db: Firestore | null, input: { br
   let branchId = asString(input.branchId || actor.branchId);
   if (!branchId && normalizedRole(actor) === 'ADMIN') {
     const firstConfig = getPancakePageConfigs()[0];
-    if (firstConfig) branchId = (await resolveBranch(db, firstConfig)).id;
+    if (firstConfig) branchId = (await resolvePancakeBranch(db, firstConfig)).id;
   }
   if (!branchId) throw new Error('PANCAKE_BRANCH_REQUIRED');
   assertBranchAccess(actor, branchId);
@@ -571,7 +618,7 @@ export async function syncPancakeConversations(db: Firestore | null, input: { pa
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   if (!isManager(actor)) throw new Error('PANCAKE_SYNC_FORBIDDEN');
   const config = configByPageId(asString(input.pageId));
-  const branch = await resolveBranch(db, config);
+  const branch = await resolvePancakeBranch(db, config);
   assertBranchAccess(actor, branch.id);
   const path = `/pages/${encodeURIComponent(config.pageId)}/conversations`;
   const urlSuffix = input.cursor ? `?last_conversation_id=${encodeURIComponent(input.cursor)}` : '';
@@ -648,7 +695,7 @@ export async function processPancakeWebhook(db: Firestore | null, payload: unkno
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   const pageId = identifyPancakeWebhookPageId(payload, fallbackPageId);
   const config = configByPageId(pageId);
-  const branch = await resolveBranch(db, config);
+  const branch = await resolvePancakeBranch(db, config);
   const normalized = normalizePancakeWebhook(payload, config);
   if (!normalized) return { accepted: true, ignored: true, reason: 'UNSUPPORTED_EVENT' };
   const conversationDoc = conversationDocument(normalized.conversation, branch);

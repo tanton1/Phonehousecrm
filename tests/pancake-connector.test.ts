@@ -7,8 +7,33 @@ import {
   normalizePancakeWebhook,
   pancakeConversationDocumentId,
   pancakeMessageDocumentId,
+  resolvePancakeBranch,
   verifyPancakeWebhookSecret
 } from '../server/services/pancakeService';
+
+function branchDb(branches: Record<string, any>, warehouses: Record<string, any> = {}) {
+  const docs = (values: Record<string, any>) => Object.entries(values).map(([id, value]) => ({
+    id,
+    data: () => value
+  }));
+  return {
+    collection(name: string) {
+      const values = name === 'branches' ? branches : name === 'warehouses' ? warehouses : {};
+      return {
+        doc(id: string) {
+          return {
+            async get() {
+              return { id, exists: Boolean(values[id]), data: () => values[id] };
+            }
+          };
+        },
+        limit() {
+          return { async get() { return { docs: docs(values) }; } };
+        }
+      };
+    }
+  } as any;
+}
 
 describe('Pancake connector', () => {
   it('loads the configured PhoneHouse page without exposing a client token', () => {
@@ -30,6 +55,44 @@ describe('Pancake connector', () => {
       includeComments: true,
       pageAccessToken: 'page-secret'
     });
+  });
+
+  it('matches Phonehouse with a branch name containing a space', async () => {
+    const config = getPancakePageConfigs({
+      PANCAKE_BRANCH_NAME: 'Phonehouse',
+      PANCAKE_PAGE_ACCESS_TOKEN: 'token'
+    } as NodeJS.ProcessEnv)[0];
+    const branch = await resolvePancakeBranch(branchDb({
+      'BR-PHONE-HOUSE': { name: 'Phone House', code: 'CN-02', isActive: true }
+    }), config);
+
+    expect(branch).toEqual({ id: 'BR-PHONE-HOUSE', name: 'Phone House' });
+  });
+
+  it('resolves a legacy address-named branch through its PhoneHouse warehouse', async () => {
+    const config = getPancakePageConfigs({
+      PANCAKE_BRANCH_NAME: 'Phonehouse',
+      PANCAKE_PAGE_ACCESS_TOKEN: 'token'
+    } as NodeJS.ProcessEnv)[0];
+    const branch = await resolvePancakeBranch(branchDb({
+      'BR-HAI-CHAU': { name: 'Cửa hàng Hải Châu', code: 'CN-02', isActive: true }
+    }, {
+      'KHO-PHONEHOUSE': { name: 'Kho bán lẻ', systemType: 'PHONEHOUSE', branchId: 'BR-HAI-CHAU', isActive: true }
+    }), config);
+
+    expect(branch).toEqual({ id: 'BR-HAI-CHAU', name: 'Cửa hàng Hải Châu' });
+  });
+
+  it('does not guess when multiple PhoneHouse branches match', async () => {
+    const config = getPancakePageConfigs({
+      PANCAKE_BRANCH_NAME: 'Phonehouse',
+      PANCAKE_PAGE_ACCESS_TOKEN: 'token'
+    } as NodeJS.ProcessEnv)[0];
+
+    await expect(resolvePancakeBranch(branchDb({
+      BR_01: { name: 'Phone House Hải Châu', isActive: true },
+      BR_02: { name: 'PhoneHouse Huế', isActive: true }
+    }), config)).rejects.toThrow('PANCAKE_BRANCH_AMBIGUOUS');
   });
 
   it('normalizes a Pancake conversation and preserves comment classification', () => {
