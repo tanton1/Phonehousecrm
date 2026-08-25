@@ -52,6 +52,14 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
 
   return (
     <main className="min-h-screen bg-white px-3 pb-28 pt-4 text-zinc-900 sm:px-5 sm:pb-12 lg:px-8">
+      <svg aria-hidden="true" className="pointer-events-none absolute h-0 w-0">
+        <defs>
+          <linearGradient id="more-hub-icon-gradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#f97316" />
+            <stop offset="100%" stopColor="#fbbf24" />
+          </linearGradient>
+        </defs>
+      </svg>
       <div className="mx-auto w-full max-w-6xl">
         <header className="flex items-start justify-between gap-4 border-b border-zinc-200 pb-5">
           <div className="min-w-0">
@@ -66,7 +74,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             onClick={onOpenAICopilot}
             className="flex shrink-0 items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-amber-600"
           >
-            <Sparkles className="h-5 w-5 text-amber-500" />
+            <Sparkles className="h-5 w-5" style={{ stroke: 'url(#more-hub-icon-gradient)' }} />
             <span className="hidden sm:inline">Trợ lý AI</span>
           </button>
         </header>
@@ -77,7 +85,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               <h2 className="mb-4 text-[11px] font-black uppercase tracking-[0.15em] text-zinc-500">{group.label}</h2>
               <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4">
                 {group.items.map((item) => {
-                  const Icon = item.icon;
+                  const Icon = item.icon as React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
                   return (
                     <button
                       key={item.id}
@@ -85,7 +93,10 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                       onClick={() => navigate(item.id)}
                       className="group flex min-w-0 flex-col items-center gap-2 py-1 text-center sm:items-start sm:text-left"
                     >
-                      <Icon className="h-6 w-6 text-amber-500 transition group-hover:-translate-y-0.5 group-hover:text-amber-600" />
+                      <Icon
+                        className="h-6 w-6 transition group-hover:-translate-y-0.5"
+                        style={{ stroke: 'url(#more-hub-icon-gradient)' }}
+                      />
                       <span className="line-clamp-2 text-[11px] font-bold leading-4 text-zinc-700 group-hover:text-zinc-950 sm:text-xs">
                         {item.label}
                       </span>

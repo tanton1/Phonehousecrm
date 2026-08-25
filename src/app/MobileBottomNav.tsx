@@ -55,6 +55,14 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       {/* 2. Fullscreen "More / Thêm" Drawer */}
       {isMoreDrawerOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex flex-col justify-end lg:hidden animate-in fade-in duration-200">
+          <svg aria-hidden="true" className="pointer-events-none absolute h-0 w-0">
+            <defs>
+              <linearGradient id="more-drawer-icon-gradient" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor="#f97316" />
+                <stop offset="100%" stopColor="#fbbf24" />
+              </linearGradient>
+            </defs>
+          </svg>
           <div className="flex max-h-[88vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl">
             {/* Drawer Header */}
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
@@ -79,7 +87,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                   </div>
                   <div className="grid grid-cols-3 gap-x-3 gap-y-5">
                     {group.items.map(item => {
-                      const Icon = item.icon;
+                      const Icon = item.icon as React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
                       const isActive = activeTab === item.id;
 
                       return (
@@ -93,7 +101,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                             isActive ? 'font-black text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
                           }`}
                         >
-                          <Icon className={`h-6 w-6 text-amber-500 transition-transform active:scale-90 ${isActive ? 'scale-105 text-amber-600' : ''}`} />
+                          <Icon
+                            className={`h-6 w-6 transition-transform active:scale-90 ${isActive ? 'scale-105' : ''}`}
+                            style={{ stroke: 'url(#more-drawer-icon-gradient)' }}
+                          />
                           <span className="line-clamp-2 text-[11px] font-bold leading-4">{item.label}</span>
                         </button>
                       );
