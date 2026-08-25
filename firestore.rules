@@ -371,6 +371,14 @@ service cloud.firestore {
       allow read, write: if false; // Server-only idempotency for outbound Zalo messages.
     }
 
+    match /tiktokBusinessMappings/{businessId} {
+      allow read, write: if false; // Server-only TikTok Business → branch mapping and webhook health.
+    }
+
+    match /tiktokSendOperations/{operationId} {
+      allow read, write: if false; // Server-only idempotency for outbound TikTok messages.
+    }
+
     match /channelConnections/{connectionId} {
       allow read, write: if false; // Token và cấu hình nhiều Page chỉ đi qua API server.
     }

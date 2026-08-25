@@ -15,7 +15,7 @@ app.set('trust proxy', 1);
 app.use(express.json({
   limit: '15mb',
   verify: (req: any, _res, buffer) => {
-    if (/^\/api\/(meta|zalo)\/webhook/.test(String(req.originalUrl || req.url || ''))) {
+    if (/^\/api\/(meta|zalo|tiktok)\/webhook/.test(String(req.originalUrl || req.url || ''))) {
       req.rawBody = Buffer.from(buffer);
     }
   }
@@ -173,6 +173,8 @@ import { createMetaMessengerRouter } from './server/routes/metaMessenger';
 app.use('/api/meta', createMetaMessengerRouter(adminDb));
 import { createZaloOaRouter } from './server/routes/zaloOa';
 app.use('/api/zalo', createZaloOaRouter(adminDb));
+import { createTikTokBusinessRouter } from './server/routes/tiktokBusiness';
+app.use('/api/tiktok', createTikTokBusinessRouter(adminDb));
 import { createChannelConnectionsRouter } from './server/routes/channelConnections';
 app.use('/api/channel-connections', createChannelConnectionsRouter(adminDb));
 

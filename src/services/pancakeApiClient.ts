@@ -9,7 +9,7 @@ interface PancakeApiEnvelope<T> {
 }
 
 export interface PancakeChannelStatus {
-  provider?: 'PANCAKE' | 'META_MESSENGER' | 'ZALO_OA';
+  provider?: 'PANCAKE' | 'META_MESSENGER' | 'ZALO_OA' | 'TIKTOK_BUSINESS';
   pageId: string;
   pageName: string;
   branchId: string;
@@ -32,7 +32,7 @@ export interface PancakeBranchOption {
 }
 
 export interface PancakeWebhookSetup {
-  provider?: 'PANCAKE' | 'META_MESSENGER' | 'ZALO_OA';
+  provider?: 'PANCAKE' | 'META_MESSENGER' | 'ZALO_OA' | 'TIKTOK_BUSINESS';
   pageId: string;
   pageName: string;
   branchId: string;

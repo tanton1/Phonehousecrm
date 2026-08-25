@@ -48,6 +48,10 @@ function friendlyError(error: unknown) {
   if (message.includes('META_SEND_FAILED_10')) return 'Hội thoại đang do Pancake hoặc ứng dụng khác kiểm soát. Bấm “Nhận quyền hội thoại” để chuyển về PhoneHouse CRM.';
   if (message.includes('META_API_FAILED_10:') || message.includes('META_API_FAILED_200:')) return 'Meta chưa cấp đủ quyền đọc/gửi tin. Hãy hoàn tất pages_messaging, pages_manage_metadata và pages_read_engagement.';
   if (message.includes('META_BRANCH_NOT_FOUND')) return 'Page Meta chưa được gắn đúng chi nhánh CRM.';
+  if (message.includes('TIKTOK_REPLY_WINDOW_EXPIRED')) return 'TikTok chỉ cho trả lời trong 48 giờ sau tin nhắn gần nhất của khách.';
+  if (message.includes('TIKTOK_API_FAILED_401') || message.includes('TIKTOK_REFRESH_TOKEN')) return 'Token TikTok đã hết hạn hoặc không thể gia hạn. Hãy kết nối lại tài khoản Business.';
+  if (message.includes('TIKTOK_API_FAILED_403')) return 'TikTok App chưa được duyệt đủ quyền Business Messaging Read/Send.';
+  if (message.includes('TIKTOK_CONNECTION_NOT_FOUND')) return 'Tài khoản TikTok Business chưa được kết nối hoặc đã bị ngắt.';
   if (message.includes('PANCAKE_PAGE_TOKEN_NOT_CONFIGURED')) return 'Chưa có Page Access Token. Hãy thêm PANCAKE_PAGE_ACCESS_TOKEN trong Vercel rồi Redeploy.';
   if (message.includes('PANCAKE_TOKEN_INVALID')) return 'Page Access Token không hợp lệ hoặc đã được tạo lại trên Pancake.';
   if (message.includes('PANCAKE_BRANCH_AMBIGUOUS')) return 'Có nhiều chi nhánh phù hợp. Hãy chọn đúng chi nhánh CRM để gắn với Page.';
@@ -91,8 +95,9 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const activeChannel = useMemo(() => channels.find(channel => channel.branchId === currentBranchId) || channels[0], [channels, currentBranchId]);
   const directMeta = activeChannel?.provider === 'META_MESSENGER';
   const directZalo = activeChannel?.provider === 'ZALO_OA';
-  const directRealtime = directMeta || directZalo;
-  const providerLabel = directMeta ? 'Meta Messenger' : directZalo ? 'Zalo OA' : 'Pancake';
+  const directTikTok = activeChannel?.provider === 'TIKTOK_BUSINESS';
+  const directRealtime = directMeta || directZalo || directTikTok;
+  const providerLabel = directMeta ? 'Meta Messenger' : directZalo ? 'Zalo OA' : directTikTok ? 'TikTok Business' : 'Pancake';
   const pageDisconnected = activeChannel?.connectionStatus === 'DISCONNECTED';
   const webhookReceiving = activeChannel?.webhookStatus === 'RECEIVING' && !pageDisconnected;
 
@@ -406,6 +411,8 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         ? 'Đã sao chép URL webhook Meta. Dán vào Meta Developers → Messenger → Cài đặt API Messenger.'
         : directZalo
           ? 'Đã sao chép URL webhook Zalo. Dán vào Zalo Developers → Webhook của ứng dụng.'
+          : directTikTok
+            ? 'Đã sao chép URL webhook TikTok. Nút Kiểm tra trong Kênh & Kết nối có thể đăng ký URL này tự động.'
           : 'Đã sao chép URL webhook bảo mật. Dán URL này vào Pancake → Tools → Webhook.');
     } catch {
       setError('Trình duyệt không cho sao chép tự động. Hãy mở trang này bằng HTTPS và thử lại.');
@@ -459,7 +466,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
               : `Chưa nhận sự kiện webhook từ ${providerLabel}. Hãy gửi một tin thử vào kênh này.`
           } className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-500"><HelpCircle className="h-4 w-4" /></button>
           <button onClick={() => void handleManualRefresh()} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 text-zinc-600 disabled:opacity-50" title="Làm mới Page, hội thoại và tin nhắn đang mở"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-          {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}<span className="hidden sm:inline">{directZalo ? 'Làm mới Zalo' : 'Đồng bộ 30 ngày'}</span><span className="sm:hidden">{directZalo ? 'Làm mới' : 'Đồng bộ'}</span></button>}
+          {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}<span className="hidden sm:inline">{directZalo ? 'Làm mới Zalo' : directTikTok ? 'Đồng bộ TikTok' : 'Đồng bộ 30 ngày'}</span><span className="sm:hidden">{directZalo ? 'Làm mới' : 'Đồng bộ'}</span></button>}
         </div>
       </section>
 
@@ -554,6 +561,13 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
                       <li className="rounded-xl bg-zinc-50 p-2.5"><b>2.</b> Đăng ký các sự kiện người dùng gửi tin và OA gửi tin.</li>
                       <li className="rounded-xl bg-zinc-50 p-2.5"><b>3.</b> OA Secret Key trong CRM phải đúng với khóa dùng ký webhook của OA.</li>
                       <li className="rounded-xl bg-zinc-50 p-2.5"><b>4.</b> Gửi một tin nhắn thử vào OA; khi nhận thành công trạng thái chuyển sang Realtime.</li>
+                    </ol>
+                  ) : directTikTok ? (
+                    <ol className="space-y-2 text-[11px] leading-5 text-zinc-700">
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>1.</b> TikTok App phải được duyệt quyền Business Messaging API.</li>
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>2.</b> Trong Kênh & Kết nối, bấm Kiểm tra để đăng ký webhook DIRECT_MESSAGE tự động.</li>
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>3.</b> Đặt quyền nhận tin nhắn của tài khoản Business là Mọi người để tin mới vào realtime.</li>
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>4.</b> TikTok chỉ cho trả tối đa 10 tin trong 48 giờ sau tin nhắn gần nhất của khách.</li>
                     </ol>
                   ) : (
                     <ol className="space-y-2 text-[11px] leading-5 text-zinc-700">

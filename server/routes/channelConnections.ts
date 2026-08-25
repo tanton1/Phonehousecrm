@@ -4,18 +4,24 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import {
   completeMetaOAuth,
+  completeTikTokOAuth,
   disconnectChannelConnection,
   getMetaOAuthSession,
+  getTikTokOAuthSession,
   importMetaOAuthPages,
+  importTikTokOAuthAccount,
   listChannelConnectionEvents,
   listChannelConnections,
   saveManualMetaConnection,
+  saveManualTikTokConnection,
   saveManualZaloConnection,
   startMetaOAuth,
+  startTikTokOAuth,
   testMetaConnection,
   updateChannelConnection
 } from '../services/channelConnectionService';
 import { testZaloConnection } from '../services/zaloOaService';
+import { testTikTokConnection } from '../services/tiktokBusinessService';
 
 function actor(req: Request) {
   return {
@@ -37,6 +43,9 @@ function statusFor(error: any): number {
   if (message.includes('META_API_FAILED_10') || message.includes('META_API_FAILED_200')) return 403;
   if (message.includes('ZALO_API_FAILED_-216') || message.includes('ZALO_API_FAILED_-220') || message.includes('ZALO_API_FAILED_-124')) return 401;
   if (message.includes('ZALO_TOKEN_REFRESH_IN_PROGRESS') || message.includes('ALREADY_PROCESSING')) return 409;
+  if (message.includes('TIKTOK_API_FAILED_401') || message.includes('TIKTOK_TOKEN_REFRESH_FAILED')) return 401;
+  if (message.includes('TIKTOK_API_FAILED_403')) return 403;
+  if (message.includes('TIKTOK_TOKEN_REFRESH_IN_PROGRESS')) return 409;
   return 400;
 }
 
@@ -80,6 +89,14 @@ export function createChannelConnectionsRouter(db: Firestore | null): Router {
     }
   });
 
+  router.post('/tiktok', authenticateFirebase, admins, async (req, res) => {
+    try {
+      return res.status(201).json({ success: true, data: await saveManualTikTokConnection(db, req.body || {}, actor(req)) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
   router.patch('/:connectionId', authenticateFirebase, admins, async (req, res) => {
     try {
       return res.json({
@@ -108,11 +125,14 @@ export function createChannelConnectionsRouter(db: Firestore | null): Router {
         ? await db.collection('channelConnections').doc(req.params.connectionId).get()
         : null;
       const provider = String(snapshot?.data()?.provider || '');
+      const data = provider === 'ZALO_OA'
+        ? await testZaloConnection(db, req.params.connectionId, actor(req))
+        : provider === 'TIKTOK_BUSINESS'
+          ? await testTikTokConnection(db, req.params.connectionId, actor(req), req.body?.subscribe === true, requestOrigin(req))
+          : await testMetaConnection(db, req.params.connectionId, actor(req), req.body?.subscribe === true);
       return res.json({
         success: true,
-        data: provider === 'ZALO_OA'
-          ? await testZaloConnection(db, req.params.connectionId, actor(req))
-          : await testMetaConnection(db, req.params.connectionId, actor(req), req.body?.subscribe === true)
+        data
       });
     } catch (error: any) {
       return sendError(res, error);
@@ -162,6 +182,48 @@ export function createChannelConnectionsRouter(db: Firestore | null): Router {
         success: true,
         data: await importMetaOAuthPages(db, req.params.sessionId, req.body?.pages, actor(req))
       });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.get('/tiktok/oauth/start', authenticateFirebase, admins, async (req, res) => {
+    try {
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return res.json({ success: true, data: await startTikTokOAuth(db, actor(req), requestOrigin(req)) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.get('/tiktok/oauth/callback', async (req, res) => {
+    try {
+      if (req.query.error) throw new Error(`TIKTOK_OAUTH_CANCELLED: ${String(req.query.error_description || req.query.error)}`);
+      const result = await completeTikTokOAuth(db, {
+        state: String(req.query.state || ''),
+        code: String(req.query.code || req.query.auth_code || '')
+      });
+      const targetOrigin = JSON.stringify(result.origin);
+      const sessionId = JSON.stringify(result.sessionId);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(200).send(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Đã kết nối TikTok</title></head><body style="font-family:system-ui;padding:32px;text-align:center"><h2>Đã nhận tài khoản TikTok Business</h2><p>Bạn có thể đóng cửa sổ này và quay lại PhoneHouse CRM.</p><script>try{if(window.opener){window.opener.postMessage({type:'PHONEHOUSE_TIKTOK_OAUTH_COMPLETE',sessionId:${sessionId}},${targetOrigin});}setTimeout(()=>window.close(),800);}catch(e){}</script></body></html>`);
+    } catch (error: any) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(statusFor(error)).send(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Kết nối TikTok thất bại</title></head><body style="font-family:system-ui;padding:32px;text-align:center"><h2>Không thể kết nối TikTok</h2><p>${String(error?.message || 'TIKTOK_OAUTH_FAILED').replace(/[<>&]/g, '')}</p></body></html>`);
+    }
+  });
+
+  router.get('/tiktok/oauth/sessions/:sessionId', authenticateFirebase, admins, async (req, res) => {
+    try {
+      return res.json({ success: true, data: await getTikTokOAuthSession(db, req.params.sessionId, actor(req)) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.post('/tiktok/oauth/sessions/:sessionId/import', authenticateFirebase, admins, async (req, res) => {
+    try {
+      return res.json({ success: true, data: await importTikTokOAuthAccount(db, req.params.sessionId, req.body || {}, actor(req)) });
     } catch (error: any) {
       return sendError(res, error);
     }

@@ -8,7 +8,7 @@ interface ApiEnvelope<T> {
 
 export interface ChannelConnection {
   id: string;
-  provider: 'META_MESSENGER' | 'ZALO_OA';
+  provider: 'META_MESSENGER' | 'ZALO_OA' | 'TIKTOK_BUSINESS';
   externalAccountId: string;
   displayName: string;
   branchId: string;
@@ -39,6 +39,14 @@ export interface MetaOAuthSession {
   id: string;
   status: string;
   pages: MetaOAuthPage[];
+}
+
+export interface TikTokOAuthSession {
+  id: string;
+  status: string;
+  businessId: string;
+  displayName: string;
+  scope: string[];
 }
 
 export interface ChannelConnectionEvent {
@@ -118,6 +126,19 @@ export async function createManualZaloConnection(input: {
   return normalizeConnection(await requestApi('zalo', { method: 'POST', payload: input }));
 }
 
+export async function createManualTikTokConnection(input: {
+  businessId: string;
+  displayName: string;
+  accessToken: string;
+  refreshToken: string;
+  appId: string;
+  appSecret: string;
+  branchId: string;
+  historyDays: number;
+}) {
+  return normalizeConnection(await requestApi('tiktok', { method: 'POST', payload: input }));
+}
+
 export async function updateMetaConnection(connectionId: string, input: Record<string, unknown>) {
   return normalizeConnection(await requestApi(encodeURIComponent(connectionId), { method: 'PATCH', payload: input }));
 }
@@ -153,6 +174,25 @@ export function importMetaOAuthPages(sessionId: string, pages: Array<{
   return requestApi<{ imported: number; pageIds: string[] }>(
     `meta/oauth/sessions/${encodeURIComponent(sessionId)}/import`,
     { method: 'POST', payload: { pages } }
+  );
+}
+
+export function startTikTokOAuth() {
+  return requestApi<{ provider: string; authorizationUrl: string; expiresAt: string }>('tiktok/oauth/start');
+}
+
+export function getTikTokOAuthSession(sessionId: string) {
+  return requestApi<TikTokOAuthSession>(`tiktok/oauth/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export function importTikTokOAuthAccount(sessionId: string, input: {
+  branchId: string;
+  displayName?: string;
+  historyDays: number;
+}) {
+  return requestApi<{ imported: number; businessId: string; idempotentReplay: boolean }>(
+    `tiktok/oauth/sessions/${encodeURIComponent(sessionId)}/import`,
+    { method: 'POST', payload: input }
   );
 }
 

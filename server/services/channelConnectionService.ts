@@ -37,6 +37,23 @@ export interface StoredZaloOaConnection {
   active: boolean;
 }
 
+export interface StoredTikTokBusinessConnection {
+  id: string;
+  businessId: string;
+  displayName: string;
+  accessToken: string;
+  refreshToken: string;
+  appId: string;
+  appSecret: string;
+  scope: string[];
+  accessTokenExpiresAt: number;
+  refreshTokenExpiresAt: number;
+  branchId: string;
+  branchName: string;
+  historyDays: number;
+  active: boolean;
+}
+
 interface EncryptedChannelToken {
   algorithm: 'aes-256-gcm';
   iv: string;
@@ -47,6 +64,7 @@ interface EncryptedChannelToken {
 
 export const META_PROVIDER = 'META_MESSENGER';
 export const ZALO_PROVIDER = 'ZALO_OA';
+export const TIKTOK_PROVIDER = 'TIKTOK_BUSINESS';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_SESSION_TTL_MS = 30 * 60 * 1000;
 export const META_SUBSCRIBED_FIELDS = [
@@ -154,19 +172,37 @@ export function zaloConnectionDocumentId(oaIdInput: unknown): string {
   return `ZALO_${oaId}`;
 }
 
+export function tiktokConnectionDocumentId(businessIdInput: unknown): string {
+  const businessId = asString(businessIdInput).replace(/[^0-9A-Za-z_-]/g, '');
+  if (!businessId) throw new Error('TIKTOK_BUSINESS_ID_REQUIRED');
+  return `TIKTOK_${businessId}`;
+}
+
+function normalizedProvider(value: unknown): string {
+  const provider = asString(value).toUpperCase();
+  if (provider === ZALO_PROVIDER) return ZALO_PROVIDER;
+  if (provider === TIKTOK_PROVIDER) return TIKTOK_PROVIDER;
+  return META_PROVIDER;
+}
+
 function mappingCollection(provider: string): string {
-  return provider === ZALO_PROVIDER ? 'zaloOaMappings' : 'metaPageMappings';
+  if (provider === ZALO_PROVIDER) return 'zaloOaMappings';
+  if (provider === TIKTOK_PROVIDER) return 'tiktokBusinessMappings';
+  return 'metaPageMappings';
 }
 
 function cleanClientConnection(id: string, dataInput: unknown, mappingInput: unknown = {}) {
   const data = asObject(dataInput);
   const mapping = asObject(mappingInput);
-  const provider = asString(data.provider) === ZALO_PROVIDER ? ZALO_PROVIDER : META_PROVIDER;
+  const provider = normalizedProvider(data.provider);
+  const defaultName = provider === ZALO_PROVIDER
+    ? 'Zalo OA'
+    : provider === TIKTOK_PROVIDER ? 'TikTok Business' : 'Facebook Page';
   return {
     id,
     provider,
     externalAccountId: asString(data.externalAccountId || data.pageId),
-    displayName: asString(data.displayName || data.pageName) || 'Facebook Page',
+    displayName: asString(data.displayName || data.pageName) || defaultName,
     branchId: asString(data.branchId),
     branchName: asString(data.branchName),
     active: data.active !== false,
@@ -262,7 +298,7 @@ async function readChannelConnections(db: Firestore, actor: ChannelConnectionAct
   await bootstrapLegacyMetaConnection(db);
   const snapshot = await db.collection('channelConnections').limit(100).get();
   const documents = snapshot.docs
-    .filter(document => [META_PROVIDER, ZALO_PROVIDER].includes(asString(document.data().provider)))
+    .filter(document => [META_PROVIDER, ZALO_PROVIDER, TIKTOK_PROVIDER].includes(asString(document.data().provider)))
     .filter(document => canAccessBranch(actor, asString(document.data().branchId)));
   const mappingSnapshots = await Promise.all(documents.map(document => db
     .collection(mappingCollection(asString(document.data().provider)))
@@ -354,6 +390,107 @@ export async function getStoredZaloOaConnection(
     branchName: asString(data.branchName),
     active: data.active !== false
   };
+}
+
+export async function getStoredTikTokBusinessConnection(
+  db: Firestore | null,
+  businessIdInput: unknown
+): Promise<StoredTikTokBusinessConnection | null> {
+  if (!db) return null;
+  const businessId = asString(businessIdInput);
+  if (!businessId) return null;
+  const snapshot = await db.collection('channelConnections').doc(tiktokConnectionDocumentId(businessId)).get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() || {};
+  if (data.active === false || asString(data.provider) !== TIKTOK_PROVIDER) return null;
+  return {
+    id: snapshot.id,
+    businessId,
+    displayName: asString(data.displayName) || `TikTok Business ${businessId}`,
+    accessToken: decryptChannelSecret(data.encryptedAccessToken),
+    refreshToken: decryptChannelSecret(data.encryptedRefreshToken),
+    appId: asString(data.appId || process.env.TIKTOK_APP_ID),
+    appSecret: decryptChannelSecret(data.encryptedAppSecret) || asString(process.env.TIKTOK_APP_SECRET),
+    scope: Array.isArray(data.scope) ? data.scope.map(asString).filter(Boolean) : [],
+    accessTokenExpiresAt: timestampMillis(data.accessTokenExpiresAt),
+    refreshTokenExpiresAt: timestampMillis(data.refreshTokenExpiresAt),
+    branchId: asString(data.branchId),
+    branchName: asString(data.branchName),
+    historyDays: Math.min(90, Math.max(1, asNumber(data.historyDays, 30))),
+    active: data.active !== false
+  };
+}
+
+export async function saveManualTikTokConnection(
+  db: Firestore | null,
+  input: Record<string, any>,
+  actor: ChannelConnectionActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isAdmin(actor)) throw new Error('CHANNEL_CONNECTION_ADMIN_REQUIRED');
+  const businessId = asString(input.businessId || input.openId);
+  if (!/^[0-9A-Za-z_-]{5,100}$/.test(businessId)) throw new Error('TIKTOK_BUSINESS_ID_INVALID');
+  const branch = await activeBranch(db, input.branchId);
+  const ref = db.collection('channelConnections').doc(tiktokConnectionDocumentId(businessId));
+  const existing = await ref.get();
+  const current = existing.data() || {};
+  const accessToken = asString(input.accessToken);
+  const refreshToken = asString(input.refreshToken);
+  const appSecret = asString(input.appSecret);
+  if (!accessToken && !current.encryptedAccessToken) throw new Error('TIKTOK_ACCESS_TOKEN_REQUIRED');
+  const now = Date.now();
+  const accessExpiresIn = Math.min(7 * 24 * 60 * 60, Math.max(300, asNumber(input.expiresIn, 24 * 60 * 60)));
+  const refreshExpiresIn = Math.min(400 * 24 * 60 * 60, Math.max(24 * 60 * 60, asNumber(input.refreshTokenExpiresIn, 365 * 24 * 60 * 60)));
+  const updates: Record<string, any> = {
+    id: ref.id,
+    provider: TIKTOK_PROVIDER,
+    externalAccountId: businessId,
+    displayName: asString(input.displayName || input.businessName) || asString(current.displayName) || `TikTok Business ${businessId}`,
+    branchId: branch.id,
+    branchName: branch.name,
+    appId: asString(input.appId) || asString(current.appId) || asString(process.env.TIKTOK_APP_ID),
+    scope: Array.isArray(input.scope) ? input.scope.map(asString).filter(Boolean) : (Array.isArray(current.scope) ? current.scope : []),
+    active: true,
+    status: 'NOT_TESTED',
+    hasToken: true,
+    historyDays: Math.min(90, Math.max(1, asNumber(input.historyDays, current.historyDays || 30))),
+    includeComments: false,
+    source: asString(current.source) || 'MANUAL',
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedByUid: actor.uid,
+    updatedByName: asString(actor.name) || actor.uid,
+    ...(accessToken ? {
+      encryptedAccessToken: encryptChannelSecret(accessToken),
+      tokenFingerprint: tokenFingerprint(accessToken),
+      accessTokenExpiresAt: Timestamp.fromMillis(now + accessExpiresIn * 1000)
+    } : {}),
+    ...(refreshToken ? {
+      encryptedRefreshToken: encryptChannelSecret(refreshToken),
+      hasRefreshToken: true,
+      refreshTokenExpiresAt: Timestamp.fromMillis(now + refreshExpiresIn * 1000)
+    } : {}),
+    ...(appSecret ? { encryptedAppSecret: encryptChannelSecret(appSecret), hasAppSecret: true } : {})
+  };
+  if (!existing.exists) updates.createdAt = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  batch.set(ref, updates, { merge: true });
+  batch.set(db.collection('tiktokBusinessMappings').doc(businessId), {
+    businessId,
+    displayName: updates.displayName,
+    branchId: branch.id,
+    branchName: branch.name,
+    isActive: true,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+  await batch.commit();
+  await writeEvent(db, actor, {
+    provider: TIKTOK_PROVIDER,
+    connectionId: ref.id,
+    pageId: businessId,
+    branchId: branch.id,
+    eventType: existing.exists ? 'CONNECTION_UPDATED' : 'CONNECTION_CREATED'
+  });
+  return cleanClientConnection(ref.id, (await ref.get()).data());
 }
 
 export async function saveManualZaloConnection(
@@ -572,11 +709,11 @@ export async function updateChannelConnection(
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('CHANNEL_CONNECTION_NOT_FOUND');
   const current = snapshot.data() || {};
-  const provider = asString(current.provider) === ZALO_PROVIDER ? ZALO_PROVIDER : META_PROVIDER;
+  const provider = normalizedProvider(current.provider);
   const branch = input.branchId !== undefined
     ? await activeBranch(db, input.branchId)
     : { id: asString(current.branchId), name: asString(current.branchName) };
-  const token = asString(provider === ZALO_PROVIDER ? input.accessToken : input.pageAccessToken);
+  const token = asString(provider === META_PROVIDER ? input.pageAccessToken : input.accessToken);
   const refreshToken = asString(input.refreshToken);
   const appSecret = asString(input.appSecret);
   const webhookSecret = asString(input.webhookSecret);
@@ -589,22 +726,25 @@ export async function updateChannelConnection(
     ...(input.includeComments !== undefined ? { includeComments: input.includeComments === true } : {}),
     ...(input.active !== undefined ? { active: input.active === true } : {}),
     ...(encrypted ? {
-      [provider === ZALO_PROVIDER ? 'encryptedAccessToken' : 'encryptedPageAccessToken']: encrypted,
+      [provider === META_PROVIDER ? 'encryptedPageAccessToken' : 'encryptedAccessToken']: encrypted,
       tokenFingerprint: tokenFingerprint(token),
       hasToken: true,
       status: 'NOT_TESTED',
       lastError: '',
-      ...(provider === ZALO_PROVIDER ? {
-        accessTokenExpiresAt: Timestamp.fromMillis(now + Math.min(90_000, Math.max(300, asNumber(input.expiresIn, 90_000))) * 1000)
+      ...(provider !== META_PROVIDER ? {
+        accessTokenExpiresAt: Timestamp.fromMillis(now + Math.min(
+          provider === TIKTOK_PROVIDER ? 7 * 24 * 60 * 60 : 90_000,
+          Math.max(300, asNumber(input.expiresIn, provider === TIKTOK_PROVIDER ? 24 * 60 * 60 : 90_000))
+        ) * 1000)
       } : {})
     } : {}),
-    ...(provider === ZALO_PROVIDER && refreshToken ? {
+    ...(provider !== META_PROVIDER && refreshToken ? {
       encryptedRefreshToken: encryptChannelSecret(refreshToken),
       hasRefreshToken: true,
-      refreshTokenExpiresAt: Timestamp.fromMillis(now + 90 * 24 * 60 * 60 * 1000)
+      refreshTokenExpiresAt: Timestamp.fromMillis(now + (provider === TIKTOK_PROVIDER ? 365 : 90) * 24 * 60 * 60 * 1000)
     } : {}),
-    ...(provider === ZALO_PROVIDER && asString(input.appId) ? { appId: asString(input.appId) } : {}),
-    ...(provider === ZALO_PROVIDER && appSecret ? { encryptedAppSecret: encryptChannelSecret(appSecret), hasAppSecret: true } : {}),
+    ...(provider !== META_PROVIDER && asString(input.appId) ? { appId: asString(input.appId) } : {}),
+    ...(provider !== META_PROVIDER && appSecret ? { encryptedAppSecret: encryptChannelSecret(appSecret), hasAppSecret: true } : {}),
     ...(provider === ZALO_PROVIDER && webhookSecret ? { encryptedWebhookSecret: encryptChannelSecret(webhookSecret), hasWebhookSecret: true } : {}),
     updatedAt: FieldValue.serverTimestamp(),
     updatedByUid: actor.uid,
@@ -615,9 +755,11 @@ export async function updateChannelConnection(
   batch.set(ref, updates, { merge: true });
   if (input.branchId !== undefined) {
     batch.set(db.collection(mappingCollection(provider)).doc(pageId), {
-      ...(provider === ZALO_PROVIDER ? { oaId: pageId, oaName: updates.displayName || current.displayName } : {
-        pageId, pageName: updates.displayName || current.displayName
-      }),
+      ...(provider === ZALO_PROVIDER
+        ? { oaId: pageId, oaName: updates.displayName || current.displayName }
+        : provider === TIKTOK_PROVIDER
+          ? { businessId: pageId, displayName: updates.displayName || current.displayName }
+          : { pageId, pageName: updates.displayName || current.displayName }),
       branchId: branch.id,
       branchName: branch.name,
       isActive: true,
@@ -646,7 +788,7 @@ export async function disconnectChannelConnection(
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('CHANNEL_CONNECTION_NOT_FOUND');
   const data = snapshot.data() || {};
-  const provider = asString(data.provider) === ZALO_PROVIDER ? ZALO_PROVIDER : META_PROVIDER;
+  const provider = normalizedProvider(data.provider);
   const pageId = asString(data.externalAccountId);
   const conversations = await db.collection('chatConversations').where('pageId', '==', pageId).limit(1).get();
   if (conversations.empty) await ref.delete();
@@ -936,6 +1078,217 @@ export async function importMetaOAuthPages(
     failedSubscriptions: normalized.length - subscribed,
     idempotentReplay: false
   };
+}
+
+function tiktokOAuthRedirectUri(originInput: string): string {
+  const configured = asString(process.env.TIKTOK_OAUTH_REDIRECT_URI);
+  if (configured) return configured;
+  const origin = asString(originInput).replace(/\/$/, '');
+  if (!/^https?:\/\//.test(origin)) throw new Error('TIKTOK_OAUTH_ORIGIN_INVALID');
+  return `${origin}/api/channel-connections/tiktok/oauth/callback`;
+}
+
+async function tiktokTokenRequest(payload: Record<string, any>) {
+  const response = await fetch('https://business-api.tiktok.com/open_api/v1.3/tt_user/oauth2/token/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const body = await response.json().catch(() => ({})) as Record<string, any>;
+  const code = asNumber(body.code, response.ok ? 0 : response.status);
+  if (!response.ok || code !== 0) {
+    throw new Error(`TIKTOK_OAUTH_EXCHANGE_FAILED_${code || response.status}: ${asString(body.message) || 'TikTok từ chối cấp token.'}`);
+  }
+  return asObject(body.data);
+}
+
+export async function startTikTokOAuth(
+  db: Firestore | null,
+  actor: ChannelConnectionActor,
+  origin: string
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isAdmin(actor)) throw new Error('CHANNEL_CONNECTION_ADMIN_REQUIRED');
+  const appId = asString(process.env.TIKTOK_APP_ID);
+  const appSecret = asString(process.env.TIKTOK_APP_SECRET);
+  const configuredAuthorizationUrl = asString(process.env.TIKTOK_AUTHORIZATION_URL);
+  if (!appId || !appSecret || !configuredAuthorizationUrl) throw new Error('TIKTOK_OAUTH_APP_NOT_CONFIGURED');
+  let authorizationUrl: URL;
+  try {
+    authorizationUrl = new URL(configuredAuthorizationUrl);
+  } catch {
+    throw new Error('TIKTOK_AUTHORIZATION_URL_INVALID');
+  }
+  if (authorizationUrl.protocol !== 'https:') throw new Error('TIKTOK_AUTHORIZATION_URL_INVALID');
+  const state = crypto.randomBytes(24).toString('hex');
+  const redirectUri = tiktokOAuthRedirectUri(origin);
+  await db.collection('channelOAuthStates').doc(state).set({
+    id: state,
+    provider: TIKTOK_PROVIDER,
+    actorUid: actor.uid,
+    actorName: asString(actor.name) || actor.uid,
+    origin: asString(origin).replace(/\/$/, ''),
+    redirectUri,
+    status: 'PENDING',
+    expiresAt: Timestamp.fromMillis(Date.now() + OAUTH_STATE_TTL_MS),
+    createdAt: FieldValue.serverTimestamp()
+  });
+  authorizationUrl.searchParams.set('state', state);
+  authorizationUrl.searchParams.set('redirect_uri', redirectUri);
+  authorizationUrl.searchParams.set('disable_auto_auth', '1');
+  return {
+    provider: TIKTOK_PROVIDER,
+    authorizationUrl: authorizationUrl.toString(),
+    expiresAt: new Date(Date.now() + OAUTH_STATE_TTL_MS).toISOString()
+  };
+}
+
+export async function completeTikTokOAuth(
+  db: Firestore | null,
+  input: { state: string; code: string }
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  const stateRef = db.collection('channelOAuthStates').doc(asString(input.state));
+  const stateSnapshot = await stateRef.get();
+  if (!stateSnapshot.exists) throw new Error('TIKTOK_OAUTH_STATE_INVALID');
+  const state = stateSnapshot.data() || {};
+  if (asString(state.provider) !== TIKTOK_PROVIDER) throw new Error('TIKTOK_OAUTH_STATE_INVALID');
+  if (state.status !== 'PENDING') throw new Error('TIKTOK_OAUTH_STATE_USED');
+  if (state.expiresAt?.toMillis?.() < Date.now()) throw new Error('TIKTOK_OAUTH_STATE_EXPIRED');
+  const appId = asString(process.env.TIKTOK_APP_ID);
+  const appSecret = asString(process.env.TIKTOK_APP_SECRET);
+  const authCode = asString(input.code);
+  if (!authCode) throw new Error('TIKTOK_OAUTH_CODE_REQUIRED');
+  const token = await tiktokTokenRequest({
+    client_id: appId,
+    client_secret: appSecret,
+    grant_type: 'authorization_code',
+    auth_code: authCode,
+    redirect_uri: asString(state.redirectUri)
+  });
+  const businessId = asString(token.open_id || token.business_id);
+  const accessToken = asString(token.access_token);
+  if (!businessId || !accessToken) throw new Error('TIKTOK_OAUTH_TOKEN_RESPONSE_INVALID');
+  const sessionId = `TIKTOK_OAUTH_${crypto.randomBytes(16).toString('hex')}`;
+  const batch = db.batch();
+  batch.set(db.collection('channelOAuthSessions').doc(sessionId), {
+    id: sessionId,
+    provider: TIKTOK_PROVIDER,
+    actorUid: asString(state.actorUid),
+    actorName: asString(state.actorName),
+    businessId,
+    displayName: `TikTok Business ${businessId}`,
+    encryptedAccessToken: encryptChannelSecret(accessToken),
+    encryptedRefreshToken: encryptChannelSecret(token.refresh_token),
+    tokenFingerprint: tokenFingerprint(accessToken),
+    scope: Array.isArray(token.scope) ? token.scope.map(asString).filter(Boolean) : asString(token.scope).split(',').map(value => value.trim()).filter(Boolean),
+    accessTokenExpiresIn: Math.max(300, asNumber(token.expires_in, 24 * 60 * 60)),
+    refreshTokenExpiresIn: Math.max(24 * 60 * 60, asNumber(token.refresh_token_expires_in, 365 * 24 * 60 * 60)),
+    status: 'READY',
+    expiresAt: Timestamp.fromMillis(Date.now() + OAUTH_SESSION_TTL_MS),
+    createdAt: FieldValue.serverTimestamp()
+  });
+  batch.set(stateRef, { status: 'COMPLETED', sessionId, completedAt: FieldValue.serverTimestamp() }, { merge: true });
+  await batch.commit();
+  return { sessionId, origin: asString(state.origin), businessId };
+}
+
+export async function getTikTokOAuthSession(
+  db: Firestore | null,
+  sessionId: string,
+  actor: ChannelConnectionActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isAdmin(actor)) throw new Error('CHANNEL_CONNECTION_ADMIN_REQUIRED');
+  const snapshot = await db.collection('channelOAuthSessions').doc(asString(sessionId)).get();
+  if (!snapshot.exists) throw new Error('TIKTOK_OAUTH_SESSION_NOT_FOUND');
+  const data = snapshot.data() || {};
+  if (asString(data.provider) !== TIKTOK_PROVIDER) throw new Error('TIKTOK_OAUTH_SESSION_NOT_FOUND');
+  if (asString(data.actorUid) !== actor.uid) throw new Error('TIKTOK_OAUTH_SESSION_FORBIDDEN');
+  if (data.expiresAt?.toMillis?.() < Date.now()) throw new Error('TIKTOK_OAUTH_SESSION_EXPIRED');
+  return {
+    id: snapshot.id,
+    status: asString(data.status),
+    businessId: asString(data.businessId),
+    displayName: asString(data.displayName),
+    scope: Array.isArray(data.scope) ? data.scope : []
+  };
+}
+
+export async function importTikTokOAuthAccount(
+  db: Firestore | null,
+  sessionId: string,
+  input: Record<string, any>,
+  actor: ChannelConnectionActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isAdmin(actor)) throw new Error('CHANNEL_CONNECTION_ADMIN_REQUIRED');
+  const sessionRef = db.collection('channelOAuthSessions').doc(asString(sessionId));
+  const sessionSnapshot = await sessionRef.get();
+  if (!sessionSnapshot.exists) throw new Error('TIKTOK_OAUTH_SESSION_NOT_FOUND');
+  const session = sessionSnapshot.data() || {};
+  if (asString(session.provider) !== TIKTOK_PROVIDER) throw new Error('TIKTOK_OAUTH_SESSION_NOT_FOUND');
+  if (asString(session.actorUid) !== actor.uid) throw new Error('TIKTOK_OAUTH_SESSION_FORBIDDEN');
+  if (session.status === 'IMPORTED') {
+    return { imported: 1, businessId: asString(session.businessId), idempotentReplay: true };
+  }
+  if (session.expiresAt?.toMillis?.() < Date.now()) throw new Error('TIKTOK_OAUTH_SESSION_EXPIRED');
+  const branch = await activeBranch(db, input.branchId);
+  const businessId = asString(session.businessId);
+  const ref = db.collection('channelConnections').doc(tiktokConnectionDocumentId(businessId));
+  const now = Date.now();
+  const batch = db.batch();
+  batch.set(ref, {
+    id: ref.id,
+    provider: TIKTOK_PROVIDER,
+    externalAccountId: businessId,
+    displayName: asString(input.displayName) || asString(session.displayName) || `TikTok Business ${businessId}`,
+    branchId: branch.id,
+    branchName: branch.name,
+    appId: asString(process.env.TIKTOK_APP_ID),
+    encryptedAppSecret: encryptChannelSecret(process.env.TIKTOK_APP_SECRET),
+    hasAppSecret: Boolean(asString(process.env.TIKTOK_APP_SECRET)),
+    encryptedAccessToken: session.encryptedAccessToken,
+    encryptedRefreshToken: session.encryptedRefreshToken,
+    tokenFingerprint: asString(session.tokenFingerprint),
+    hasToken: true,
+    hasRefreshToken: Boolean(session.encryptedRefreshToken),
+    scope: Array.isArray(session.scope) ? session.scope : [],
+    accessTokenExpiresAt: Timestamp.fromMillis(now + asNumber(session.accessTokenExpiresIn, 24 * 60 * 60) * 1000),
+    refreshTokenExpiresAt: Timestamp.fromMillis(now + asNumber(session.refreshTokenExpiresIn, 365 * 24 * 60 * 60) * 1000),
+    historyDays: Math.min(90, Math.max(1, asNumber(input.historyDays, 30))),
+    includeComments: false,
+    active: true,
+    status: 'NOT_TESTED',
+    source: 'TIKTOK_OAUTH',
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedByUid: actor.uid,
+    updatedByName: asString(actor.name) || actor.uid
+  }, { merge: true });
+  batch.set(db.collection('tiktokBusinessMappings').doc(businessId), {
+    businessId,
+    displayName: asString(input.displayName) || asString(session.displayName) || `TikTok Business ${businessId}`,
+    branchId: branch.id,
+    branchName: branch.name,
+    isActive: true,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+  const eventRef = db.collection('channelConnectionEvents').doc();
+  batch.set(eventRef, {
+    id: eventRef.id,
+    provider: TIKTOK_PROVIDER,
+    connectionId: ref.id,
+    pageId: businessId,
+    branchId: branch.id,
+    eventType: 'CONNECTION_IMPORTED',
+    actorUid: actor.uid,
+    actorName: asString(actor.name) || actor.uid,
+    occurredAt: FieldValue.serverTimestamp()
+  });
+  batch.set(sessionRef, { status: 'IMPORTED', importedAt: FieldValue.serverTimestamp() }, { merge: true });
+  await batch.commit();
+  return { imported: 1, businessId, idempotentReplay: false };
 }
 
 export async function listChannelConnectionEvents(

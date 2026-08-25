@@ -29,7 +29,7 @@ import {
   syncMetaConversations,
   takeMetaThreadControl
 } from '../services/metaMessengerService';
-import { zaloConnectionDocumentId } from '../services/channelConnectionService';
+import { tiktokConnectionDocumentId, zaloConnectionDocumentId } from '../services/channelConnectionService';
 import {
   getZaloOaChannels,
   getZaloWebhookSetup,
@@ -38,6 +38,14 @@ import {
   setZaloBranchMapping,
   syncZaloOaConversations
 } from '../services/zaloOaService';
+import {
+  getTikTokBusinessChannels,
+  getTikTokWebhookSetup,
+  markTikTokConversationRead,
+  sendTikTokBusinessMessage,
+  setTikTokBranchMapping,
+  syncTikTokConversations
+} from '../services/tiktokBusinessService';
 
 function useMetaProvider(): boolean {
   const provider = String(process.env.CHAT_PROVIDER || '').trim().toUpperCase();
@@ -49,6 +57,14 @@ function useMetaProvider(): boolean {
 async function isZaloPage(db: Firestore, pageId: string): Promise<boolean> {
   try {
     return (await db.collection('channelConnections').doc(zaloConnectionDocumentId(pageId)).get()).exists;
+  } catch {
+    return false;
+  }
+}
+
+async function isTikTokPage(db: Firestore, pageId: string): Promise<boolean> {
+  try {
+    return (await db.collection('channelConnections').doc(tiktokConnectionDocumentId(pageId)).get()).exists;
   } catch {
     return false;
   }
@@ -77,6 +93,9 @@ function errorStatus(error: any): number {
   if (message.includes('META_API_FAILED_10:') || message.includes('META_API_FAILED_200:')) return 403;
   if (message.includes('ZALO_API_FAILED_-216') || message.includes('ZALO_API_FAILED_-220') || message.includes('ZALO_API_FAILED_-124')) return 401;
   if (message.includes('ZALO_TOKEN_REFRESH_IN_PROGRESS') || message.includes('ZALO_SEND_ALREADY_PROCESSING')) return 409;
+  if (message.includes('TIKTOK_REPLY_WINDOW_EXPIRED') || message.includes('TIKTOK_SEND_ALREADY_PROCESSING')) return 409;
+  if (message.includes('TIKTOK_API_FAILED_401') || message.includes('TIKTOK_TOKEN_REFRESH_FAILED')) return 401;
+  if (message.includes('TIKTOK_API_FAILED_403')) return 403;
   if (message.includes('ALREADY_PROCESSING')) return 409;
   return 400;
 }
@@ -124,18 +143,21 @@ export function createPancakeRouter(db: Firestore | null): Router {
   router.get('/channels', authenticateFirebase, async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const zaloChannels = await getZaloOaChannels(db, actor(req));
+      const [zaloChannels, tiktokChannels] = await Promise.all([
+        getZaloOaChannels(db, actor(req)),
+        getTikTokBusinessChannels(db, actor(req))
+      ]);
       if (useMetaProvider()) {
         return res.json({
           success: true,
           data: {
-            channels: [...await getMetaMessengerChannels(db, actor(req)), ...zaloChannels],
+            channels: [...await getMetaMessengerChannels(db, actor(req)), ...zaloChannels, ...tiktokChannels],
             branches: await listPancakeBranchOptions(db, actor(req))
           }
         });
       }
       const pancake = await getPancakeChannels(db, actor(req));
-      return res.json({ success: true, data: { ...pancake, channels: [...pancake.channels, ...zaloChannels] } });
+      return res.json({ success: true, data: { ...pancake, channels: [...pancake.channels, ...zaloChannels, ...tiktokChannels] } });
     } catch (error: any) {
       return sendError(res, error);
     }
@@ -146,9 +168,11 @@ export function createPancakeRouter(db: Firestore | null): Router {
   ), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const link = await isZaloPage(db, req.params.pageId)
-        ? setZaloBranchMapping
-        : useMetaProvider() ? setMetaBranchMapping : setPancakeBranchMapping;
+      const link = await isTikTokPage(db, req.params.pageId)
+        ? setTikTokBranchMapping
+        : await isZaloPage(db, req.params.pageId)
+          ? setZaloBranchMapping
+          : useMetaProvider() ? setMetaBranchMapping : setPancakeBranchMapping;
       const data = await link(db, {
         pageId: req.params.pageId,
         branchId: req.body?.branchId
@@ -168,9 +192,11 @@ export function createPancakeRouter(db: Firestore | null): Router {
       const forwardedProtocol = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
       const origin = forwardedHost ? `${forwardedProtocol}://${forwardedHost}` : '';
       res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-      const setup = await isZaloPage(db, req.params.pageId)
-        ? getZaloWebhookSetup
-        : useMetaProvider() ? getMetaWebhookSetup : getPancakeWebhookSetup;
+      const setup = await isTikTokPage(db, req.params.pageId)
+        ? getTikTokWebhookSetup
+        : await isZaloPage(db, req.params.pageId)
+          ? getZaloWebhookSetup
+          : useMetaProvider() ? getMetaWebhookSetup : getPancakeWebhookSetup;
       return res.json({ success: true, data: await setup(db, req.params.pageId, actor(req), origin) });
     } catch (error: any) {
       return sendError(res, error);
@@ -263,7 +289,9 @@ export function createPancakeRouter(db: Firestore | null): Router {
       const provider = conversationSnapshot.data()?.provider;
       const send = provider === 'META_MESSENGER'
         ? sendMetaMessengerMessage
-        : provider === 'ZALO_OA' ? sendZaloOaMessage : sendPancakeMessage;
+        : provider === 'ZALO_OA'
+          ? sendZaloOaMessage
+          : provider === 'TIKTOK_BUSINESS' ? sendTikTokBusinessMessage : sendPancakeMessage;
       const data = await send(db, {
         conversationId: req.params.conversationId,
         text: req.body?.text,
@@ -300,7 +328,9 @@ export function createPancakeRouter(db: Firestore | null): Router {
       const provider = conversationSnapshot.data()?.provider;
       const markRead = provider === 'META_MESSENGER'
         ? markMetaConversationRead
-        : provider === 'ZALO_OA' ? markZaloConversationRead : markPancakeConversationRead;
+        : provider === 'ZALO_OA'
+          ? markZaloConversationRead
+          : provider === 'TIKTOK_BUSINESS' ? markTikTokConversationRead : markPancakeConversationRead;
       return res.json({ success: true, data: await markRead(db, req.params.conversationId, actor(req)) });
     } catch (error: any) {
       return sendError(res, error);
@@ -310,6 +340,14 @@ export function createPancakeRouter(db: Firestore | null): Router {
   router.post('/sync', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
+      const tiktok = await isTikTokPage(db, req.body?.pageId);
+      if (tiktok) {
+        const data = await syncTikTokConversations(db, {
+          pageId: req.body?.pageId,
+          cursor: req.body?.cursor
+        }, actor(req));
+        return res.json({ success: true, data });
+      }
       const zalo = await isZaloPage(db, req.body?.pageId);
       if (zalo) {
         const data = await syncZaloOaConversations(db, req.body?.pageId, actor(req));

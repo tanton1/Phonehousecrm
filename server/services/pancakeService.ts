@@ -3,6 +3,7 @@ import { FieldPath, FieldValue, Firestore, Timestamp } from 'firebase-admin/fire
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
 import { refreshMetaConversationMessages } from './metaMessengerService';
 import { refreshZaloConversationMessages } from './zaloOaService';
+import { refreshTikTokConversationMessages } from './tiktokBusinessService';
 
 const PANCAKE_PAGE_API_V1 = 'https://pages.fm/api/public_api/v1';
 const PANCAKE_PAGE_API_V2 = 'https://pages.fm/api/public_api/v2';
@@ -1110,6 +1111,12 @@ export async function listPancakeMessages(db: Firestore | null, conversationId: 
       await refreshZaloConversationMessages(db, conversation);
     } catch (error: any) {
       warning = error?.message || 'ZALO_MESSAGE_REFRESH_FAILED';
+    }
+  } else if (refreshFromPancake && conversation.provider === 'TIKTOK_BUSINESS') {
+    try {
+      await refreshTikTokConversationMessages(db, conversation);
+    } catch (error: any) {
+      warning = error?.message || 'TIKTOK_MESSAGE_REFRESH_FAILED';
     }
   } else if (refreshFromPancake) {
     try {
