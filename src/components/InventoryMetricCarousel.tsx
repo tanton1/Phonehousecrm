@@ -18,7 +18,7 @@ export const InventoryMetricCarousel: React.FC<InventoryMetricCarouselProps> = (
 }) => {
   return (
     <section aria-label={label} className={className}>
-      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {React.Children.toArray(children).map((child, index) => (
           <div
             key={index}

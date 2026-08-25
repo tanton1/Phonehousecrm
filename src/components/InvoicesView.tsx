@@ -5,6 +5,9 @@ import { asInvoiceMoney, formatVnd, getInvoiceFinalAmount, getInvoiceLines, getI
 import { ActivityLog } from "./ActivityLog";
 import { DocumentHeader } from './shared/DocumentHeader';
 import { StatusBadge } from './shared/StatusBadge';
+import { DateRangeFilter } from './shared/DateRangeFilter';
+import { InventoryMetricCarousel } from './InventoryMetricCarousel';
+import { DEFAULT_DATE_FILTER, matchesDateFilter } from '../utils/dateRangeFilter';
 import { History,  
   FileText, 
   Search, 
@@ -42,7 +45,6 @@ import { History,
   RotateCcw,
   Sparkles,
   List,
-  SlidersHorizontal,
   ScanLine
 } from 'lucide-react';
 
@@ -54,8 +56,6 @@ interface InvoicesViewProps {
   onCancelInvoice?: (invoice: SalesInvoice, reason: string) => Promise<void> | void;
   initialSelectedInvoiceId?: string | null;
 }
-
-type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string; dot: string; icon: any }> = {
   completed: {
@@ -157,9 +157,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   initialSelectedInvoiceId
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
+  const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<SalesInvoice | null>(() => {
     if (initialSelectedInvoiceId) {
       return invoices.find(inv => inv.id === initialSelectedInvoiceId || inv.invoiceCode === initialSelectedInvoiceId) || null;
@@ -224,40 +223,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         }
       }
 
-      // 3. Time Filter
-      if (timeFilter === 'all') return true;
-      
-      const dateStr = invoiceDateTime(inv.createdDate || inv.createdAt, '');
-      if (!dateStr) return true;
-
-      // Parse invoice date
-      const invDate = new Date(dateStr.replace('T', ' ').split(' ')[0]);
-      if (Number.isNaN(invDate.getTime())) return true;
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-      if (timeFilter === 'today') {
-        return invDate.getTime() >= today.getTime();
-      }
-      if (timeFilter === 'yesterday') {
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        return invDate.getDate() === yesterday.getDate() && 
-               invDate.getMonth() === yesterday.getMonth() && 
-               invDate.getFullYear() === yesterday.getFullYear();
-      }
-      if (timeFilter === 'this_week') {
-        const weekAgo = new Date(today);
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        return invDate.getTime() >= weekAgo.getTime();
-      }
-      if (timeFilter === 'this_month') {
-        return invDate.getMonth() === now.getMonth() && invDate.getFullYear() === now.getFullYear();
-      }
-
-      return true;
+      // 3. Date Filter: one range drives both the invoice list and metrics.
+      return matchesDateFilter(inv.createdDate || inv.createdAt, dateFilter);
     });
-  }, [invoices, searchQuery, timeFilter, statusFilter]);
+  }, [invoices, searchQuery, dateFilter, statusFilter]);
 
   // Aggregate totals: Exclude cancelled / refunded from Net Revenue
   const validInvoices = useMemo(() => {
@@ -281,8 +250,6 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const debtRevenue = useMemo(() => {
     return Math.max(0, netRevenue - paidRevenue);
   }, [netRevenue, paidRevenue]);
-
-  const totalRevenue = netRevenue;
 
   // Group invoices by date string
   const groupedInvoices = useMemo(() => {
@@ -1021,12 +988,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </div>
           <button type="button" onClick={onNavigateToPOS} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-orange-950/40 transition hover:bg-orange-400 active:scale-[0.98]"><Plus className="h-4 w-4" /> Lên đơn tại POS</button>
         </div>
-        <div className="relative mt-5 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/15 py-3 backdrop-blur-sm">
-          <div className="px-3"><p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Hiển thị</p><p className="mt-1 text-lg font-black">{filteredInvoices.length}</p></div>
-          <div className="px-3"><p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Đã hoàn tất</p><p className="mt-1 text-lg font-black text-emerald-300">{validInvoices.length}</p></div>
-          <div className="px-3"><p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Công nợ</p><p className="mt-1 truncate text-sm font-black text-amber-200">{formatVnd(debtRevenue)}đ</p></div>
-        </div>
       </section>
+
+      <DateRangeFilter value={dateFilter} onChange={setDateFilter} className="px-2 sm:px-0" />
 
       {/* 2. Filter Bar (Segmented Pills & Filter Button) */}
       <div className="flex items-center gap-1.5 overflow-x-auto rounded-none border border-zinc-200 bg-white p-2 shadow-sm scrollbar-none sm:rounded-2xl">
@@ -1078,40 +1042,6 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           <span>Trả góp 0%</span>
         </button>
 
-        {/* Filter Sliders Button with Dropdown */}
-        <div className="relative shrink-0 ml-auto">
-          <button
-            onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-            className="p-1.5 bg-white border border-zinc-200 hover:border-orange-300 rounded-full text-zinc-600 hover:text-orange-600 transition-all cursor-pointer shadow-2xs"
-            title="Lọc thời gian & nâng cao"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-          </button>
-
-          {showFilterDropdown && (
-            <div className="absolute right-0 top-9 z-30 bg-white rounded-2xl shadow-xl border border-zinc-200 p-2.5 w-48 space-y-1 animate-fadeIn">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block px-2 py-0.5">Thời gian</span>
-              {(['all', 'today', 'yesterday', 'this_week', 'this_month'] as TimeFilter[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => {
-                    setTimeFilter(t);
-                    setShowFilterDropdown(false);
-                  }}
-                  className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                    timeFilter === t ? 'bg-orange-50 text-orange-600 font-bold' : 'text-zinc-700 hover:bg-zinc-50'
-                  }`}
-                >
-                  {t === 'all' && 'Toàn thời gian'}
-                  {t === 'today' && 'Hôm nay'}
-                  {t === 'yesterday' && 'Hôm qua'}
-                  {t === 'this_week' && '7 ngày qua'}
-                  {t === 'this_month' && 'Tháng này'}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* 3. Search Bar with Barcode Scanner Icon */}
@@ -1145,46 +1075,30 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         </div>
       </div>
 
-      {/* 4. 3 Clean Financial KPI Cards */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="text-xs font-bold text-zinc-500 mb-1">Doanh Thu Thuần (Net)</div>
-          <div className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 tracking-tight">
-            {formatVnd(netRevenue)} <span className="text-xs font-sans font-bold">đ</span>
-          </div>
-          <div className="text-[11px] text-zinc-400 mt-1">
-            {validInvoices.length} hóa đơn hợp lệ
-          </div>
-        </div>
+      <InventoryMetricCarousel className="px-2 sm:px-0" label="Báo cáo hóa đơn, vuốt để xem thêm">
+        <article className="h-full rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-950 to-zinc-800 p-4 text-white shadow-sm">
+          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-orange-300"><DollarSign className="h-3.5 w-3.5" /> Doanh thu thuần</div>
+          <p className="mt-2 truncate font-mono text-2xl font-black">{formatVnd(netRevenue)}đ</p>
+          <p className="mt-1 text-[10px] font-semibold text-zinc-400">Không tính hóa đơn hủy hoặc hoàn</p>
+        </article>
+        <article className="h-full rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
+          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Đã thu thực tế</div>
+          <p className="mt-2 truncate font-mono text-2xl font-black text-emerald-700">{formatVnd(paidRevenue)}đ</p>
+          <p className="mt-1 text-[10px] font-semibold text-zinc-400">Tiền đã ghi nhận theo hóa đơn</p>
+        </article>
+        <article className="h-full rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm">
+          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-amber-700"><Clock className="h-3.5 w-3.5" /> Còn phải thu</div>
+          <p className="mt-2 truncate font-mono text-2xl font-black text-amber-700">{formatVnd(debtRevenue)}đ</p>
+          <p className="mt-1 text-[10px] font-semibold text-zinc-400">Công nợ khách và khoản chờ thu</p>
+        </article>
+        <article className="h-full rounded-2xl border border-orange-100 bg-gradient-to-br from-orange-50 to-white p-4 shadow-sm">
+          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-orange-700"><Receipt className="h-3.5 w-3.5" /> Hóa đơn hiển thị</div>
+          <p className="mt-2 font-mono text-2xl font-black text-zinc-900">{filteredInvoices.length}</p>
+          <p className="mt-1 text-[10px] font-semibold text-zinc-400">{validInvoices.length} hóa đơn hợp lệ</p>
+        </article>
+      </InventoryMetricCarousel>
 
-        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm">
-          <div className="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>Đã Thu Thực Tế</span>
-          </div>
-          <div className="text-xl sm:text-2xl font-bold font-mono text-emerald-700 tracking-tight">
-            {formatVnd(paidRevenue)} <span className="text-xs font-sans font-bold">đ</span>
-          </div>
-          <div className="text-[11px] text-zinc-400 mt-1">
-            Tiền mặt, VietQR & Chuyển khoản
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-amber-100 bg-amber-50/45 p-4 shadow-sm">
-          <div className="text-xs font-bold text-amber-700 mb-1 flex items-center gap-1">
-            <Clock className="w-3.5 h-3.5" />
-            <span>Chờ Thu / Công Nợ</span>
-          </div>
-          <div className="text-xl sm:text-2xl font-bold font-mono text-amber-700 tracking-tight">
-            {formatVnd(debtRevenue)} <span className="text-xs font-sans font-bold">đ</span>
-          </div>
-          <div className="text-[11px] text-zinc-400 mt-1">
-            Đơn trả góp 0% & Công nợ khách
-          </div>
-        </div>
-      </div>
-
-      {/* 5. Invoices Grouped by Date */}
+      {/* Invoices Grouped by Date */}
       {Object.keys(groupedInvoices).length === 0 ? (
         <div className="space-y-3 rounded-none border border-zinc-200/80 bg-white p-8 text-center sm:rounded-2xl">
           <div className="w-12 h-12 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center mx-auto">

@@ -14,7 +14,10 @@ import {
 } from '../types';
 import { ActivityLog } from './ActivityLog';
 import { UniformEntryForm } from './UniformEntryForm';
+import { InventoryMetricCarousel } from './InventoryMetricCarousel';
+import { DateRangeFilter } from './shared/DateRangeFilter';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
+import { DEFAULT_DATE_FILTER, matchesDateFilter } from '../utils/dateRangeFilter';
 import { createInventoryIdempotencyKey } from '../services/inventoryApiClient';
 import { 
   Database,
@@ -80,8 +83,6 @@ interface PurchaseOrdersViewProps {
   catalogItems?: MasterCatalogItem[];
   initialSelectedOrderId?: string | null;
 }
-
-type TimeFilter = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month';
 
 const STATUS_CONFIG: Record<PurchaseOrderStatus, { label: string; bg: string; text: string; border: string; dot: string; icon: any }> = {
   COMPLETED: {
@@ -173,7 +174,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [supplierFilter, setSupplierFilter] = useState<string>('all');
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
+  const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
 
   // Modals & Interactivity State
@@ -304,37 +305,12 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
       // 3. Supplier Filter
       if (supplierFilter !== 'all' && order.supplierId !== supplierFilter) return false;
 
-      // 4. Time Filter
-      if (timeFilter !== 'all') {
-        const orderDateStr = order.orderDate || '';
-        if (!orderDateStr) return true;
-        const orderDate = new Date(orderDateStr);
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-        if (timeFilter === 'today') {
-          return orderDate.getTime() >= today.getTime();
-        }
-        if (timeFilter === 'yesterday') {
-          const yesterday = new Date(today);
-          yesterday.setDate(yesterday.getDate() - 1);
-          return orderDate.getDate() === yesterday.getDate() && 
-                 orderDate.getMonth() === yesterday.getMonth() && 
-                 orderDate.getFullYear() === yesterday.getFullYear();
-        }
-        if (timeFilter === 'this_week') {
-          const weekAgo = new Date(today);
-          weekAgo.setDate(weekAgo.getDate() - 7);
-          return orderDate.getTime() >= weekAgo.getTime();
-        }
-        if (timeFilter === 'this_month') {
-          return orderDate.getMonth() === now.getMonth() && orderDate.getFullYear() === now.getFullYear();
-        }
-      }
+      // 4. Date Filter: the same range drives both the list and KPI carousel.
+      if (!matchesDateFilter(order.orderDate, dateFilter)) return false;
 
       return true;
     }).sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
-  }, [purchaseOrders, searchQuery, statusFilter, supplierFilter, timeFilter]);
+  }, [purchaseOrders, searchQuery, statusFilter, supplierFilter, dateFilter]);
 
   // Aggregate Totals
   const totalImportValue = useMemo(() => {
@@ -1277,8 +1253,26 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
           <div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-orange-300"><PackageCheck className="h-3.5 w-3.5" /> Sổ nhập hàng</div><h1 className="mt-1 text-xl font-black tracking-tight sm:text-2xl">Phiếu nhập nhà cung cấp</h1><p className="mt-1 text-xs text-zinc-300">Theo dõi kho nhận, công nợ và khoản chi.</p></div>
           <button type="button" onClick={() => setIsCreateModalOpen(true)} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-orange-500 px-3 text-xs font-black text-white shadow-lg shadow-orange-950/40 hover:bg-orange-400"><Plus className="h-4 w-4" /> Nhập hàng</button>
         </div>
-        <div className="relative mt-4 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/15 py-2.5 text-center backdrop-blur-sm"><div><p className="text-[10px] font-bold text-zinc-400">PHIẾU</p><p className="mt-1 text-base font-black">{filteredOrders.length}</p></div><div><p className="text-[10px] font-bold text-zinc-400">GIÁ TRỊ</p><p className="mt-1 truncate px-2 text-sm font-black text-orange-200">{totalImportValue.toLocaleString('vi-VN')}đ</p></div><div><p className="text-[10px] font-bold text-zinc-400">CÒN NỢ</p><p className="mt-1 truncate px-2 text-sm font-black text-rose-200">{totalOutstandingDebt.toLocaleString('vi-VN')}đ</p></div></div>
+        <InventoryMetricCarousel className="relative mt-4" label="Tổng quan phiếu nhập, vuốt để xem thêm">
+          <article className="h-full rounded-2xl border border-white/10 bg-white/[0.07] p-3.5 backdrop-blur-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-zinc-400">Phiếu nhập</p>
+            <p className="mt-1 font-mono text-2xl font-black text-white">{filteredOrders.length}</p>
+            <p className="mt-1 text-[10px] font-semibold text-zinc-400">{totalItemCount.toLocaleString('vi-VN')} sản phẩm</p>
+          </article>
+          <article className="h-full rounded-2xl border border-orange-400/20 bg-orange-500/10 p-3.5 backdrop-blur-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-orange-200">Giá trị nhập</p>
+            <p className="mt-1 truncate font-mono text-xl font-black text-orange-100">{totalImportValue.toLocaleString('vi-VN')}đ</p>
+            <p className="mt-1 text-[10px] font-semibold text-zinc-400">Không tính phiếu đã hủy</p>
+          </article>
+          <article className="h-full rounded-2xl border border-rose-400/20 bg-rose-500/10 p-3.5 backdrop-blur-sm">
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-rose-200">Còn nợ NCC</p>
+            <p className="mt-1 truncate font-mono text-xl font-black text-rose-100">{totalOutstandingDebt.toLocaleString('vi-VN')}đ</p>
+            <p className="mt-1 text-[10px] font-semibold text-zinc-400">Theo đúng bộ lọc hiện tại</p>
+          </article>
+        </InventoryMetricCarousel>
       </section>
+
+      <DateRangeFilter value={dateFilter} onChange={setDateFilter} className="px-2 sm:px-0" />
 
       {/* 1. Quick Horizontal Status Filter Pills */}
       <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-1">
@@ -1330,41 +1324,19 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
           <span>Còn nợ NCC</span>
         </button>
 
-        {/* Filter Sliders Button with Dropdown */}
+        {/* Supplier Filter */}
         <div className="relative shrink-0 ml-auto">
           <button
             onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-            className="p-1.5 bg-white border border-zinc-200 hover:border-orange-300 rounded-full text-zinc-600 hover:text-orange-600 transition-all cursor-pointer shadow-2xs"
-            title="Lọc thời gian & Nhà Cung Cấp"
+            className={`rounded-full border p-1.5 transition-all cursor-pointer shadow-2xs ${supplierFilter !== 'all' ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-zinc-200 bg-white text-zinc-600 hover:border-orange-300 hover:text-orange-600'}`}
+            title="Lọc theo nhà cung cấp"
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
 
           {showFilterDropdown && (
-            <div className="absolute right-0 top-9 z-30 bg-white rounded-2xl shadow-xl border border-zinc-200 p-2.5 w-56 space-y-2 animate-fadeIn text-xs">
+            <div className="absolute right-0 top-9 z-30 w-56 animate-fadeIn rounded-2xl border border-zinc-200 bg-white p-2.5 text-xs shadow-xl">
               <div>
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block px-2 py-0.5">Thời gian</span>
-                {(['all', 'today', 'yesterday', 'this_week', 'this_month'] as TimeFilter[]).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => {
-                      setTimeFilter(t);
-                      setShowFilterDropdown(false);
-                    }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-xl font-medium transition-all ${
-                      timeFilter === t ? 'bg-orange-50 text-orange-600 font-bold' : 'text-zinc-700 hover:bg-zinc-50'
-                    }`}
-                  >
-                    {t === 'all' && 'Toàn thời gian'}
-                    {t === 'today' && 'Hôm nay'}
-                    {t === 'yesterday' && 'Hôm qua'}
-                    {t === 'this_week' && '7 ngày qua'}
-                    {t === 'this_month' && 'Tháng này'}
-                  </button>
-                ))}
-              </div>
-
-              <div className="border-t border-zinc-100 pt-1.5">
                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block px-2 py-0.5">Lọc theo NCC</span>
                 <select
                   value={supplierFilter}
@@ -1416,37 +1388,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Total Amount Summary Card (Matching InvoicesView format) */}
-      <div className="flex items-center justify-between rounded-none border border-zinc-200/80 bg-white p-4 shadow-2xs sm:rounded-2xl">
-        <div>
-          <div className="text-xs font-semibold text-zinc-700 flex items-center gap-1">
-            <span>Tổng giá trị nhập hàng</span>
-            <ChevronDown className="w-3 h-3 text-zinc-400" />
-          </div>
-          <div className="text-xs text-zinc-400 font-normal mt-0.5">
-            {filteredOrders.length} phiếu nhập • {totalItemCount} sản phẩm
-          </div>
-          {totalOutstandingDebt > 0 && (
-            <div className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1">
-              <span>● Còn nợ NCC:</span>
-              <span className="font-mono">{totalOutstandingDebt.toLocaleString('vi-VN')}đ</span>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center space-x-3">
-          <div className="text-right">
-            <div className="text-xl sm:text-2xl font-bold text-zinc-900 font-mono tracking-tight">
-              {totalImportValue.toLocaleString('vi-VN')} <span className="text-xs text-zinc-900 font-bold">đ</span>
-            </div>
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-orange-100/90 text-orange-600 flex items-center justify-center shrink-0">
-            <PackageCheck className="w-5 h-5" />
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Purchase Orders Grouped by Date */}
+      {/* Purchase Orders Grouped by Date */}
       {Object.keys(groupedOrders).length === 0 ? (
         <div className="space-y-3 rounded-none border border-zinc-200/80 bg-white p-8 text-center sm:rounded-2xl">
           <div className="w-12 h-12 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center mx-auto">
