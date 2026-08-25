@@ -113,6 +113,7 @@ import {
   subscribeToDailyChecklists
 } from './services/firestoreService';
 import { getVietnamDateString, getVietnamTimeString } from './utils/dateTimeUtils';
+import { recordBelongsToBranch } from './utils/branchScope';
 import { requestServerCheckIn, requestServerCheckOut } from './services/attendanceApiClient';
 import {
   createInventoryIdempotencyKey,
@@ -485,44 +486,39 @@ export default function App() {
 
   const filteredLeads = activeBranchId === 'ALL' || !activeBranchId 
     ? leads 
-    : leads.filter(l => l.branchId === scopedBranchId || !l.branchId); // Fallback to all if lead has no branch yet
+    : leads.filter(lead => lead.branchId === scopedBranchId);
 
   const filteredTradeIns = activeBranchId === 'ALL' || !activeBranchId 
     ? tradeIns 
-    : tradeIns.filter(t => t.branchId === scopedBranchId || !t.branchId);
+    : tradeIns.filter(tradeIn => tradeIn.branchId === scopedBranchId);
 
   const filteredWarrantyTickets = activeBranchId === 'ALL' || !activeBranchId 
     ? warrantyTickets 
-    : warrantyTickets.filter(w => w.branchId === scopedBranchId || !w.branchId);
+    : warrantyTickets.filter(ticket => ticket.branchId === scopedBranchId);
 
   const filteredInvoices = activeBranchId === 'ALL' || !activeBranchId 
     ? invoices 
-    : invoices.filter(i => {
-        const br = branches.find(b => b.id === activeBranchId || b.code === activeBranchId);
-        const currentBranchName = br?.name;
-        return i.branchId === scopedBranchId ||
-               i.branch === currentBranchName || 
-               (i.warehouseId && warehouses.find(warehouse => warehouse.id === i.warehouseId)?.branchId === scopedBranchId) ||
-               !i.branch;
-      });
+    : invoices.filter(invoice => recordBelongsToBranch(invoice, scopedBranchId, branches, warehouses));
+
+  const filteredFunds = activeBranchId === 'ALL' || !activeBranchId
+    ? funds
+    : funds.filter(fund => fund.branchId === scopedBranchId);
 
   const filteredCashTransactions = activeBranchId === 'ALL' || !activeBranchId 
     ? cashTransactions 
-    : cashTransactions.filter(c => c.branchId === scopedBranchId || !c.branchId);
+    : cashTransactions.filter(transaction => transaction.branchId === scopedBranchId);
 
   const filteredUsers = activeBranchId === 'ALL' || !activeBranchId 
     ? users 
     : users.filter(u => u.branchId === scopedBranchId);
 
-    const filteredPurchaseOrders = activeBranchId === 'ALL' || !activeBranchId
+  const filteredPurchaseOrders = activeBranchId === 'ALL' || !activeBranchId
     ? purchaseOrders
-    : purchaseOrders.filter(o => {
-        return warehouses.find(warehouse => warehouse.id === o.warehouseId)?.branchId === scopedBranchId || !o.warehouseId;
-      });
+    : purchaseOrders.filter(order => recordBelongsToBranch(order, scopedBranchId, branches, warehouses));
 
   const filteredPartners = activeBranchId === 'ALL' || !activeBranchId 
     ? partners 
-    : partners.filter(p => p.branchId === scopedBranchId || !p.branchId);
+    : partners.filter(partner => partner.branchId === scopedBranchId);
 
   const filteredTransfers = activeBranchId === 'ALL' || !activeBranchId 
     ? transfers 
@@ -1457,11 +1453,11 @@ export default function App() {
             devices={filteredDevices}
             leads={filteredLeads}
             warrantyTickets={filteredWarrantyTickets}
-            funds={funds}
-            partners={partners}
+            funds={filteredFunds}
+            partners={filteredPartners}
             branches={branches}
-            users={users}
-            selectedBranchId={selectedBranchId}
+            users={filteredUsers}
+            selectedBranchId={activeBranchId}
             currentUser={currentUser ? {
               id: currentUser.id,
               uid: currentUser.id,
@@ -1704,6 +1700,8 @@ export default function App() {
           <InvoicesView
             invoices={filteredInvoices}
             devices={filteredDevices}
+            branches={branches}
+            warehouses={warehouses}
             onNavigateToPOS={() => {
               setPosPreSelectedDevice(null);
               setActiveTab('pos');

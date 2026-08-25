@@ -195,8 +195,11 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   }, [activeChannel, branchOptions, currentBranchId, mappingBranchId]);
 
   useEffect(() => {
-    if (directRealtime && webhookReceiving) return undefined;
-    const timer = window.setInterval(() => { void loadConversations(false); }, 15_000);
+    // Firestore remains the instant path. This local API refresh is deliberately
+    // kept active so a missing browser listener/index/network reconnect cannot
+    // leave the inbox frozen while the webhook is healthy.
+    const interval = directRealtime && webhookReceiving ? 8_000 : 12_000;
+    const timer = window.setInterval(() => { void loadConversations(false); }, interval);
     return () => window.clearInterval(timer);
   }, [directRealtime, loadConversations, webhookReceiving]);
 
@@ -209,8 +212,11 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         return { ...item, messages: previous?.messages || [] };
       }));
       setSelectedConvoId(current => current && items.some(item => item.id === current) ? current : items[0]?.id || null);
-    }, caught => console.warn('[Chat conversation realtime]', caught));
-  }, [activeChannel?.branchId, currentBranchId]);
+    }, caught => {
+      console.warn('[Chat conversation realtime]', caught);
+      void loadConversations(false);
+    });
+  }, [activeChannel?.branchId, currentBranchId, loadConversations]);
 
   const loadMessages = useCallback(async (conversationId: string, refreshFromPancake = true, showSpinner = true) => {
     if (showSpinner) setLoadingMessages(true);
@@ -235,20 +241,28 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
       setConversations(current => current.map(item => item.id === selectedConvoId ? { ...item, messages } : item));
     }, caught => {
       console.warn('[Pancake realtime]', caught);
+      void loadMessages(selectedConvoId, false, false);
     });
-  }, [activeConvo?.branchId, selectedConvoId]);
+  }, [activeConvo?.branchId, loadMessages, selectedConvoId]);
 
   // Webhook + Firestore listener is instant when Pancake calls our endpoint.
   // This slower source refresh is a safety net while webhook has not yet sent
   // an event (and also repairs historical messages saved with an old shape).
   useEffect(() => {
     if (!selectedConvoId) return undefined;
-    if (directRealtime && webhookReceiving) return undefined;
-    const interval = webhookReceiving ? 60_000 : 20_000;
-    const timer = window.setInterval(() => {
+    // Fast local polling backs up the realtime listener without calling an
+    // external provider. A slower provider refresh also repairs a missed
+    // webhook automatically.
+    const localTimer = window.setInterval(() => {
+      void loadMessages(selectedConvoId, false, false);
+    }, 5_000);
+    const providerTimer = window.setInterval(() => {
       void loadMessages(selectedConvoId, true, false);
-    }, interval);
-    return () => window.clearInterval(timer);
+    }, webhookReceiving ? 30_000 : 20_000);
+    return () => {
+      window.clearInterval(localTimer);
+      window.clearInterval(providerTimer);
+    };
   }, [directRealtime, loadMessages, selectedConvoId, webhookReceiving]);
 
   const handleSelectConversation = (conversation: ChatConversation) => {

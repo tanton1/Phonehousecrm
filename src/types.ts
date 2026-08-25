@@ -1216,6 +1216,7 @@ export interface SalesInvoice {
   sellerName?: string;
   creatorName?: string;
   branch?: string;
+  branchName?: string;
   branchId?: string;
   warehouseId?: string;
   warehouseName?: string;

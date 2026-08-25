@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { SalesInvoice, DeviceItem } from '../types';
+import { SalesInvoice, DeviceItem, StoreBranch, WarehouseInfo } from '../types';
 import { invoiceDateTime } from '../utils/dateValue';
 import { asInvoiceMoney, formatVnd, getInvoiceFinalAmount, getInvoiceLines, getInvoiceSubtotal } from '../utils/invoicePresentation';
 import { ActivityLog } from "./ActivityLog";
@@ -8,6 +8,7 @@ import { StatusBadge } from './shared/StatusBadge';
 import { DateRangeFilter } from './shared/DateRangeFilter';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 import { DEFAULT_DATE_FILTER, matchesDateFilter } from '../utils/dateRangeFilter';
+import { resolveRecordBranch } from '../utils/branchScope';
 import { History,  
   FileText, 
   Search, 
@@ -51,6 +52,8 @@ import { History,
 interface InvoicesViewProps {
   invoices: SalesInvoice[];
   devices: DeviceItem[];
+  branches?: StoreBranch[];
+  warehouses?: WarehouseInfo[];
   onNavigateToPOS: () => void;
   onUpdateInvoiceNote?: (invoiceId: string, notes: string) => Promise<SalesInvoice>;
   onCancelInvoice?: (invoice: SalesInvoice, reason: string) => Promise<void> | void;
@@ -151,6 +154,8 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; b
 export const InvoicesView: React.FC<InvoicesViewProps> = ({
   invoices,
   devices,
+  branches = [],
+  warehouses = [],
   onNavigateToPOS,
   onUpdateInvoiceNote,
   onCancelInvoice,
@@ -377,6 +382,16 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     const finalAmount = getInvoiceFinalAmount(selectedInvoice, subTotal);
 
     const totalQty = displayItems.reduce((sum, it) => sum + (it.quantity || 1), 0);
+    const invoiceBranch = resolveRecordBranch(selectedInvoice, branches, warehouses);
+    const invoiceBranchName = invoiceBranch?.name
+      || selectedInvoice.branchName
+      || selectedInvoice.branch
+      || 'Chưa xác định chi nhánh';
+    const invoiceWarehouse = warehouses.find(warehouse => warehouse.id === selectedInvoice.warehouseId);
+    const invoiceWarehouseName = invoiceWarehouse?.name
+      || selectedInvoice.warehouseName
+      || selectedInvoice.warehouseId
+      || 'Chưa xác định kho xuất';
 
     return (
       <div className="flex min-h-full w-full flex-col space-y-3 pb-6 sm:space-y-4">
@@ -394,7 +409,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           code={invoiceCode}
           typeLabel="Hóa Đơn Bán Hàng"
           date={rawDate}
-          branchName={selectedInvoice.branch || 'Phone House'}
+          branchName={invoiceBranchName}
           statusBadge={
             <div className="relative">
               <div
@@ -765,14 +780,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           <div className="pt-2 border-t border-zinc-100">
             <span className="text-zinc-400 block text-[11px] font-normal">Chi nhánh xuất hàng</span>
             <span className="font-semibold text-zinc-800 mt-0.5 block">
-              🏪 {selectedInvoice.branch || 'Phone House Cầu Giấy (Apple Premium)'}
+              🏪 {invoiceBranchName}
             </span>
           </div>
 
           <div className="pt-2 border-t border-zinc-100">
             <span className="text-zinc-400 block text-[11px] font-normal">Kho xuất trừ tồn</span>
             <span className="font-semibold text-orange-700 mt-0.5 block">
-              🏢 {selectedInvoice.warehouseName || (selectedInvoice.warehouseId === 'KHO_XSTORE' ? 'Kho Xstore (Đống Đa)' : selectedInvoice.warehouseId === 'KHO_TONG' ? 'Kho Tổng (Hà Nội)' : 'Kho PhoneHouse (Cầu Giấy)')}
+              🏢 {invoiceWarehouseName}
             </span>
           </div>
         </section>
@@ -818,9 +833,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               {/* Thermal Paper Look */}
               <div className="p-4 bg-orange-50/40 border border-dashed border-zinc-300 rounded-2xl font-mono text-xs space-y-3 text-zinc-900">
                 <div className="text-center space-y-0.5">
-                  <h4 className="font-semibold text-sm uppercase">PHONE HOUSE STORE</h4>
-                  <p className="text-[10px] text-zinc-600">Đ/c: 123 Cầu Giấy, Hà Nội</p>
-                  <p className="text-[10px] text-zinc-600">Hotline: 0909.123.456</p>
+                  <h4 className="font-semibold text-sm uppercase">{invoiceBranchName}</h4>
+                  <p className="text-[10px] text-zinc-600">Đ/c: {invoiceBranch?.address || 'Chưa cấu hình địa chỉ'}</p>
+                  <p className="text-[10px] text-zinc-600">Hotline: {invoiceBranch?.phone || 'Chưa cấu hình'}</p>
                   <div className="border-b border-zinc-400 my-2"></div>
                   <h5 className="font-semibold text-xs">HÓA ĐƠN BÁN LẺ & BẢO HÀNH</h5>
                   <p className="text-[11px] font-semibold text-orange-700">{invoiceCode}</p>

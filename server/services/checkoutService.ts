@@ -170,6 +170,7 @@ export async function executeAtomicCheckout(
     }
 
     const branchId = payload.branchId || payload.invoice?.branchId || authenticatedStaff?.branchId || 'CN01';
+    const branchNameSnapshot = String(payload.branchName || payload.invoice?.branchName || payload.invoice?.branch || '').trim();
     const isMultiPayment = Array.isArray(payload.payments) && payload.payments.length > 0;
     const paymentMethod = isMultiPayment
       ? 'Đa phương thức'
@@ -774,6 +775,7 @@ export async function executeAtomicCheckout(
       id: invoiceId,
       invoiceCode,
       branchId,
+      ...(branchNameSnapshot ? { branch: branchNameSnapshot, branchName: branchNameSnapshot } : {}),
       warehouseId,
       customerId: payload.customerId || payload.customerPartner?.id || null,
       leadId: effectiveLeadId || null,

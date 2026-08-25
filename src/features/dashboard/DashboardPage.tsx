@@ -69,6 +69,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 }) => {
   // Resolve current branch dynamically based on logged-in user's assigned branch
   const currentBranch = useMemo(() => {
+    if (selectedBranchId && selectedBranchId !== 'ALL' && branches.length > 0) {
+      const selected = branches.find(branch => branch.id === selectedBranchId || branch.code === selectedBranchId);
+      if (selected) return selected;
+    }
+    if (selectedBranchId === 'ALL') return null;
+
     const userBranch = currentUser?.branchId || (currentUser as any)?.branch;
     if (userBranch && branches && branches.length > 0) {
       const found = branches.find(b => 
@@ -76,10 +82,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         b.code === userBranch || 
         (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase()))
       );
-      if (found) return found;
-    }
-    if (selectedBranchId && selectedBranchId !== 'ALL' && branches && branches.length > 0) {
-      const found = branches.find(b => b.id === selectedBranchId || b.code === selectedBranchId);
       if (found) return found;
     }
     if (branches && branches.length > 0) {
@@ -175,7 +177,9 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
   onNavigateTab,
   onOpenAICopilot
 }) => {
-  const currentBranchName = currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chi Nhánh Showroom';
+  const currentBranchName = selectedBranchId === 'ALL'
+    ? 'Toàn Hệ Thống'
+    : currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Chưa xác định chi nhánh';
 
   // 4. Shared State for Filters & Action Tabs
   type DateFilterType = 'today' | 'this_week' | 'last_week' | 'this_month' | 'last_month';
