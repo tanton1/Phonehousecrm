@@ -19,6 +19,7 @@ import {
   updatePancakeConversationWorkflow,
   verifyPancakeWebhookSecret
 } from '../services/pancakeService';
+import { markMetaConversationRead, sendMetaMessengerMessage } from '../services/metaMessengerService';
 
 function actor(req: Request): PancakeActor {
   return {
@@ -205,7 +206,11 @@ export function createPancakeRouter(db: Firestore | null): Router {
   ), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const data = await sendPancakeMessage(db, {
+      const conversationSnapshot = await db.collection('chatConversations').doc(req.params.conversationId).get();
+      const send = conversationSnapshot.data()?.provider === 'META_MESSENGER'
+        ? sendMetaMessengerMessage
+        : sendPancakeMessage;
+      const data = await send(db, {
         conversationId: req.params.conversationId,
         text: req.body?.text,
         operationKey: req.body?.operationKey
@@ -219,7 +224,11 @@ export function createPancakeRouter(db: Firestore | null): Router {
   router.post('/conversations/:conversationId/read', authenticateFirebase, async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      return res.json({ success: true, data: await markPancakeConversationRead(db, req.params.conversationId, actor(req)) });
+      const conversationSnapshot = await db.collection('chatConversations').doc(req.params.conversationId).get();
+      const markRead = conversationSnapshot.data()?.provider === 'META_MESSENGER'
+        ? markMetaConversationRead
+        : markPancakeConversationRead;
+      return res.json({ success: true, data: await markRead(db, req.params.conversationId, actor(req)) });
     } catch (error: any) {
       return sendError(res, error);
     }

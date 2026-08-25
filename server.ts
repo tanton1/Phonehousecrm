@@ -12,7 +12,14 @@ const PORT = Number(process.env.PORT || 3000);
 // Enable trusted proxy for accurate client IP detection behind Vercel/reverse proxies
 app.set('trust proxy', 1);
 
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({
+  limit: '15mb',
+  verify: (req: any, _res, buffer) => {
+    if (String(req.originalUrl || req.url || '').startsWith('/api/meta/webhook')) {
+      req.rawBody = Buffer.from(buffer);
+    }
+  }
+}));
 
 // Initialize Google GenAI lazily or when available
 let aiClient: GoogleGenAI | null = null;
@@ -161,6 +168,8 @@ import { createCrmRouter } from './server/routes/crm';
 app.use('/api/crm', createCrmRouter(adminDb));
 import { createPancakeRouter } from './server/routes/pancake';
 app.use('/api/pancake', createPancakeRouter(adminDb));
+import { createMetaMessengerRouter } from './server/routes/metaMessenger';
+app.use('/api/meta', createMetaMessengerRouter(adminDb));
 
 // -------------------------------------------------------------
 // 6. TECHNICAL WORK ORDERS, CUSTODY & QC ROUTER

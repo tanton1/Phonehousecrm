@@ -1096,7 +1096,7 @@ export async function listPancakeMessages(db: Firestore | null, conversationId: 
   const conversation = { id: conversationSnapshot.id, ...conversationSnapshot.data() } as any;
   assertBranchAccess(actor, conversation.branchId);
   let warning = '';
-  if (refreshFromPancake) {
+  if (refreshFromPancake && conversation.provider !== 'META_MESSENGER') {
     try {
       const config = configByPageId(conversation.pageId);
       const messages = await fetchConversationMessages(config, conversation.externalConversationId, conversation.conversationType || 'INBOX');

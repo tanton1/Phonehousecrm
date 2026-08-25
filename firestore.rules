@@ -346,6 +346,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /metaSendOperations/{operationId} {
+      allow read, write: if false;
+    }
+
     match /chatConversationEvents/{eventId} {
       allow read: if isAuthenticated() && (isAdmin() || canAccessBranch(resource.data.branchId));
       allow write: if false; // Server-only immutable workflow audit trail.
@@ -353,6 +357,10 @@ service cloud.firestore {
 
     match /pancakePageMappings/{pageId} {
       allow read, write: if false; // Server-only Page → branch mapping.
+    }
+
+    match /metaPageMappings/{pageId} {
+      allow read, write: if false; // Server-only Meta Page → branch mapping and webhook health.
     }
 
     // 7. Attendance & Human Resources (Strict Server Authority writes; employees read own records)
