@@ -55,15 +55,15 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
       <svg aria-hidden="true" className="pointer-events-none absolute h-0 w-0">
         <defs>
           <linearGradient id="more-hub-icon-gradient" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#f97316" />
-            <stop offset="100%" stopColor="#fbbf24" />
+            <stop offset="0%" stopColor="#ff4b16" />
+            <stop offset="100%" stopColor="#ff6b3d" />
           </linearGradient>
         </defs>
       </svg>
       <div className="mx-auto w-full max-w-6xl">
         <header className="flex items-start justify-between gap-4 border-b border-zinc-200 pb-5">
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600">PhoneHouse</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#ff4b16]">PhoneHouse</p>
             <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Xem thêm</h1>
             <p className="mt-1 truncate text-xs font-semibold text-zinc-500 sm:text-sm">
               {currentUser?.displayName || 'Tài khoản'} · {ROLE_LABELS[role] || role}
@@ -72,7 +72,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           <button
             type="button"
             onClick={onOpenAICopilot}
-            className="flex shrink-0 items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-amber-600"
+            className="flex shrink-0 items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-[#ff4b16]"
           >
             <Sparkles className="h-5 w-5" style={{ stroke: 'url(#more-hub-icon-gradient)' }} />
             <span className="hidden sm:inline">Trợ lý AI</span>
@@ -112,7 +112,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           <button
             type="button"
             onClick={() => onSelectTab('store-settings')}
-            className="flex items-center gap-1.5 text-xs font-bold text-zinc-600 hover:text-amber-600"
+            className="flex items-center gap-1.5 text-xs font-bold text-zinc-600 hover:text-[#ff4b16]"
           >
             Cài đặt hệ thống <ChevronRight className="h-4 w-4" />
           </button>
