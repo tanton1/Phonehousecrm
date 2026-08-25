@@ -1,6 +1,5 @@
 import { MapPin, Sparkles } from "lucide-react";
 import { GeofenceBackgroundTracker } from "./components/GeofenceBackgroundTracker";
-import { INITIAL_TODAY_ATTENDANCE_LIST } from "./data/attendanceData";
 import { RoleSwitcher, WorkspaceMode } from './components/RoleSwitcher';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
@@ -22,6 +21,7 @@ import {
   PurchaseOrder,
   StaffMember,
   AttendanceRecord,
+  LeaveRequest,
   SystemSetupStatus
 } from './types';
 import { AppShell } from './app/AppShell';
@@ -104,6 +104,9 @@ import {
   subscribeToPurchaseOrders,
   updatePurchaseOrderInFirestore,
   subscribeToAttendance,
+  subscribeToLeaveRequests,
+  addLeaveRequestToFirestore,
+  updateLeaveRequestInFirestore,
   addAttendanceRecordToFirestore,
   updateAttendanceRecordInFirestore,
   deleteAttendanceRecordFromFirestore,
@@ -347,6 +350,7 @@ export default function App() {
   
   // Realtime Attendance State
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
 
   // Time-tracking functions with Authoritative Server Integration & Vietnam Timezone
   const handleCheckIn = async (recordOrDraft: string | any): Promise<AttendanceRecord> => {
@@ -710,6 +714,34 @@ export default function App() {
 
     return () => unsubAttendance();
   }, [authReady, firebaseUid, currentUser?.role, currentUser?.branchId]);
+
+  // Leave requests are also authoritative Firestore data. Managers receive the
+  // branch-wide list; employees receive only documents whose staffId is their UID.
+  useEffect(() => {
+    if (!authReady || !firebaseUid || !currentUser) {
+      setLeaveRequests([]);
+      return;
+    }
+    return subscribeToLeaveRequests(
+      (items) => setLeaveRequests(items || []),
+      { uid: firebaseUid, role: currentUser.role },
+      (error) => console.warn('[Leave request subscription notice]', error)
+    );
+  }, [authReady, firebaseUid, currentUser?.role]);
+
+  const handleCreateLeaveRequest = async (request: LeaveRequest) => {
+    await addLeaveRequestToFirestore(request);
+  };
+
+  const handleApproveLeaveRequest = async (request: LeaveRequest) => {
+    const updated: LeaveRequest = {
+      ...request,
+      status: 'APPROVED',
+      approvedBy: currentUser?.displayName || currentUser?.email || currentUser?.id || 'Quản lý',
+      approvedAt: new Date().toISOString()
+    };
+    await updateLeaveRequestInFirestore(updated);
+  };
 
   const refreshInventorySnapshot = useCallback(async () => {
     if (!currentUser) return;
@@ -1825,10 +1857,12 @@ export default function App() {
             currentUser={currentUser}
             staffList={staffMembers}
             attendanceRecords={attendanceRecords}
+            leaveRequests={leaveRequests}
             invoices={filteredInvoices}
             warrantyTickets={filteredWarrantyTickets}
             branches={branches}
             initialSubModule={activeTab === 'shift-scheduling' ? 'SHIFTS' : undefined}
+            onApproveLeave={handleApproveLeaveRequest}
           />
         )}
 
@@ -1841,6 +1875,9 @@ export default function App() {
             onCheckOut={handleCheckOut}
             checkedInState={!!currentAttendance?.checkInTime}
             initialCheckInTime={currentAttendance?.checkInTime || null}
+            attendanceRecord={currentAttendance}
+            leaveRequests={leaveRequests}
+            onCreateLeaveRequest={handleCreateLeaveRequest}
             onOpenCheckInModal={() => setActiveTab('checkin-portal')}
           />
         )}

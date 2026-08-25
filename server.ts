@@ -145,6 +145,8 @@ app.use('/api/pos', createPOSCheckoutRouter(adminDb));
 // -------------------------------------------------------------
 import { createAttendanceRouter } from './server/routes/attendance';
 app.use('/api/attendance', createAttendanceRouter(adminDb));
+import { createPayrollRouter } from './server/routes/payroll';
+app.use('/api/payroll', createPayrollRouter(adminDb));
 
 // -------------------------------------------------------------
 // 3. USER MANAGEMENT & AUTHENTICATION PROVISIONING ROUTER

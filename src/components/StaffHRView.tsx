@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Clock, 
   Calendar, 
@@ -41,17 +41,12 @@ import {
   MessageSquare,
   LogOut
 } from 'lucide-react';
-import { 
-  INITIAL_STAFF_MEMBERS, 
-  INITIAL_ATTENDANCE_RECORD_CURRENT_USER, 
-  INITIAL_WEEKLY_SCHEDULES, 
-  INITIAL_LEAVE_REQUESTS, 
-  INITIAL_COMMISSIONS, 
-  INITIAL_MONTHLY_PAYROLL_SLIPS, 
-  INITIAL_PAYROLL_LEDGER_CURRENT_USER 
-} from '../data/attendanceData';
 import { UserAccount, StaffMember, AttendanceRecord, StoreBranch, LeaveRequest } from '../types';
 import { ShiftChecklistModule } from './ShiftChecklistModule';
+import { fetchShiftBoard } from '../services/shiftSchedulingApiClient';
+import { fetchTechnicalCommissionLedger, type TechnicalCommissionLedgerEntry } from '../services/technicalApiClient';
+import { fetchMyPayrollSlip } from '../services/payrollApiClient';
+import type { PayrollRecord } from '../features/payroll/components/MonthlyPayrollTable';
 
 export interface ShiftChecklistItem {
   id: string;
@@ -74,6 +69,9 @@ interface StaffHRViewProps {
   checkedInState?: boolean;
   initialCheckInTime?: string | null;
   onOpenCheckInModal?: () => void;
+  attendanceRecord?: AttendanceRecord;
+  leaveRequests?: LeaveRequest[];
+  onCreateLeaveRequest?: (request: LeaveRequest) => Promise<void> | void;
 }
 
 export const StaffHRView: React.FC<StaffHRViewProps> = ({ 
@@ -84,49 +82,67 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
   onCheckOut, 
   checkedInState = false, 
   initialCheckInTime = null,
-  onOpenCheckInModal
+  onOpenCheckInModal,
+  attendanceRecord,
+  leaveRequests = [],
+  onCreateLeaveRequest
 }) => {
-  const currentBranch = branches.length > 0 ? branches[0] : null;
+  const currentBranch = branches.find((branch) => branch.id === currentUser?.branchId) || branches[0] || null;
 
   // Active Tab: CHECKLIST (Checklist trong ngày), ATTENDANCE (Chấm công & Lịch ca), EARNINGS (Ví hoa hồng & KPI), PAYROLL (Phiếu lương), REQUESTS (Đơn từ)
   const [activeTab, setActiveTab] = useState<'CHECKLIST' | 'ATTENDANCE' | 'EARNINGS' | 'PAYROLL' | 'REQUESTS'>('CHECKLIST');
 
   // Staff identity
   const staffMember: StaffMember = useMemo(() => {
-    const matched = INITIAL_STAFF_MEMBERS.find(s => s.id === currentUser?.id || s.name === currentUser?.displayName);
-    if (matched) return matched;
-
     return {
-      id: currentUser?.id || (roleType === 'SALES' ? 'STAFF_001' : 'STAFF_003'),
-      code: roleType === 'SALES' ? 'NV-001' : 'NV-003',
-      name: currentUser?.displayName || (roleType === 'SALES' ? 'Nguyễn Văn A' : 'Lê Văn C'),
-      avatar: currentUser?.avatarUrl || (roleType === 'SALES' 
-        ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
-        : 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'),
+      id: currentUser?.id || '',
+      code: (currentUser as any)?.employeeCode || currentUser?.id || '',
+      name: currentUser?.displayName || 'Nhân viên',
+      avatar: currentUser?.avatarUrl || '',
       role: roleType === 'SALES' ? 'SALES' : 'TECHNICIAN',
-      roleTitle: roleType === 'SALES' ? 'Nhân viên bán hàng Showroom' : 'Kỹ thuật viên Trưởng & KCS',
-      phone: '0988.123.456',
-      email: currentUser?.email || (roleType === 'SALES' ? 'sales@phonehouse.vn' : 'tech@phonehouse.vn'),
-      branchId: currentUser?.branchId || currentBranch?.id || 'CN-01',
-      branchName: currentUser?.branchName || currentBranch?.name || 'Chi Nhánh 1 - Hải Châu',
-      baseSalary: roleType === 'SALES' ? 8000000 : 9500000,
-      monthlyTargetRevenue: 150000000,
-      monthlyTargetOrders: 70,
+      roleTitle: roleType === 'SALES' ? 'Nhân viên bán hàng' : 'Kỹ thuật viên',
+      phone: currentUser?.phone || '',
+      email: currentUser?.email || '',
+      branchId: currentUser?.branchId || currentBranch?.id || '',
+      branchName: currentBranch?.name || 'Chưa phân chi nhánh',
+      baseSalary: Number(currentUser?.baseSalary || 0),
+      monthlyTargetRevenue: Number(currentUser?.kpiTargetRevenue || 0),
+      monthlyTargetOrders: Number(currentUser?.kpiTargetOrders || 0),
       status: 'ACTIVE',
-      joinDate: '2023-03-15',
-      allowedWifiSSID: currentBranch?.allowedWifiSSID || 'PH_HAICHAU_5G',
-      assignedFaceEmbedding: true
+      joinDate: currentUser?.createdAt || '',
+      allowedWifiSSID: currentBranch?.allowedWifiSSID || '',
+      assignedFaceEmbedding: Boolean(currentUser?.assignedFaceEmbedding)
     };
   }, [currentUser, roleType, currentBranch]);
 
   // Attendance state
-  const [attendance, setAttendance] = useState<AttendanceRecord>(() => ({
-    ...INITIAL_ATTENDANCE_RECORD_CURRENT_USER,
+  const [attendance, setAttendance] = useState<AttendanceRecord>(() => attendanceRecord || ({
+    id: '',
     staffId: staffMember.id,
     staffName: staffMember.name,
+    role: staffMember.role,
+    branchId: staffMember.branchId,
+    branchName: staffMember.branchName,
+    date: new Date().toISOString().slice(0, 10),
+    shiftName: '',
+    scheduledStart: '',
+    scheduledEnd: '',
     checkInTime: initialCheckInTime || (checkedInState ? '08:00:00' : undefined),
-    status: checkedInState || initialCheckInTime ? 'ON_TIME' : 'PENDING'
+    workDurationMinutes: 0,
+    breakDurationMinutes: 0,
+    netWorkMinutes: 0,
+    verification: { gpsVerified: false, wifiVerified: false, faceVerified: false, qrScanned: false },
+    status: checkedInState || initialCheckInTime ? 'ON_TIME' : 'PENDING_VERIFICATION',
+    lateMinutes: 0,
+    earlyMinutes: 0,
+    otMinutes: 0,
+    kpiProgress: { consultedCount: 0, targetConsulted: 0, orderCount: 0, targetOrders: 0, revenue: 0, targetRevenue: 0 },
+    activityHistory: []
   }));
+
+  useEffect(() => {
+    if (attendanceRecord) setAttendance(attendanceRecord);
+  }, [attendanceRecord]);
 
   // Current Live Activity State
   const [currentActivity, setCurrentActivity] = useState<string>(roleType === 'SALES' ? 'Bán hàng Showroom' : 'Sửa chữa & KCS');
@@ -338,18 +354,52 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
 
   const [checklistItems, setChecklistItems] = useState<ShiftChecklistItem[]>(initialChecklist);
   const [checklistFilter, setChecklistFilter] = useState<'ALL' | 'OPENING' | 'MID_SHIFT' | 'CLOSING'>('ALL');
-  const [handoverNote, setHandoverNote] = useState<string>('Tiền mặt két bàn giao: 12.450.000 đ. Khách anh Hoàng hẹn 15:30 chiều mai lấy iPhone 15 Pro Max 256GB.');
+  const [handoverNote, setHandoverNote] = useState<string>('');
   const [isHandoverSubmitted, setIsHandoverSubmitted] = useState<boolean>(false);
   const [isAddingCustomTask, setIsAddingCustomTask] = useState<boolean>(false);
   const [customTaskTitle, setCustomTaskTitle] = useState<string>('');
   const [customTaskCategory, setCustomTaskCategory] = useState<'OPENING' | 'MID_SHIFT' | 'CLOSING'>('MID_SHIFT');
 
   // Leave Requests state
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(INITIAL_LEAVE_REQUESTS);
   const [isNewRequestOpen, setIsNewRequestOpen] = useState(false);
   const [newRequestType, setNewRequestType] = useState<'ANNUAL_LEAVE' | 'SICK_LEAVE' | 'UNPAID_LEAVE' | 'SHIFT_SWAP' | 'OVERTIME'>('ANNUAL_LEAVE');
   const [newRequestReason, setNewRequestReason] = useState('');
   const [newRequestDate, setNewRequestDate] = useState(new Date().toISOString().split('T')[0]);
+  const [leaveRequestError, setLeaveRequestError] = useState('');
+  const [submittingLeave, setSubmittingLeave] = useState(false);
+  const [commissionEntries, setCommissionEntries] = useState<TechnicalCommissionLedgerEntry[]>([]);
+  const [weeklySchedule, setWeeklySchedule] = useState<Record<string, any>>({});
+  const [myPayrollSlip, setMyPayrollSlip] = useState<(PayrollRecord & { runStatus?: string; approvedAt?: string }) | null>(null);
+  const payrollPeriod = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
+
+  useEffect(() => {
+    let active = true;
+    void fetchTechnicalCommissionLedger(payrollPeriod)
+      .then((entries) => { if (active) setCommissionEntries(entries || []); })
+      .catch(() => { if (active) setCommissionEntries([]); });
+    void fetchMyPayrollSlip(payrollPeriod)
+      .then((slip) => { if (active) setMyPayrollSlip(slip); })
+      .catch(() => { if (active) setMyPayrollSlip(null); });
+    return () => { active = false; };
+  }, [payrollPeriod]);
+
+  useEffect(() => {
+    if (!staffMember.branchId) return;
+    const now = new Date();
+    const monday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 12));
+    const day = monday.getUTCDay();
+    monday.setUTCDate(monday.getUTCDate() + (day === 0 ? -6 : 1 - day));
+    const weekStart = monday.toISOString().slice(0, 10);
+    let active = true;
+    void fetchShiftBoard(weekStart, staffMember.branchId)
+      .then((board) => {
+        if (!active) return;
+        const schedule = board.schedules.find((item) => item.staffId === staffMember.id) || board.schedules[0];
+        setWeeklySchedule(schedule?.days || {});
+      })
+      .catch(() => { if (active) setWeeklySchedule({}); });
+    return () => { active = false; };
+  }, [staffMember.branchId, staffMember.id]);
 
   const isCheckedIn = !!attendance.checkInTime && !attendance.checkOutTime;
   const isCheckedOut = !!attendance.checkOutTime;
@@ -405,15 +455,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
       ...prev,
       checkInTime: timeStr,
       status: 'ON_TIME',
-      verificationDetails: {
-        gpsVerified: true,
-        gpsDistanceMeters: 14,
-        wifiVerified: true,
-        wifiSSID: staffMember.allowedWifiSSID || 'PH_HAICHAU_5G',
-        faceVerified: true,
-        faceMatchScore: 99.4,
-        qrCodeScanned: true
-      }
+      verification: { gpsVerified: false, wifiVerified: false, faceVerified: false, qrScanned: false }
     }));
     if (onCheckIn) onCheckIn(timeStr);
   };
@@ -428,9 +470,9 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
     if (onCheckOut) onCheckOut(timeStr);
   };
 
-  const handleCreateLeaveRequest = (e: React.FormEvent) => {
+  const handleCreateLeaveRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRequestReason.trim()) return;
+    if (!newRequestReason.trim() || submittingLeave) return;
 
     const newReq: LeaveRequest = {
       id: `LR_${Date.now()}`,
@@ -445,67 +487,65 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
       totalDays: 1,
       reason: newRequestReason,
       status: 'PENDING',
-      createdAt: new Date().toLocaleDateString('vi-VN')
+      createdAt: new Date().toISOString()
     };
 
-    setLeaveRequests([newReq, ...leaveRequests]);
-    setNewRequestReason('');
-    setIsNewRequestOpen(false);
-  };
-
-  // Mock Sales / Tech Commissions Data
-  const roleCommissions = useMemo(() => {
-    if (roleType === 'SALES') {
-      return {
-        revenueTotal: 185000000,
-        revenueTarget: 150000000,
-        ordersCount: 28,
-        deviceCommission: 2220000,
-        accessoryCommission: 850000,
-        warrantyBonus: 450000,
-        kpiBonus: 1500000,
-        totalEarnings: 5020000,
-        transactions: [
-          { id: '1', code: 'HD-2026-081', product: 'iPhone 15 Pro Max 256GB Titan Tự Nhiên', date: '17/08/2026 10:20', amount: 150000, type: 'MÁY MỚI' },
-          { id: '2', code: 'HD-2026-079', product: 'Combo Củ Cáp Sạc Anker 30W + Ốp lưng Torras', date: '17/08/2026 09:15', amount: 85000, type: 'PHỤ KIỆN' },
-          { id: '3', code: 'HD-2026-072', product: 'Gói Bảo Hành Rơi Vỡ Vào Nước 12 Tháng', date: '16/08/2026 16:40', amount: 120000, type: 'BẢO HÀNH' },
-          { id: '4', code: 'HD-2026-065', product: 'iPhone 14 128GB Midnight (99%)', date: '16/08/2026 14:10', amount: 120000, type: 'MÁY LIKE NEW' },
-          { id: '5', code: 'HD-2026-058', product: 'iPhone 13 Pro 128GB Sierra Blue', date: '15/08/2026 11:30', amount: 100000, type: 'MÁY LIKE NEW' }
-        ]
-      };
-    } else {
-      return {
-        revenueTotal: 34500000,
-        kcsCount: 46,
-        kcsAmount: 1610000,
-        repairCount: 19,
-        repairAmount: 2470000,
-        warrantyCount: 14,
-        warrantyAmount: 700000,
-        tradeInCount: 11,
-        tradeInAmount: 550000,
-        totalEarnings: 5330000,
-        transactions: [
-          { id: '1', code: 'SC-8812', product: 'Ép Kính + Thay Màn GX iPhone 14 Pro', date: '17/08/2026 11:00', amount: 180000, type: 'SỬA CHỮA' },
-          { id: '2', code: 'KCS-9901', product: 'KCS Kiểm Định Lô 5 Máy iPhone 15 Plus Nhập NCC', date: '17/08/2026 09:40', amount: 175000, type: 'KCS NHẬP' },
-          { id: '3', code: 'BH-4402', product: 'Bảo Hành Thay Pin Zin Desay iPhone 13', date: '16/08/2026 15:20', amount: 50000, type: 'BẢO HÀNH' },
-          { id: '4', code: 'TC-1109', product: 'Test Đánh Giá Thu Cũ iPhone 12 Pro Max 128GB', date: '16/08/2026 13:45', amount: 50000, type: 'THU CŨ' },
-          { id: '5', code: 'SC-8805', product: 'Fix Lỗi Trắng Màn iPhone 13 Pro Max (Dây Câu IC)', date: '15/08/2026 16:10', amount: 250000, type: 'SỬA CHỮA' }
-        ]
-      };
+    setSubmittingLeave(true);
+    setLeaveRequestError('');
+    try {
+      if (!onCreateLeaveRequest) throw new Error('Chức năng gửi đơn chưa được kết nối backend.');
+      await onCreateLeaveRequest(newReq);
+      setNewRequestReason('');
+      setIsNewRequestOpen(false);
+    } catch (error: any) {
+      setLeaveRequestError(error?.message || 'Không gửi được đơn.');
+    } finally {
+      setSubmittingLeave(false);
     }
-  }, [roleType]);
+  };
+  const configuredAllowance = Number((currentUser as any)?.allowance || 0);
 
-  // Weekly shift schedule
-  const weeklyDays = [
-    { day: 'Thứ 2 (11/08)', shift: 'Ca Sáng (08:00 - 15:00)', status: 'COMPLETED', note: 'Đúng giờ • 7.0h' },
-    { day: 'Thứ 3 (12/08)', shift: 'Ca Chiều (14:30 - 21:30)', status: 'COMPLETED', note: 'Đúng giờ • 7.0h' },
-    { day: 'Thứ 4 (13/08)', shift: 'Ca Sáng (08:00 - 15:00)', status: 'COMPLETED', note: 'Đúng giờ • 7.0h' },
-    { day: 'Thứ 5 (14/08)', shift: 'Nghỉ Tuần (Off)', status: 'OFF', note: 'Nghỉ định kỳ' },
-    { day: 'Thứ 6 (15/08)', shift: 'Ca Full (08:00 - 21:30)', status: 'COMPLETED', note: 'Đúng giờ + 3.5h OT' },
-    { day: 'Thứ 7 (16/08)', shift: 'Ca Sáng (08:00 - 15:00)', status: 'COMPLETED', note: 'Đúng giờ • 7.0h' },
-    { day: 'Chủ Nhật (Hôm nay)', shift: 'Ca Sáng (08:00 - 15:00)', status: isCheckedIn ? 'IN_PROGRESS' : isCheckedOut ? 'COMPLETED' : 'UPCOMING', note: isCheckedIn ? 'Đang trong ca làm' : 'Ca hiện tại' },
-  ];
+  const roleCommissions = useMemo(() => {
+    const eligible = commissionEntries.filter((entry) => entry.status === 'ELIGIBLE' && !entry.payrollPostingId);
+    const kcs = eligible.filter((entry) => String(entry.taskCode || entry.taskName || '').toUpperCase().includes('KCS'));
+    const warranty = eligible.filter((entry) => String(entry.workOrderType || '').toUpperCase().includes('WARRANTY'));
+    const repair = eligible.filter((entry) => !kcs.includes(entry) && !warranty.includes(entry));
+    const sum = (entries: TechnicalCommissionLedgerEntry[]) => entries.reduce((total, entry) => total + Number(entry.commissionPayable ?? entry.amount ?? 0), 0);
+    const transactions = eligible.map((entry) => ({
+      id: entry.id,
+      code: entry.workOrderId,
+      product: entry.taskName || entry.taskCode || 'Task kỹ thuật',
+      date: entry.eligibleAt || entry.createdAt || '',
+      amount: Number(entry.commissionPayable ?? entry.amount ?? 0),
+      type: entry.workOrderType || 'KỸ THUẬT'
+    }));
+    return {
+      revenueTotal: 0,
+      revenueTarget: Number(staffMember.monthlyTargetRevenue || 0),
+      ordersCount: 0,
+      deviceCommission: 0,
+      accessoryCommission: 0,
+      warrantyBonus: 0,
+      kpiBonus: 0,
+      kcsCount: kcs.length,
+      kcsAmount: sum(kcs),
+      repairCount: repair.length,
+      repairAmount: sum(repair),
+      warrantyCount: warranty.length,
+      warrantyAmount: sum(warranty),
+      tradeInCount: 0,
+      tradeInAmount: 0,
+      totalEarnings: sum(eligible),
+      transactions
+    };
+  }, [commissionEntries, staffMember.monthlyTargetRevenue]);
+
+  const weeklyDays = useMemo(() => Object.entries(weeklySchedule).sort(([left], [right]) => left.localeCompare(right)).map(([date, assignment]: [string, any]) => ({
+    day: new Date(`${date}T12:00:00Z`).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }),
+    shift: assignment?.shiftId === 'OFF' ? 'Nghỉ' : `${assignment?.shiftName || 'Ca làm'} (${assignment?.startTime || '--:--'} - ${assignment?.endTime || '--:--'})`,
+    status: assignment?.shiftId === 'OFF' ? 'OFF' : 'SCHEDULED',
+    note: assignment?.note || (assignment?.shiftId === 'OFF' ? 'Ngày nghỉ' : 'Lịch đã đăng trên server')
+  })), [weeklySchedule]);
 
   const filteredChecklist = useMemo(() => {
     if (checklistFilter === 'ALL') return checklistItems;
@@ -563,7 +603,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                   {isCheckedIn ? 'Đang Trong Ca' : isCheckedOut ? 'Đã Tan Ca' : 'Chưa Check-In'}
                 </div>
                 <div className="text-xs font-black text-white leading-tight font-mono">
-                  {isCheckedIn ? (attendance.checkInTime || '08:00') : isCheckedOut ? (attendance.checkOutTime || '17:00') : 'Ca: 08:00 - 15:00'}
+                  {isCheckedIn ? attendance.checkInTime : isCheckedOut ? attendance.checkOutTime : attendance.scheduledStart ? `Ca: ${attendance.scheduledStart} - ${attendance.scheduledEnd}` : 'Chưa có ca đã đăng'}
                 </div>
               </div>
             </div>
@@ -696,7 +736,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
               <div>
                 <h3 className="text-sm sm:text-base font-black text-zinc-900 flex items-center gap-2">
                   <CalendarDays className="w-5 h-5 text-orange-500" />
-                  <span>Lịch Phân Ca Tuần Này (11/08 - 17/08/2026)</span>
+                  <span>Lịch phân ca tuần này</span>
                 </h3>
                 <p className="text-xs text-zinc-500">Phân ca trực thuộc: {staffMember.branchName}</p>
               </div>
@@ -715,6 +755,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5">
+              {weeklyDays.length === 0 && <div className="col-span-full rounded-2xl bg-zinc-50 p-6 text-center text-xs font-semibold text-zinc-500">Tuần này chưa có lịch đã đăng trên server.</div>}
               {weeklyDays.map((item, idx) => (
                 <div 
                   key={idx}
@@ -761,8 +802,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 </div>
                 <div>
                   <div className="text-xs font-bold text-zinc-800">Định Vị GPS</div>
-                  <div className="text-xs font-black text-orange-600">Hợp lệ • 14m từ Cửa Hàng</div>
-                  <div className="text-[10px] text-zinc-400">Tọa độ: 16.0678° N, 108.2208° E</div>
+                  <div className={`text-xs font-black ${attendance.verification?.gpsVerified ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.gpsVerified ? `Hợp lệ • ${Math.round(attendance.verification.gpsDistanceMeters || 0)}m` : 'Chưa xác minh GPS'}</div>
+                  <div className="text-[10px] text-zinc-400">Dữ liệu từ lần chấm công gần nhất</div>
                 </div>
               </div>
 
@@ -772,8 +813,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 </div>
                 <div>
                   <div className="text-xs font-bold text-zinc-800">Wi-Fi Showroom</div>
-                  <div className="text-xs font-black text-orange-600">Đã Kết Nối ({staffMember.allowedWifiSSID})</div>
-                  <div className="text-[10px] text-zinc-400">BSSID: e4:38:83:19:bc:40</div>
+                  <div className={`text-xs font-black ${attendance.verification?.wifiVerified ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.wifiVerified ? `Đã kết nối ${attendance.verification.wifiSSID || ''}` : 'Chưa xác minh Wi-Fi'}</div>
+                  <div className="text-[10px] text-zinc-400">Không hiển thị BSSID giả định</div>
                 </div>
               </div>
 
@@ -783,8 +824,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 </div>
                 <div>
                   <div className="text-xs font-bold text-zinc-800">Face ID Sinh Trắc Học</div>
-                  <div className="text-xs font-black text-orange-600">Trùng khớp 99.4%</div>
-                  <div className="text-[10px] text-zinc-400">Đã lưu vector nhận diện</div>
+                  <div className={`text-xs font-black ${attendance.verification?.faceVerified ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.faceVerified ? 'Đã xác minh' : 'Chưa xác minh Face ID'}</div>
+                  <div className="text-[10px] text-zinc-400">Không hiển thị điểm khớp giả định</div>
                 </div>
               </div>
             </div>
@@ -809,68 +850,68 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
               </div>
               <p className="text-xs text-orange-100 mt-1">
                 {roleType === 'SALES' 
-                  ? `Doanh số đạt ${formatVND((roleCommissions as any).revenueTotal)} (${Math.round(((roleCommissions as any).revenueTotal / (roleCommissions as any).revenueTarget) * 100)}% chỉ tiêu)`
+                  ? 'Hoa hồng bán hàng chỉ hiển thị khi có sổ hoa hồng đã kết nối.'
                   : `Tích lũy từ ${(roleCommissions as any).kcsCount} máy KCS + ${(roleCommissions as any).repairCount} ca sửa chữa`}
               </p>
             </div>
 
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 min-w-[200px] text-xs space-y-1">
               <div className="text-orange-200">Lương cơ bản: <strong>{formatVND(staffMember.baseSalary)}</strong></div>
-              <div className="text-orange-200">Phụ cấp ăn trưa: <strong>{formatVND(730000)}</strong></div>
+              <div className="text-orange-200">Phụ cấp đã cấu hình: <strong>{formatVND(configuredAllowance)}</strong></div>
               <div className="text-white font-extrabold pt-1 border-t border-white/20">
-                Tổng thu nhập ước tính: {formatVND(staffMember.baseSalary + 730000 + roleCommissions.totalEarnings)}
+                Tổng thu nhập ước tính: {formatVND(staffMember.baseSalary + configuredAllowance + roleCommissions.totalEarnings)}
               </div>
             </div>
           </div>
 
           {/* Breakdown cards depending on role */}
           {roleType === 'SALES' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+            <div className="flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-orange-500 to-amber-500 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">Hoa Hồng Máy Mới</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).deviceCommission)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">1.2% trên doanh số máy</div>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-emerald-600 to-teal-500 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">Hoa Hồng Phụ Kiện</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).accessoryCommission)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">5% giá trị phụ kiện</div>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">Thưởng Bảo Hành Mở Rộng</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).warrantyBonus)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">10% gói bảo hành rơi vỡ</div>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-fuchsia-600 to-rose-500 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-rose-600 uppercase">Thưởng Vượt KPI</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).kpiBonus)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">Thưởng mốc &gt; 120% target</div>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+            <div className="flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-orange-500 to-amber-500 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">KCS Kiểm Định ({ (roleCommissions as any).kcsCount } máy)</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).kcsAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">35.000 đ / máy nhập</div>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-emerald-600 to-teal-500 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">Sửa Chữa ({ (roleCommissions as any).repairCount } ca)</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).repairAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">Ép kính, thay màn/pin, main</div>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">Bảo Hành Tiêu Chuẩn</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).warrantyAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">50.000 đ / máy bảo hành</div>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-zinc-200 shadow-2xs">
+              <div className="min-w-[72%] snap-start bg-gradient-to-br from-fuchsia-600 to-rose-500 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-rose-600 uppercase">Test Thu Cũ ({ (roleCommissions as any).tradeInCount } máy)</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).tradeInAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">50.000 đ / máy thu cũ</div>
@@ -888,6 +929,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             </div>
 
             <div className="divide-y divide-zinc-100">
+              {roleCommissions.transactions.length === 0 && <div className="p-8 text-center text-xs font-semibold text-zinc-500">Chưa có giao dịch hoa hồng hợp lệ trong kỳ này.</div>}
               {roleCommissions.transactions.map((tx: any) => (
                 <div key={tx.id} className="p-4 hover:bg-orange-50/20 transition-colors flex items-center justify-between gap-3 text-xs">
                   <div className="flex items-center gap-3">
@@ -925,7 +967,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-100">
             <div>
               <span className="text-[10px] font-black uppercase px-2.5 py-1 rounded-full bg-orange-100 text-orange-800">
-                Kỳ Lương Tháng 08/2026
+                Kỳ lương {payrollPeriod}
               </span>
               <h3 className="text-xl font-black text-zinc-900 mt-1">Phiếu Lương & Thu Nhập Chi Tiết</h3>
               <p className="text-xs text-zinc-500">Mã nhân sự: {staffMember.code} • {staffMember.name}</p>
@@ -934,7 +976,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             <div className="text-left sm:text-right">
               <div className="text-xs text-zinc-400 font-bold uppercase">Thực Nhận Tạm Tính</div>
               <div className="text-2xl font-black text-orange-600 font-mono">
-                {formatVND(staffMember.baseSalary + 730000 + 500000 + roleCommissions.totalEarnings - 850000)}
+                {myPayrollSlip ? formatVND(myPayrollSlip.netSalary) : 'Chưa chốt kỳ'}
               </div>
             </div>
           </div>
@@ -944,35 +986,23 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             <div className="bg-zinc-50 rounded-2xl p-4 space-y-2.5 border border-zinc-200">
               <div className="flex justify-between items-center font-bold">
                 <span className="text-zinc-600">Lương vị trí theo hợp đồng:</span>
-                <span className="font-mono text-zinc-900 font-black">{formatVND(staffMember.baseSalary)}</span>
+                <span className="font-mono text-zinc-900 font-black">{formatVND(myPayrollSlip?.baseSalary ?? staffMember.baseSalary)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-zinc-600">Phụ cấp ăn trưa (26 ngày):</span>
-                <span className="font-mono text-zinc-900">{formatVND(730000)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-zinc-600">Phụ cấp xăng xe & điện thoại:</span>
-                <span className="font-mono text-zinc-900">{formatVND(500000)}</span>
+                <span className="text-zinc-600">Phụ cấp đã cấu hình:</span>
+                <span className="font-mono text-zinc-900">{formatVND(myPayrollSlip?.allowances ?? configuredAllowance)}</span>
               </div>
               <div className="flex justify-between items-center text-orange-600 font-bold">
                 <span>Tổng hoa hồng & thù lao (Từ Ví):</span>
                 <span className="font-mono font-black">{formatVND(roleCommissions.totalEarnings)}</span>
               </div>
-              <div className="flex justify-between items-center text-orange-600 font-bold">
-                <span>Thưởng chuyên cần (Không đi muộn):</span>
-                <span className="font-mono font-black">{formatVND(500000)}</span>
-              </div>
             </div>
 
             <h4 className="font-bold text-zinc-700 uppercase tracking-wider text-[11px] pt-2">2. Các Khoản Trừ (-)</h4>
             <div className="bg-zinc-50 rounded-2xl p-4 space-y-2.5 border border-zinc-200">
-              <div className="flex justify-between items-center text-rose-600">
-                <span>Bảo hiểm xã hội & Y tế (10.5% lương đóng BH):</span>
-                <span className="font-mono font-bold">-{formatVND(850000)}</span>
-              </div>
               <div className="flex justify-between items-center text-zinc-500">
                 <span>Tạm ứng lương:</span>
-                <span className="font-mono">0 đ</span>
+                <span className="font-mono">-{formatVND(myPayrollSlip?.advances || 0)}</span>
               </div>
               <div className="flex justify-between items-center text-zinc-500">
                 <span>Phạt vi phạm quy chế / Đi muộn:</span>
@@ -981,15 +1011,15 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-orange-50 rounded-2xl p-4 border border-orange-200 flex items-center justify-between text-xs">
+          <div className={`${myPayrollSlip ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'} rounded-2xl p-4 border flex items-center justify-between text-xs`}>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-5 h-5 text-orange-600" />
               <div>
-                <div className="font-bold text-zinc-900">Quy trình duyệt 3 cấp:</div>
-                <div className="text-zinc-600 text-[11px]">1. Kế toán lập ✓ • 2. Cửa hàng trưởng đã duyệt ✓ • 3. Chờ Giám đốc chi</div>
+                <div className="font-bold text-zinc-900">Trạng thái kỳ lương:</div>
+                <div className="text-zinc-600 text-[11px]">{myPayrollSlip ? `Đã được duyệt trên server lúc ${myPayrollSlip.approvedAt ? new Date(myPayrollSlip.approvedAt).toLocaleString('vi-VN') : ''}` : 'Chưa có kỳ lương đã duyệt. Các số tạm tính không được xem là phiếu lương chính thức.'}</div>
               </div>
             </div>
-            <span className="font-bold text-orange-700 bg-orange-100 px-3 py-1 rounded-xl">ĐÃ DUYỆT CHT</span>
+            <span className={`font-bold px-3 py-1 rounded-xl ${myPayrollSlip ? 'text-emerald-700 bg-emerald-100' : 'text-amber-700 bg-amber-100'}`}>{myPayrollSlip ? myPayrollSlip.runStatus || 'ĐÃ DUYỆT' : 'CHƯA CHỐT'}</span>
           </div>
         </div>
       )}
@@ -1068,6 +1098,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 />
               </div>
 
+              {leaveRequestError && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{leaveRequestError}</div>}
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -1078,10 +1110,11 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black rounded-xl shadow-md shadow-orange-500/20 flex items-center gap-1.5"
+                  disabled={submittingLeave}
+                  className="px-5 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-black rounded-xl shadow-md shadow-orange-500/20 flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Gửi Đơn Cho Quản Lý</span>
+                  {submittingLeave ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  <span>{submittingLeave ? 'Đang lưu…' : 'Gửi Đơn Cho Quản Lý'}</span>
                 </button>
               </div>
             </form>

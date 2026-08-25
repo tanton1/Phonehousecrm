@@ -49,7 +49,7 @@ export function saveShiftBoard(payload: {
   entries: ShiftBoardEntryPayload[];
   operationKey: string;
 }) {
-  return request<{ saved: number; status: 'DRAFT' | 'PUBLISHED'; idempotentReplay: boolean }>('/shift-board', {
+  return request<{ saved: number; status: 'DRAFT' | 'PUBLISHED'; savedAt: string; idempotentReplay: boolean }>('/shift-board', {
     method: 'PUT',
     body: JSON.stringify(payload)
   });

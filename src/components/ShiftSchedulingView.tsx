@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -26,6 +27,7 @@ import {
   updateShiftDefinition
 } from '../services/shiftSchedulingApiClient';
 import { applyFixedDepartmentPolicies, resolveStaffDepartment, ShiftDraftDay, ShiftDraftSchedule } from '../utils/shiftPolicy';
+import { HRMetricCarousel } from './HRMetricCarousel';
 
 interface ShiftSchedulingViewProps {
   currentUser?: any;
@@ -100,6 +102,9 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState('');
+  const [autoSaveBlocked, setAutoSaveBlocked] = useState(false);
+  const revisionRef = useRef(0);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [assignmentTarget, setAssignmentTarget] = useState<{ staff: StaffMember; date: string } | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
@@ -113,6 +118,13 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
   const [policyForm, setPolicyForm] = useState<{ departmentId: string; departmentName: string; mode: 'FIXED' | 'ROTATING'; defaultShiftId: string; workDayIndexes: number[] }>({
     departmentId: '', departmentName: '', mode: 'FIXED', defaultShiftId: '', workDayIndexes: [0, 1, 2, 3, 4, 5]
   });
+
+  const recoveryKey = `phonehouse_shift_draft_v1_${selectedBranchId}_${weekStart}`;
+  const markDirty = () => {
+    revisionRef.current += 1;
+    setAutoSaveBlocked(false);
+    setDirty(true);
+  };
 
   useEffect(() => {
     if (!selectedBranchId && accessibleBranches[0]?.id) setSelectedBranchId(accessibleBranches[0].id);
@@ -135,14 +147,29 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
       setSchedules(result.schedules || []);
       setDefinitions(result.definitions || []);
       setPolicies(result.policies || []);
-      setDraft(scheduleToDraft(result.schedules || []));
+      const serverDraft = scheduleToDraft(result.schedules || []);
+      const recoveryRaw = window.localStorage.getItem(recoveryKey);
+      if (recoveryRaw) {
+        try {
+          const recovery = JSON.parse(recoveryRaw);
+          setDraft(recovery?.draft && typeof recovery.draft === 'object' ? recovery.draft : serverDraft);
+          revisionRef.current += 1;
+          setDirty(true);
+          setMessage({ type: 'success', text: 'Đã khôi phục thay đổi chưa kịp đồng bộ. Hệ thống đang tự lưu lại lên server.' });
+        } catch {
+          window.localStorage.removeItem(recoveryKey);
+          setDraft(serverDraft);
+          setDirty(false);
+        }
+      } else {
+        setDraft(serverDraft);
+        setDirty(false);
+      }
       setCanManage(Boolean(result.permissions?.canManage));
-      setDirty(false);
+      const latestSavedAt = (result.schedules || []).reduce((latest, item) => String(item.updatedAt || '') > latest ? String(item.updatedAt || '') : latest, '');
+      setLastSavedAt(latestSavedAt);
     } catch (error: any) {
       setMessage({ type: 'error', text: error?.message || 'Không tải được lịch làm việc.' });
-      setSchedules([]);
-      setPolicies([]);
-      setDraft({});
     } finally {
       setLoading(false);
     }
@@ -183,6 +210,39 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
   const publishedCount = schedules.filter((schedule) => schedule.status === 'PUBLISHED').length;
   const selectedBranch = branches.find((branch) => branch.id === selectedBranchId);
 
+  useEffect(() => {
+    if (!dirty || !selectedBranchId) return;
+    window.localStorage.setItem(recoveryKey, JSON.stringify({ draft, savedAt: new Date().toISOString() }));
+  }, [dirty, draft, recoveryKey, selectedBranchId]);
+
+  useEffect(() => {
+    if (!dirty || autoSaveBlocked || loading || saving || !canManage || !selectedBranchId) return;
+    const existingStaffIds = new Set(schedules.map((schedule) => schedule.staffId));
+    const entries = allBranchStaff
+      .map((staff) => ({ staffId: staff.id, days: draft[staff.id] || {} }))
+      .filter((entry) => Object.keys(entry.days).length > 0 || existingStaffIds.has(entry.staffId));
+    if (entries.length === 0) return;
+
+    const revisionAtStart = revisionRef.current;
+    const timer = window.setTimeout(() => {
+      setSaving(true);
+      void saveShiftBoard({ branchId: selectedBranchId, weekStart, status: 'DRAFT', entries, operationKey: `SHIFT_AUTO_${selectedBranchId}_${weekStart}_${Date.now()}` })
+        .then((result) => {
+          if (revisionRef.current !== revisionAtStart) return;
+          window.localStorage.removeItem(recoveryKey);
+          setLastSavedAt(result.savedAt || new Date().toISOString());
+          setDirty(false);
+          setMessage({ type: 'success', text: `Đã tự lưu ${result.saved} lịch lên server.` });
+        })
+        .catch((error: any) => {
+          setAutoSaveBlocked(true);
+          setMessage({ type: 'error', text: `${error?.message || 'Không tự lưu được lịch.'} Bản nháp vẫn được giữ trên máy; hãy bấm Lưu để thử lại.` });
+        })
+        .finally(() => setSaving(false));
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [allBranchStaff, autoSaveBlocked, canManage, dirty, draft, loading, recoveryKey, saving, schedules, selectedBranchId, weekStart]);
+
   const applyPolicies = (notify = true) => {
     const result = applyFixedDepartmentPolicies({
       draft,
@@ -193,7 +253,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
     });
     if (result.appliedCells > 0) {
       setDraft(result.draft);
-      setDirty(true);
+      markDirty();
       if (notify) setMessage({ type: 'success', text: `Đã tự điền ${result.appliedCells} ô theo giờ hành chính. Lịch đã xếp tay trước đó được giữ nguyên.` });
     } else if (notify) {
       setMessage({ type: 'success', text: 'Lịch cố định đã đầy đủ; không có ô trống cần tự điền.' });
@@ -212,7 +272,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
     });
     if (result.appliedCells > 0) {
       setDraft(result.draft);
-      setDirty(true);
+      markDirty();
       setMessage({ type: 'success', text: `Đã tự điền lịch cố định cho ${result.fixedStaffIds.size} nhân viên. NVBH & CSKH vẫn để quản lý xếp xoay ca.` });
     }
     // Reapply only when the saved policy/week/staff set changes; manual exceptions must not be overwritten.
@@ -234,7 +294,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
         return { ...current, [staffId]: staffDays };
       });
     }
-    setDirty(true);
+    markDirty();
   };
 
   const openAssignment = (staff: StaffMember, date: string) => {
@@ -244,9 +304,10 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
   };
 
   const persist = async (status: 'DRAFT' | 'PUBLISHED') => {
+    const existingStaffIds = new Set(schedules.map((schedule) => schedule.staffId));
     const entries = allBranchStaff
       .map((staff) => ({ staffId: staff.id, days: draft[staff.id] || {} }))
-      .filter((entry) => Object.keys(entry.days).length > 0);
+      .filter((entry) => Object.keys(entry.days).length > 0 || existingStaffIds.has(entry.staffId));
     if (entries.length === 0) {
       setMessage({ type: 'error', text: 'Chưa có ca nào được xếp. Hãy chọn một ô nhân viên/ngày trước.' });
       return;
@@ -255,13 +316,15 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
     setSaving(true);
     setMessage(null);
     try {
-      await saveShiftBoard({
+      const result = await saveShiftBoard({
         branchId: selectedBranchId,
         weekStart,
         status,
         entries,
         operationKey: `SHIFT_${selectedBranchId}_${weekStart}_${status}_${Date.now()}`
       });
+      window.localStorage.removeItem(recoveryKey);
+      setLastSavedAt(result.savedAt || new Date().toISOString());
       setMessage({ type: 'success', text: status === 'PUBLISHED' ? `Đã đăng lịch cho ${entries.length} nhân viên.` : `Đã lưu bản nháp cho ${entries.length} nhân viên.` });
       await loadBoard();
     } catch (error: any) {
@@ -289,7 +352,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
         });
       });
       setDraft(nextDraft);
-      setDirty(true);
+      markDirty();
       setMessage({ type: 'success', text: 'Đã sao chép lịch tuần trước vào bản nháp. Hãy kiểm tra rồi bấm Lưu.' });
     } catch (error: any) {
       setMessage({ type: 'error', text: error?.message || 'Không sao chép được lịch tuần trước.' });
@@ -309,7 +372,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
       });
       return next;
     });
-    setDirty(true);
+    markDirty();
     setShowBulk(false);
     setMessage({ type: 'success', text: `Đã gán nhanh cho ${branchStaff.length} nhân viên đang lọc. Hãy bấm Lưu bản nháp.` });
   };
@@ -421,12 +484,16 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
           <div>
             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-orange-300"><CalendarDays className="h-4 w-4" /> Xếp ca bộ phận</div>
             <h2 className="mt-2 text-2xl font-black">Lịch làm việc theo tuần</h2>
-            <p className="mt-1 text-sm text-zinc-300">Chọn bộ phận, gán ca cho từng ngày, lưu bản nháp rồi đăng để nhân viên chấm công.</p>
+            <p className="mt-1 text-sm text-zinc-300">Mỗi thay đổi được tự lưu lên server. Chỉ cần bấm Đăng lịch khi đã sẵn sàng cho nhân viên chấm công.</p>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-white/85 ring-1 ring-white/15">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : dirty ? <Clock3 className="h-3.5 w-3.5 text-amber-300" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />}
+              {saving ? 'Đang lưu lên server…' : dirty ? 'Có thay đổi đang chờ lưu' : lastSavedAt ? `Đã lưu lúc ${new Date(lastSavedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : 'Dữ liệu đang đồng bộ từ server'}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {canManage && <button onClick={() => openDefinitionForm()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 text-sm font-black hover:bg-white/15"><Settings2 className="h-4 w-4" /> Ca làm việc</button>}
             {canManage && <button onClick={() => openPolicyForm()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-orange-300/30 bg-orange-400/15 px-4 text-sm font-black text-orange-100 hover:bg-orange-400/25"><Users className="h-4 w-4" /> Quy tắc bộ phận</button>}
-            {canManage && <button onClick={() => void persist('DRAFT')} disabled={saving || !dirty} className="inline-flex h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-zinc-900 disabled:opacity-40"><Save className="h-4 w-4" /> Lưu bản nháp</button>}
+            {canManage && <button onClick={() => void persist('DRAFT')} disabled={saving || !dirty} className="inline-flex h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-zinc-900 disabled:opacity-40"><Save className="h-4 w-4" /> Lưu ngay</button>}
             {canManage && <button onClick={() => void persist('PUBLISHED')} disabled={saving} className="inline-flex h-11 items-center gap-2 rounded-2xl bg-orange-500 px-4 text-sm font-black text-white disabled:opacity-40"><Send className="h-4 w-4" /> Đăng lịch</button>}
           </div>
         </div>
@@ -459,15 +526,13 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
         </div>
       </section>
 
-      <section className="flex snap-x gap-3 overflow-x-auto pb-1">
-        {[
-          { label: 'Nhân viên', value: allBranchStaff.length, icon: Users, tone: 'text-zinc-900' },
-          { label: 'Tự điền hành chính', value: fixedStaffCount, icon: Clock3, tone: 'text-blue-700' },
-          { label: 'Đã đủ 7 ngày', value: assignedCount, icon: Check, tone: 'text-emerald-700' },
-          { label: 'Còn thiếu lịch', value: Math.max(0, allBranchStaff.length - assignedCount), icon: Clock3, tone: 'text-orange-700' },
-          { label: 'Lịch đã đăng', value: publishedCount, icon: Send, tone: 'text-blue-700' }
-        ].map((metric) => <article key={metric.label} className="min-w-[42%] snap-start rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:min-w-48"><metric.icon className={`h-5 w-5 ${metric.tone}`} /><div className={`mt-3 text-2xl font-black ${metric.tone}`}>{metric.value}</div><div className="mt-1 text-xs font-bold text-zinc-500">{metric.label}</div></article>)}
-      </section>
+      <HRMetricCarousel items={[
+        { id: 'staff', label: 'Nhân viên', value: allBranchStaff.length, note: selectedBranch?.name, icon: Users, gradient: 'from-zinc-950 via-zinc-900 to-orange-950' },
+        { id: 'fixed', label: 'Tự điền hành chính', value: fixedStaffCount, note: 'Theo quy tắc bộ phận', icon: Clock3, gradient: 'from-blue-600 via-indigo-600 to-violet-600' },
+        { id: 'complete', label: 'Đã đủ 7 ngày', value: assignedCount, note: 'Bao gồm ngày nghỉ', icon: Check, gradient: 'from-emerald-600 via-teal-600 to-cyan-600' },
+        { id: 'missing', label: 'Còn thiếu lịch', value: Math.max(0, allBranchStaff.length - assignedCount), note: 'Cần hoàn tất trước khi đăng', icon: Clock3, gradient: 'from-amber-500 via-orange-500 to-red-500' },
+        { id: 'published', label: 'Lịch đã đăng', value: publishedCount, note: 'Đang dùng để chấm công', icon: Send, gradient: 'from-fuchsia-600 via-pink-600 to-rose-500' }
+      ]} />
 
       {definitions.length === 0 && !loading && canManage && <section className="rounded-3xl border border-orange-200 bg-orange-50 p-5"><h3 className="font-black text-orange-950">Chưa có ca làm việc</h3><p className="mt-1 text-sm text-orange-800">Tạo ít nhất một ca (ví dụ 08:00–17:00) trước khi xếp lịch. Ngày nghỉ luôn có sẵn.</p><button onClick={() => openDefinitionForm()} className="mt-4 inline-flex h-10 items-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-black text-white"><Plus className="h-4 w-4" /> Tạo ca đầu tiên</button></section>}
 

@@ -422,6 +422,18 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /payrollRuns/{runId} {
+      allow read, write: if false; // Server-only payroll calculation and approval snapshots.
+    }
+
+    match /payrollRunItems/{itemId} {
+      allow read, write: if false;
+    }
+
+    match /payrollAuditLogs/{auditId} {
+      allow read, write: if false;
+    }
+
     match /sopTemplates/{templateId} {
       allow read: if isAuthenticated() && isActiveUser();
       allow write: if isAdmin() || isManager();

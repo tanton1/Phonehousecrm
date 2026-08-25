@@ -1169,12 +1169,23 @@ export async function deleteDailyChecklistItemFromFirestore(id: string) {
 }
 
 // ----------------- LEAVE REQUESTS -----------------
-export function subscribeToLeaveRequests(onData: (requests: LeaveRequest[]) => void) {
+export function subscribeToLeaveRequests(
+  onData: (requests: LeaveRequest[]) => void,
+  userScope?: { uid?: string; role?: string } | null,
+  onError?: (error: any) => void
+) {
   const colRef = collection(db, LEAVE_REQUESTS_COL);
-  return onSnapshot(colRef, (snapshot) => {
-    const data = snapshot.docs.map(doc => doc.data() as LeaveRequest);
+  const role = String(userScope?.role || '').toUpperCase();
+  const scopedQuery = userScope?.uid && !['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(role)
+    ? query(colRef, where('staffId', '==', userScope.uid))
+    : colRef;
+  return onSnapshot(scopedQuery, (snapshot) => {
+    const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as LeaveRequest));
     onData(data);
-  }, (error) => handleFirestoreError(error, OperationType.LIST, LEAVE_REQUESTS_COL));
+  }, (error) => {
+    const info = handleFirestoreError(error, OperationType.LIST, LEAVE_REQUESTS_COL);
+    onError?.(info);
+  });
 }
 
 export async function addLeaveRequestToFirestore(request: LeaveRequest) {
@@ -1184,6 +1195,7 @@ export async function addLeaveRequestToFirestore(request: LeaveRequest) {
     await setDoc(docRef, cleanDataForFirestore(request));
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
+    throw error;
   }
 }
 
@@ -1194,6 +1206,7 @@ export async function updateLeaveRequestInFirestore(request: LeaveRequest) {
     await setDoc(docRef, cleanDataForFirestore(request), { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+    throw error;
   }
 }
 

@@ -1,354 +1,196 @@
-import React, { useState } from 'react';
-import { 
-  INITIAL_STAFF_MEMBERS,
-  INITIAL_TODAY_ATTENDANCE_LIST,
-  INITIAL_COMMISSIONS,
-  INITIAL_LEAVE_REQUESTS,
-  INITIAL_PAYROLL_LEDGER_CURRENT_USER,
-  INITIAL_MONTHLY_PAYROLL_SLIPS,
-  INITIAL_POLICIES
-} from '../data/attendanceData';
-
-import { AttendanceAdminView } from './AttendanceAdminView';
-import { 
-  Clock, 
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
   Building2,
-  Calendar,
-  FileText,
-  DollarSign,
-  CheckCheck,
-  Sliders,
-  ShieldCheck,
-  ChevronRight,
-  Activity,
-  Coins,
   CalendarDays,
-  SlidersHorizontal,
-  Wrench,
-  Users,
   CheckCircle2,
-  AlertCircle
+  Clock3,
+  FileText,
+  HelpCircle,
+  Loader2,
+  Search,
+  UserCheck,
+  Users,
+  WalletCards
 } from 'lucide-react';
-import { 
-  LeaveRequest, 
-  SalesInvoice, 
-  WarrantyTicket, 
-  StoreBranch, 
-  SalaryPolicy, 
-  StaffMember
-} from '../types';
+import type { AttendanceRecord, LeaveRequest, SalesInvoice, StaffMember, StoreBranch, WarrantyTicket } from '../types';
+import { getVietnamDateString } from '../utils/dateTimeUtils';
 import ShiftSchedulingView from './ShiftSchedulingView';
+import { MonthlyPayrollTable } from '../features/payroll/components/MonthlyPayrollTable';
+import { HRMetricCarousel, type HRMetricItem } from './HRMetricCarousel';
+
+export type HRSubModule = 'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL';
 
 export interface HRHubViewProps {
   currentUser?: any;
   staffList?: StaffMember[];
-  attendanceRecords?: import('../types').AttendanceRecord[];
+  attendanceRecords?: AttendanceRecord[];
+  leaveRequests?: LeaveRequest[];
   invoices?: SalesInvoice[];
   warrantyTickets?: WarrantyTicket[];
   branches?: StoreBranch[];
   initialSubModule?: HRSubModule;
+  onApproveLeave?: (request: LeaveRequest) => Promise<void> | void;
 }
 
-// 3 Core Functional Groups under HR & Governance
-export type HRGroupCategory = 'OPERATIONS' | 'PAYROLL' | 'GOVERNANCE';
+const currentPeriod = () => new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit'
+}).format(new Date()).slice(0, 7);
 
-export type HRSubModule = 
-  // Nhóm 1: VẬN HÀNH & CHẤM CÔNG
-  | 'OVERVIEW'           // Chấm Công Realtime
-  | 'SHIFTS'             // Lịch & Xếp Ca Tuần
-  // Nhóm 2: TIỀN LƯƠNG & HOA HỒNG
-  | 'TIMESHEET'          // Bảng Công Tháng
-  | 'PAYROLL'            // Bảng Tính Lương & Thu Nhập
-  | 'TECH_COMMISSION'    // Hoa Hồng Kỹ Thuật Viên
-  // Nhóm 3: PHÊ DUYỆT & QUẢN TRỊ
-  | 'APPROVAL'           // Quy Trình Duyệt Lương 5 Cấp
-  | 'POLICIES';          // Cấu Hình Chính Sách Lương
+function attendanceMatchesStaff(record: AttendanceRecord, staff: StaffMember) {
+  return record.staffId === staff.id || record.staffId === String((staff as any).authUid || '');
+}
 
-export const HRHubView: React.FC<HRHubViewProps> = ({ 
+export const HRHubView: React.FC<HRHubViewProps> = ({
   currentUser,
-  staffList: initialStaffList = [],
-  attendanceRecords = [], 
-  invoices = [], 
-  warrantyTickets = [],
+  staffList: rawStaff = [],
+  attendanceRecords = [],
+  leaveRequests = [],
   branches = [],
-  initialSubModule
+  initialSubModule,
+  onApproveLeave
 }) => {
-  // Navigation State: Active Group + Sub-Module
-  const [activeGroup, setActiveGroup] = useState<HRGroupCategory>('OPERATIONS');
-  const [activeSubModule, setActiveSubModule] = useState<HRSubModule>(initialSubModule || 'OVERVIEW');
+  const role = String(currentUser?.role || '').toUpperCase();
+  const canManage = ['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(role);
+  const canViewPayroll = canManage || role === 'ACCOUNTANT';
+  const [activeModule, setActiveModule] = useState<HRSubModule>(initialSubModule || 'OVERVIEW');
+  const [selectedBranchId, setSelectedBranchId] = useState(() => role === 'ADMIN' ? 'ALL' : String(currentUser?.branchId || 'ALL'));
+  const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
+  const [search, setSearch] = useState('');
+  const [approvingId, setApprovingId] = useState('');
 
-  React.useEffect(() => {
-    if (initialSubModule) {
-      setActiveSubModule(initialSubModule);
-      setActiveGroup(initialSubModule === 'SHIFTS' || initialSubModule === 'OVERVIEW' ? 'OPERATIONS' : activeGroup);
-    }
-    // Only react to explicit navigation changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (initialSubModule) setActiveModule(initialSubModule);
   }, [initialSubModule]);
 
-  // Single-Row Filters
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('ALL');
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('2026-08');
+  const accessibleBranches = useMemo(() => {
+    if (role === 'ADMIN') return branches.filter((branch) => branch.isActive !== false);
+    const ids = new Set([currentUser?.branchId, ...(currentUser?.assignedBranchIds || [])].filter(Boolean));
+    return branches.filter((branch) => branch.isActive !== false && ids.has(branch.id));
+  }, [branches, currentUser?.assignedBranchIds, currentUser?.branchId, role]);
 
-  // Single Source of Truth for Staff Members
-  const staffList = React.useMemo(() => {
-    return (initialStaffList || []).filter(s => Boolean(s && s.id && (s.displayName || s.name)));
-  }, [initialStaffList]);
-
-  // Synchronous current staff authority
-  const currentStaffId = currentUser?.id || staffList[0]?.id || '';
-  const currentStaff = staffList.find(s => s && s.id === currentStaffId) || staffList[0];
-
-  const [todayAttendance, setTodayAttendance] = useState(INITIAL_TODAY_ATTENDANCE_LIST);
-  const currentAttendanceList = attendanceRecords.length > 0 ? attendanceRecords : todayAttendance;
-
-  const [leaveRequests, setLeaveRequests] = useState(INITIAL_LEAVE_REQUESTS);
-  const [commissions] = useState(INITIAL_COMMISSIONS);
-  const [payrollSlips, setPayrollSlips] = useState(INITIAL_MONTHLY_PAYROLL_SLIPS);
-  const [policies, setPolicies] = useState(INITIAL_POLICIES);
-
-  // Live Summary Metrics for Badges
-  const activeCount = currentAttendanceList.filter(a => a.status === 'IN_PROGRESS' || a.status === 'COMPLETED').length;
-  const lateCount = currentAttendanceList.filter(a => a.status === 'LATE').length;
-  const pendingLeaveCount = leaveRequests.filter(l => l.status === 'PENDING').length;
-  const pendingPayrollCount = payrollSlips.filter(p => p.approvalStep < 4).length;
-
-  const handleApproveLeave = (leaveId: string) => {
-    setLeaveRequests(leaveRequests.map(l => l.id === leaveId ? { ...l, status: 'APPROVED' } : l));
-  };
-
-  const handleAdvancePayrollApproval = (slipId: string, nextStep: number, approverName: string, notes: string) => {
-    setPayrollSlips(payrollSlips.map(s => {
-      if (s.id === slipId) {
-        return {
-          ...s,
-          approvalStep: nextStep as any,
-          status: nextStep >= 4 ? 'LOCKED' : 'STORE_APPROVED'
-        };
-      }
-      return s;
-    }));
-  };
-
-  const handleUpdatePolicy = (updatedPolicy: SalaryPolicy) => {
-    setPolicies(policies.map(p => p.id === updatedPolicy.id ? updatedPolicy : p));
-  };
-
-  // Group Definitions under "Nhóm Nhân Sự & Quản Trị"
-  const HR_GROUPS = [
-    {
-      id: 'OPERATIONS' as const,
-      title: '1. Vận Hành & Chấm Công',
-      subtitle: 'Giám sát vào ca, GPS & ma trận xếp ca',
-      icon: Clock,
-      badge: `${activeCount}/${staffList.length} Vào ca`,
-      subModules: [
-        { id: 'OVERVIEW' as const, label: 'Chấm Công Realtime', desc: 'Quân số, GPS, đi trễ & trạng thái ca', icon: Activity },
-        { id: 'SHIFTS' as const, label: 'Lịch & Xếp Ca Tuần', desc: 'Theo bộ phận, bản nháp và đăng lịch', icon: CalendarDays, badge: pendingLeaveCount > 0 ? `${pendingLeaveCount} đơn nghỉ` : undefined }
-      ]
-    },
-    {
-      id: 'PAYROLL' as const,
-      title: '2. Tiền Lương & Hoa Hồng',
-      subtitle: 'Bảng công tháng, tính lương & ví kỹ thuật',
-      icon: Coins,
-      badge: `${payrollSlips.length} Nhân sự`,
-      subModules: [
-        { id: 'TIMESHEET' as const, label: 'Bảng Tổng Hợp Công', desc: 'Công chuẩn, đi trễ, OT & xuất Excel', icon: FileText },
-        { id: 'PAYROLL' as const, label: 'Bảng Tính Lương & Thu Nhập', desc: 'Lương cứng, KPI, phụ cấp & in phiếu', icon: DollarSign },
-        { id: 'TECH_COMMISSION' as const, label: 'Hoa Hồng Kỹ Thuật Viên', desc: 'KCS máy cũ, sửa chữa & thay thế', icon: Wrench }
-      ]
-    },
-    {
-      id: 'GOVERNANCE' as const,
-      title: '3. Phê Duyệt & Chính Sách',
-      subtitle: 'Duyệt lương 5 cấp & cấu hình định mức',
-      icon: ShieldCheck,
-      badge: pendingPayrollCount > 0 ? `${pendingPayrollCount} Chờ duyệt` : 'Đã khóa',
-      subModules: [
-        { id: 'APPROVAL' as const, label: 'Quy Trình Duyệt Lương 5 Cấp', desc: 'CHT → Kế toán → BGĐ → Khóa sổ', icon: CheckCheck, badge: pendingPayrollCount > 0 ? `${pendingPayrollCount} phiếu` : undefined },
-        { id: 'POLICIES' as const, label: 'Chính Sách & Định Mức Lương', desc: 'Bậc lương, % hoa hồng & phụ cấp', icon: SlidersHorizontal }
-      ]
+  useEffect(() => {
+    if (selectedBranchId === 'ALL' && role !== 'ADMIN') {
+      setSelectedBranchId(String(currentUser?.branchId || accessibleBranches[0]?.id || ''));
     }
+  }, [accessibleBranches, currentUser?.branchId, role, selectedBranchId]);
+
+  const staffList = useMemo(() => rawStaff
+    .filter((staff) => staff?.id && staff.status !== 'INACTIVE')
+    .filter((staff) => selectedBranchId === 'ALL' || staff.branchId === selectedBranchId || (staff.assignedBranchIds || []).includes(selectedBranchId)), [rawStaff, selectedBranchId]);
+
+  const scopedAttendance = useMemo(() => attendanceRecords.filter((record) => {
+    if (selectedBranchId !== 'ALL' && record.branchId !== selectedBranchId) return false;
+    return staffList.some((staff) => attendanceMatchesStaff(record, staff));
+  }), [attendanceRecords, selectedBranchId, staffList]);
+
+  const today = getVietnamDateString();
+  const todayAttendance = useMemo(() => scopedAttendance.filter((record) => record.date === today), [scopedAttendance, today]);
+  const monthAttendance = useMemo(() => scopedAttendance.filter((record) => String(record.date || '').startsWith(selectedPeriod)), [scopedAttendance, selectedPeriod]);
+  const scopedLeaveRequests = useMemo(() => leaveRequests.filter((request) => {
+    if (selectedBranchId === 'ALL') return true;
+    const staff = staffList.find((item) => item.id === request.staffId || String((item as any).authUid || '') === request.staffId);
+    return Boolean(staff);
+  }), [leaveRequests, selectedBranchId, staffList]);
+
+  const checkedInCount = todayAttendance.filter((record) => Boolean(record.checkInTime)).length;
+  const lateCount = todayAttendance.filter((record) => record.status === 'LATE' || record.punctualityStatus === 'LATE' || Number(record.lateMinutes || 0) > 0).length;
+  const completedCount = todayAttendance.filter((record) => record.status === 'COMPLETED' || record.attendanceStatus === 'COMPLETED').length;
+  const pendingLeaveCount = scopedLeaveRequests.filter((request) => request.status === 'PENDING').length;
+  const workDayKeys = new Set(monthAttendance.filter((record) => Boolean(record.checkInTime)).map((record) => `${record.staffId}_${record.date}`));
+
+  const metrics: HRMetricItem[] = [
+    { id: 'staff', label: 'Nhân sự hoạt động', value: staffList.length, note: selectedBranchId === 'ALL' ? 'Toàn hệ thống' : accessibleBranches.find((branch) => branch.id === selectedBranchId)?.name, icon: Users, gradient: 'from-zinc-950 via-zinc-900 to-orange-950' },
+    { id: 'checked-in', label: 'Đã vào ca hôm nay', value: `${checkedInCount}/${staffList.length}`, note: `${completedCount} người đã kết thúc ca`, icon: UserCheck, gradient: 'from-emerald-600 via-emerald-500 to-teal-500' },
+    { id: 'late', label: 'Cần kiểm tra', value: lateCount, note: lateCount ? 'Trường hợp đi trễ hôm nay' : 'Không có trường hợp đi trễ', icon: AlertTriangle, gradient: 'from-amber-500 via-orange-500 to-red-500' },
+    { id: 'workdays', label: `Ngày công ${selectedPeriod}`, value: workDayKeys.size, note: 'Tính từ bản ghi chấm công thật', icon: CalendarDays, gradient: 'from-blue-600 via-indigo-600 to-violet-600' },
+    { id: 'leave', label: 'Đơn đang chờ duyệt', value: pendingLeaveCount, note: 'Nghỉ phép hoặc đổi ca', icon: FileText, gradient: 'from-fuchsia-600 via-pink-600 to-rose-500' }
   ];
 
-  // Helper to switch group and activate its first subModule
-  const handleSelectGroup = (group: HRGroupCategory) => {
-    setActiveGroup(group);
-    if (group === 'OPERATIONS') setActiveSubModule('OVERVIEW');
-    if (group === 'PAYROLL') setActiveSubModule('TIMESHEET');
-    if (group === 'GOVERNANCE') setActiveSubModule('APPROVAL');
+  const modules: Array<{ id: HRSubModule; label: string; icon: typeof Users }> = [
+    { id: 'OVERVIEW', label: 'Hôm nay', icon: UserCheck },
+    { id: 'SHIFTS', label: 'Xếp ca', icon: CalendarDays },
+    { id: 'TIMESHEET', label: 'Bảng công', icon: Clock3 },
+    ...(canViewPayroll ? [{ id: 'PAYROLL' as const, label: 'Bảng lương', icon: WalletCards }] : [])
+  ];
+
+  const timesheetRows = useMemo(() => staffList.map((staff) => {
+    const records = monthAttendance.filter((record) => attendanceMatchesStaff(record, staff));
+    const workedDates = new Set(records.filter((record) => Boolean(record.checkInTime)).map((record) => record.date));
+    const completedDates = new Set(records.filter((record) => Boolean(record.checkOutTime)).map((record) => record.date));
+    return {
+      staff,
+      workDays: workedDates.size,
+      completedDays: completedDates.size,
+      lateMinutes: records.reduce((sum, record) => sum + Number(record.lateMinutes || 0), 0),
+      otMinutes: records.reduce((sum, record) => sum + Number(record.otMinutes || 0), 0),
+      missingCheckout: records.filter((record) => record.checkInTime && !record.checkOutTime && record.date !== today).length
+    };
+  }).filter((row) => !search.trim() || `${row.staff.name} ${row.staff.code} ${row.staff.roleTitle}`.toLowerCase().includes(search.trim().toLowerCase())), [monthAttendance, search, staffList, today]);
+
+  const approveLeave = async (request: LeaveRequest) => {
+    if (!onApproveLeave || !canManage) return;
+    setApprovingId(request.id);
+    try {
+      await onApproveLeave(request);
+    } finally {
+      setApprovingId('');
+    }
   };
 
-  const currentGroupObj = HR_GROUPS.find(g => g.id === activeGroup) || HR_GROUPS[0];
-
   return (
-    <div className="w-full space-y-4 font-sans animate-fadeIn">
-      
-      {/* 1. SINGLE-ROW CONCISE HEADER & GLOBAL FILTERS */}
-      <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-zinc-200/80 shadow-2xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          
-          {/* Identity & Current Group Badge */}
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white flex items-center justify-center font-black text-sm shadow-md shadow-orange-500/20 shrink-0">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-bold uppercase tracking-wider">
-                <span>Nhân Sự & Quản Trị</span>
-                <ChevronRight className="w-3.5 h-3.5 text-zinc-300 shrink-0" />
-                <span className="text-[#FF4B16] font-extrabold">{currentGroupObj.title}</span>
-              </div>
-              <h1 className="text-base sm:text-lg font-black text-zinc-900 truncate">
-                Quản Trị Nhân Sự, Chấm Công & Tiền Lương
-              </h1>
-            </div>
+    <div className="w-full space-y-4">
+      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#18181b] via-[#24110a] to-[#ff4b16] p-4 text-white shadow-lg sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-orange-200"><Building2 className="h-4 w-4" /> Nhân sự PhoneHouse</div>
+            <h1 className="mt-2 text-2xl font-black">Chấm công, ca làm & lương</h1>
           </div>
-
-          {/* 1-ROW COHESIVE FILTER TOOLBAR */}
-          {activeSubModule !== 'SHIFTS' && <div className="flex items-center gap-2 overflow-x-auto pb-0.5 sm:pb-0 shrink-0">
-            {/* Quick Status Indicator Pill */}
-            <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-800 text-xs font-bold whitespace-nowrap">
-              <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-              <span>{activeCount}/{staffList.length} Vào ca</span>
-              {lateCount > 0 && (
-                <span className="text-orange-600 ml-1">({lateCount} trễ)</span>
-              )}
-            </div>
-
-            {/* Branch Filter */}
-            <div className="flex items-center bg-zinc-50 border border-zinc-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-zinc-800 shadow-2xs hover:border-zinc-300">
-              <span className="text-zinc-400 mr-1.5 text-[11px]">📍 Chi nhánh:</span>
-              <select
-                value={selectedBranchId}
-                onChange={(e) => setSelectedBranchId(e.target.value)}
-                className="bg-transparent font-bold text-zinc-900 focus:outline-none cursor-pointer pr-1"
-              >
-                <option value="ALL">Tất cả chi nhánh</option>
-                {(branches || []).filter(Boolean).map(br => (
-                  <option key={br?.id || br?.code || Math.random()} value={br?.id || ''}>{br?.name || 'Chi nhánh'}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Period Filter */}
-            <div className="flex items-center bg-zinc-50 border border-zinc-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-zinc-800 shadow-2xs hover:border-zinc-300">
-              <span className="text-zinc-400 mr-1.5 text-[11px]">📅 Kỳ lương:</span>
-              <select
-                value={selectedPeriod}
-                onChange={(e) => setSelectedPeriod(e.target.value)}
-                className="bg-transparent font-bold text-zinc-900 focus:outline-none cursor-pointer pr-1"
-              >
-                <option value="2026-08">Tháng 08/2026</option>
-                <option value="2026-07">Tháng 07/2026</option>
-                <option value="2026-06">Tháng 06/2026</option>
-              </select>
-            </div>
-          </div>}
+          <button title="Trang chỉ hiển thị dữ liệu đã đồng bộ từ server. Bảng lương chưa chốt được ghi là bản nháp, không giả lập số liệu." className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10 ring-1 ring-white/20"><HelpCircle className="h-5 w-5" /></button>
         </div>
-
-        {/* 2. PRIMARY 3 HR GROUPS (Vận hành - Lương - Chính sách) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-3.5 pt-3.5 border-t border-zinc-100">
-          {HR_GROUPS.map((grp) => {
-            const Icon = grp.icon;
-            const isSelected = activeGroup === grp.id;
-            return (
-              <button
-                key={grp.id}
-                onClick={() => handleSelectGroup(grp.id)}
-                className={`p-3 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
-                  isSelected
-                    ? 'bg-orange-50/60 border-orange-400 ring-2 ring-orange-400/20 shadow-xs'
-                    : 'bg-zinc-50/70 hover:bg-zinc-100/80 border-zinc-200/80 text-zinc-600'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`p-2 rounded-lg border shrink-0 transition-transform ${
-                    isSelected
-                      ? 'bg-[#FF4B16] text-white border-orange-500 shadow-xs'
-                      : 'bg-white text-zinc-600 border-zinc-200'
-                  }`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className={`text-xs font-black truncate ${isSelected ? 'text-zinc-900' : 'text-zinc-700'}`}>
-                      {grp.title}
-                    </div>
-                    <div className="text-[11px] text-zinc-400 truncate mt-0.5">
-                      {grp.subtitle}
-                    </div>
-                  </div>
-                </div>
-
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 ml-2 ${
-                  isSelected 
-                    ? 'bg-[#FF4B16] text-white' 
-                    : 'bg-zinc-200/80 text-zinc-600'
-                }`}>
-                  {grp.badge}
-                </span>
-              </button>
-            );
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {modules.map((module) => {
+            const Icon = module.icon;
+            return <button key={module.id} onClick={() => setActiveModule(module.id)} className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-black ring-1 ${activeModule === module.id ? 'bg-white text-zinc-950 ring-white' : 'bg-white/10 text-white ring-white/15'}`}><Icon className="h-4 w-4" />{module.label}</button>;
           })}
         </div>
-      </div>
+      </section>
 
-      {/* 3. SUB-MODULE TABS FOR THE CURRENTLY ACTIVE GROUP */}
-      <div className="bg-white rounded-2xl p-2 border border-zinc-200/80 shadow-2xs">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
-          {currentGroupObj.subModules.map((sub) => {
-            const SubIcon = sub.icon;
-            const isActive = activeSubModule === sub.id;
-            return (
-              <button
-                key={sub.id}
-                onClick={() => setActiveSubModule(sub.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer border shrink-0 ${
-                  isActive
-                    ? 'bg-gradient-to-r from-orange-500 to-orange-500 text-white border-orange-500 shadow-sm shadow-orange-500/25'
-                    : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border-zinc-200/80 hover:border-zinc-300'
-                }`}
-              >
-                <SubIcon className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-white' : 'text-orange-500'}`} />
-                <span>{sub.label}</span>
-                {sub.badge && (
-                  <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-md ml-0.5 ${
-                    isActive ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-700'
-                  }`}>
-                    {sub.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+      {activeModule !== 'SHIFTS' && <section className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+        <div className="flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="h-10 min-w-40 shrink-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-xs font-black outline-none focus:border-orange-400">
+            {role === 'ADMIN' && <option value="ALL">Toàn hệ thống</option>}
+            {accessibleBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+          </select>
+          <input type="month" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)} className="h-10 shrink-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-xs font-black outline-none focus:border-orange-400" />
+          {activeModule === 'TIMESHEET' && <label className="relative min-w-48 flex-1"><Search className="absolute left-3 top-3 h-4 w-4 text-zinc-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm nhân viên" className="h-10 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-9 pr-3 text-xs font-bold outline-none focus:border-orange-400" /></label>}
         </div>
-      </div>
+      </section>}
 
-      {/* 4. ACTIVE SUB-MODULE CONTENT RENDERING */}
-      <div className="space-y-4">
-        {activeSubModule === 'SHIFTS' ? (
-          <ShiftSchedulingView currentUser={currentUser} staffList={staffList} branches={branches} />
-        ) : <AttendanceAdminView
-          staffList={staffList}
-          todayAttendance={currentAttendanceList}
-          weeklySchedules={[]}
-          leaveRequests={leaveRequests}
-          payrollSlips={payrollSlips}
-          policies={policies}
-          commissions={commissions}
-          branches={branches}
-          activeAdminTab={activeSubModule as any}
-          onSelectAdminTab={(tab) => setActiveSubModule(tab as any)}
-          onApproveLeave={handleApproveLeave}
-          onAdvancePayrollApproval={handleAdvancePayrollApproval}
-          onUpdateShift={() => undefined}
-          onUpdatePolicy={handleUpdatePolicy}
-          invoices={invoices}
-          warrantyTickets={warrantyTickets}
-          hideHeaderAndTabs={true}
-        />}
-      </div>
+      {activeModule !== 'SHIFTS' && <HRMetricCarousel items={metrics} />}
+
+      {activeModule === 'OVERVIEW' && <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+        <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-zinc-100 p-4"><div><h2 className="font-black text-zinc-900">Trạng thái hôm nay</h2><p className="mt-1 text-xs font-semibold text-zinc-500">Dữ liệu chấm công cập nhật trực tiếp từ Firestore.</p></div><span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-700">{todayAttendance.length} bản ghi</span></div>
+          {todayAttendance.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Chưa có nhân viên chấm công trong phạm vi đang chọn.</div> : <div className="divide-y divide-zinc-100">{todayAttendance.map((record) => <article key={record.id} className="flex items-center justify-between gap-3 p-4"><div className="min-w-0"><div className="truncate text-sm font-black text-zinc-900">{record.staffName}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{record.branchName} · {record.shiftName || 'Chưa có ca'}</div></div><div className="text-right"><div className="text-sm font-black text-zinc-900">{record.checkInTime || '--:--'} → {record.checkOutTime || 'đang làm'}</div><div className={`mt-1 text-[11px] font-black ${Number(record.lateMinutes || 0) > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>{Number(record.lateMinutes || 0) > 0 ? `Trễ ${record.lateMinutes} phút` : 'Đúng giờ'}</div></div></article>)}</div>}
+        </section>
+
+        <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-zinc-100 p-4"><div><h2 className="font-black text-zinc-900">Đơn nghỉ & đổi ca</h2><p className="mt-1 text-xs font-semibold text-zinc-500">Không còn dùng dữ liệu mẫu trong trình duyệt.</p></div><span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">{pendingLeaveCount} chờ</span></div>
+          {scopedLeaveRequests.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Chưa có đơn nào.</div> : <div className="divide-y divide-zinc-100">{scopedLeaveRequests.slice(0, 8).map((request) => <article key={request.id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate text-sm font-black text-zinc-900">{request.staffName}</div><div className="mt-1 text-xs font-semibold text-zinc-500">{request.startDate} · {request.reason}</div></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ${request.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : request.status === 'REJECTED' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}>{request.status === 'APPROVED' ? 'Đã duyệt' : request.status === 'REJECTED' ? 'Từ chối' : 'Chờ duyệt'}</span></div>{canManage && request.status === 'PENDING' && <button onClick={() => void approveLeave(request)} disabled={approvingId === request.id} className="mt-3 inline-flex h-9 items-center gap-2 rounded-xl bg-zinc-900 px-3 text-xs font-black text-white disabled:opacity-50">{approvingId === request.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}Duyệt đơn</button>}</article>)}</div>}
+        </section>
+      </div>}
+
+      {activeModule === 'SHIFTS' && <ShiftSchedulingView currentUser={currentUser} staffList={rawStaff} branches={branches} />}
+
+      {activeModule === 'TIMESHEET' && <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+        <div className="border-b border-zinc-100 p-4"><h2 className="font-black text-zinc-900">Bảng công {selectedPeriod}</h2><p className="mt-1 text-xs font-semibold text-zinc-500">Mỗi nhân viên chỉ có một dòng; số ngày được gom theo ngày chấm công thực tế.</p></div>
+        {timesheetRows.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Không có nhân viên phù hợp.</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">{timesheetRows.map((row) => <article key={row.staff.id} className="rounded-2xl border border-zinc-200 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-black text-zinc-900">{row.staff.name}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{row.staff.roleTitle}</div></div><span className="rounded-xl bg-orange-50 px-3 py-2 text-lg font-black text-orange-600">{row.workDays}</span></div><div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-900">{row.completedDays}</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đủ checkout</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-orange-600">{row.lateMinutes}p</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đi trễ</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-blue-600">{Math.round(row.otMinutes / 60 * 10) / 10}h</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Tăng ca</div></div></div>{row.missingCheckout > 0 && <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Thiếu checkout {row.missingCheckout} ngày</div>}</article>)}</div>}
+      </section>}
+
+      {activeModule === 'PAYROLL' && <MonthlyPayrollTable staffList={staffList} branches={accessibleBranches} attendanceRecords={monthAttendance} selectedMonth={selectedPeriod} />}
     </div>
   );
 };
+
+export default HRHubView;
