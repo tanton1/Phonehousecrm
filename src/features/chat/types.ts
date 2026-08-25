@@ -23,6 +23,7 @@ export interface ChatMessage {
 
 export interface ChatConversation {
   id: string;
+  provider?: 'PANCAKE' | 'META_MESSENGER';
   pageId?: string;
   pageName?: string;
   externalConversationId?: string;

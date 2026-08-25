@@ -89,7 +89,7 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
           <div className="min-w-0">
             <h4 className="text-xs font-bold text-zinc-900 truncate">{conversation.customerName}</h4>
             <p className="text-[10px] text-zinc-400 font-mono truncate">
-              Kênh: <span className="font-bold text-zinc-600">{conversation.channel}</span>
+              Kênh: <span className="font-bold text-zinc-600">{conversation.conversationType === 'COMMENT' ? 'Bình luận Facebook' : conversation.channel}</span>
               {conversation.customerPhone && ` • SĐT: ${conversation.customerPhone}`}
             </p>
           </div>
@@ -101,7 +101,7 @@ export const ChatStreamPanel: React.FC<ChatStreamPanelProps> = ({
               onClick={() => void onRefresh()}
               disabled={loadingMessages}
               className="grid h-8 w-8 place-items-center rounded-xl bg-zinc-100 text-zinc-600 transition-colors hover:bg-zinc-200 disabled:opacity-50"
-              title="Làm mới tin nhắn từ Pancake"
+              title="Làm mới tin nhắn từ Facebook"
             >
               <RefreshCw className={`h-4 w-4 ${loadingMessages ? 'animate-spin' : ''}`} />
             </button>

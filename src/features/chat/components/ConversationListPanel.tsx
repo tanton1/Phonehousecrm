@@ -191,6 +191,7 @@ export const ConversationListPanel: React.FC<ConversationListPanelProps> = ({
                   </p>
 
                   <div className="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">
+                    {convo.conversationType === 'COMMENT' && <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[8px] font-black text-indigo-700">Bình luận</span>}
                     <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black ${(convo.workflowStatus || 'NEW') === 'WON' ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-100 text-zinc-600'}`}>{workflowLabel[convo.workflowStatus || 'NEW'] || 'Mới'}</span>
                     <span className="min-w-0 truncate rounded bg-blue-50 px-1.5 py-0.5 text-[8px] font-bold text-blue-700">{convo.assignedStaffName || 'Chưa nhận'}</span>
                     {slaLabel && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black ${slaLabel.includes('Trễ') ? 'bg-rose-100 text-rose-700' : slaLabel.includes('Còn') ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{slaLabel}</span>}

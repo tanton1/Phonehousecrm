@@ -7,6 +7,7 @@ import {
   getPancakeChatSummary,
   getPancakeWebhookSetup,
   listPancakeChatStaff,
+  listPancakeBranchOptions,
   listPancakeConversations,
   listPancakeMessages,
   markPancakeConversationRead,
@@ -19,7 +20,21 @@ import {
   updatePancakeConversationWorkflow,
   verifyPancakeWebhookSecret
 } from '../services/pancakeService';
-import { markMetaConversationRead, sendMetaMessengerMessage } from '../services/metaMessengerService';
+import {
+  getMetaMessengerChannel,
+  getMetaWebhookSetup,
+  markMetaConversationRead,
+  sendMetaMessengerMessage,
+  setMetaBranchMapping,
+  syncMetaConversations
+} from '../services/metaMessengerService';
+
+function useMetaProvider(): boolean {
+  const provider = String(process.env.CHAT_PROVIDER || '').trim().toUpperCase();
+  if (provider === 'PANCAKE') return false;
+  return ['META', 'META_MESSENGER', 'FACEBOOK'].includes(provider)
+    || Boolean(process.env.META_PAGE_ID && process.env.META_APP_SECRET && process.env.META_WEBHOOK_VERIFY_TOKEN);
+}
 
 function actor(req: Request): PancakeActor {
   return {
@@ -38,6 +53,9 @@ function errorStatus(error: any): number {
   if (message.includes('RATE_LIMITED')) return 429;
   if (message.includes('TIMEOUT')) return 504;
   if (message.includes('TOKEN_NOT_CONFIGURED') || message.includes('BRANCH_AMBIGUOUS')) return 503;
+  if (message.includes('META_PAGE_ACCESS_TOKEN_NOT_CONFIGURED')) return 503;
+  if (message.includes('META_API_FAILED_190')) return 401;
+  if (message.includes('META_API_FAILED_10:') || message.includes('META_API_FAILED_200:')) return 403;
   if (message.includes('ALREADY_PROCESSING')) return 409;
   return 400;
 }
@@ -85,6 +103,13 @@ export function createPancakeRouter(db: Firestore | null): Router {
   router.get('/channels', authenticateFirebase, async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
+      if (useMetaProvider()) {
+        const channel = await getMetaMessengerChannel(db, actor(req));
+        return res.json({
+          success: true,
+          data: { channels: channel ? [channel] : [], branches: await listPancakeBranchOptions(db, actor(req)) }
+        });
+      }
       return res.json({ success: true, data: await getPancakeChannels(db, actor(req)) });
     } catch (error: any) {
       return sendError(res, error);
@@ -96,7 +121,8 @@ export function createPancakeRouter(db: Firestore | null): Router {
   ), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const data = await setPancakeBranchMapping(db, {
+      const link = useMetaProvider() ? setMetaBranchMapping : setPancakeBranchMapping;
+      const data = await link(db, {
         pageId: req.params.pageId,
         branchId: req.body?.branchId
       }, actor(req));
@@ -115,10 +141,8 @@ export function createPancakeRouter(db: Firestore | null): Router {
       const forwardedProtocol = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
       const origin = forwardedHost ? `${forwardedProtocol}://${forwardedHost}` : '';
       res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-      return res.json({
-        success: true,
-        data: await getPancakeWebhookSetup(db, req.params.pageId, actor(req), origin)
-      });
+      const setup = useMetaProvider() ? getMetaWebhookSetup : getPancakeWebhookSetup;
+      return res.json({ success: true, data: await setup(db, req.params.pageId, actor(req), origin) });
     } catch (error: any) {
       return sendError(res, error);
     }
@@ -237,7 +261,8 @@ export function createPancakeRouter(db: Firestore | null): Router {
   router.post('/sync', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const data = await syncPancakeConversations(db, {
+      const sync = useMetaProvider() ? syncMetaConversations : syncPancakeConversations;
+      const data = await sync(db, {
         pageId: req.body?.pageId,
         cursor: req.body?.cursor
       }, actor(req));

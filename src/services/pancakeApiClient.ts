@@ -9,6 +9,7 @@ interface PancakeApiEnvelope<T> {
 }
 
 export interface PancakeChannelStatus {
+  provider?: 'PANCAKE' | 'META_MESSENGER';
   pageId: string;
   pageName: string;
   branchId: string;
@@ -31,6 +32,7 @@ export interface PancakeBranchOption {
 }
 
 export interface PancakeWebhookSetup {
+  provider?: 'PANCAKE' | 'META_MESSENGER';
   pageId: string;
   pageName: string;
   branchId: string;
@@ -107,13 +109,13 @@ async function requestPancakeApi<T>(
   Object.entries(options.query || {}).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
   });
-  const response = await fetch(`/api/pancake/${endpoint}${query.size ? `?${query}` : ''}`, {
+  const response = await fetch(`/api/chat/${endpoint}${query.size ? `?${query}` : ''}`, {
     method: options.method || 'GET',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: (options.method || 'GET') === 'GET' ? undefined : JSON.stringify(options.payload || {})
   });
   const body = await response.json().catch(() => ({ success: false, error: `HTTP_${response.status}` })) as PancakeApiEnvelope<T>;
-  if (!response.ok || !body.success) throw new Error(body.error || `Pancake API lỗi ${response.status}`);
+  if (!response.ok || !body.success) throw new Error(body.error || `Chat API lỗi ${response.status}`);
   return body.data as T;
 }
 
@@ -184,7 +186,7 @@ function firestoreDateIso(value: any): string {
 }
 
 /**
- * Realtime stream for the conversation currently open on screen. Pancake
+ * Realtime stream for the conversation currently open on screen. Provider
  * webhook writes remain server-only; the client only listens to authorized
  * branch data through Firestore Rules.
  */
@@ -214,6 +216,58 @@ export function subscribePancakeMessages(
         attachments: Array.isArray(data.attachments) ? data.attachments.filter((item: unknown) => typeof item === 'string') : [],
         messageKind: data.messageKind || 'MESSAGE'
       } as ChatMessage;
+    }));
+  }, error => onError?.(error));
+}
+
+export function subscribeChatConversations(
+  branchId: string,
+  onConversations: (conversations: ChatConversation[]) => void,
+  onError?: (error: unknown) => void
+) {
+  const streamQuery = query(
+    collection(db, 'chatConversations'),
+    where('branchId', '==', branchId),
+    orderBy('updatedAt', 'desc'),
+    limit(100)
+  );
+  return onSnapshot(streamQuery, snapshot => {
+    onConversations(snapshot.docs.map(document => {
+      const data = document.data() as Record<string, any>;
+      return {
+        id: document.id,
+        provider: data.provider || 'PANCAKE',
+        pageId: data.pageId,
+        pageName: data.pageName,
+        externalConversationId: data.externalConversationId,
+        branchId: data.branchId,
+        branchName: data.branchName,
+        channel: data.channel || 'FACEBOOK',
+        conversationType: data.conversationType || 'INBOX',
+        customerName: data.customerName || 'Khách hàng',
+        customerPhone: data.customerPhone || '',
+        avatarUrl: data.avatarUrl,
+        lastMessageSnippet: data.lastMessageSnippet || '',
+        lastMessageTime: data.lastMessageTime || firestoreDateIso(data.updatedAt),
+        unreadCount: Number(data.unreadCount || 0),
+        assignedStaff: data.assignedStaffName || '',
+        assignedStaffId: data.assignedStaffId || '',
+        assignedStaffName: data.assignedStaffName || '',
+        workflowStatus: data.workflowStatus || 'NEW',
+        priority: data.priority || 'NORMAL',
+        firstResponseDueAt: data.firstResponseDueAt ? firestoreDateIso(data.firstResponseDueAt) : '',
+        firstResponseAt: data.firstResponseAt ? firestoreDateIso(data.firstResponseAt) : '',
+        firstCustomerMessageAt: data.firstCustomerMessageAt ? firestoreDateIso(data.firstCustomerMessageAt) : '',
+        lastCustomerMessageAt: data.lastCustomerMessageAt ? firestoreDateIso(data.lastCustomerMessageAt) : '',
+        lastStaffMessageAt: data.lastStaffMessageAt ? firestoreDateIso(data.lastStaffMessageAt) : '',
+        nextFollowUpAt: data.nextFollowUpAt ? firestoreDateIso(data.nextFollowUpAt) : '',
+        awaitingStaffReply: data.awaitingStaffReply === true,
+        firstResponseSeconds: Number(data.firstResponseSeconds || 0),
+        slaMet: typeof data.slaMet === 'boolean' ? data.slaMet : undefined,
+        outcomeNote: data.outcomeNote || '',
+        interestedModel: data.interestedModel || '',
+        messages: []
+      } as ChatConversation;
     }));
   }, error => onError?.(error));
 }

@@ -31,11 +31,17 @@ export interface NormalizedMetaMessage {
   externalMessageId: string;
   sender: 'CUSTOMER' | 'STAFF';
   senderName: string;
+  customerName: string;
   content: string;
   timestamp: string;
   attachments: string[];
-  messageKind: 'MESSAGE';
-  rawKind: 'MESSAGE' | 'POSTBACK';
+  messageKind: 'MESSAGE' | 'COMMENT';
+  conversationType: 'INBOX' | 'COMMENT';
+  rawKind: 'MESSAGE' | 'POSTBACK' | 'COMMENT';
+  metaConversationId?: string;
+  postId?: string;
+  commentId?: string;
+  parentCommentId?: string;
 }
 
 function asObject(value: unknown): Record<string, any> {
@@ -99,6 +105,10 @@ function canAccessBranch(actor: MetaMessengerActor, branchId: string): boolean {
 
 function assertBranchAccess(actor: MetaMessengerActor, branchId: string) {
   if (!canAccessBranch(actor, branchId)) throw new Error('META_BRANCH_FORBIDDEN');
+}
+
+function isManager(actor: MetaMessengerActor): boolean {
+  return ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(asString(actor.role).toUpperCase());
 }
 
 function configuredGraphVersion(value: unknown): string {
@@ -184,10 +194,12 @@ function normalizeMessagingEvent(pageId: string, raw: Record<string, any>): Norm
     externalMessageId,
     sender: isEcho ? 'STAFF' : 'CUSTOMER',
     senderName: isEcho ? 'PhoneHouse' : 'Khách Facebook',
+    customerName: 'Khách Facebook',
     content,
     timestamp,
     attachments,
     messageKind: 'MESSAGE',
+    conversationType: 'INBOX',
     rawKind: isPostback ? 'POSTBACK' : 'MESSAGE'
   };
 }
@@ -203,6 +215,48 @@ export function normalizeMetaWebhookMessages(payload: unknown, configuredPageId 
     for (const rawMessaging of Array.isArray(entry.messaging) ? entry.messaging : []) {
       const event = normalizeMessagingEvent(pageId, asObject(rawMessaging));
       if (event) normalized.push(event);
+    }
+  }
+  return normalized.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+}
+
+export function normalizeMetaFeedComments(payload: unknown, configuredPageId = ''): NormalizedMetaMessage[] {
+  const root = asObject(payload);
+  if (asString(root.object).toLowerCase() !== 'page') return [];
+  const normalized: NormalizedMetaMessage[] = [];
+  for (const rawEntry of Array.isArray(root.entry) ? root.entry : []) {
+    const entry = asObject(rawEntry);
+    const pageId = asString(entry.id);
+    if (!pageId || (configuredPageId && pageId !== configuredPageId)) continue;
+    for (const rawChange of Array.isArray(entry.changes) ? entry.changes : []) {
+      const change = asObject(rawChange);
+      const value = asObject(change.value);
+      if (asString(change.field).toLowerCase() !== 'feed' || asString(value.item).toLowerCase() !== 'comment') continue;
+      const author = asObject(value.from);
+      const authorId = asString(author.id);
+      const commentId = asString(value.comment_id || value.id);
+      const postId = asString(value.post_id);
+      if (!authorId || authorId === pageId || !commentId || !postId) continue;
+      const verb = asString(value.verb).toLowerCase();
+      const timestamp = toIso(value.created_time || entry.time);
+      normalized.push({
+        pageId,
+        customerPsid: authorId,
+        externalConversationId: `COMMENT:${postId}:${authorId}`,
+        externalMessageId: commentId,
+        sender: 'CUSTOMER',
+        senderName: asString(author.name) || 'Khách Facebook',
+        customerName: asString(author.name) || 'Khách Facebook',
+        content: verb === 'remove' ? 'Bình luận đã được xóa' : asString(value.message) || 'Khách đã gửi bình luận',
+        timestamp,
+        attachments: [],
+        messageKind: 'COMMENT',
+        conversationType: 'COMMENT',
+        rawKind: 'COMMENT',
+        postId,
+        commentId,
+        parentCommentId: asString(value.parent_id) || undefined
+      });
     }
   }
   return normalized.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
@@ -248,6 +302,10 @@ function messageDocument(message: NormalizedMetaMessage, branch: ResolvedBranch,
     attachments: message.attachments,
     messageKind: message.messageKind,
     metaEventKind: message.rawKind,
+    ...(message.metaConversationId ? { metaConversationId: message.metaConversationId } : {}),
+    ...(message.postId ? { postId: message.postId } : {}),
+    ...(message.commentId ? { commentId: message.commentId } : {}),
+    ...(message.parentCommentId ? { parentCommentId: message.parentCommentId } : {}),
     createdAt: FieldValue.serverTimestamp()
   };
 }
@@ -258,7 +316,7 @@ async function persistMetaMessage(
   branch: ResolvedBranch,
   message: NormalizedMetaMessage
 ) {
-  const conversationId = metaConversationDocumentId(message.pageId, message.customerPsid);
+  const conversationId = metaConversationDocumentId(message.pageId, message.externalConversationId);
   const messageId = metaMessageDocumentId(message.pageId, message.externalMessageId);
   const conversationRef = db.collection('chatConversations').doc(conversationId);
   const messageRef = db.collection('chatMessages').doc(messageId);
@@ -308,12 +366,15 @@ async function persistMetaMessage(
       pageName: config.pageName,
       externalConversationId: message.externalConversationId,
       customerPsid: message.customerPsid,
+      ...(message.metaConversationId ? { metaConversationId: message.metaConversationId } : {}),
       branchId: branch.id,
       branchName: branch.name,
       channel: 'FACEBOOK',
-      conversationType: 'INBOX',
-      customerName: asString(existingConversation.customerName) || 'Khách Facebook',
+      conversationType: message.conversationType,
+      customerName: asString(existingConversation.customerName) || message.customerName || 'Khách Facebook',
       customerPhone: asString(existingConversation.customerPhone),
+      ...(message.postId ? { postId: message.postId } : {}),
+      ...(message.commentId ? { lastCommentId: message.commentId } : {}),
       createdAt: existingConversation.createdAt || safeTimestamp(message.timestamp),
       lastSyncedAt: FieldValue.serverTimestamp(),
       lastMetaWebhookAt: FieldValue.serverTimestamp()
@@ -354,7 +415,10 @@ export async function processMetaMessengerWebhook(db: Firestore | null, payload:
     return { accepted: true, ignored: true, reason: 'UNSUPPORTED_OBJECT', processed: 0 };
   }
   const branch = await resolveMetaBranch(db, config);
-  const messages = normalizeMetaWebhookMessages(payload, config.pageId);
+  const messages = [
+    ...normalizeMetaWebhookMessages(payload, config.pageId),
+    ...normalizeMetaFeedComments(payload, config.pageId)
+  ].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
   const results = [];
   for (const message of messages) {
     results.push(await persistMetaMessage(db, config, branch, message));
@@ -366,7 +430,9 @@ export async function processMetaMessengerWebhook(db: Firestore | null, payload:
     branchName: branch.name,
     isActive: true,
     lastWebhookAt: FieldValue.serverTimestamp(),
-    lastWebhookEvent: messages.length ? 'MESSAGES' : 'NON_MESSAGE_EVENT',
+    lastWebhookEvent: messages.some(message => message.messageKind === 'COMMENT')
+      ? 'FEED_COMMENT'
+      : messages.length ? 'MESSAGES' : 'NON_MESSAGE_EVENT',
     updatedAt: FieldValue.serverTimestamp()
   }, { merge: true });
   return {
@@ -375,6 +441,414 @@ export async function processMetaMessengerWebhook(db: Firestore | null, payload:
     processed: results.filter(result => !result.duplicate).length,
     duplicates: results.filter(result => result.duplicate).length
   };
+}
+
+export async function getMetaMessengerChannel(db: Firestore | null, actor: MetaMessengerActor) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  const config = getMetaMessengerConfig();
+  let branch: ResolvedBranch | null = null;
+  let branchError = '';
+  if (config.pageId) {
+    try { branch = await resolveMetaBranch(db, config); } catch (error: any) { branchError = error?.message || 'META_BRANCH_NOT_FOUND'; }
+  }
+  if (branch && !canAccessBranch(actor, branch.id)) return null;
+  const mapping = config.pageId
+    ? asObject((await db.collection('metaPageMappings').doc(config.pageId).get()).data())
+    : {};
+  const configurationError = !config.pageId
+    ? 'META_PAGE_ID_NOT_CONFIGURED'
+    : !config.appSecret
+      ? 'META_APP_SECRET_NOT_CONFIGURED'
+      : !config.verifyToken
+        ? 'META_WEBHOOK_VERIFY_TOKEN_NOT_CONFIGURED'
+        : branchError;
+  return {
+    provider: 'META_MESSENGER' as const,
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch?.id || config.branchId || '',
+    branchName: branch?.name || 'Phonehouse',
+    historyDays: Math.min(90, Math.max(1, asNumber(process.env.META_SYNC_DAYS, 30))),
+    includeComments: true,
+    status: configurationError ? 'CONFIG_ERROR' : config.pageAccessToken ? 'READY' : 'MISSING_TOKEN',
+    webhookStatus: mapping.lastWebhookAt ? 'RECEIVING' : 'NOT_SEEN',
+    ...(mapping.lastWebhookAt ? { lastWebhookAt: toIso(mapping.lastWebhookAt) } : {}),
+    ...(asString(mapping.lastWebhookEvent) ? { lastWebhookEvent: asString(mapping.lastWebhookEvent) } : {}),
+    connectionStatus: configurationError ? 'UNKNOWN' : 'CONNECTED',
+    ...(configurationError ? { error: configurationError } : {}),
+    ...(!config.pageAccessToken ? { requiredTokenEnv: 'META_PAGE_ACCESS_TOKEN' } : {})
+  };
+}
+
+export async function setMetaBranchMapping(
+  db: Firestore | null,
+  input: { pageId: string; branchId: string },
+  actor: MetaMessengerActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isManager(actor)) throw new Error('META_BRANCH_MAPPING_FORBIDDEN');
+  const config = getMetaMessengerConfig();
+  if (!config.pageId || asString(input.pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const branch = await branchById(db, asString(input.branchId));
+  if (!branch) throw new Error('META_BRANCH_NOT_FOUND');
+  assertBranchAccess(actor, branch.id);
+  await db.collection('metaPageMappings').doc(config.pageId).set({
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch.id,
+    branchName: branch.name,
+    isActive: true,
+    updatedByUid: actor.uid,
+    updatedByName: asString(actor.name) || actor.uid,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+  return {
+    provider: 'META_MESSENGER' as const,
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch.id,
+    branchName: branch.name,
+    status: config.pageAccessToken ? 'READY' : 'MISSING_TOKEN'
+  };
+}
+
+export async function getMetaWebhookSetup(
+  db: Firestore | null,
+  pageId: string,
+  actor: MetaMessengerActor,
+  requestOrigin: string
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isManager(actor)) throw new Error('META_WEBHOOK_SETUP_FORBIDDEN');
+  const config = getMetaMessengerConfig();
+  if (!config.pageId || asString(pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const branch = await resolveMetaBranch(db, config);
+  assertBranchAccess(actor, branch.id);
+  const origin = asString(requestOrigin || process.env.APP_URL).replace(/\/$/, '');
+  if (!origin) throw new Error('META_WEBHOOK_ORIGIN_NOT_CONFIGURED');
+  const mapping = asObject((await db.collection('metaPageMappings').doc(config.pageId).get()).data());
+  return {
+    provider: 'META_MESSENGER' as const,
+    pageId: config.pageId,
+    pageName: config.pageName,
+    branchId: branch.id,
+    branchName: branch.name,
+    callbackUrl: `${origin}/api/meta/webhook`,
+    webhookStatus: mapping.lastWebhookAt ? 'RECEIVING' : 'NOT_SEEN',
+    ...(mapping.lastWebhookAt ? { lastWebhookAt: toIso(mapping.lastWebhookAt) } : {}),
+    ...(asString(mapping.lastWebhookEvent) ? { lastWebhookEvent: asString(mapping.lastWebhookEvent) } : {}),
+    connectionStatus: config.pageAccessToken ? 'CONNECTED' : 'UNKNOWN',
+    requiredEvents: [
+      'messages', 'message_echoes', 'message_deliveries', 'message_reads',
+      'message_reactions', 'message_edits', 'messaging_postbacks', 'feed'
+    ],
+    docsUrl: 'https://developers.facebook.com/docs/messenger-platform/webhooks'
+  };
+}
+
+async function graphApiGet(config: MetaMessengerConfig, pathOrUrl: string): Promise<Record<string, any>> {
+  if (!config.pageAccessToken) throw new Error('META_PAGE_ACCESS_TOKEN_NOT_CONFIGURED');
+  const baseUrl = `https://graph.facebook.com/${config.graphApiVersion}/`;
+  const url = pathOrUrl.startsWith('https://graph.facebook.com/')
+    ? pathOrUrl
+    : `${baseUrl}${pathOrUrl.replace(/^\//, '')}`;
+  if (!url.startsWith('https://graph.facebook.com/')) throw new Error('META_PAGING_URL_INVALID');
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${config.pageAccessToken}` }
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, any>;
+  if (!response.ok || payload.error) {
+    const error = asObject(payload.error);
+    const code = asString(error.code) || String(response.status);
+    const message = asString(error.message) || 'Meta không thể đọc dữ liệu hội thoại.';
+    throw new Error(`META_API_FAILED_${code}: ${message}`);
+  }
+  return payload;
+}
+
+function participantFromConversation(raw: Record<string, any>, pageId: string): Record<string, any> {
+  const participants = Array.isArray(asObject(raw.participants).data)
+    ? asObject(raw.participants).data.map(asObject)
+    : [];
+  return participants.find((participant: Record<string, any>) => asString(participant.id) && asString(participant.id) !== pageId) || {};
+}
+
+function attachmentsFromGraphMessage(raw: Record<string, any>): string[] {
+  const container = asObject(raw.attachments);
+  const values = Array.isArray(container.data)
+    ? container.data
+    : Array.isArray(raw.attachments) ? raw.attachments : [];
+  return values.map(asObject).flatMap(item => {
+    const target = asObject(item.image_data || item.video_data || item.file_url || item.payload);
+    return [asString(item.file_url || item.url || target.url || target.preview_url)].filter(Boolean);
+  });
+}
+
+function normalizeGraphMessage(
+  raw: Record<string, any>,
+  config: MetaMessengerConfig,
+  customerPsid: string,
+  customerName: string,
+  metaConversationId: string
+): NormalizedMetaMessage | null {
+  const messageId = asString(raw.id);
+  if (!messageId) return null;
+  const from = asObject(raw.from);
+  const senderIsPage = asString(from.id) === config.pageId;
+  const attachments = attachmentsFromGraphMessage(raw);
+  const content = asString(raw.message) || (attachments.length ? 'Đã gửi tệp đính kèm' : 'Tin nhắn Messenger');
+  return {
+    pageId: config.pageId,
+    customerPsid,
+    externalConversationId: customerPsid,
+    externalMessageId: messageId,
+    sender: senderIsPage ? 'STAFF' : 'CUSTOMER',
+    senderName: senderIsPage ? config.pageName : asString(from.name) || customerName,
+    customerName,
+    content,
+    timestamp: toIso(raw.created_time),
+    attachments,
+    messageKind: 'MESSAGE',
+    conversationType: 'INBOX',
+    rawKind: 'MESSAGE',
+    metaConversationId
+  };
+}
+
+async function persistMetaConversationSummaries(
+  db: Firestore,
+  config: MetaMessengerConfig,
+  branch: ResolvedBranch,
+  conversations: Array<Record<string, any>>
+) {
+  const summaries = conversations.map(raw => {
+    const participant = participantFromConversation(raw, config.pageId);
+    const customerPsid = asString(participant.id);
+    if (!customerPsid) return null;
+    const messages = Array.isArray(asObject(raw.messages).data) ? asObject(raw.messages).data.map(asObject) : [];
+    const latest = messages
+      .map(message => normalizeGraphMessage(message, config, customerPsid, asString(participant.name) || 'Khách Facebook', asString(raw.id)))
+      .filter(Boolean)
+      .sort((left: any, right: any) => Date.parse(right.timestamp) - Date.parse(left.timestamp))[0] as NormalizedMetaMessage | undefined;
+    const updatedAt = toIso(raw.updated_time || latest?.timestamp);
+    const conversationId = metaConversationDocumentId(config.pageId, customerPsid);
+    return {
+      conversationId,
+      message: latest,
+      updatedAt,
+      data: {
+        id: conversationId,
+        provider: 'META_MESSENGER',
+        pageId: config.pageId,
+        pageName: config.pageName,
+        externalConversationId: customerPsid,
+        metaConversationId: asString(raw.id),
+        customerPsid,
+        branchId: branch.id,
+        branchName: branch.name,
+        channel: 'FACEBOOK',
+        conversationType: 'INBOX',
+        customerName: asString(participant.name) || 'Khách Facebook',
+        customerPhone: '',
+        lastMessageSnippet: latest?.content || 'Hội thoại Facebook',
+        lastMessageTime: latest?.timestamp || updatedAt,
+        updatedAt: safeTimestamp(updatedAt),
+        lastSyncedAt: FieldValue.serverTimestamp()
+      }
+    };
+  }).filter(Boolean) as Array<Record<string, any>>;
+  if (!summaries.length) return 0;
+  const conversationRefs = summaries.map(summary => db.collection('chatConversations').doc(summary.conversationId));
+  const messageRefs = summaries.map(summary => summary.message
+    ? db.collection('chatMessages').doc(metaMessageDocumentId(config.pageId, summary.message.externalMessageId))
+    : null);
+  const snapshots = await db.getAll(...conversationRefs, ...messageRefs.filter(Boolean));
+  const snapshotByPath = new Map(snapshots.map(snapshot => [snapshot.ref.path, snapshot]));
+  const batch = db.batch();
+  for (let index = 0; index < summaries.length; index += 1) {
+    const summary = summaries[index];
+    const ref = conversationRefs[index];
+    const existing = snapshotByPath.get(ref.path);
+    const existingData = existing?.data() || {};
+    const existingMillis = existing?.exists ? safeTimestamp(existingData.updatedAt || existingData.lastMessageTime).toMillis() : 0;
+    const updateMillis = safeTimestamp(summary.updatedAt).toMillis();
+    const data = updateMillis >= existingMillis
+      ? { ...summary.data, createdAt: existingData.createdAt || safeTimestamp(summary.updatedAt) }
+      : {
+          provider: 'META_MESSENGER',
+          metaConversationId: summary.data.metaConversationId,
+          customerPsid: summary.data.customerPsid,
+          customerName: asString(existingData.customerName) || summary.data.customerName,
+          lastSyncedAt: FieldValue.serverTimestamp()
+        };
+    if (!existing?.exists) {
+      Object.assign(data, { unreadCount: 0, workflowStatus: 'OPEN', awaitingStaffReply: false });
+    }
+    batch.set(ref, data, { merge: true });
+    if (summary.message && messageRefs[index]) {
+      const messageRef = messageRefs[index]!;
+      if (!snapshotByPath.get(messageRef.path)?.exists) {
+        batch.set(messageRef, messageDocument(summary.message, branch, summary.conversationId), { merge: true });
+      }
+    }
+  }
+  await batch.commit();
+  return summaries.length;
+}
+
+export async function syncMetaConversations(
+  db: Firestore | null,
+  input: { pageId: string; cursor?: string },
+  actor: MetaMessengerActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isManager(actor)) throw new Error('META_SYNC_FORBIDDEN');
+  const config = getMetaMessengerConfig();
+  if (!config.pageId || asString(input.pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const branch = await resolveMetaBranch(db, config);
+  assertBranchAccess(actor, branch.id);
+  const historyDays = Math.min(90, Math.max(1, asNumber(process.env.META_SYNC_DAYS, 30)));
+  const cutoff = Date.now() - historyDays * 24 * 60 * 60 * 1000;
+  const fields = 'id,updated_time,participants,messages.limit(1){id,created_time,from,to,message,attachments}';
+  const params = new URLSearchParams({ fields, limit: '50' });
+  if (asString(input.cursor)) params.set('after', asString(input.cursor));
+  const payload = await graphApiGet(config, `${config.pageId}/conversations?${params}`);
+  const rawItems = Array.isArray(payload.data) ? payload.data.map(asObject) : [];
+  const inRange = rawItems.filter(item => safeTimestamp(item.updated_time).toMillis() >= cutoff);
+  const imported = await persistMetaConversationSummaries(db, config, branch, inRange);
+  const oldest = rawItems.reduce(
+    (minimum, item) => Math.min(minimum, safeTimestamp(item.updated_time).toMillis()),
+    Number.POSITIVE_INFINITY
+  );
+  const nextCursor = asString(asObject(asObject(payload.paging).cursors).after);
+  const done = !nextCursor || rawItems.length === 0 || oldest < cutoff;
+  return {
+    pageId: config.pageId,
+    imported,
+    scanned: rawItems.length,
+    nextCursor: done ? null : nextCursor,
+    done,
+    cutoffAt: new Date(cutoff).toISOString()
+  };
+}
+
+async function persistMetaHistoryMessages(
+  db: Firestore,
+  config: MetaMessengerConfig,
+  branch: ResolvedBranch,
+  conversation: Record<string, any>,
+  messages: NormalizedMetaMessage[]
+) {
+  if (!messages.length) return 0;
+  const conversationId = asString(conversation.id)
+    || metaConversationDocumentId(config.pageId, messages[0].externalConversationId);
+  const conversationRef = db.collection('chatConversations').doc(conversationId);
+  const messageRefs = messages.map(message => db.collection('chatMessages').doc(
+    metaMessageDocumentId(config.pageId, message.externalMessageId)
+  ));
+  const snapshots = await db.getAll(conversationRef, ...messageRefs);
+  const conversationSnapshot = snapshots[0];
+  const snapshotByPath = new Map(snapshots.slice(1).map(snapshot => [snapshot.ref.path, snapshot]));
+  const batch = db.batch();
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    const ref = messageRefs[index];
+    const existing = snapshotByPath.get(ref.path);
+    const document = messageDocument(message, branch, conversationId);
+    if (!existing?.exists) {
+      batch.set(ref, document, { merge: true });
+      continue;
+    }
+    const existingData = existing.data() || {};
+    if (asString(existingData.content) !== message.content
+      || JSON.stringify(existingData.attachments || []) !== JSON.stringify(message.attachments)) {
+      batch.set(ref, {
+        content: message.content,
+        attachments: message.attachments,
+        timestamp: safeTimestamp(message.timestamp),
+        timestampIso: message.timestamp,
+        historyRefreshedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
+  }
+  const latest = [...messages].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))[0];
+  const current = conversationSnapshot.data() || {};
+  const currentMillis = conversationSnapshot.exists
+    ? safeTimestamp(current.updatedAt || current.lastMessageTime).toMillis()
+    : 0;
+  const latestMillis = safeTimestamp(latest.timestamp).toMillis();
+  const conversationUpdate: Record<string, any> = {
+    provider: 'META_MESSENGER',
+    metaConversationId: latest.metaConversationId,
+    customerPsid: latest.customerPsid,
+    customerName: asString(current.customerName) || latest.customerName,
+    lastSyncedAt: FieldValue.serverTimestamp()
+  };
+  if (!conversationSnapshot.exists) {
+    Object.assign(conversationUpdate, {
+      id: conversationId,
+      pageId: config.pageId,
+      pageName: config.pageName,
+      externalConversationId: latest.externalConversationId,
+      branchId: branch.id,
+      branchName: branch.name,
+      channel: 'FACEBOOK',
+      conversationType: 'INBOX',
+      customerPhone: '',
+      unreadCount: 0,
+      workflowStatus: 'OPEN',
+      createdAt: safeTimestamp(messages[0].timestamp)
+    });
+  }
+  if (latestMillis >= currentMillis) {
+    Object.assign(conversationUpdate, {
+      lastMessageSnippet: latest.content,
+      lastMessageTime: latest.timestamp,
+      updatedAt: safeTimestamp(latest.timestamp),
+      awaitingStaffReply: latest.sender === 'CUSTOMER'
+    });
+  }
+  batch.set(conversationRef, conversationUpdate, { merge: true });
+  await batch.commit();
+  return messages.length;
+}
+
+export async function refreshMetaConversationMessages(
+  db: Firestore | null,
+  conversation: Record<string, any>
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  const config = getMetaMessengerConfig();
+  if (!config.pageId || asString(conversation.pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const branch = await resolveMetaBranch(db, config);
+  const customerPsid = asString(conversation.customerPsid || conversation.externalConversationId);
+  let metaConversationId = asString(conversation.metaConversationId);
+  if (!metaConversationId && customerPsid) {
+    const lookup = await graphApiGet(config, `${config.pageId}/conversations?${new URLSearchParams({ user_id: customerPsid, limit: '1' })}`);
+    metaConversationId = asString(Array.isArray(lookup.data) ? asObject(lookup.data[0]).id : '');
+  }
+  if (!metaConversationId) throw new Error('META_CONVERSATION_EXTERNAL_ID_MISSING');
+  const fields = 'id,messages.limit(100){id,created_time,from,to,message,attachments}';
+  const payload = await graphApiGet(config, `${metaConversationId}?${new URLSearchParams({ fields })}`);
+  const rawMessages = Array.isArray(asObject(payload.messages).data) ? asObject(payload.messages).data.map(asObject) : [];
+  const normalized = rawMessages
+    .map(raw => normalizeGraphMessage(
+      raw,
+      config,
+      customerPsid,
+      asString(conversation.customerName) || 'Khách Facebook',
+      metaConversationId
+    ))
+    .filter(Boolean) as NormalizedMetaMessage[];
+  const imported = await persistMetaHistoryMessages(
+    db,
+    config,
+    branch,
+    conversation,
+    normalized.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
+  );
+  return { imported, metaConversationId };
 }
 
 function clientMessage(document: Record<string, any>) {
@@ -451,24 +925,36 @@ export async function sendMetaMessengerMessage(
   }
 
   try {
-    const response = await graphApiRequest(config, `${config.pageId}/messages`, {
-      messaging_type: 'RESPONSE',
-      recipient: { id: customerPsid },
-      message: { text }
-    });
-    const externalMessageId = asString(response.message_id) || operationId;
+    const isComment = asString(conversation.conversationType).toUpperCase() === 'COMMENT';
+    const replyToCommentId = asString(conversation.lastCommentId);
+    if (isComment && !replyToCommentId) throw new Error('META_COMMENT_REPLY_TARGET_MISSING');
+    const response = isComment
+      ? await graphApiRequest(config, `${replyToCommentId}/comments`, { message: text })
+      : await graphApiRequest(config, `${config.pageId}/messages`, {
+          messaging_type: 'RESPONSE',
+          recipient: { id: customerPsid },
+          message: { text }
+        });
+    const externalMessageId = asString(response.message_id || response.id) || operationId;
     const normalized: NormalizedMetaMessage = {
       pageId: config.pageId,
       customerPsid,
-      externalConversationId: customerPsid,
+      externalConversationId: asString(conversation.externalConversationId) || customerPsid,
       externalMessageId,
       sender: 'STAFF',
       senderName: asString(actor.name) || 'Nhân viên PhoneHouse',
+      customerName: asString(conversation.customerName) || 'Khách Facebook',
       content: text,
       timestamp: new Date().toISOString(),
       attachments: [],
-      messageKind: 'MESSAGE',
-      rawKind: 'MESSAGE'
+      messageKind: isComment ? 'COMMENT' : 'MESSAGE',
+      conversationType: isComment ? 'COMMENT' : 'INBOX',
+      rawKind: isComment ? 'COMMENT' : 'MESSAGE',
+      ...(isComment ? {
+        postId: asString(conversation.postId),
+        commentId: externalMessageId,
+        parentCommentId: replyToCommentId
+      } : {})
     };
     const document = messageDocument(normalized, {
       id: asString(conversation.branchId),

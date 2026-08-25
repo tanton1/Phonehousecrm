@@ -168,6 +168,7 @@ import { createCrmRouter } from './server/routes/crm';
 app.use('/api/crm', createCrmRouter(adminDb));
 import { createPancakeRouter } from './server/routes/pancake';
 app.use('/api/pancake', createPancakeRouter(adminDb));
+app.use('/api/chat', createPancakeRouter(adminDb));
 import { createMetaMessengerRouter } from './server/routes/metaMessenger';
 app.use('/api/meta', createMetaMessengerRouter(adminDb));
 

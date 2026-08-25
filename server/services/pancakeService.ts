@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'crypto';
 import { FieldPath, FieldValue, Firestore, Timestamp } from 'firebase-admin/firestore';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
+import { refreshMetaConversationMessages } from './metaMessengerService';
 
 const PANCAKE_PAGE_API_V1 = 'https://pages.fm/api/public_api/v1';
 const PANCAKE_PAGE_API_V2 = 'https://pages.fm/api/public_api/v2';
@@ -673,6 +674,7 @@ function clientConversation(snapshot: any) {
   const optionalIso = (value: any) => value ? firestoreTimestampIso(value) : '';
   return {
     id: snapshot.id || data.id,
+    provider: data.provider || 'PANCAKE',
     pageId: data.pageId,
     pageName: data.pageName,
     externalConversationId: data.externalConversationId,
@@ -1096,7 +1098,13 @@ export async function listPancakeMessages(db: Firestore | null, conversationId: 
   const conversation = { id: conversationSnapshot.id, ...conversationSnapshot.data() } as any;
   assertBranchAccess(actor, conversation.branchId);
   let warning = '';
-  if (refreshFromPancake && conversation.provider !== 'META_MESSENGER') {
+  if (refreshFromPancake && conversation.provider === 'META_MESSENGER') {
+    try {
+      await refreshMetaConversationMessages(db, conversation);
+    } catch (error: any) {
+      warning = error?.message || 'META_MESSAGE_REFRESH_FAILED';
+    }
+  } else if (refreshFromPancake) {
     try {
       const config = configByPageId(conversation.pageId);
       const messages = await fetchConversationMessages(config, conversation.externalConversationId, conversation.conversationType || 'INBOX');
