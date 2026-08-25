@@ -171,6 +171,8 @@ app.use('/api/pancake', createPancakeRouter(adminDb));
 app.use('/api/chat', createPancakeRouter(adminDb));
 import { createMetaMessengerRouter } from './server/routes/metaMessenger';
 app.use('/api/meta', createMetaMessengerRouter(adminDb));
+import { createChannelConnectionsRouter } from './server/routes/channelConnections';
+app.use('/api/channel-connections', createChannelConnectionsRouter(adminDb));
 
 // -------------------------------------------------------------
 // 6. TECHNICAL WORK ORDERS, CUSTODY & QC ROUTER

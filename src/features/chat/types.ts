@@ -54,6 +54,8 @@ export interface ChatConversation {
   outcomeNote?: string;
   interestedModel?: string;
   suggestedPrice?: number;
+  threadControlStatus?: 'OWNED' | 'OTHER_APP' | 'AVAILABLE';
+  lastSendError?: string;
   messages: ChatMessage[];
 }
 

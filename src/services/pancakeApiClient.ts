@@ -266,6 +266,8 @@ export function subscribeChatConversations(
         slaMet: typeof data.slaMet === 'boolean' ? data.slaMet : undefined,
         outcomeNote: data.outcomeNote || '',
         interestedModel: data.interestedModel || '',
+        threadControlStatus: data.threadControlStatus || 'AVAILABLE',
+        lastSendError: data.lastSendError || '',
         messages: []
       } as ChatConversation;
     }));
@@ -276,6 +278,13 @@ export function requestSendPancakeMessage(conversationId: string, text: string) 
   return requestPancakeApi<{ message: ChatMessage; idempotentReplay: boolean }>(
     `conversations/${encodeURIComponent(conversationId)}/send`,
     { method: 'POST', payload: { text, operationKey: createPancakeOperationKey() } }
+  );
+}
+
+export function requestTakeMetaThreadControl(conversationId: string) {
+  return requestPancakeApi<{ conversationId: string; threadControlStatus: 'OWNED' }>(
+    `conversations/${encodeURIComponent(conversationId)}/take-control`,
+    { method: 'POST' }
   );
 }
 

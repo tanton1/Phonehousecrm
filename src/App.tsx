@@ -33,6 +33,7 @@ import { TradeInCockpitView } from './features/tradein/components/TradeInCockpit
 import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
 import { CashbookView } from './components/CashbookView';
 import { OmnichannelChatView } from './features/chat/components/OmnichannelChatView';
+import { ChannelConnectionsView } from './features/chat/components/ChannelConnectionsView';
 import { MonthlyPayrollTable } from './features/payroll/components/MonthlyPayrollTable';
 import { ReportsPage } from './features/reports/ReportsPage';
 import { StaffHRView } from './components/StaffHRView';
@@ -1634,6 +1635,13 @@ export default function App() {
               setPosTradeInContext(null);
               setActiveTab('pos');
             }}
+          />
+        )}
+
+        {activeTab === 'channel-connections' && (
+          <ChannelConnectionsView
+            branches={branches}
+            currentUserRole={currentUser?.role}
           />
         )}
 

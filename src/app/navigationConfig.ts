@@ -12,6 +12,7 @@ import {
   Building2,
   Users,
   MessageSquare,
+  Link2,
   Clock,
   CheckSquare,
   ShieldCheck,
@@ -66,7 +67,8 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     label: 'Khách Hàng & Giao Tiếp',
     items: [
       { id: 'crm', label: 'Pipeline Lead CRM', icon: Users, shortcut: 'Alt+4' },
-      { id: 'omnichannel-chat', label: 'Inbox Chat Đa Kênh', icon: MessageSquare }
+      { id: 'omnichannel-chat', label: 'Inbox Chat Đa Kênh', icon: MessageSquare },
+      { id: 'channel-connections', label: 'Kênh & Kết nối', icon: Link2, roles: ['ADMIN'] }
     ]
   },
   {

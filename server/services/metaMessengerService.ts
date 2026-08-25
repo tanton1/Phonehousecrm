@@ -1,5 +1,11 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { FieldValue, Firestore, Timestamp } from 'firebase-admin/firestore';
+import {
+  getStoredMetaPageConnection,
+  listChatChannelConnections,
+  metaConnectionDocumentId,
+  recordChannelWebhookHealth
+} from './channelConnectionService';
 
 export interface MetaMessengerActor {
   uid: string;
@@ -42,6 +48,7 @@ export interface NormalizedMetaMessage {
   postId?: string;
   commentId?: string;
   parentCommentId?: string;
+  threadControlStatus?: 'OWNED' | 'OTHER_APP' | 'AVAILABLE';
 }
 
 function asObject(value: unknown): Record<string, any> {
@@ -128,6 +135,24 @@ export function getMetaMessengerConfig(env: NodeJS.ProcessEnv = process.env): Me
   };
 }
 
+async function configForPage(db: Firestore, pageIdInput: unknown): Promise<MetaMessengerConfig> {
+  const pageId = asString(pageIdInput);
+  if (!pageId) throw new Error('META_PAGE_ID_NOT_CONFIGURED');
+  const base = getMetaMessengerConfig();
+  const stored = await getStoredMetaPageConnection(db, pageId);
+  if (stored) {
+    return {
+      ...base,
+      pageId: stored.pageId,
+      pageName: stored.pageName,
+      pageAccessToken: stored.pageAccessToken,
+      branchId: stored.branchId
+    };
+  }
+  if (base.pageId === pageId) return base;
+  throw new Error('META_PAGE_NOT_CONFIGURED');
+}
+
 export function verifyMetaWebhookToken(provided: unknown, configured: unknown): boolean {
   return safeSecretEqual(provided, configured);
 }
@@ -158,7 +183,11 @@ function attachmentLabel(attachments: Array<Record<string, any>>): string {
   return attachments.length ? 'Đã gửi tệp đính kèm' : '';
 }
 
-function normalizeMessagingEvent(pageId: string, raw: Record<string, any>): NormalizedMetaMessage | null {
+function normalizeMessagingEvent(
+  pageId: string,
+  raw: Record<string, any>,
+  threadControlStatus: 'OWNED' | 'OTHER_APP' = 'OWNED'
+): NormalizedMetaMessage | null {
   const senderId = asString(asObject(raw.sender).id);
   const recipientId = asString(asObject(raw.recipient).id);
   const message = asObject(raw.message);
@@ -200,7 +229,8 @@ function normalizeMessagingEvent(pageId: string, raw: Record<string, any>): Norm
     attachments,
     messageKind: 'MESSAGE',
     conversationType: 'INBOX',
-    rawKind: isPostback ? 'POSTBACK' : 'MESSAGE'
+    rawKind: isPostback ? 'POSTBACK' : 'MESSAGE',
+    threadControlStatus
   };
 }
 
@@ -213,7 +243,11 @@ export function normalizeMetaWebhookMessages(payload: unknown, configuredPageId 
     const pageId = asString(entry.id);
     if (!pageId || (configuredPageId && pageId !== configuredPageId)) continue;
     for (const rawMessaging of Array.isArray(entry.messaging) ? entry.messaging : []) {
-      const event = normalizeMessagingEvent(pageId, asObject(rawMessaging));
+      const event = normalizeMessagingEvent(pageId, asObject(rawMessaging), 'OWNED');
+      if (event) normalized.push(event);
+    }
+    for (const rawStandby of Array.isArray(entry.standby) ? entry.standby : []) {
+      const event = normalizeMessagingEvent(pageId, asObject(rawStandby), 'OTHER_APP');
       if (event) normalized.push(event);
     }
   }
@@ -337,6 +371,13 @@ async function persistMetaMessage(
     if (existingMessageSnapshot.exists) {
       const changed = asString(existingMessage.content) !== message.content
         || JSON.stringify(Array.isArray(existingMessage.attachments) ? existingMessage.attachments : []) !== JSON.stringify(message.attachments);
+      if (message.threadControlStatus) {
+        transaction.set(conversationRef, {
+          threadControlStatus: message.threadControlStatus,
+          ...(message.threadControlStatus === 'OWNED' ? { lastSendError: '' } : {}),
+          threadControlUpdatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
       if (changed) {
         transaction.set(messageRef, {
           content: message.content,
@@ -377,7 +418,11 @@ async function persistMetaMessage(
       ...(message.commentId ? { lastCommentId: message.commentId } : {}),
       createdAt: existingConversation.createdAt || safeTimestamp(message.timestamp),
       lastSyncedAt: FieldValue.serverTimestamp(),
-      lastMetaWebhookAt: FieldValue.serverTimestamp()
+      lastMetaWebhookAt: FieldValue.serverTimestamp(),
+      ...(message.threadControlStatus ? {
+        threadControlStatus: message.threadControlStatus,
+        ...(message.threadControlStatus === 'OWNED' ? { lastSendError: '' } : {})
+      } : {})
     };
     if (isLatest) {
       conversationUpdates.lastMessageSnippet = message.content;
@@ -408,76 +453,100 @@ async function persistMetaMessage(
 
 export async function processMetaMessengerWebhook(db: Firestore | null, payload: unknown) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
-  const config = getMetaMessengerConfig();
-  if (!config.pageId) throw new Error('META_PAGE_ID_NOT_CONFIGURED');
   const root = asObject(payload);
   if (asString(root.object).toLowerCase() !== 'page') {
     return { accepted: true, ignored: true, reason: 'UNSUPPORTED_OBJECT', processed: 0 };
   }
-  const branch = await resolveMetaBranch(db, config);
-  const messages = [
-    ...normalizeMetaWebhookMessages(payload, config.pageId),
-    ...normalizeMetaFeedComments(payload, config.pageId)
-  ].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
-  const results = [];
-  for (const message of messages) {
-    results.push(await persistMetaMessage(db, config, branch, message));
+  const pageIds = [...new Set((Array.isArray(root.entry) ? root.entry : [])
+    .map(entry => asString(asObject(entry).id))
+    .filter(Boolean))];
+  const results: Array<{ duplicate: boolean }> = [];
+  const ignoredPages: Array<{ pageId: string; reason: string }> = [];
+  for (const pageId of pageIds) {
+    try {
+      const config = await configForPage(db, pageId);
+      const branch = await resolveMetaBranch(db, config);
+      const storedConnection = await getStoredMetaPageConnection(db, pageId);
+      const messages = [
+        ...normalizeMetaWebhookMessages(payload, pageId),
+        ...(storedConnection?.includeComments === false ? [] : normalizeMetaFeedComments(payload, pageId))
+      ].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+      for (const message of messages) {
+        results.push(await persistMetaMessage(db, config, branch, message));
+      }
+      const eventType = messages.some(message => message.messageKind === 'COMMENT')
+        ? 'FEED_COMMENT'
+        : messages.some(message => message.threadControlStatus === 'OTHER_APP')
+          ? 'STANDBY_MESSAGE'
+          : messages.length ? 'MESSAGES' : 'NON_MESSAGE_EVENT';
+      await Promise.all([
+        db.collection('metaPageMappings').doc(pageId).set({
+          pageId,
+          pageName: config.pageName,
+          branchId: branch.id,
+          branchName: branch.name,
+          isActive: true,
+          lastWebhookAt: FieldValue.serverTimestamp(),
+          lastWebhookEvent: eventType,
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true }),
+        recordChannelWebhookHealth(db, pageId, eventType)
+      ]);
+    } catch (error: any) {
+      const reason = asString(error?.message) || 'META_PAGE_PROCESSING_FAILED';
+      if (reason.includes('META_PAGE_NOT_CONFIGURED') || reason.includes('META_BRANCH_NOT_FOUND')) {
+        ignoredPages.push({ pageId, reason });
+        continue;
+      }
+      throw error;
+    }
   }
-  await db.collection('metaPageMappings').doc(config.pageId).set({
-    pageId: config.pageId,
-    pageName: config.pageName,
-    branchId: branch.id,
-    branchName: branch.name,
-    isActive: true,
-    lastWebhookAt: FieldValue.serverTimestamp(),
-    lastWebhookEvent: messages.some(message => message.messageKind === 'COMMENT')
-      ? 'FEED_COMMENT'
-      : messages.length ? 'MESSAGES' : 'NON_MESSAGE_EVENT',
-    updatedAt: FieldValue.serverTimestamp()
-  }, { merge: true });
   return {
     accepted: true,
-    ignored: messages.length === 0,
+    ignored: results.length === 0,
     processed: results.filter(result => !result.duplicate).length,
-    duplicates: results.filter(result => result.duplicate).length
+    duplicates: results.filter(result => result.duplicate).length,
+    ignoredPages
   };
 }
 
-export async function getMetaMessengerChannel(db: Firestore | null, actor: MetaMessengerActor) {
+export async function getMetaMessengerChannels(db: Firestore | null, actor: MetaMessengerActor) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
-  const config = getMetaMessengerConfig();
-  let branch: ResolvedBranch | null = null;
-  let branchError = '';
-  if (config.pageId) {
-    try { branch = await resolveMetaBranch(db, config); } catch (error: any) { branchError = error?.message || 'META_BRANCH_NOT_FOUND'; }
-  }
-  if (branch && !canAccessBranch(actor, branch.id)) return null;
-  const mapping = config.pageId
-    ? asObject((await db.collection('metaPageMappings').doc(config.pageId).get()).data())
-    : {};
-  const configurationError = !config.pageId
-    ? 'META_PAGE_ID_NOT_CONFIGURED'
-    : !config.appSecret
+  const base = getMetaMessengerConfig();
+  const connections = await listChatChannelConnections(db, actor);
+  return connections.filter(connection => connection.active !== false).map(connection => {
+    const configurationError = !base.appSecret
       ? 'META_APP_SECRET_NOT_CONFIGURED'
-      : !config.verifyToken
+      : !base.verifyToken
         ? 'META_WEBHOOK_VERIFY_TOKEN_NOT_CONFIGURED'
-        : branchError;
-  return {
-    provider: 'META_MESSENGER' as const,
-    pageId: config.pageId,
-    pageName: config.pageName,
-    branchId: branch?.id || config.branchId || '',
-    branchName: branch?.name || 'Phonehouse',
-    historyDays: Math.min(90, Math.max(1, asNumber(process.env.META_SYNC_DAYS, 30))),
-    includeComments: true,
-    status: configurationError ? 'CONFIG_ERROR' : config.pageAccessToken ? 'READY' : 'MISSING_TOKEN',
-    webhookStatus: mapping.lastWebhookAt ? 'RECEIVING' : 'NOT_SEEN',
-    ...(mapping.lastWebhookAt ? { lastWebhookAt: toIso(mapping.lastWebhookAt) } : {}),
-    ...(asString(mapping.lastWebhookEvent) ? { lastWebhookEvent: asString(mapping.lastWebhookEvent) } : {}),
-    connectionStatus: configurationError ? 'UNKNOWN' : 'CONNECTED',
-    ...(configurationError ? { error: configurationError } : {}),
-    ...(!config.pageAccessToken ? { requiredTokenEnv: 'META_PAGE_ACCESS_TOKEN' } : {})
-  };
+        : !connection.branchId
+          ? 'META_BRANCH_NOT_FOUND'
+          : '';
+    const connectionError = connection.status === 'ERROR' ? connection.lastError || 'META_CONNECTION_ERROR' : '';
+    const effectiveError = configurationError || connectionError;
+    const ready = !effectiveError && connection.hasToken;
+    return {
+      provider: 'META_MESSENGER' as const,
+      connectionId: connection.id,
+      pageId: connection.externalAccountId,
+      pageName: connection.displayName,
+      branchId: connection.branchId,
+      branchName: connection.branchName || 'PhoneHouse',
+      historyDays: connection.historyDays,
+      includeComments: connection.includeComments,
+      status: effectiveError ? 'CONFIG_ERROR' : ready ? 'READY' : 'MISSING_TOKEN',
+      webhookStatus: connection.webhookStatus === 'RECEIVING' ? 'RECEIVING' : 'NOT_SEEN',
+      ...(connection.lastWebhookAt ? { lastWebhookAt: toIso(connection.lastWebhookAt) } : {}),
+      ...(connection.lastWebhookEvent ? { lastWebhookEvent: connection.lastWebhookEvent } : {}),
+      connectionStatus: ready ? 'CONNECTED' : effectiveError ? 'UNKNOWN' : 'DISCONNECTED',
+      ...(effectiveError ? { error: effectiveError } : {}),
+      ...(!connection.hasToken ? { requiredTokenEnv: 'Page Access Token' } : {})
+    };
+  });
+}
+
+export async function getMetaMessengerChannel(db: Firestore | null, actor: MetaMessengerActor) {
+  return (await getMetaMessengerChannels(db, actor))[0] || null;
 }
 
 export async function setMetaBranchMapping(
@@ -487,12 +556,12 @@ export async function setMetaBranchMapping(
 ) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   if (!isManager(actor)) throw new Error('META_BRANCH_MAPPING_FORBIDDEN');
-  const config = getMetaMessengerConfig();
-  if (!config.pageId || asString(input.pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const config = await configForPage(db, input.pageId);
   const branch = await branchById(db, asString(input.branchId));
   if (!branch) throw new Error('META_BRANCH_NOT_FOUND');
   assertBranchAccess(actor, branch.id);
-  await db.collection('metaPageMappings').doc(config.pageId).set({
+  const batch = db.batch();
+  batch.set(db.collection('metaPageMappings').doc(config.pageId), {
     pageId: config.pageId,
     pageName: config.pageName,
     branchId: branch.id,
@@ -502,6 +571,14 @@ export async function setMetaBranchMapping(
     updatedByName: asString(actor.name) || actor.uid,
     updatedAt: FieldValue.serverTimestamp()
   }, { merge: true });
+  batch.set(db.collection('channelConnections').doc(metaConnectionDocumentId(config.pageId)), {
+    branchId: branch.id,
+    branchName: branch.name,
+    updatedByUid: actor.uid,
+    updatedByName: asString(actor.name) || actor.uid,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+  await batch.commit();
   return {
     provider: 'META_MESSENGER' as const,
     pageId: config.pageId,
@@ -520,8 +597,7 @@ export async function getMetaWebhookSetup(
 ) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   if (!isManager(actor)) throw new Error('META_WEBHOOK_SETUP_FORBIDDEN');
-  const config = getMetaMessengerConfig();
-  if (!config.pageId || asString(pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const config = await configForPage(db, pageId);
   const branch = await resolveMetaBranch(db, config);
   assertBranchAccess(actor, branch.id);
   const origin = asString(requestOrigin || process.env.APP_URL).replace(/\/$/, '');
@@ -540,7 +616,8 @@ export async function getMetaWebhookSetup(
     connectionStatus: config.pageAccessToken ? 'CONNECTED' : 'UNKNOWN',
     requiredEvents: [
       'messages', 'message_echoes', 'message_deliveries', 'message_reads',
-      'message_reactions', 'message_edits', 'messaging_postbacks', 'feed'
+      'message_reactions', 'message_edits', 'messaging_postbacks',
+      'messaging_handovers', 'standby', 'feed'
     ],
     docsUrl: 'https://developers.facebook.com/docs/messenger-platform/webhooks'
   };
@@ -704,11 +781,12 @@ export async function syncMetaConversations(
 ) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
   if (!isManager(actor)) throw new Error('META_SYNC_FORBIDDEN');
-  const config = getMetaMessengerConfig();
-  if (!config.pageId || asString(input.pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const config = await configForPage(db, input.pageId);
   const branch = await resolveMetaBranch(db, config);
   assertBranchAccess(actor, branch.id);
-  const historyDays = Math.min(90, Math.max(1, asNumber(process.env.META_SYNC_DAYS, 30)));
+  const storedConnection = await getStoredMetaPageConnection(db, config.pageId);
+  const historyDays = storedConnection?.historyDays
+    || Math.min(90, Math.max(1, asNumber(process.env.META_SYNC_DAYS, 30)));
   const cutoff = Date.now() - historyDays * 24 * 60 * 60 * 1000;
   const fields = 'id,updated_time,participants,messages.limit(1){id,created_time,from,to,message,attachments}';
   const params = new URLSearchParams({ fields, limit: '50' });
@@ -723,6 +801,12 @@ export async function syncMetaConversations(
   );
   const nextCursor = asString(asObject(asObject(payload.paging).cursors).after);
   const done = !nextCursor || rawItems.length === 0 || oldest < cutoff;
+  await db.collection('channelConnections').doc(metaConnectionDocumentId(config.pageId)).set({
+    status: 'READY',
+    lastError: '',
+    lastSyncAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
   return {
     pageId: config.pageId,
     imported,
@@ -819,8 +903,7 @@ export async function refreshMetaConversationMessages(
   conversation: Record<string, any>
 ) {
   if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
-  const config = getMetaMessengerConfig();
-  if (!config.pageId || asString(conversation.pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const config = await configForPage(db, conversation.pageId);
   const branch = await resolveMetaBranch(db, config);
   const customerPsid = asString(conversation.customerPsid || conversation.externalConversationId);
   let metaConversationId = asString(conversation.metaConversationId);
@@ -898,8 +981,7 @@ export async function sendMetaMessengerMessage(
   const conversation = { id: conversationSnapshot.id, ...conversationSnapshot.data() } as Record<string, any>;
   if (conversation.provider !== 'META_MESSENGER') throw new Error('META_CONVERSATION_PROVIDER_MISMATCH');
   assertBranchAccess(actor, asString(conversation.branchId));
-  const config = getMetaMessengerConfig();
-  if (!config.pageId || asString(conversation.pageId) !== config.pageId) throw new Error('META_PAGE_NOT_CONFIGURED');
+  const config = await configForPage(db, conversation.pageId);
   const customerPsid = asString(conversation.customerPsid || conversation.externalConversationId);
   if (!customerPsid) throw new Error('META_CUSTOMER_PSID_MISSING');
 
@@ -975,6 +1057,8 @@ export async function sendMetaMessengerMessage(
         updatedAt: safeTimestamp(normalized.timestamp),
         awaitingStaffReply: false,
         unreadCount: 0,
+        threadControlStatus: 'OWNED',
+        lastSendError: '',
         lastSyncedAt: FieldValue.serverTimestamp()
       }, { merge: true });
       transaction.set(operationRef, {
@@ -986,13 +1070,74 @@ export async function sendMetaMessengerMessage(
     });
     return { message: clientMessage(document), idempotentReplay: false };
   } catch (error: any) {
+    const errorMessage = asString(error?.message);
+    const threadOwnedByOtherApp = errorMessage.includes('META_SEND_FAILED_10')
+      || errorMessage.toLowerCase().includes('another app')
+      || errorMessage.toLowerCase().includes('ứng dụng khác');
     await operationRef.set({
       status: 'FAILED',
-      error: asString(error?.message),
+      error: errorMessage,
       failedAt: FieldValue.serverTimestamp()
     }, { merge: true });
+    if (threadOwnedByOtherApp) {
+      await conversationSnapshot.ref.set({
+        threadControlStatus: 'OTHER_APP',
+        lastSendError: 'META_SEND_FAILED_10',
+        threadControlUpdatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+    }
     throw error;
   }
+}
+
+export async function takeMetaThreadControl(
+  db: Firestore | null,
+  conversationId: string,
+  actor: MetaMessengerActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  const snapshot = await db.collection('chatConversations').doc(asString(conversationId)).get();
+  if (!snapshot.exists) throw new Error('META_CONVERSATION_NOT_FOUND');
+  const conversation = snapshot.data() || {};
+  if (conversation.provider !== 'META_MESSENGER') throw new Error('META_CONVERSATION_PROVIDER_MISMATCH');
+  assertBranchAccess(actor, asString(conversation.branchId));
+  const customerPsid = asString(conversation.customerPsid || conversation.externalConversationId);
+  if (!customerPsid) throw new Error('META_CUSTOMER_PSID_MISSING');
+  const config = await configForPage(db, conversation.pageId);
+  try {
+    await graphApiRequest(config, `${config.pageId}/take_thread_control`, {
+      recipient: { id: customerPsid },
+      metadata: `PhoneHouse CRM tiếp nhận bởi ${asString(actor.name) || actor.uid}`
+    });
+  } catch (error: any) {
+    const message = asString(error?.message);
+    if (message.includes('META_SEND_FAILED_10') || message.includes('META_SEND_FAILED_200')) {
+      throw new Error(`META_THREAD_CONTROL_UNAVAILABLE: Ứng dụng PhoneHouse CRM phải được đặt làm Primary Receiver hoặc được ứng dụng hiện tại chuyển quyền trước. ${message}`);
+    }
+    throw error;
+  }
+  const eventRef = db.collection('chatConversationEvents').doc();
+  const batch = db.batch();
+  batch.set(snapshot.ref, {
+    threadControlStatus: 'OWNED',
+    lastSendError: '',
+    threadControlUpdatedAt: FieldValue.serverTimestamp(),
+    threadControlTakenByUid: actor.uid,
+    threadControlTakenByName: asString(actor.name) || actor.uid
+  }, { merge: true });
+  batch.set(eventRef, {
+    id: eventRef.id,
+    provider: 'META_MESSENGER',
+    conversationId: snapshot.id,
+    pageId: config.pageId,
+    branchId: asString(conversation.branchId),
+    eventType: 'THREAD_CONTROL_TAKEN',
+    actorUid: actor.uid,
+    actorName: asString(actor.name) || actor.uid,
+    occurredAt: FieldValue.serverTimestamp()
+  });
+  await batch.commit();
+  return { conversationId: snapshot.id, threadControlStatus: 'OWNED' as const };
 }
 
 export async function markMetaConversationRead(

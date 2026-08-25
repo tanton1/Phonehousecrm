@@ -22,6 +22,7 @@ import {
   requestRepairPancakeMessages,
   requestSendPancakeMessage,
   requestSyncPancakePage,
+  requestTakeMetaThreadControl,
   requestPancakeWebhookSetup,
   requestUpdatePancakeWorkflow,
   subscribeChatConversations,
@@ -43,6 +44,8 @@ function friendlyError(error: unknown) {
   const message = String((error as any)?.message || error || 'Không thể kết nối hộp thư Facebook.');
   if (message.includes('META_PAGE_ACCESS_TOKEN_NOT_CONFIGURED')) return 'Chưa có Page Access Token Meta. Hãy thêm META_PAGE_ACCESS_TOKEN trong Vercel Production rồi Redeploy.';
   if (message.includes('META_API_FAILED_190')) return 'Page Access Token Meta đã hết hạn hoặc không hợp lệ. Hãy tạo lại token và cập nhật Vercel.';
+  if (message.includes('META_THREAD_CONTROL_UNAVAILABLE')) return 'PhoneHouse CRM chưa được đặt làm ứng dụng nhận tin chính. Hãy đặt ứng dụng này làm Primary Receiver trong Meta rồi thử lại.';
+  if (message.includes('META_SEND_FAILED_10')) return 'Hội thoại đang do Pancake hoặc ứng dụng khác kiểm soát. Bấm “Nhận quyền hội thoại” để chuyển về PhoneHouse CRM.';
   if (message.includes('META_API_FAILED_10:') || message.includes('META_API_FAILED_200:')) return 'Meta chưa cấp đủ quyền đọc/gửi tin. Hãy hoàn tất pages_messaging, pages_manage_metadata và pages_read_engagement.';
   if (message.includes('META_BRANCH_NOT_FOUND')) return 'Page Meta chưa được gắn đúng chi nhánh CRM.';
   if (message.includes('PANCAKE_PAGE_TOKEN_NOT_CONFIGURED')) return 'Chưa có Page Access Token. Hãy thêm PANCAKE_PAGE_ACCESS_TOKEN trong Vercel rồi Redeploy.';
@@ -82,6 +85,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const [workflowUpdating, setWorkflowUpdating] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [threadControlConflict, setThreadControlConflict] = useState(false);
 
   const activeConvo = conversations.find(conversation => conversation.id === selectedConvoId) || null;
   const activeChannel = useMemo(() => channels.find(channel => channel.branchId === currentBranchId) || channels[0], [channels, currentBranchId]);
@@ -100,6 +104,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
       }));
       setSelectedConvoId(current => current && page.items.some(item => item.id === current) ? current : page.items[0]?.id || null);
       setError('');
+      setThreadControlConflict(false);
     } catch (caught) {
       setError(friendlyError(caught));
     } finally {
@@ -243,6 +248,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
     const alreadySelected = conversation.id === selectedConvoId;
     setSelectedConvoId(conversation.id);
     setMobilePanel('CHAT');
+    setThreadControlConflict(conversation.threadControlStatus === 'OTHER_APP' || conversation.lastSendError === 'META_SEND_FAILED_10');
     setConversations(current => current.map(item => item.id === conversation.id ? { ...item, unreadCount: 0 } : item));
     if (alreadySelected) void loadMessages(conversation.id, true, true);
     if (conversation.unreadCount > 0) {
@@ -265,10 +271,27 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         };
       }));
       setError('');
+      setThreadControlConflict(false);
       void loadSummary();
     } catch (caught) {
+      setThreadControlConflict(String((caught as any)?.message || caught).includes('META_SEND_FAILED_10'));
       setError(friendlyError(caught));
       throw caught;
+    }
+  };
+
+  const handleTakeThreadControl = async () => {
+    if (!selectedConvoId) return;
+    try {
+      await requestTakeMetaThreadControl(selectedConvoId);
+      setConversations(current => current.map(item => item.id === selectedConvoId
+        ? { ...item, threadControlStatus: 'OWNED', lastSendError: '' }
+        : item));
+      setThreadControlConflict(false);
+      setError('');
+      setNotice('Đã nhận quyền hội thoại. Bạn có thể gửi lại tin nhắn.');
+    } catch (caught) {
+      setError(friendlyError(caught));
     }
   };
 
@@ -461,7 +484,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         </section>
       )}
 
-      {(error || notice) && <div className={`flex shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-[11px] font-bold ${error ? 'border border-rose-200 bg-rose-50 text-rose-700' : 'border border-blue-200 bg-blue-50 text-blue-700'}`}><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{error || notice}</span></div>}
+      {(error || notice) && <div className={`flex shrink-0 flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-[11px] font-bold ${error ? 'border border-rose-200 bg-rose-50 text-rose-700' : 'border border-blue-200 bg-blue-50 text-blue-700'}`}><AlertCircle className="h-3.5 w-3.5 shrink-0" /><span className="min-w-0 flex-1">{error || notice}</span>{threadControlConflict && <button onClick={() => void handleTakeThreadControl()} className="rounded-lg bg-rose-700 px-3 py-2 text-[10px] font-black text-white">Nhận quyền hội thoại</button>}</div>}
 
       {activeChannel?.status === 'READY' && <ChatSummaryCarousel summary={chatSummary} loading={loadingSummary} />}
 

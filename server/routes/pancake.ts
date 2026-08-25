@@ -21,12 +21,13 @@ import {
   verifyPancakeWebhookSecret
 } from '../services/pancakeService';
 import {
-  getMetaMessengerChannel,
+  getMetaMessengerChannels,
   getMetaWebhookSetup,
   markMetaConversationRead,
   sendMetaMessengerMessage,
   setMetaBranchMapping,
-  syncMetaConversations
+  syncMetaConversations,
+  takeMetaThreadControl
 } from '../services/metaMessengerService';
 
 function useMetaProvider(): boolean {
@@ -55,6 +56,7 @@ function errorStatus(error: any): number {
   if (message.includes('TOKEN_NOT_CONFIGURED') || message.includes('BRANCH_AMBIGUOUS')) return 503;
   if (message.includes('META_PAGE_ACCESS_TOKEN_NOT_CONFIGURED')) return 503;
   if (message.includes('META_API_FAILED_190')) return 401;
+  if (message.includes('META_THREAD_CONTROL_UNAVAILABLE')) return 409;
   if (message.includes('META_API_FAILED_10:') || message.includes('META_API_FAILED_200:')) return 403;
   if (message.includes('ALREADY_PROCESSING')) return 409;
   return 400;
@@ -104,10 +106,12 @@ export function createPancakeRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       if (useMetaProvider()) {
-        const channel = await getMetaMessengerChannel(db, actor(req));
         return res.json({
           success: true,
-          data: { channels: channel ? [channel] : [], branches: await listPancakeBranchOptions(db, actor(req)) }
+          data: {
+            channels: await getMetaMessengerChannels(db, actor(req)),
+            branches: await listPancakeBranchOptions(db, actor(req))
+          }
         });
       }
       return res.json({ success: true, data: await getPancakeChannels(db, actor(req)) });
@@ -240,6 +244,20 @@ export function createPancakeRouter(db: Firestore | null): Router {
         operationKey: req.body?.operationKey
       }, actor(req));
       return res.json({ success: true, data });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.post('/conversations/:conversationId/take-control', authenticateFirebase, requireRole(
+    'ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'
+  ), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({
+        success: true,
+        data: await takeMetaThreadControl(db, req.params.conversationId, actor(req))
+      });
     } catch (error: any) {
       return sendError(res, error);
     }

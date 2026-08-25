@@ -363,6 +363,22 @@ service cloud.firestore {
       allow read, write: if false; // Server-only Meta Page → branch mapping and webhook health.
     }
 
+    match /channelConnections/{connectionId} {
+      allow read, write: if false; // Token và cấu hình nhiều Page chỉ đi qua API server.
+    }
+
+    match /channelOAuthStates/{stateId} {
+      allow read, write: if false;
+    }
+
+    match /channelOAuthSessions/{sessionId} {
+      allow read, write: if false;
+    }
+
+    match /channelConnectionEvents/{eventId} {
+      allow read, write: if false;
+    }
+
     // 7. Attendance & Human Resources (Strict Server Authority writes; employees read own records)
     match /attendance/{attId} {
       allow read: if isAdmin() || isManager() || (isAuthenticated() && isActiveUser() && resource.data.staffId == request.auth.uid);

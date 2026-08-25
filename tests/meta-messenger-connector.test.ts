@@ -9,6 +9,7 @@ import {
   verifyMetaWebhookSignature,
   verifyMetaWebhookToken
 } from '../server/services/metaMessengerService';
+import { metaConnectionDocumentId } from '../server/services/channelConnectionService';
 
 function webhookDb(seed: Record<string, Record<string, any>>) {
   const store = Object.fromEntries(
@@ -119,6 +120,26 @@ describe('Meta Messenger direct connector', () => {
     });
   });
 
+  it('marks standby messages as controlled by another application', () => {
+    const [message] = normalizeMetaWebhookMessages({
+      object: 'page',
+      entry: [{
+        id: 'PAGE_STANDBY',
+        standby: [{
+          sender: { id: 'CUSTOMER_STANDBY' },
+          recipient: { id: 'PAGE_STANDBY' },
+          timestamp: 1_787_640_150_000,
+          message: { mid: 'm_standby_1', text: 'Pancake đang giữ hội thoại này' }
+        }]
+      }]
+    }, 'PAGE_STANDBY');
+    expect(message).toMatchObject({
+      sender: 'CUSTOMER',
+      threadControlStatus: 'OTHER_APP',
+      content: 'Pancake đang giữ hội thoại này'
+    });
+  });
+
   it('uses deterministic Page-scoped document identifiers', () => {
     expect(metaConversationDocumentId('PAGE', 'PSID')).toBe(metaConversationDocumentId('PAGE', 'PSID'));
     expect(metaMessageDocumentId('PAGE', 'MID_1')).not.toBe(metaMessageDocumentId('PAGE', 'MID_2'));
@@ -203,5 +224,38 @@ describe('Meta Messenger direct connector', () => {
       if (previousBranchId === undefined) delete process.env.META_BRANCH_ID;
       else process.env.META_BRANCH_ID = previousBranchId;
     }
+  });
+
+  it('routes one webhook payload from multiple Pages into their configured branches', async () => {
+    const pageOne = 'PAGE_MULTI_1';
+    const pageTwo = 'PAGE_MULTI_2';
+    const { db, store } = webhookDb({
+      branches: {
+        'BR-PH': { name: 'PhoneHouse', isActive: true },
+        'BR-XS': { name: 'XStore', isActive: true }
+      },
+      channelConnections: {
+        [metaConnectionDocumentId(pageOne)]: {
+          provider: 'META_MESSENGER', externalAccountId: pageOne, displayName: 'PhoneHouse Page',
+          branchId: 'BR-PH', branchName: 'PhoneHouse', active: true
+        },
+        [metaConnectionDocumentId(pageTwo)]: {
+          provider: 'META_MESSENGER', externalAccountId: pageTwo, displayName: 'XStore Page',
+          branchId: 'BR-XS', branchName: 'XStore', active: true
+        }
+      }
+    });
+    const result = await processMetaMessengerWebhook(db, {
+      object: 'page',
+      entry: [
+        { id: pageOne, messaging: [{ sender: { id: 'CUSTOMER_PH' }, recipient: { id: pageOne }, timestamp: 1_787_641_000_000, message: { mid: 'multi_ph', text: 'Tin PhoneHouse' } }] },
+        { id: pageTwo, messaging: [{ sender: { id: 'CUSTOMER_XS' }, recipient: { id: pageTwo }, timestamp: 1_787_641_000_100, message: { mid: 'multi_xs', text: 'Tin XStore' } }] }
+      ]
+    });
+    expect(result).toMatchObject({ processed: 2, duplicates: 0, ignoredPages: [] });
+    expect(store.chatConversations[metaConversationDocumentId(pageOne, 'CUSTOMER_PH')].branchId).toBe('BR-PH');
+    expect(store.chatConversations[metaConversationDocumentId(pageTwo, 'CUSTOMER_XS')].branchId).toBe('BR-XS');
+    expect(store.channelConnections[metaConnectionDocumentId(pageOne)].webhookStatus).toBe('RECEIVING');
+    expect(store.channelConnections[metaConnectionDocumentId(pageTwo)].webhookStatus).toBe('RECEIVING');
   });
 });
