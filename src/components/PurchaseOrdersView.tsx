@@ -49,7 +49,6 @@ import {
   QrCode, 
   PackageCheck, 
   User, 
-  SlidersHorizontal, 
   List, 
   Copy, 
   MoreVertical, 
@@ -175,7 +174,6 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [supplierFilter, setSupplierFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
-  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
 
   // Modals & Interactivity State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -1272,10 +1270,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         </InventoryMetricCarousel>
       </section>
 
-      <DateRangeFilter value={dateFilter} onChange={setDateFilter} className="px-2 sm:px-0" />
-
       {/* 1. Quick Horizontal Status Filter Pills */}
-      <div className="flex items-center space-x-2 overflow-x-auto scrollbar-none py-1">
+      <div className="flex items-center gap-1.5 overflow-x-auto scroll-smooth rounded-none border-y border-zinc-200 bg-white px-2 py-2 shadow-sm scrollbar-none sm:rounded-2xl sm:border">
         <button
           onClick={() => setStatusFilter('all')}
           className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-all shrink-0 cursor-pointer ${
@@ -1324,37 +1320,16 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
           <span>Còn nợ NCC</span>
         </button>
 
-        {/* Supplier Filter */}
-        <div className="relative shrink-0 ml-auto">
-          <button
-            onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-            className={`rounded-full border p-1.5 transition-all cursor-pointer shadow-2xs ${supplierFilter !== 'all' ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-zinc-200 bg-white text-zinc-600 hover:border-orange-300 hover:text-orange-600'}`}
-            title="Lọc theo nhà cung cấp"
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-          </button>
+        <span aria-hidden="true" className="h-5 w-px shrink-0 bg-zinc-200" />
+        <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
 
-          {showFilterDropdown && (
-            <div className="absolute right-0 top-9 z-30 w-56 animate-fadeIn rounded-2xl border border-zinc-200 bg-white p-2.5 text-xs shadow-xl">
-              <div>
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block px-2 py-0.5">Lọc theo NCC</span>
-                <select
-                  value={supplierFilter}
-                  onChange={(e) => {
-                    setSupplierFilter(e.target.value);
-                    setShowFilterDropdown(false);
-                  }}
-                  className="w-full p-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700"
-                >
-                  <option value="all">Tất cả Nhà Cung Cấp</option>
-                  {suppliers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
+        <label className={`flex h-8 shrink-0 items-center gap-1 rounded-full border px-2 text-[11px] font-bold ${supplierFilter !== 'all' ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-zinc-200 bg-white text-zinc-600'}`}>
+          <Building2 className="h-3.5 w-3.5 text-orange-500" />
+          <select value={supplierFilter} onChange={event => setSupplierFilter(event.target.value)} aria-label="Lọc theo nhà cung cấp" className="max-w-[132px] bg-transparent pr-1 text-[11px] font-bold outline-none">
+            <option value="all">Tất cả NCC</option>
+            {suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+          </select>
+        </label>
       </div>
 
       {/* 2. Search Bar with Barcode Scanner Icon */}

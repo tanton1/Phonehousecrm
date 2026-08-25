@@ -980,17 +980,38 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       <section className="relative overflow-hidden rounded-none bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-4 text-white shadow-xl sm:rounded-[1.75rem] sm:p-6">
         <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-orange-500/25 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-20 left-1/3 h-40 w-64 rounded-full bg-amber-300/10 blur-3xl" />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-orange-300"><Receipt className="h-4 w-4" /> Sổ bán hàng</div>
-            <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Quản lý hóa đơn</h1>
-            <p className="mt-1.5 max-w-xl text-sm text-zinc-300">Tra cứu nhanh chứng từ, dòng tiền và lịch sử bán hàng theo thời gian thực.</p>
+        <div className="relative flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-orange-300"><Receipt className="h-3.5 w-3.5" /> Sổ bán hàng</div>
+            <h1 className="truncate text-xl font-black tracking-tight sm:text-2xl">Quản lý hóa đơn</h1>
+            <p className="mt-1 hidden max-w-xl text-xs text-zinc-300 sm:block">Tra cứu chứng từ và dòng tiền theo thời gian thực.</p>
           </div>
-          <button type="button" onClick={onNavigateToPOS} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-orange-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-orange-950/40 transition hover:bg-orange-400 active:scale-[0.98]"><Plus className="h-4 w-4" /> Lên đơn tại POS</button>
+          <button type="button" onClick={onNavigateToPOS} className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-orange-500 px-3 text-xs font-black text-white shadow-lg shadow-orange-950/40 transition hover:bg-orange-400 active:scale-[0.98]"><Plus className="h-4 w-4" /><span className="sm:hidden">Bán POS</span><span className="hidden sm:inline">Lên đơn tại POS</span></button>
         </div>
-      </section>
 
-      <DateRangeFilter value={dateFilter} onChange={setDateFilter} className="px-2 sm:px-0" />
+        <InventoryMetricCarousel className="relative mt-3" label="Báo cáo hóa đơn, vuốt để xem thêm">
+          <article className="h-full rounded-2xl border border-white/10 bg-white/[0.07] p-3 backdrop-blur-sm">
+            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-orange-200"><DollarSign className="h-3.5 w-3.5" /> Doanh thu thuần</div>
+            <p className="mt-1.5 truncate font-mono text-xl font-black text-white">{formatVnd(netRevenue)}đ</p>
+            <p className="mt-0.5 text-[9px] font-semibold text-zinc-400">Không tính hóa đơn hủy/hoàn</p>
+          </article>
+          <article className="h-full rounded-2xl border border-emerald-300/15 bg-emerald-400/10 p-3 backdrop-blur-sm">
+            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-emerald-200"><CheckCircle2 className="h-3.5 w-3.5" /> Đã thu thực tế</div>
+            <p className="mt-1.5 truncate font-mono text-xl font-black text-emerald-100">{formatVnd(paidRevenue)}đ</p>
+            <p className="mt-0.5 text-[9px] font-semibold text-zinc-400">Tiền đã ghi nhận</p>
+          </article>
+          <article className="h-full rounded-2xl border border-amber-300/15 bg-amber-400/10 p-3 backdrop-blur-sm">
+            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-amber-200"><Clock className="h-3.5 w-3.5" /> Còn phải thu</div>
+            <p className="mt-1.5 truncate font-mono text-xl font-black text-amber-100">{formatVnd(debtRevenue)}đ</p>
+            <p className="mt-0.5 text-[9px] font-semibold text-zinc-400">Công nợ và khoản chờ thu</p>
+          </article>
+          <article className="h-full rounded-2xl border border-orange-300/15 bg-orange-400/10 p-3 backdrop-blur-sm">
+            <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-orange-200"><Receipt className="h-3.5 w-3.5" /> Hóa đơn hiển thị</div>
+            <p className="mt-1.5 font-mono text-xl font-black text-white">{filteredInvoices.length}</p>
+            <p className="mt-0.5 text-[9px] font-semibold text-zinc-400">{validInvoices.length} hóa đơn hợp lệ</p>
+          </article>
+        </InventoryMetricCarousel>
+      </section>
 
       {/* 2. Filter Bar (Segmented Pills & Filter Button) */}
       <div className="flex items-center gap-1.5 overflow-x-auto rounded-none border border-zinc-200 bg-white p-2 shadow-sm scrollbar-none sm:rounded-2xl">
@@ -1042,6 +1063,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           <span>Trả góp 0%</span>
         </button>
 
+        <span aria-hidden="true" className="h-5 w-px shrink-0 bg-zinc-200" />
+        <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 
       {/* 3. Search Bar with Barcode Scanner Icon */}
@@ -1074,29 +1097,6 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </button>
         </div>
       </div>
-
-      <InventoryMetricCarousel className="px-2 sm:px-0" label="Báo cáo hóa đơn, vuốt để xem thêm">
-        <article className="h-full rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-950 to-zinc-800 p-4 text-white shadow-sm">
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-orange-300"><DollarSign className="h-3.5 w-3.5" /> Doanh thu thuần</div>
-          <p className="mt-2 truncate font-mono text-2xl font-black">{formatVnd(netRevenue)}đ</p>
-          <p className="mt-1 text-[10px] font-semibold text-zinc-400">Không tính hóa đơn hủy hoặc hoàn</p>
-        </article>
-        <article className="h-full rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-4 shadow-sm">
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Đã thu thực tế</div>
-          <p className="mt-2 truncate font-mono text-2xl font-black text-emerald-700">{formatVnd(paidRevenue)}đ</p>
-          <p className="mt-1 text-[10px] font-semibold text-zinc-400">Tiền đã ghi nhận theo hóa đơn</p>
-        </article>
-        <article className="h-full rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm">
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-amber-700"><Clock className="h-3.5 w-3.5" /> Còn phải thu</div>
-          <p className="mt-2 truncate font-mono text-2xl font-black text-amber-700">{formatVnd(debtRevenue)}đ</p>
-          <p className="mt-1 text-[10px] font-semibold text-zinc-400">Công nợ khách và khoản chờ thu</p>
-        </article>
-        <article className="h-full rounded-2xl border border-orange-100 bg-gradient-to-br from-orange-50 to-white p-4 shadow-sm">
-          <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-orange-700"><Receipt className="h-3.5 w-3.5" /> Hóa đơn hiển thị</div>
-          <p className="mt-2 font-mono text-2xl font-black text-zinc-900">{filteredInvoices.length}</p>
-          <p className="mt-1 text-[10px] font-semibold text-zinc-400">{validInvoices.length} hóa đơn hợp lệ</p>
-        </article>
-      </InventoryMetricCarousel>
 
       {/* Invoices Grouped by Date */}
       {Object.keys(groupedInvoices).length === 0 ? (
