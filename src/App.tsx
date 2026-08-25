@@ -34,7 +34,6 @@ import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
 import { CashbookView } from './components/CashbookView';
 import { OmnichannelChatView } from './features/chat/components/OmnichannelChatView';
 import { ChannelConnectionsView } from './features/chat/components/ChannelConnectionsView';
-import { MonthlyPayrollTable } from './features/payroll/components/MonthlyPayrollTable';
 import { ReportsPage } from './features/reports/ReportsPage';
 import { StaffHRView } from './components/StaffHRView';
 
@@ -1852,7 +1851,7 @@ export default function App() {
           />
         )}
 
-        {(activeTab === 'hr-attendance' || activeTab === 'shift-scheduling' || activeTab === 'attendance' || activeTab === 'attendance-log' || activeTab === 'attendance-management') && (
+        {(activeTab === 'hr-attendance' || activeTab === 'shift-scheduling' || activeTab === 'payroll' || activeTab === 'attendance' || activeTab === 'attendance-log' || activeTab === 'attendance-management') && (
           <HRHubView
             currentUser={currentUser}
             staffList={staffMembers}
@@ -1861,7 +1860,7 @@ export default function App() {
             invoices={filteredInvoices}
             warrantyTickets={filteredWarrantyTickets}
             branches={branches}
-            initialSubModule={activeTab === 'shift-scheduling' ? 'SHIFTS' : undefined}
+            initialSubModule={activeTab === 'shift-scheduling' ? 'SHIFTS' : activeTab === 'payroll' ? 'PAYROLL' : undefined}
             onApproveLeave={handleApproveLeaveRequest}
           />
         )}
@@ -1879,15 +1878,6 @@ export default function App() {
             leaveRequests={leaveRequests}
             onCreateLeaveRequest={handleCreateLeaveRequest}
             onOpenCheckInModal={() => setActiveTab('checkin-portal')}
-          />
-        )}
-
-        {activeTab === 'payroll' && (
-          <MonthlyPayrollTable
-            staffList={users as any}
-            branches={branches}
-            attendanceRecords={attendanceRecords}
-            selectedMonth={new Date().toISOString().slice(0, 7)}
           />
         )}
 

@@ -12,7 +12,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     const adminGroups = getAuthorizedNavigation('ADMIN');
     expect(adminGroups.length).toBe(NAVIGATION_GROUPS.length);
 
-    // Verify admin can see Funds, Users, Store Settings, Master Catalog, Payroll
+    // Chấm công, xếp ca và lương dùng chung một Hub để không lặp icon.
     const allItemIds = adminGroups.flatMap(g => g.items.map(i => i.id));
     expect(allItemIds).toContain('funds');
     expect(allItemIds).toContain('partners');
@@ -20,8 +20,9 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(allItemIds).toContain('purchase-orders');
     expect(allItemIds).toContain('store-settings');
     expect(allItemIds).toContain('master-catalog');
-    expect(allItemIds).toContain('payroll');
-    expect(allItemIds).toContain('shift-scheduling');
+    expect(allItemIds.filter(id => id === 'hr-attendance')).toHaveLength(1);
+    expect(allItemIds).not.toContain('payroll');
+    expect(allItemIds).not.toContain('shift-scheduling');
   });
 
   it('Case 3: Sales có Sửa chữa lẻ theo chi nhánh, không thấy Sổ quỹ hay Phân quyền', () => {

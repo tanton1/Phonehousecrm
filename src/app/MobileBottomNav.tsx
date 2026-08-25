@@ -55,29 +55,29 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       {/* 2. Fullscreen "More / Thêm" Drawer */}
       {isMoreDrawerOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex flex-col justify-end lg:hidden animate-in fade-in duration-200">
-          <div className="bg-white rounded-t-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
+          <div className="flex max-h-[88vh] flex-col overflow-hidden rounded-t-3xl bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 shadow-2xl">
             {/* Drawer Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
+            <div className="flex items-center justify-between border-b border-orange-200/60 px-5 py-4">
               <div>
-                <h3 className="text-base font-bold text-zinc-900">Tất Cả Chức Năng</h3>
-                <p className="text-xs text-zinc-500">PhoneHouse Enterprise Operations</p>
+                <h3 className="text-base font-black text-zinc-900">Thêm chức năng</h3>
+                <p className="text-xs text-zinc-500">Chọn nhanh theo nhóm nghiệp vụ</p>
               </div>
               <button
                 onClick={() => setIsMoreDrawerOpen(false)}
-                className="p-2 rounded-full bg-zinc-100 text-zinc-600 hover:bg-zinc-200 transition-colors"
+                className="p-2 text-zinc-600 transition-colors hover:text-orange-700"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Drawer Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div className="flex-1 space-y-5 overflow-y-auto p-4 pb-8">
               {navGroups.map(group => (
-                <div key={group.id} className="space-y-2">
-                  <div className="text-xs font-bold uppercase tracking-wider text-zinc-400 px-1">
+                <div key={group.id} className="space-y-3 border-b border-orange-200/50 pb-5 last:border-0">
+                  <div className="px-1 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">
                     {group.label}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-x-3 gap-y-5">
                     {group.items.map(item => {
                       const Icon = item.icon;
                       const isActive = activeTab === item.id;
@@ -89,20 +89,12 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                             onSelectTab(item.id);
                             setIsMoreDrawerOpen(false);
                           }}
-                          className={`flex items-center space-x-2.5 p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                            isActive
-                              ? 'bg-orange-50/80 border-orange-200 text-[#ff4b16] font-bold shadow-2xs'
-                              : 'bg-zinc-50/70 border-zinc-200/60 text-zinc-700 hover:bg-zinc-100'
+                          className={`flex min-w-0 cursor-pointer flex-col items-center gap-2 py-1 text-center transition-all ${
+                            isActive ? 'font-black text-[#ff4b16]' : 'text-zinc-700 hover:text-orange-700'
                           }`}
                         >
-                          <div
-                            className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
-                              isActive ? 'bg-[#ff4b16] text-white' : 'bg-white text-zinc-500 shadow-2xs'
-                            }`}
-                          >
-                            <Icon className="w-4 h-4" />
-                          </div>
-                          <span className="text-xs truncate flex-1">{item.label}</span>
+                          <Icon className={`h-6 w-6 transition-transform active:scale-90 ${isActive ? 'text-[#ff4b16]' : 'text-zinc-700'}`} />
+                          <span className="line-clamp-2 text-[11px] font-bold leading-4">{item.label}</span>
                         </button>
                       );
                     })}
