@@ -55,25 +55,25 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       {/* 2. Fullscreen "More / Thêm" Drawer */}
       {isMoreDrawerOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex flex-col justify-end lg:hidden animate-in fade-in duration-200">
-          <div className="flex max-h-[88vh] flex-col overflow-hidden rounded-t-3xl bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 shadow-2xl">
+          <div className="flex max-h-[88vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl">
             {/* Drawer Header */}
-            <div className="flex items-center justify-between border-b border-orange-200/60 px-5 py-4">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
               <div>
-                <h3 className="text-base font-black text-zinc-900">Thêm chức năng</h3>
-                <p className="text-xs text-zinc-500">Chọn nhanh theo nhóm nghiệp vụ</p>
+                <h3 className="text-base font-black text-zinc-900">Xem thêm</h3>
+                <p className="text-xs text-zinc-500">Các chức năng theo nhóm nghiệp vụ</p>
               </div>
               <button
                 onClick={() => setIsMoreDrawerOpen(false)}
-                className="p-2 text-zinc-600 transition-colors hover:text-orange-700"
+                className="p-2 text-zinc-600 transition-colors hover:text-amber-600"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Drawer Content */}
-            <div className="flex-1 space-y-5 overflow-y-auto p-4 pb-8">
+            <div className="flex-1 space-y-3 overflow-y-auto bg-white p-4 pb-8">
               {navGroups.map(group => (
-                <div key={group.id} className="space-y-3 border-b border-orange-200/50 pb-5 last:border-0">
+                <div key={group.id} className="space-y-4 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm shadow-zinc-100/80">
                   <div className="px-1 text-[10px] font-black uppercase tracking-[0.14em] text-zinc-500">
                     {group.label}
                   </div>
@@ -90,10 +90,10 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                             setIsMoreDrawerOpen(false);
                           }}
                           className={`flex min-w-0 cursor-pointer flex-col items-center gap-2 py-1 text-center transition-all ${
-                            isActive ? 'font-black text-[#ff4b16]' : 'text-zinc-700 hover:text-orange-700'
+                            isActive ? 'font-black text-zinc-950' : 'text-zinc-700 hover:text-zinc-950'
                           }`}
                         >
-                          <Icon className={`h-6 w-6 transition-transform active:scale-90 ${isActive ? 'text-[#ff4b16]' : 'text-zinc-700'}`} />
+                          <Icon className={`h-6 w-6 text-amber-500 transition-transform active:scale-90 ${isActive ? 'scale-105 text-amber-600' : ''}`} />
                           <span className="line-clamp-2 text-[11px] font-bold leading-4">{item.label}</span>
                         </button>
                       );

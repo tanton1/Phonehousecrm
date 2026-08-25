@@ -51,12 +51,12 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-orange-50 via-amber-50/90 to-yellow-50 px-3 pb-28 pt-4 text-zinc-900 sm:px-5 sm:pb-12 lg:px-8">
+    <main className="min-h-screen bg-white px-3 pb-28 pt-4 text-zinc-900 sm:px-5 sm:pb-12 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
-        <header className="flex items-start justify-between gap-4 border-b border-orange-200/60 pb-5">
+        <header className="flex items-start justify-between gap-4 border-b border-zinc-200 pb-5">
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-orange-700">PhoneHouse</p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Thêm chức năng</h1>
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-600">PhoneHouse</p>
+            <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Xem thêm</h1>
             <p className="mt-1 truncate text-xs font-semibold text-zinc-500 sm:text-sm">
               {currentUser?.displayName || 'Tài khoản'} · {ROLE_LABELS[role] || role}
             </p>
@@ -64,18 +64,18 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           <button
             type="button"
             onClick={onOpenAICopilot}
-            className="flex shrink-0 items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-orange-700"
+            className="flex shrink-0 items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-amber-600"
           >
-            <Sparkles className="h-5 w-5" />
+            <Sparkles className="h-5 w-5 text-amber-500" />
             <span className="hidden sm:inline">Trợ lý AI</span>
           </button>
         </header>
 
-        <div className="mt-3 divide-y divide-orange-200/60">
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
           {groups.map((group) => (
-            <section key={group.id} className="py-5">
-              <h2 className="mb-3 text-[11px] font-black uppercase tracking-[0.15em] text-zinc-500">{group.label}</h2>
-              <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 lg:grid-cols-6">
+            <section key={group.id} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm shadow-zinc-100/80">
+              <h2 className="mb-4 text-[11px] font-black uppercase tracking-[0.15em] text-zinc-500">{group.label}</h2>
+              <div className="grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4">
                 {group.items.map((item) => {
                   const Icon = item.icon;
                   return (
@@ -85,8 +85,8 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
                       onClick={() => navigate(item.id)}
                       className="group flex min-w-0 flex-col items-center gap-2 py-1 text-center sm:items-start sm:text-left"
                     >
-                      <Icon className="h-6 w-6 text-zinc-700 transition group-hover:-translate-y-0.5 group-hover:text-orange-600" />
-                      <span className="line-clamp-2 text-[11px] font-bold leading-4 text-zinc-700 group-hover:text-orange-700 sm:text-xs">
+                      <Icon className="h-6 w-6 text-amber-500 transition group-hover:-translate-y-0.5 group-hover:text-amber-600" />
+                      <span className="line-clamp-2 text-[11px] font-bold leading-4 text-zinc-700 group-hover:text-zinc-950 sm:text-xs">
                         {item.label}
                       </span>
                     </button>
@@ -97,11 +97,11 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
           ))}
         </div>
 
-        <footer className="flex items-center justify-between border-t border-orange-200/60 py-5">
+        <footer className="mt-4 flex items-center justify-between border-t border-zinc-200 py-5">
           <button
             type="button"
             onClick={() => onSelectTab('store-settings')}
-            className="flex items-center gap-1.5 text-xs font-bold text-zinc-600 hover:text-orange-700"
+            className="flex items-center gap-1.5 text-xs font-bold text-zinc-600 hover:text-amber-600"
           >
             Cài đặt hệ thống <ChevronRight className="h-4 w-4" />
           </button>

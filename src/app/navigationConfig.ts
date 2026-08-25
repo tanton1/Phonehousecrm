@@ -100,7 +100,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     id: 'hr',
     label: 'Nhân Sự & Hệ Thống',
     items: [
-      { id: 'hr-attendance', label: 'Chấm Công, Xếp Ca & Lương', icon: Clock },
+      { id: 'hr-attendance', label: 'Nhân Sự & Lương', icon: Clock },
       { id: 'staff-hr', label: 'Bàn Nhân Sự Cá Nhân', icon: CheckSquare },
       { id: 'checkin-portal', label: 'Điểm Danh Face ID', icon: ScanFace },
       { id: 'users', label: 'Phân Quyền User RBAC', icon: ShieldCheck, roles: ['ADMIN'] },
@@ -114,7 +114,7 @@ export const MOBILE_PRIMARY_TABS = [
   { id: 'pos', label: 'Bán hàng', icon: ShoppingCart },
   { id: 'inventory', label: 'Kho IMEI', icon: Package },
   { id: 'crm', label: 'CRM Lead', icon: Users },
-  { id: 'more', label: 'Thêm', icon: Settings }
+  { id: 'more', label: 'Xem thêm', icon: Settings }
 ];
 
 export function getMobilePrimaryTabs(userRole?: string) {
@@ -124,7 +124,7 @@ export function getMobilePrimaryTabs(userRole?: string) {
       { id: 'crm', label: 'Khách CRM', icon: Users },
       { id: 'omnichannel-chat', label: 'Inbox', icon: MessageSquare },
       { id: 'checkin-portal', label: 'Điểm danh', icon: ScanFace },
-      { id: 'more', label: 'Thêm', icon: Settings }
+      { id: 'more', label: 'Xem thêm', icon: Settings }
     ];
   }
 
@@ -134,7 +134,7 @@ export function getMobilePrimaryTabs(userRole?: string) {
       { id: 'pos', label: 'Bán POS', icon: ShoppingCart },
       { id: 'crm', label: 'Khách CRM', icon: Users },
       { id: 'omnichannel-chat', label: 'Inbox', icon: MessageSquare },
-      { id: 'more', label: 'Thêm', icon: Settings }
+      { id: 'more', label: 'Xem thêm', icon: Settings }
     ];
   }
 
@@ -144,7 +144,7 @@ export function getMobilePrimaryTabs(userRole?: string) {
       { id: 'products', label: 'Linh kiện', icon: Package },
       { id: 'transfers', label: 'Chuyển kho', icon: ArrowRightLeft },
       { id: 'checkin-portal', label: 'Điểm danh', icon: ScanFace },
-      { id: 'more', label: 'Thêm', icon: Settings }
+      { id: 'more', label: 'Xem thêm', icon: Settings }
     ];
   }
 
@@ -154,7 +154,7 @@ export function getMobilePrimaryTabs(userRole?: string) {
       { id: 'funds', label: 'Sổ quỹ', icon: Wallet },
       { id: 'invoices', label: 'Hóa đơn', icon: Receipt },
       { id: 'partners', label: 'Công nợ', icon: Building2 },
-      { id: 'more', label: 'Thêm', icon: Settings }
+      { id: 'more', label: 'Xem thêm', icon: Settings }
     ];
   }
 
@@ -164,6 +164,6 @@ export function getMobilePrimaryTabs(userRole?: string) {
     { id: 'pos', label: 'Bán POS', icon: ShoppingCart },
     { id: 'inventory', label: 'Kho hàng', icon: Package },
     { id: 'reports', label: 'Báo cáo', icon: BarChart3 },
-    { id: 'more', label: 'Thêm', icon: Settings }
+    { id: 'more', label: 'Xem thêm', icon: Settings }
   ];
 }
