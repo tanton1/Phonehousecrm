@@ -21,6 +21,22 @@ export interface StoredMetaPageConnection {
   active: boolean;
 }
 
+export interface StoredZaloOaConnection {
+  id: string;
+  oaId: string;
+  oaName: string;
+  accessToken: string;
+  refreshToken: string;
+  appId: string;
+  appSecret: string;
+  webhookSecret: string;
+  accessTokenExpiresAt: number;
+  refreshTokenExpiresAt: number;
+  branchId: string;
+  branchName: string;
+  active: boolean;
+}
+
 interface EncryptedChannelToken {
   algorithm: 'aes-256-gcm';
   iv: string;
@@ -29,7 +45,8 @@ interface EncryptedChannelToken {
   keyVersion: 'v1';
 }
 
-const META_PROVIDER = 'META_MESSENGER';
+export const META_PROVIDER = 'META_MESSENGER';
+export const ZALO_PROVIDER = 'ZALO_OA';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_SESSION_TTL_MS = 30 * 60 * 1000;
 export const META_SUBSCRIBED_FIELDS = [
@@ -90,7 +107,7 @@ function encryptionKey(): Buffer {
   return crypto.createHash('sha256').update(configured, 'utf8').digest();
 }
 
-function encryptToken(valueInput: unknown): EncryptedChannelToken | null {
+export function encryptChannelSecret(valueInput: unknown): EncryptedChannelToken | null {
   const value = asString(valueInput);
   if (!value) return null;
   const iv = crypto.randomBytes(12);
@@ -105,7 +122,7 @@ function encryptToken(valueInput: unknown): EncryptedChannelToken | null {
   };
 }
 
-function decryptToken(value: unknown): string {
+export function decryptChannelSecret(value: unknown): string {
   const encrypted = asObject(value) as Partial<EncryptedChannelToken>;
   if (!encrypted.ciphertext) return '';
   if (encrypted.algorithm !== 'aes-256-gcm') throw new Error('CHANNEL_TOKEN_ALGORITHM_UNSUPPORTED');
@@ -131,19 +148,30 @@ export function metaConnectionDocumentId(pageIdInput: unknown): string {
   return `META_${pageId}`;
 }
 
+export function zaloConnectionDocumentId(oaIdInput: unknown): string {
+  const oaId = asString(oaIdInput).replace(/[^0-9A-Za-z_-]/g, '');
+  if (!oaId) throw new Error('ZALO_OA_ID_REQUIRED');
+  return `ZALO_${oaId}`;
+}
+
+function mappingCollection(provider: string): string {
+  return provider === ZALO_PROVIDER ? 'zaloOaMappings' : 'metaPageMappings';
+}
+
 function cleanClientConnection(id: string, dataInput: unknown, mappingInput: unknown = {}) {
   const data = asObject(dataInput);
   const mapping = asObject(mappingInput);
+  const provider = asString(data.provider) === ZALO_PROVIDER ? ZALO_PROVIDER : META_PROVIDER;
   return {
     id,
-    provider: META_PROVIDER,
+    provider,
     externalAccountId: asString(data.externalAccountId || data.pageId),
     displayName: asString(data.displayName || data.pageName) || 'Facebook Page',
     branchId: asString(data.branchId),
     branchName: asString(data.branchName),
     active: data.active !== false,
     status: asString(data.status) || (data.hasToken ? 'NOT_TESTED' : 'MISSING_TOKEN'),
-    hasToken: data.hasToken === true || Boolean(data.encryptedPageAccessToken),
+    hasToken: data.hasToken === true || Boolean(data.encryptedPageAccessToken || data.encryptedAccessToken),
     tokenFingerprint: asString(data.tokenFingerprint),
     historyDays: Math.min(90, Math.max(1, asNumber(data.historyDays, 30))),
     includeComments: data.includeComments !== false,
@@ -178,7 +206,7 @@ async function writeEvent(
   const ref = db.collection('channelConnectionEvents').doc();
   await ref.set({
     id: ref.id,
-    provider: META_PROVIDER,
+    provider: asString(input.provider) || META_PROVIDER,
     actorUid: actor.uid,
     actorName: asString(actor.name) || actor.uid,
     occurredAt: FieldValue.serverTimestamp(),
@@ -209,7 +237,7 @@ async function bootstrapLegacyMetaConnection(db: Firestore) {
   const branch = await legacyBranch(db, pageId);
   if (!branch) return null;
   const token = asString(process.env.META_PAGE_ACCESS_TOKEN);
-  const encrypted = token ? encryptToken(token) : null;
+  const encrypted = token ? encryptChannelSecret(token) : null;
   await ref.set({
     id: ref.id,
     provider: META_PROVIDER,
@@ -234,16 +262,17 @@ async function readChannelConnections(db: Firestore, actor: ChannelConnectionAct
   await bootstrapLegacyMetaConnection(db);
   const snapshot = await db.collection('channelConnections').limit(100).get();
   const documents = snapshot.docs
-    .filter(document => asString(document.data().provider) === META_PROVIDER)
+    .filter(document => [META_PROVIDER, ZALO_PROVIDER].includes(asString(document.data().provider)))
     .filter(document => canAccessBranch(actor, asString(document.data().branchId)));
-  const mappingRefs = documents.map(document => db.collection('metaPageMappings').doc(asString(document.data().externalAccountId)));
-  const mappingSnapshots = mappingRefs.length ? await db.getAll(...mappingRefs) : [];
-  const mappingById = new Map(mappingSnapshots.map(mapping => [mapping.id, mapping.data()]));
+  const mappingSnapshots = await Promise.all(documents.map(document => db
+    .collection(mappingCollection(asString(document.data().provider)))
+    .doc(asString(document.data().externalAccountId))
+    .get()));
   return documents
-    .map(document => cleanClientConnection(
+    .map((document, index) => cleanClientConnection(
       document.id,
       document.data(),
-      mappingById.get(asString(document.data().externalAccountId))
+      mappingSnapshots[index]?.data()
     ))
     .sort((left, right) => Number(right.active) - Number(left.active) || left.displayName.localeCompare(right.displayName, 'vi'));
 }
@@ -274,7 +303,7 @@ export async function getStoredMetaPageConnection(
   const data = snapshot.data() || {};
   if (data.active === false || asString(data.provider) !== META_PROVIDER) return null;
   let token = '';
-  if (data.encryptedPageAccessToken) token = decryptToken(data.encryptedPageAccessToken);
+  if (data.encryptedPageAccessToken) token = decryptChannelSecret(data.encryptedPageAccessToken);
   if (!token && pageId === asString(process.env.META_PAGE_ID)) token = asString(process.env.META_PAGE_ACCESS_TOKEN);
   return {
     id: snapshot.id,
@@ -287,6 +316,116 @@ export async function getStoredMetaPageConnection(
     includeComments: data.includeComments !== false,
     active: data.active !== false
   };
+}
+
+function timestampMillis(value: unknown): number {
+  if (value instanceof Timestamp) return value.toMillis();
+  const object = asObject(value);
+  if (typeof object.toMillis === 'function') return asNumber(object.toMillis());
+  const seconds = asNumber(object.seconds ?? object._seconds);
+  if (seconds > 0) return seconds * 1000;
+  const parsed = Date.parse(asString(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function getStoredZaloOaConnection(
+  db: Firestore | null,
+  oaIdInput: unknown
+): Promise<StoredZaloOaConnection | null> {
+  if (!db) return null;
+  const oaId = asString(oaIdInput);
+  if (!oaId) return null;
+  const snapshot = await db.collection('channelConnections').doc(zaloConnectionDocumentId(oaId)).get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() || {};
+  if (data.active === false || asString(data.provider) !== ZALO_PROVIDER) return null;
+  return {
+    id: snapshot.id,
+    oaId,
+    oaName: asString(data.displayName) || `Zalo OA ${oaId}`,
+    accessToken: decryptChannelSecret(data.encryptedAccessToken),
+    refreshToken: decryptChannelSecret(data.encryptedRefreshToken),
+    appId: asString(data.appId || process.env.ZALO_APP_ID),
+    appSecret: decryptChannelSecret(data.encryptedAppSecret) || asString(process.env.ZALO_APP_SECRET),
+    webhookSecret: decryptChannelSecret(data.encryptedWebhookSecret) || asString(process.env.ZALO_OA_SECRET_KEY),
+    accessTokenExpiresAt: timestampMillis(data.accessTokenExpiresAt),
+    refreshTokenExpiresAt: timestampMillis(data.refreshTokenExpiresAt),
+    branchId: asString(data.branchId),
+    branchName: asString(data.branchName),
+    active: data.active !== false
+  };
+}
+
+export async function saveManualZaloConnection(
+  db: Firestore | null,
+  input: Record<string, any>,
+  actor: ChannelConnectionActor
+) {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  if (!isAdmin(actor)) throw new Error('CHANNEL_CONNECTION_ADMIN_REQUIRED');
+  const oaId = asString(input.oaId);
+  if (!/^[0-9]{5,30}$/.test(oaId)) throw new Error('ZALO_OA_ID_INVALID');
+  const branch = await activeBranch(db, input.branchId);
+  const ref = db.collection('channelConnections').doc(zaloConnectionDocumentId(oaId));
+  const existing = await ref.get();
+  const current = existing.data() || {};
+  const accessToken = asString(input.accessToken);
+  const refreshToken = asString(input.refreshToken);
+  const appSecret = asString(input.appSecret);
+  const webhookSecret = asString(input.webhookSecret);
+  if (!accessToken && !current.encryptedAccessToken) throw new Error('ZALO_ACCESS_TOKEN_REQUIRED');
+  const expiresIn = Math.min(90_000, Math.max(300, asNumber(input.expiresIn, 90_000)));
+  const now = Date.now();
+  const updates: Record<string, any> = {
+    id: ref.id,
+    provider: ZALO_PROVIDER,
+    externalAccountId: oaId,
+    displayName: asString(input.oaName) || asString(current.displayName) || `Zalo OA ${oaId}`,
+    branchId: branch.id,
+    branchName: branch.name,
+    appId: asString(input.appId) || asString(current.appId) || asString(process.env.ZALO_APP_ID),
+    active: true,
+    status: 'NOT_TESTED',
+    hasToken: true,
+    historyDays: Math.min(90, Math.max(1, asNumber(input.historyDays, current.historyDays || 30))),
+    includeComments: false,
+    source: asString(current.source) || 'MANUAL',
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedByUid: actor.uid,
+    updatedByName: asString(actor.name) || actor.uid,
+    ...(accessToken ? {
+      encryptedAccessToken: encryptChannelSecret(accessToken),
+      tokenFingerprint: tokenFingerprint(accessToken),
+      accessTokenExpiresAt: Timestamp.fromMillis(now + expiresIn * 1000)
+    } : {}),
+    ...(refreshToken ? {
+      encryptedRefreshToken: encryptChannelSecret(refreshToken),
+      hasRefreshToken: true,
+      refreshTokenExpiresAt: Timestamp.fromMillis(now + 90 * 24 * 60 * 60 * 1000)
+    } : {}),
+    ...(appSecret ? { encryptedAppSecret: encryptChannelSecret(appSecret), hasAppSecret: true } : {}),
+    ...(webhookSecret ? { encryptedWebhookSecret: encryptChannelSecret(webhookSecret), hasWebhookSecret: true } : {})
+  };
+  if (!existing.exists) updates.createdAt = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  batch.set(ref, updates, { merge: true });
+  batch.set(db.collection('zaloOaMappings').doc(oaId), {
+    oaId,
+    oaName: updates.displayName,
+    branchId: branch.id,
+    branchName: branch.name,
+    isActive: true,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+  await batch.commit();
+  await writeEvent(db, actor, {
+    provider: ZALO_PROVIDER,
+    connectionId: ref.id,
+    pageId: oaId,
+    branchId: branch.id,
+    eventType: existing.exists ? 'CONNECTION_UPDATED' : 'CONNECTION_CREATED'
+  });
+  return cleanClientConnection(ref.id, (await ref.get()).data());
 }
 
 export async function saveManualMetaConnection(
@@ -302,7 +441,7 @@ export async function saveManualMetaConnection(
   const ref = db.collection('channelConnections').doc(metaConnectionDocumentId(pageId));
   const existing = await ref.get();
   const token = asString(input.pageAccessToken);
-  const encrypted = token ? encryptToken(token) : null;
+  const encrypted = token ? encryptChannelSecret(token) : null;
   const updates: Record<string, any> = {
     id: ref.id,
     provider: META_PROVIDER,
@@ -386,7 +525,7 @@ export async function testMetaConnection(
   const branchId = asString(data.branchId);
   if (!canAccessBranch(actor, branchId)) throw new Error('CHANNEL_BRANCH_FORBIDDEN');
   const pageId = asString(data.externalAccountId);
-  const token = decryptToken(data.encryptedPageAccessToken)
+  const token = decryptChannelSecret(data.encryptedPageAccessToken)
     || (pageId === asString(process.env.META_PAGE_ID) ? asString(process.env.META_PAGE_ACCESS_TOKEN) : '');
   try {
     const page = await graphRequest(`${pageId}?fields=id,name`, token);
@@ -433,11 +572,16 @@ export async function updateChannelConnection(
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('CHANNEL_CONNECTION_NOT_FOUND');
   const current = snapshot.data() || {};
+  const provider = asString(current.provider) === ZALO_PROVIDER ? ZALO_PROVIDER : META_PROVIDER;
   const branch = input.branchId !== undefined
     ? await activeBranch(db, input.branchId)
     : { id: asString(current.branchId), name: asString(current.branchName) };
-  const token = asString(input.pageAccessToken);
-  const encrypted = token ? encryptToken(token) : null;
+  const token = asString(provider === ZALO_PROVIDER ? input.accessToken : input.pageAccessToken);
+  const refreshToken = asString(input.refreshToken);
+  const appSecret = asString(input.appSecret);
+  const webhookSecret = asString(input.webhookSecret);
+  const encrypted = token ? encryptChannelSecret(token) : null;
+  const now = Date.now();
   const updates: Record<string, any> = {
     ...(input.displayName !== undefined ? { displayName: asString(input.displayName) || current.displayName } : {}),
     ...(input.branchId !== undefined ? { branchId: branch.id, branchName: branch.name } : {}),
@@ -445,12 +589,23 @@ export async function updateChannelConnection(
     ...(input.includeComments !== undefined ? { includeComments: input.includeComments === true } : {}),
     ...(input.active !== undefined ? { active: input.active === true } : {}),
     ...(encrypted ? {
-      encryptedPageAccessToken: encrypted,
+      [provider === ZALO_PROVIDER ? 'encryptedAccessToken' : 'encryptedPageAccessToken']: encrypted,
       tokenFingerprint: tokenFingerprint(token),
       hasToken: true,
       status: 'NOT_TESTED',
-      lastError: ''
+      lastError: '',
+      ...(provider === ZALO_PROVIDER ? {
+        accessTokenExpiresAt: Timestamp.fromMillis(now + Math.min(90_000, Math.max(300, asNumber(input.expiresIn, 90_000))) * 1000)
+      } : {})
     } : {}),
+    ...(provider === ZALO_PROVIDER && refreshToken ? {
+      encryptedRefreshToken: encryptChannelSecret(refreshToken),
+      hasRefreshToken: true,
+      refreshTokenExpiresAt: Timestamp.fromMillis(now + 90 * 24 * 60 * 60 * 1000)
+    } : {}),
+    ...(provider === ZALO_PROVIDER && asString(input.appId) ? { appId: asString(input.appId) } : {}),
+    ...(provider === ZALO_PROVIDER && appSecret ? { encryptedAppSecret: encryptChannelSecret(appSecret), hasAppSecret: true } : {}),
+    ...(provider === ZALO_PROVIDER && webhookSecret ? { encryptedWebhookSecret: encryptChannelSecret(webhookSecret), hasWebhookSecret: true } : {}),
     updatedAt: FieldValue.serverTimestamp(),
     updatedByUid: actor.uid,
     updatedByName: asString(actor.name) || actor.uid
@@ -459,9 +614,10 @@ export async function updateChannelConnection(
   const batch = db.batch();
   batch.set(ref, updates, { merge: true });
   if (input.branchId !== undefined) {
-    batch.set(db.collection('metaPageMappings').doc(pageId), {
-      pageId,
-      pageName: updates.displayName || current.displayName,
+    batch.set(db.collection(mappingCollection(provider)).doc(pageId), {
+      ...(provider === ZALO_PROVIDER ? { oaId: pageId, oaName: updates.displayName || current.displayName } : {
+        pageId, pageName: updates.displayName || current.displayName
+      }),
       branchId: branch.id,
       branchName: branch.name,
       isActive: true,
@@ -470,6 +626,7 @@ export async function updateChannelConnection(
   }
   await batch.commit();
   await writeEvent(db, actor, {
+    provider,
     connectionId: ref.id,
     pageId,
     branchId: branch.id,
@@ -489,6 +646,7 @@ export async function disconnectChannelConnection(
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('CHANNEL_CONNECTION_NOT_FOUND');
   const data = snapshot.data() || {};
+  const provider = asString(data.provider) === ZALO_PROVIDER ? ZALO_PROVIDER : META_PROVIDER;
   const pageId = asString(data.externalAccountId);
   const conversations = await db.collection('chatConversations').where('pageId', '==', pageId).limit(1).get();
   if (conversations.empty) await ref.delete();
@@ -500,6 +658,7 @@ export async function disconnectChannelConnection(
     updatedByUid: actor.uid
   }, { merge: true });
   await writeEvent(db, actor, {
+    provider,
     connectionId: ref.id,
     pageId,
     branchId: asString(data.branchId),
@@ -614,7 +773,7 @@ export async function completeMetaOAuth(
       pageId: asString(page.id),
       pageName: asString(page.name) || `Facebook Page ${asString(page.id)}`,
       tasks: Array.isArray(page.tasks) ? page.tasks.map(asString).filter(Boolean) : [],
-      encryptedPageAccessToken: encryptToken(page.access_token),
+      encryptedPageAccessToken: encryptChannelSecret(page.access_token),
       tokenFingerprint: tokenFingerprint(asString(page.access_token))
     }));
   if (!pages.length) throw new Error('META_OAUTH_NO_PAGES');
@@ -749,7 +908,7 @@ export async function importMetaOAuthPages(
   }, { merge: true });
   await batch.commit();
   const subscriptionResults = await Promise.allSettled(normalized.map(async item => {
-    const token = decryptToken(item.page.encryptedPageAccessToken);
+    const token = decryptChannelSecret(item.page.encryptedPageAccessToken);
     const params = new URLSearchParams({ subscribed_fields: META_SUBSCRIBED_FIELDS.join(',') });
     await graphRequest(`${item.pageId}/subscribed_apps?${params}`, token, { method: 'POST' });
     await db.collection('channelConnections').doc(metaConnectionDocumentId(item.pageId)).set({

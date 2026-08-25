@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { FieldPath, FieldValue, Firestore, Timestamp } from 'firebase-admin/firestore';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
 import { refreshMetaConversationMessages } from './metaMessengerService';
+import { refreshZaloConversationMessages } from './zaloOaService';
 
 const PANCAKE_PAGE_API_V1 = 'https://pages.fm/api/public_api/v1';
 const PANCAKE_PAGE_API_V2 = 'https://pages.fm/api/public_api/v2';
@@ -1103,6 +1104,12 @@ export async function listPancakeMessages(db: Firestore | null, conversationId: 
       await refreshMetaConversationMessages(db, conversation);
     } catch (error: any) {
       warning = error?.message || 'META_MESSAGE_REFRESH_FAILED';
+    }
+  } else if (refreshFromPancake && conversation.provider === 'ZALO_OA') {
+    try {
+      await refreshZaloConversationMessages(db, conversation);
+    } catch (error: any) {
+      warning = error?.message || 'ZALO_MESSAGE_REFRESH_FAILED';
     }
   } else if (refreshFromPancake) {
     try {

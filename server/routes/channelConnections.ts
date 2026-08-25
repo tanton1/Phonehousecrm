@@ -10,10 +10,12 @@ import {
   listChannelConnectionEvents,
   listChannelConnections,
   saveManualMetaConnection,
+  saveManualZaloConnection,
   startMetaOAuth,
   testMetaConnection,
   updateChannelConnection
 } from '../services/channelConnectionService';
+import { testZaloConnection } from '../services/zaloOaService';
 
 function actor(req: Request) {
   return {
@@ -33,6 +35,8 @@ function statusFor(error: any): number {
   if (message.includes('NOT_CONFIGURED')) return 503;
   if (message.includes('META_API_FAILED_190')) return 401;
   if (message.includes('META_API_FAILED_10') || message.includes('META_API_FAILED_200')) return 403;
+  if (message.includes('ZALO_API_FAILED_-216') || message.includes('ZALO_API_FAILED_-220') || message.includes('ZALO_API_FAILED_-124')) return 401;
+  if (message.includes('ZALO_TOKEN_REFRESH_IN_PROGRESS') || message.includes('ALREADY_PROCESSING')) return 409;
   return 400;
 }
 
@@ -68,6 +72,14 @@ export function createChannelConnectionsRouter(db: Firestore | null): Router {
     }
   });
 
+  router.post('/zalo', authenticateFirebase, admins, async (req, res) => {
+    try {
+      return res.status(201).json({ success: true, data: await saveManualZaloConnection(db, req.body || {}, actor(req)) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
   router.patch('/:connectionId', authenticateFirebase, admins, async (req, res) => {
     try {
       return res.json({
@@ -92,9 +104,15 @@ export function createChannelConnectionsRouter(db: Firestore | null): Router {
 
   router.post('/:connectionId/test', authenticateFirebase, admins, async (req, res) => {
     try {
+      const snapshot = db
+        ? await db.collection('channelConnections').doc(req.params.connectionId).get()
+        : null;
+      const provider = String(snapshot?.data()?.provider || '');
       return res.json({
         success: true,
-        data: await testMetaConnection(db, req.params.connectionId, actor(req), req.body?.subscribe === true)
+        data: provider === 'ZALO_OA'
+          ? await testZaloConnection(db, req.params.connectionId, actor(req))
+          : await testMetaConnection(db, req.params.connectionId, actor(req), req.body?.subscribe === true)
       });
     } catch (error: any) {
       return sendError(res, error);

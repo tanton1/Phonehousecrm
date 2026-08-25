@@ -29,12 +29,29 @@ import {
   syncMetaConversations,
   takeMetaThreadControl
 } from '../services/metaMessengerService';
+import { zaloConnectionDocumentId } from '../services/channelConnectionService';
+import {
+  getZaloOaChannels,
+  getZaloWebhookSetup,
+  markZaloConversationRead,
+  sendZaloOaMessage,
+  setZaloBranchMapping,
+  syncZaloOaConversations
+} from '../services/zaloOaService';
 
 function useMetaProvider(): boolean {
   const provider = String(process.env.CHAT_PROVIDER || '').trim().toUpperCase();
   if (provider === 'PANCAKE') return false;
   return ['META', 'META_MESSENGER', 'FACEBOOK'].includes(provider)
     || Boolean(process.env.META_PAGE_ID && process.env.META_APP_SECRET && process.env.META_WEBHOOK_VERIFY_TOKEN);
+}
+
+async function isZaloPage(db: Firestore, pageId: string): Promise<boolean> {
+  try {
+    return (await db.collection('channelConnections').doc(zaloConnectionDocumentId(pageId)).get()).exists;
+  } catch {
+    return false;
+  }
 }
 
 function actor(req: Request): PancakeActor {
@@ -58,6 +75,8 @@ function errorStatus(error: any): number {
   if (message.includes('META_API_FAILED_190')) return 401;
   if (message.includes('META_THREAD_CONTROL_UNAVAILABLE')) return 409;
   if (message.includes('META_API_FAILED_10:') || message.includes('META_API_FAILED_200:')) return 403;
+  if (message.includes('ZALO_API_FAILED_-216') || message.includes('ZALO_API_FAILED_-220') || message.includes('ZALO_API_FAILED_-124')) return 401;
+  if (message.includes('ZALO_TOKEN_REFRESH_IN_PROGRESS') || message.includes('ZALO_SEND_ALREADY_PROCESSING')) return 409;
   if (message.includes('ALREADY_PROCESSING')) return 409;
   return 400;
 }
@@ -105,16 +124,18 @@ export function createPancakeRouter(db: Firestore | null): Router {
   router.get('/channels', authenticateFirebase, async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
+      const zaloChannels = await getZaloOaChannels(db, actor(req));
       if (useMetaProvider()) {
         return res.json({
           success: true,
           data: {
-            channels: await getMetaMessengerChannels(db, actor(req)),
+            channels: [...await getMetaMessengerChannels(db, actor(req)), ...zaloChannels],
             branches: await listPancakeBranchOptions(db, actor(req))
           }
         });
       }
-      return res.json({ success: true, data: await getPancakeChannels(db, actor(req)) });
+      const pancake = await getPancakeChannels(db, actor(req));
+      return res.json({ success: true, data: { ...pancake, channels: [...pancake.channels, ...zaloChannels] } });
     } catch (error: any) {
       return sendError(res, error);
     }
@@ -125,7 +146,9 @@ export function createPancakeRouter(db: Firestore | null): Router {
   ), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const link = useMetaProvider() ? setMetaBranchMapping : setPancakeBranchMapping;
+      const link = await isZaloPage(db, req.params.pageId)
+        ? setZaloBranchMapping
+        : useMetaProvider() ? setMetaBranchMapping : setPancakeBranchMapping;
       const data = await link(db, {
         pageId: req.params.pageId,
         branchId: req.body?.branchId
@@ -145,7 +168,9 @@ export function createPancakeRouter(db: Firestore | null): Router {
       const forwardedProtocol = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
       const origin = forwardedHost ? `${forwardedProtocol}://${forwardedHost}` : '';
       res.setHeader('Cache-Control', 'private, no-store, max-age=0');
-      const setup = useMetaProvider() ? getMetaWebhookSetup : getPancakeWebhookSetup;
+      const setup = await isZaloPage(db, req.params.pageId)
+        ? getZaloWebhookSetup
+        : useMetaProvider() ? getMetaWebhookSetup : getPancakeWebhookSetup;
       return res.json({ success: true, data: await setup(db, req.params.pageId, actor(req), origin) });
     } catch (error: any) {
       return sendError(res, error);
@@ -235,9 +260,10 @@ export function createPancakeRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const conversationSnapshot = await db.collection('chatConversations').doc(req.params.conversationId).get();
-      const send = conversationSnapshot.data()?.provider === 'META_MESSENGER'
+      const provider = conversationSnapshot.data()?.provider;
+      const send = provider === 'META_MESSENGER'
         ? sendMetaMessengerMessage
-        : sendPancakeMessage;
+        : provider === 'ZALO_OA' ? sendZaloOaMessage : sendPancakeMessage;
       const data = await send(db, {
         conversationId: req.params.conversationId,
         text: req.body?.text,
@@ -254,6 +280,10 @@ export function createPancakeRouter(db: Firestore | null): Router {
   ), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
+      const conversationSnapshot = await db.collection('chatConversations').doc(req.params.conversationId).get();
+      if (conversationSnapshot.data()?.provider !== 'META_MESSENGER') {
+        throw new Error('META_CONVERSATION_PROVIDER_MISMATCH');
+      }
       return res.json({
         success: true,
         data: await takeMetaThreadControl(db, req.params.conversationId, actor(req))
@@ -267,9 +297,10 @@ export function createPancakeRouter(db: Firestore | null): Router {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const conversationSnapshot = await db.collection('chatConversations').doc(req.params.conversationId).get();
-      const markRead = conversationSnapshot.data()?.provider === 'META_MESSENGER'
+      const provider = conversationSnapshot.data()?.provider;
+      const markRead = provider === 'META_MESSENGER'
         ? markMetaConversationRead
-        : markPancakeConversationRead;
+        : provider === 'ZALO_OA' ? markZaloConversationRead : markPancakeConversationRead;
       return res.json({ success: true, data: await markRead(db, req.params.conversationId, actor(req)) });
     } catch (error: any) {
       return sendError(res, error);
@@ -279,6 +310,11 @@ export function createPancakeRouter(db: Firestore | null): Router {
   router.post('/sync', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
+      const zalo = await isZaloPage(db, req.body?.pageId);
+      if (zalo) {
+        const data = await syncZaloOaConversations(db, req.body?.pageId, actor(req));
+        return res.json({ success: true, data });
+      }
       const sync = useMetaProvider() ? syncMetaConversations : syncPancakeConversations;
       const data = await sync(db, {
         pageId: req.body?.pageId,

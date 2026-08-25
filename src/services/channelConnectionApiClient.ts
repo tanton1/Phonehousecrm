@@ -8,7 +8,7 @@ interface ApiEnvelope<T> {
 
 export interface ChannelConnection {
   id: string;
-  provider: 'META_MESSENGER';
+  provider: 'META_MESSENGER' | 'ZALO_OA';
   externalAccountId: string;
   displayName: string;
   branchId: string;
@@ -102,6 +102,20 @@ export async function createManualMetaConnection(input: {
   includeComments: boolean;
 }) {
   return normalizeConnection(await requestApi('', { method: 'POST', payload: input }));
+}
+
+export async function createManualZaloConnection(input: {
+  oaId: string;
+  oaName: string;
+  accessToken: string;
+  refreshToken: string;
+  appId: string;
+  appSecret: string;
+  webhookSecret: string;
+  branchId: string;
+  historyDays: number;
+}) {
+  return normalizeConnection(await requestApi('zalo', { method: 'POST', payload: input }));
 }
 
 export async function updateMetaConnection(connectionId: string, input: Record<string, unknown>) {

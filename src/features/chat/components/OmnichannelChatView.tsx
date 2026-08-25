@@ -90,7 +90,9 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const activeConvo = conversations.find(conversation => conversation.id === selectedConvoId) || null;
   const activeChannel = useMemo(() => channels.find(channel => channel.branchId === currentBranchId) || channels[0], [channels, currentBranchId]);
   const directMeta = activeChannel?.provider === 'META_MESSENGER';
-  const providerLabel = directMeta ? 'Meta Messenger' : 'Pancake';
+  const directZalo = activeChannel?.provider === 'ZALO_OA';
+  const directRealtime = directMeta || directZalo;
+  const providerLabel = directMeta ? 'Meta Messenger' : directZalo ? 'Zalo OA' : 'Pancake';
   const pageDisconnected = activeChannel?.connectionStatus === 'DISCONNECTED';
   const webhookReceiving = activeChannel?.webhookStatus === 'RECEIVING' && !pageDisconnected;
 
@@ -188,10 +190,10 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   }, [activeChannel, branchOptions, currentBranchId, mappingBranchId]);
 
   useEffect(() => {
-    if (directMeta && webhookReceiving) return undefined;
+    if (directRealtime && webhookReceiving) return undefined;
     const timer = window.setInterval(() => { void loadConversations(false); }, 15_000);
     return () => window.clearInterval(timer);
-  }, [directMeta, loadConversations, webhookReceiving]);
+  }, [directRealtime, loadConversations, webhookReceiving]);
 
   useEffect(() => {
     const branchId = activeChannel?.branchId || currentBranchId;
@@ -236,13 +238,13 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   // an event (and also repairs historical messages saved with an old shape).
   useEffect(() => {
     if (!selectedConvoId) return undefined;
-    if (directMeta && webhookReceiving) return undefined;
+    if (directRealtime && webhookReceiving) return undefined;
     const interval = webhookReceiving ? 60_000 : 20_000;
     const timer = window.setInterval(() => {
       void loadMessages(selectedConvoId, true, false);
     }, interval);
     return () => window.clearInterval(timer);
-  }, [directMeta, loadMessages, selectedConvoId, webhookReceiving]);
+  }, [directRealtime, loadMessages, selectedConvoId, webhookReceiving]);
 
   const handleSelectConversation = (conversation: ChatConversation) => {
     const alreadySelected = conversation.id === selectedConvoId;
@@ -402,7 +404,9 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
       await navigator.clipboard.writeText(webhookSetup.callbackUrl);
       setNotice(directMeta
         ? 'Đã sao chép URL webhook Meta. Dán vào Meta Developers → Messenger → Cài đặt API Messenger.'
-        : 'Đã sao chép URL webhook bảo mật. Dán URL này vào Pancake → Tools → Webhook.');
+        : directZalo
+          ? 'Đã sao chép URL webhook Zalo. Dán vào Zalo Developers → Webhook của ứng dụng.'
+          : 'Đã sao chép URL webhook bảo mật. Dán URL này vào Pancake → Tools → Webhook.');
     } catch {
       setError('Trình duyệt không cho sao chép tự động. Hãy mở trang này bằng HTTPS và thử lại.');
     }
@@ -434,12 +438,12 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-black text-zinc-900">
             <Link2 className="h-4 w-4 text-[#ff4b16]" />
-            <span className="truncate">{activeChannel?.pageName || 'Facebook Inbox'}</span>
+            <span className="truncate">{activeChannel?.pageName || 'Hộp thư đa kênh'}</span>
             <span className={`h-2 w-2 rounded-full ${pageDisconnected ? 'bg-rose-500' : activeChannel?.status === 'READY' && webhookReceiving ? 'bg-emerald-500' : 'bg-amber-500'}`} />
           </div>
           <p className="mt-0.5 truncate text-[10px] font-semibold text-zinc-500">
             {activeChannel?.status === 'READY'
-              ? `${activeChannel.branchName} · ${pageDisconnected ? `Page đang mất kết nối ${providerLabel}` : webhookReceiving ? 'Realtime đang hoạt động' : 'Đang chờ tin thử từ Facebook'}`
+              ? `${activeChannel.branchName} · ${pageDisconnected ? `Kênh đang mất kết nối ${providerLabel}` : webhookReceiving ? 'Realtime đang hoạt động' : `Đang chờ tin thử từ ${providerLabel}`}`
               : activeChannel?.status === 'MISSING_TOKEN'
                 ? `Chờ thiết lập ${activeChannel.requiredTokenEnv}`
                 : 'Đang kiểm tra cấu hình kết nối'}
@@ -452,10 +456,10 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
             ? `Webhook đã nhận sự kiện${activeChannel.lastWebhookAt ? ` lúc ${new Date(activeChannel.lastWebhookAt).toLocaleString('vi-VN')}` : ''}. Hội thoại đang mở cập nhật realtime qua Firestore.`
             : activeChannel?.webhookStatus === 'MISSING_SECRET'
               ? `Chưa cấu hình secret webhook ${providerLabel}.`
-              : `Chưa nhận sự kiện webhook từ ${providerLabel}. Hãy nhắn thử từ một tài khoản Facebook có quyền thử nghiệm.`
+              : `Chưa nhận sự kiện webhook từ ${providerLabel}. Hãy gửi một tin thử vào kênh này.`
           } className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-500"><HelpCircle className="h-4 w-4" /></button>
           <button onClick={() => void handleManualRefresh()} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 text-zinc-600 disabled:opacity-50" title="Làm mới Page, hội thoại và tin nhắn đang mở"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
-          {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}<span className="hidden sm:inline">Đồng bộ 30 ngày</span><span className="sm:hidden">Đồng bộ</span></button>}
+          {isManager && activeChannel?.status !== 'CONFIG_ERROR' && <button onClick={() => void handleSync()} disabled={syncing} className="flex h-9 items-center gap-1.5 rounded-xl bg-[#ff4b16] px-3 text-[11px] font-black text-white disabled:opacity-50">{syncing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}<span className="hidden sm:inline">{directZalo ? 'Làm mới Zalo' : 'Đồng bộ 30 ngày'}</span><span className="sm:hidden">{directZalo ? 'Làm mới' : 'Đồng bộ'}</span></button>}
         </div>
       </section>
 
@@ -513,7 +517,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
             <header className="flex items-center justify-between border-b border-zinc-100 px-4 py-3.5">
               <div className="min-w-0">
                 <h3 className="text-sm font-black text-zinc-950">Kết nối webhook {providerLabel}</h3>
-                <p className="truncate text-[10px] font-semibold text-zinc-500">{activeChannel?.pageName} · Page ID {activeChannel?.pageId}</p>
+                <p className="truncate text-[10px] font-semibold text-zinc-500">{activeChannel?.pageName} · ID {activeChannel?.pageId}</p>
               </div>
               <button onClick={() => setShowWebhookSetup(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-100 text-zinc-600" title="Đóng"><X className="h-4 w-4" /></button>
             </header>
@@ -544,6 +548,13 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
                       <li className="rounded-xl bg-zinc-50 p-2.5"><b>Quyền:</b> Chat cần pages_messaging, pages_manage_metadata, pages_read_engagement; trả lời bình luận cần thêm pages_manage_engagement.</li>
                       <li className="rounded-xl bg-zinc-50 p-2.5"><b>4.</b> Nhắn thử Page từ tài khoản có vai trò trong App; khách thật cần Meta cấp Advanced Access.</li>
                     </ol>
+                  ) : directZalo ? (
+                    <ol className="space-y-2 text-[11px] leading-5 text-zinc-700">
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>1.</b> Dán URL trên vào Zalo Developers → ứng dụng → Webhook.</li>
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>2.</b> Đăng ký các sự kiện người dùng gửi tin và OA gửi tin.</li>
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>3.</b> OA Secret Key trong CRM phải đúng với khóa dùng ký webhook của OA.</li>
+                      <li className="rounded-xl bg-zinc-50 p-2.5"><b>4.</b> Gửi một tin nhắn thử vào OA; khi nhận thành công trạng thái chuyển sang Realtime.</li>
+                    </ol>
                   ) : (
                     <ol className="space-y-2 text-[11px] leading-5 text-zinc-700">
                       <li className="rounded-xl bg-zinc-50 p-2.5"><b>1.</b> Kiểm tra gói Pancake còn ít nhất 1 connection slot trống cho Page này.</li>
@@ -554,7 +565,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
 
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <a href={webhookSetup.docsUrl} target="_blank" rel="noreferrer" className="flex h-10 items-center justify-center gap-2 rounded-xl border border-zinc-200 text-xs font-bold text-zinc-700"><ExternalLink className="h-4 w-4" />Tài liệu {providerLabel}</a>
-                    {isManager && !directMeta && <button onClick={() => void handleRepairHistory()} disabled={repairing} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-bold text-blue-700 disabled:opacity-50">{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}Sửa tin nhắn cũ</button>}
+                    {isManager && !directRealtime && <button onClick={() => void handleRepairHistory()} disabled={repairing} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 text-xs font-bold text-blue-700 disabled:opacity-50">{repairing ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}Sửa tin nhắn cũ</button>}
                   </div>
                 </div>
               ) : (

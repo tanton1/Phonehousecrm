@@ -15,7 +15,7 @@ app.set('trust proxy', 1);
 app.use(express.json({
   limit: '15mb',
   verify: (req: any, _res, buffer) => {
-    if (String(req.originalUrl || req.url || '').startsWith('/api/meta/webhook')) {
+    if (/^\/api\/(meta|zalo)\/webhook/.test(String(req.originalUrl || req.url || ''))) {
       req.rawBody = Buffer.from(buffer);
     }
   }
@@ -171,6 +171,8 @@ app.use('/api/pancake', createPancakeRouter(adminDb));
 app.use('/api/chat', createPancakeRouter(adminDb));
 import { createMetaMessengerRouter } from './server/routes/metaMessenger';
 app.use('/api/meta', createMetaMessengerRouter(adminDb));
+import { createZaloOaRouter } from './server/routes/zaloOa';
+app.use('/api/zalo', createZaloOaRouter(adminDb));
 import { createChannelConnectionsRouter } from './server/routes/channelConnections';
 app.use('/api/channel-connections', createChannelConnectionsRouter(adminDb));
 

@@ -363,6 +363,14 @@ service cloud.firestore {
       allow read, write: if false; // Server-only Meta Page → branch mapping and webhook health.
     }
 
+    match /zaloOaMappings/{oaId} {
+      allow read, write: if false; // Server-only Zalo OA → branch mapping and webhook health.
+    }
+
+    match /zaloSendOperations/{operationId} {
+      allow read, write: if false; // Server-only idempotency for outbound Zalo messages.
+    }
+
     match /channelConnections/{connectionId} {
       allow read, write: if false; // Token và cấu hình nhiều Page chỉ đi qua API server.
     }
