@@ -479,56 +479,45 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
 
   return (
     <div className="space-y-4">
-      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 p-4 text-white shadow-lg sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-orange-300"><CalendarDays className="h-4 w-4" /> Xếp ca bộ phận</div>
-            <h2 className="mt-2 text-2xl font-black">Lịch làm việc theo tuần</h2>
-            <p className="mt-1 text-sm text-zinc-300">Mỗi thay đổi được tự lưu lên server. Chỉ cần bấm Đăng lịch khi đã sẵn sàng cho nhân viên chấm công.</p>
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-white/85 ring-1 ring-white/15">
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : dirty ? <Clock3 className="h-3.5 w-3.5 text-amber-300" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />}
+      <section className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-black text-zinc-950"><CalendarDays className="h-4 w-4 text-amber-500" /> Lịch làm việc theo tuần</div>
+            <div className="mt-1 inline-flex items-center gap-2 text-[11px] font-bold text-zinc-500">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : dirty ? <Clock3 className="h-3.5 w-3.5 text-amber-500" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
               {saving ? 'Đang lưu lên server…' : dirty ? 'Có thay đổi đang chờ lưu' : lastSavedAt ? `Đã lưu lúc ${new Date(lastSavedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : 'Dữ liệu đang đồng bộ từ server'}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {canManage && <button onClick={() => openDefinitionForm()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 text-sm font-black hover:bg-white/15"><Settings2 className="h-4 w-4" /> Ca làm việc</button>}
-            {canManage && <button onClick={() => openPolicyForm()} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-orange-300/30 bg-orange-400/15 px-4 text-sm font-black text-orange-100 hover:bg-orange-400/25"><Users className="h-4 w-4" /> Quy tắc bộ phận</button>}
-            {canManage && <button onClick={() => void persist('DRAFT')} disabled={saving || !dirty} className="inline-flex h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-zinc-900 disabled:opacity-40"><Save className="h-4 w-4" /> Lưu ngay</button>}
-            {canManage && <button onClick={() => void persist('PUBLISHED')} disabled={saving} className="inline-flex h-11 items-center gap-2 rounded-2xl bg-orange-500 px-4 text-sm font-black text-white disabled:opacity-40"><Send className="h-4 w-4" /> Đăng lịch</button>}
+          <div className="flex gap-2 overflow-x-auto">
+            {canManage && <button onClick={() => openDefinitionForm()} title="Thiết lập ca làm việc" className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 text-xs font-bold text-zinc-700"><Settings2 className="h-4 w-4" /><span className="hidden sm:inline">Ca làm</span></button>}
+            {canManage && <button onClick={() => openPolicyForm()} title="Quy tắc theo bộ phận" className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 text-xs font-bold text-zinc-700"><Users className="h-4 w-4" /><span className="hidden sm:inline">Quy tắc</span></button>}
+            {canManage && <button onClick={() => void persist('DRAFT')} disabled={saving || !dirty} title="Lưu ngay" className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-3 text-xs font-bold text-zinc-700 disabled:opacity-40"><Save className="h-4 w-4" /><span className="hidden sm:inline">Lưu</span></button>}
+            {canManage && <button onClick={() => void persist('PUBLISHED')} disabled={saving} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-r from-orange-500 to-amber-400 px-3 text-xs font-black text-white disabled:opacity-40"><Send className="h-4 w-4" /> Đăng lịch</button>}
           </div>
         </div>
       </section>
 
       {message && <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{message.text}</div>}
 
-      <section className="rounded-3xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-center gap-2">
-            <button aria-label="Tuần trước" onClick={() => setWeekStart(addDays(weekStart, -7))} className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700"><ChevronLeft className="h-4 w-4" /></button>
-            <div className="min-w-44 rounded-xl bg-zinc-100 px-3 py-2 text-center text-sm font-black text-zinc-900">{formatShortDate(dates[0])} – {formatShortDate(dates[6])}</div>
-            <button aria-label="Tuần sau" onClick={() => setWeekStart(addDays(weekStart, 7))} className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700"><ChevronRight className="h-4 w-4" /></button>
-            <button onClick={() => setWeekStart(mondayOf())} className="h-10 rounded-xl border border-zinc-200 px-3 text-xs font-black text-zinc-700">Tuần này</button>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="h-11 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-bold outline-none focus:border-orange-400">
+      <section className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
+        <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <button aria-label="Tuần trước" onClick={() => setWeekStart(addDays(weekStart, -7))} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-700"><ChevronLeft className="h-4 w-4" /></button>
+            <div className="min-w-36 shrink-0 rounded-lg bg-zinc-100 px-2 py-2 text-center text-[11px] font-black text-zinc-900">{formatShortDate(dates[0])} – {formatShortDate(dates[6])}</div>
+            <button aria-label="Tuần sau" onClick={() => setWeekStart(addDays(weekStart, 7))} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-700"><ChevronRight className="h-4 w-4" /></button>
+            <button onClick={() => setWeekStart(mondayOf())} className="h-9 shrink-0 rounded-lg border border-zinc-200 px-2 text-[11px] font-bold text-zinc-700">Tuần này</button>
+            <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="h-9 min-w-36 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[11px] font-bold outline-none focus:border-amber-400">
               {accessibleBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
             </select>
-            <div className="relative min-w-52"><Search className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm nhân viên..." className="h-11 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-9 pr-3 text-sm font-semibold outline-none focus:border-orange-400" /></div>
-            {canManage && <button onClick={() => void copyPreviousWeek()} disabled={saving} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-zinc-200 px-3 text-xs font-black text-zinc-700"><Copy className="h-4 w-4" /> Sao chép tuần trước</button>}
-            {canManage && fixedStaffCount > 0 && <button onClick={() => applyPolicies(true)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 text-xs font-black text-orange-800"><Clock3 className="h-4 w-4" /> Điền giờ hành chính</button>}
-            {canManage && <button onClick={() => { setBulkShiftId(definitions[0]?.id || 'OFF'); setShowBulk(true); }} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-zinc-900 px-3 text-xs font-black text-white"><WandSparkles className="h-4 w-4" /> Gán nhanh</button>}
-          </div>
-        </div>
-
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          <button onClick={() => setSelectedDepartment('ALL')} className={`shrink-0 rounded-full px-3 py-2 text-xs font-black ${selectedDepartment === 'ALL' ? 'bg-orange-500 text-white' : 'bg-zinc-100 text-zinc-700'}`}>Tất cả · {allBranchStaff.length}</button>
-          {departments.map((department) => { const policy = policyMap.get(department.id); return <button key={department.id} onClick={() => setSelectedDepartment(department.id)} className={`shrink-0 rounded-full px-3 py-2 text-xs font-black ${selectedDepartment === department.id ? 'bg-orange-500 text-white' : 'bg-zinc-100 text-zinc-700'}`}>{department.name} · {department.count}{policy ? ` · ${policy.mode === 'FIXED' ? 'Cố định' : 'Xoay ca'}` : ''}</button>; })}
+            <select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)} className="h-9 min-w-32 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[11px] font-bold outline-none focus:border-amber-400"><option value="ALL">Tất cả bộ phận</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name} · {department.count}</option>)}</select>
+            <div className="relative min-w-40 flex-1"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm nhân viên" className="h-9 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-8 pr-2 text-[11px] font-semibold outline-none focus:border-amber-400" /></div>
+            {canManage && <button onClick={() => void copyPreviousWeek()} disabled={saving} title="Sao chép tuần trước" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-zinc-200 text-zinc-600"><Copy className="h-4 w-4" /></button>}
+            {canManage && fixedStaffCount > 0 && <button onClick={() => applyPolicies(true)} title="Điền giờ hành chính" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-zinc-200 text-zinc-600"><Clock3 className="h-4 w-4" /></button>}
+            {canManage && <button onClick={() => { setBulkShiftId(definitions[0]?.id || 'OFF'); setShowBulk(true); }} className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-zinc-900 px-3 text-[11px] font-black text-white"><WandSparkles className="h-4 w-4" /> Gán nhanh</button>}
         </div>
       </section>
 
       <HRMetricCarousel items={[
         { id: 'staff', label: 'Nhân viên', value: allBranchStaff.length, note: selectedBranch?.name, icon: Users, gradient: 'from-zinc-950 via-zinc-900 to-orange-950' },
-        { id: 'fixed', label: 'Tự điền hành chính', value: fixedStaffCount, note: 'Theo quy tắc bộ phận', icon: Clock3, gradient: 'from-blue-600 via-indigo-600 to-violet-600' },
         { id: 'complete', label: 'Đã đủ 7 ngày', value: assignedCount, note: 'Bao gồm ngày nghỉ', icon: Check, gradient: 'from-emerald-600 via-teal-600 to-cyan-600' },
         { id: 'missing', label: 'Còn thiếu lịch', value: Math.max(0, allBranchStaff.length - assignedCount), note: 'Cần hoàn tất trước khi đăng', icon: Clock3, gradient: 'from-amber-500 via-orange-500 to-red-500' },
         { id: 'published', label: 'Lịch đã đăng', value: publishedCount, note: 'Đang dùng để chấm công', icon: Send, gradient: 'from-fuchsia-600 via-pink-600 to-rose-500' }

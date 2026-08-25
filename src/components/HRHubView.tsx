@@ -57,11 +57,17 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   const [selectedBranchId, setSelectedBranchId] = useState(() => role === 'ADMIN' ? 'ALL' : String(currentUser?.branchId || 'ALL'));
   const [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [approvingId, setApprovingId] = useState('');
 
   useEffect(() => {
     if (initialSubModule) setActiveModule(initialSubModule);
   }, [initialSubModule]);
+
+  useEffect(() => {
+    setStatusFilter('ALL');
+    setSearch('');
+  }, [activeModule]);
 
   const accessibleBranches = useMemo(() => {
     if (role === 'ADMIN') return branches.filter((branch) => branch.isActive !== false);
@@ -103,8 +109,9 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
     { id: 'staff', label: 'Nhân sự hoạt động', value: staffList.length, note: selectedBranchId === 'ALL' ? 'Toàn hệ thống' : accessibleBranches.find((branch) => branch.id === selectedBranchId)?.name, icon: Users, gradient: 'from-zinc-950 via-zinc-900 to-orange-950' },
     { id: 'checked-in', label: 'Đã vào ca hôm nay', value: `${checkedInCount}/${staffList.length}`, note: `${completedCount} người đã kết thúc ca`, icon: UserCheck, gradient: 'from-emerald-600 via-emerald-500 to-teal-500' },
     { id: 'late', label: 'Cần kiểm tra', value: lateCount, note: lateCount ? 'Trường hợp đi trễ hôm nay' : 'Không có trường hợp đi trễ', icon: AlertTriangle, gradient: 'from-amber-500 via-orange-500 to-red-500' },
-    { id: 'workdays', label: `Ngày công ${selectedPeriod}`, value: workDayKeys.size, note: 'Tính từ bản ghi chấm công thật', icon: CalendarDays, gradient: 'from-blue-600 via-indigo-600 to-violet-600' },
-    { id: 'leave', label: 'Đơn đang chờ duyệt', value: pendingLeaveCount, note: 'Nghỉ phép hoặc đổi ca', icon: FileText, gradient: 'from-fuchsia-600 via-pink-600 to-rose-500' }
+    activeModule === 'TIMESHEET'
+      ? { id: 'workdays', label: `Ngày công ${selectedPeriod}`, value: workDayKeys.size, note: 'Theo dữ liệu chấm công', icon: CalendarDays }
+      : { id: 'leave', label: 'Đơn chờ duyệt', value: pendingLeaveCount, note: 'Nghỉ phép hoặc đổi ca', icon: FileText }
   ];
 
   const modules: Array<{ id: HRSubModule; label: string; icon: typeof Users }> = [
@@ -126,7 +133,16 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
       otMinutes: records.reduce((sum, record) => sum + Number(record.otMinutes || 0), 0),
       missingCheckout: records.filter((record) => record.checkInTime && !record.checkOutTime && record.date !== today).length
     };
-  }).filter((row) => !search.trim() || `${row.staff.name} ${row.staff.code} ${row.staff.roleTitle}`.toLowerCase().includes(search.trim().toLowerCase())), [monthAttendance, search, staffList, today]);
+  }).filter((row) => !search.trim() || `${row.staff.name} ${row.staff.code} ${row.staff.roleTitle}`.toLowerCase().includes(search.trim().toLowerCase()))
+    .filter((row) => statusFilter === 'ALL'
+      || (statusFilter === 'LATE' && row.lateMinutes > 0)
+      || (statusFilter === 'MISSING' && row.missingCheckout > 0)
+      || (statusFilter === 'OT' && row.otMinutes > 0)), [monthAttendance, search, staffList, statusFilter, today]);
+
+  const visibleTodayAttendance = useMemo(() => todayAttendance.filter((record) => statusFilter === 'ALL'
+    || (statusFilter === 'WORKING' && Boolean(record.checkInTime) && !record.checkOutTime)
+    || (statusFilter === 'LATE' && (record.status === 'LATE' || record.punctualityStatus === 'LATE' || Number(record.lateMinutes || 0) > 0))
+    || (statusFilter === 'COMPLETED' && (record.status === 'COMPLETED' || record.attendanceStatus === 'COMPLETED'))), [statusFilter, todayAttendance]);
 
   const approveLeave = async (request: LeaveRequest) => {
     if (!onApproveLeave || !canManage) return;
@@ -140,39 +156,40 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
 
   return (
     <div className="w-full space-y-4">
-      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#18181b] via-[#24110a] to-[#ff4b16] p-4 text-white shadow-lg sm:p-5">
+      <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-orange-200"><Building2 className="h-4 w-4" /> Nhân sự PhoneHouse</div>
-            <h1 className="mt-2 text-2xl font-black">Chấm công, ca làm & lương</h1>
+            <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-amber-600"><Building2 className="h-4 w-4" /> PhoneHouse</div>
+            <h1 className="mt-1 text-2xl font-black text-zinc-950">Nhân sự & Lương</h1>
           </div>
-          <button title="Trang chỉ hiển thị dữ liệu đã đồng bộ từ server. Bảng lương chưa chốt được ghi là bản nháp, không giả lập số liệu." className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10 ring-1 ring-white/20"><HelpCircle className="h-5 w-5" /></button>
+          <button title="Chỉ hiển thị dữ liệu đã đồng bộ từ server. Kỳ lương chưa duyệt luôn được ghi rõ là bản nháp." className="p-2 text-zinc-400 hover:text-amber-600"><HelpCircle className="h-5 w-5" /></button>
         </div>
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="mt-4 flex w-full border-b border-zinc-200">
           {modules.map((module) => {
             const Icon = module.icon;
-            return <button key={module.id} onClick={() => setActiveModule(module.id)} className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-black ring-1 ${activeModule === module.id ? 'bg-white text-zinc-950 ring-white' : 'bg-white/10 text-white ring-white/15'}`}><Icon className="h-4 w-4" />{module.label}</button>;
+            return <button key={module.id} onClick={() => setActiveModule(module.id)} className={`flex h-10 min-w-0 flex-1 items-center justify-center gap-1 border-b-2 px-1 text-[10px] font-black transition sm:gap-2 sm:text-xs ${activeModule === module.id ? 'border-amber-500 text-zinc-950' : 'border-transparent text-zinc-500 hover:text-zinc-800'}`}><Icon className="hidden h-4 w-4 sm:block" />{module.label}</button>;
           })}
         </div>
-      </section>
 
-      {activeModule !== 'SHIFTS' && <section className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-        <div className="flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="h-10 min-w-40 shrink-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-xs font-black outline-none focus:border-orange-400">
+        {activeModule !== 'SHIFTS' && <div className="mt-3 flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="h-9 min-w-36 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[11px] font-bold outline-none focus:border-amber-400 sm:text-xs">
             {role === 'ADMIN' && <option value="ALL">Toàn hệ thống</option>}
             {accessibleBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
-          <input type="month" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)} className="h-10 shrink-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-xs font-black outline-none focus:border-orange-400" />
-          {activeModule === 'TIMESHEET' && <label className="relative min-w-48 flex-1"><Search className="absolute left-3 top-3 h-4 w-4 text-zinc-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm nhân viên" className="h-10 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-9 pr-3 text-xs font-bold outline-none focus:border-orange-400" /></label>}
-        </div>
-      </section>}
+          {(activeModule === 'TIMESHEET' || activeModule === 'PAYROLL') && <input type="month" value={selectedPeriod} onChange={(event) => setSelectedPeriod(event.target.value)} className="h-9 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[11px] font-bold outline-none focus:border-amber-400 sm:text-xs" />}
+          {(activeModule === 'TIMESHEET' || activeModule === 'PAYROLL') && <label className="relative min-w-36 flex-1 sm:min-w-48"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-zinc-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm nhân viên" className="h-9 w-full rounded-lg border border-zinc-200 bg-zinc-50 pl-8 pr-2 text-[11px] font-bold outline-none focus:border-amber-400 sm:text-xs" /></label>}
+          {activeModule === 'OVERVIEW' && <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-9 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[11px] font-bold outline-none focus:border-amber-400"><option value="ALL">Tất cả trạng thái</option><option value="WORKING">Đang làm</option><option value="LATE">Đi trễ</option><option value="COMPLETED">Đã kết ca</option></select>}
+          {activeModule === 'TIMESHEET' && <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-9 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[11px] font-bold outline-none focus:border-amber-400"><option value="ALL">Tất cả</option><option value="LATE">Có đi trễ</option><option value="MISSING">Thiếu checkout</option><option value="OT">Có tăng ca</option></select>}
+          {activeModule === 'PAYROLL' && <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-9 shrink-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-[11px] font-bold outline-none focus:border-amber-400"><option value="ALL">Tất cả</option><option value="MISSING_SCHEDULE">Thiếu lịch</option><option value="COMMISSION">Có hoa hồng</option></select>}
+        </div>}
+      </section>
 
-      {activeModule !== 'SHIFTS' && <HRMetricCarousel items={metrics} />}
+      {(activeModule === 'OVERVIEW' || activeModule === 'TIMESHEET') && <HRMetricCarousel items={metrics} />}
 
       {activeModule === 'OVERVIEW' && <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-zinc-100 p-4"><div><h2 className="font-black text-zinc-900">Trạng thái hôm nay</h2><p className="mt-1 text-xs font-semibold text-zinc-500">Dữ liệu chấm công cập nhật trực tiếp từ Firestore.</p></div><span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-700">{todayAttendance.length} bản ghi</span></div>
-          {todayAttendance.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Chưa có nhân viên chấm công trong phạm vi đang chọn.</div> : <div className="divide-y divide-zinc-100">{todayAttendance.map((record) => <article key={record.id} className="flex items-center justify-between gap-3 p-4"><div className="min-w-0"><div className="truncate text-sm font-black text-zinc-900">{record.staffName}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{record.branchName} · {record.shiftName || 'Chưa có ca'}</div></div><div className="text-right"><div className="text-sm font-black text-zinc-900">{record.checkInTime || '--:--'} → {record.checkOutTime || 'đang làm'}</div><div className={`mt-1 text-[11px] font-black ${Number(record.lateMinutes || 0) > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>{Number(record.lateMinutes || 0) > 0 ? `Trễ ${record.lateMinutes} phút` : 'Đúng giờ'}</div></div></article>)}</div>}
+          {visibleTodayAttendance.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Chưa có bản ghi phù hợp bộ lọc.</div> : <div className="divide-y divide-zinc-100">{visibleTodayAttendance.map((record) => <article key={record.id} className="flex items-center justify-between gap-3 p-4"><div className="min-w-0"><div className="truncate text-sm font-black text-zinc-900">{record.staffName}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{record.branchName} · {record.shiftName || 'Chưa có ca'}</div></div><div className="text-right"><div className="text-sm font-black text-zinc-900">{record.checkInTime || '--:--'} → {record.checkOutTime || 'đang làm'}</div><div className={`mt-1 text-[11px] font-black ${Number(record.lateMinutes || 0) > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>{Number(record.lateMinutes || 0) > 0 ? `Trễ ${record.lateMinutes} phút` : 'Đúng giờ'}</div></div></article>)}</div>}
         </section>
 
         <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
@@ -185,10 +202,10 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
 
       {activeModule === 'TIMESHEET' && <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
         <div className="border-b border-zinc-100 p-4"><h2 className="font-black text-zinc-900">Bảng công {selectedPeriod}</h2><p className="mt-1 text-xs font-semibold text-zinc-500">Mỗi nhân viên chỉ có một dòng; số ngày được gom theo ngày chấm công thực tế.</p></div>
-        {timesheetRows.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Không có nhân viên phù hợp.</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">{timesheetRows.map((row) => <article key={row.staff.id} className="rounded-2xl border border-zinc-200 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-black text-zinc-900">{row.staff.name}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{row.staff.roleTitle}</div></div><span className="rounded-xl bg-orange-50 px-3 py-2 text-lg font-black text-orange-600">{row.workDays}</span></div><div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-900">{row.completedDays}</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đủ checkout</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-orange-600">{row.lateMinutes}p</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đi trễ</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-blue-600">{Math.round(row.otMinutes / 60 * 10) / 10}h</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Tăng ca</div></div></div>{row.missingCheckout > 0 && <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Thiếu checkout {row.missingCheckout} ngày</div>}</article>)}</div>}
+        {timesheetRows.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Không có nhân viên phù hợp.</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">{timesheetRows.map((row) => <article key={row.staff.id} className="rounded-2xl border border-zinc-200 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-black text-zinc-900">{row.staff.name}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{row.staff.roleTitle}</div></div><span className="rounded-xl bg-orange-50 px-3 py-2 text-lg font-black text-orange-600">{row.workDays}</span></div><div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-900">{row.completedDays}</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đủ checkout</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-orange-600">{row.lateMinutes}p</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đi trễ</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-800">{Math.round(row.otMinutes / 60 * 10) / 10}h</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Tăng ca</div></div></div>{row.missingCheckout > 0 && <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Thiếu checkout {row.missingCheckout} ngày</div>}</article>)}</div>}
       </section>}
 
-      {activeModule === 'PAYROLL' && <MonthlyPayrollTable staffList={staffList} branches={accessibleBranches} attendanceRecords={monthAttendance} selectedMonth={selectedPeriod} />}
+      {activeModule === 'PAYROLL' && <MonthlyPayrollTable staffList={staffList} branches={accessibleBranches} attendanceRecords={monthAttendance} selectedMonth={selectedPeriod} selectedBranchId={selectedBranchId} search={search} recordFilter={statusFilter} />}
     </div>
   );
 };
