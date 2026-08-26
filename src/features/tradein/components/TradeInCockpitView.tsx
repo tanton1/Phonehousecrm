@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { DeviceItem, StoreBranch, StaffMember, TradeInAppraisal } from '../../../types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { DeviceItem, StoreBranch, StaffMember, TradeInAppraisal, WarehouseInfo } from '../../../types';
 import { OldDeviceAppraisalPanel, OldDeviceAppraisalState } from './OldDeviceAppraisalPanel';
 import { TargetDevicePickerPanel } from './TargetDevicePickerPanel';
 import { TradeInSummaryPanel } from './TradeInSummaryPanel';
@@ -7,6 +7,7 @@ import { Repeat, CheckCircle2 } from 'lucide-react';
 
 export interface TradeInCockpitViewProps {
   devices: DeviceItem[];
+  warehouses: WarehouseInfo[];
   currentBranch: StoreBranch;
   currentUser?: StaffMember | null;
   onCompleteTradeInToPOS: (appraisal: TradeInAppraisal, targetDevice: DeviceItem) => void;
@@ -14,6 +15,7 @@ export interface TradeInCockpitViewProps {
 
 export const TradeInCockpitView: React.FC<TradeInCockpitViewProps> = ({
   devices,
+  warehouses,
   currentBranch,
   currentUser,
   onCompleteTradeInToPOS
@@ -21,10 +23,12 @@ export const TradeInCockpitView: React.FC<TradeInCockpitViewProps> = ({
   const [appraisalState, setAppraisalState] = useState<OldDeviceAppraisalState>({
     customerName: '',
     customerPhone: '',
-    oldModel: 'iPhone 13 128GB',
-    storage: '128GB',
-    color: 'Xanh Midnight',
-    batteryPercent: 88,
+    imei: '',
+    receiveWarehouseId: '',
+    oldModel: '',
+    storage: '',
+    color: '',
+    batteryPercent: 100,
     bodyCondition: 'Keng Không Vết Xước',
     screenCondition: 'Màn Zin Đẹp',
     faceIdWorking: true,
@@ -32,9 +36,23 @@ export const TradeInCockpitView: React.FC<TradeInCockpitViewProps> = ({
     icloudUnlocked: true,
     truetoneWorking: true,
     speakersWorking: true,
-    basePrice: 11_000_000,
-    subsidyBonus: 500_000
+    basePrice: 0,
+    subsidyBonus: 0
   });
+
+  const receiptWarehouses = useMemo(() => warehouses.filter(warehouse => (
+    warehouse.branchId === currentBranch.id
+    && warehouse.isActive !== false
+    && warehouse.active !== false
+    && warehouse.isArchived !== true
+    && ['CENTRAL', 'RETAIL_STORE'].includes(String(warehouse.type || 'RETAIL_STORE'))
+  )), [currentBranch.id, warehouses]);
+
+  useEffect(() => {
+    setAppraisalState(current => receiptWarehouses.some(warehouse => String(warehouse.id) === current.receiveWarehouseId)
+      ? current
+      : { ...current, receiveWarehouseId: String(receiptWarehouses.find(warehouse => String(warehouse.id) === String(currentBranch.warehouseId))?.id || receiptWarehouses[0]?.id || '') });
+  }, [currentBranch.warehouseId, receiptWarehouses]);
 
   const [selectedTargetDevice, setSelectedTargetDevice] = useState<DeviceItem | null>(null);
 
@@ -63,6 +81,7 @@ export const TradeInCockpitView: React.FC<TradeInCockpitViewProps> = ({
         <div className="w-full">
           <OldDeviceAppraisalPanel
             state={appraisalState}
+            warehouses={receiptWarehouses}
             onChange={handleUpdateAppraisal}
           />
         </div>

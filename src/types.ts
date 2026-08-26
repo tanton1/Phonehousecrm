@@ -1065,6 +1065,10 @@ export interface Lead {
 export interface TradeInAppraisal {
   id: string;
   branchId?: string;
+  /** IMEI thật của máy thu cũ; được đối chiếu lại khi nhập cùng hóa đơn POS. */
+  imei?: string;
+  /** Kho nhận máy thu cũ thuộc đúng chi nhánh lập phiếu. */
+  receiveWarehouseId?: string;
   customerName: string;
   phone: string;
   oldModel: string;
@@ -1082,7 +1086,10 @@ export interface TradeInAppraisal {
   targetNewModel: string;
   targetNewModelPrice: number;
   upgradeDiffPrice: number;
-  status: 'pending' | 'accepted' | 'rejected' | 'completed';
+  status: 'pending' | 'accepted' | 'approved' | 'rejected' | 'completed' | 'CONSUMED';
+  approvedPrice?: number | null;
+  finalApprovedPrice?: number | null;
+  usedByInvoiceId?: string;
   createdDate: string;
   inspectedBy: string;
   aiSuggestedPrice?: number;
@@ -1695,6 +1702,7 @@ export interface LeaveRequest {
   staffName: string;
   role: StaffRole;
   branchName: string;
+  branchId?: string;
   type: 'ANNUAL_LEAVE' | 'HALF_DAY' | 'UNPAID' | 'SHIFT_SWAP' | 'SICK_LEAVE';
   startDate: string;
   endDate: string;

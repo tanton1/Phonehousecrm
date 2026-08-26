@@ -1,6 +1,7 @@
 import { cert, initializeApp, getApps, getApp, App } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase Admin SDK using modular subpaths
@@ -38,6 +39,7 @@ if (getApps().length === 0) {
 }
 
 export const adminAuth = getAuth(adminApp);
+export const adminBucket = getStorage(adminApp).bucket();
 export const adminDb = getFirestore(
   adminApp,
   process.env.FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId

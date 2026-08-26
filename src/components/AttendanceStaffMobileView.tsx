@@ -115,14 +115,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       const found = availableBranches.find(b => b.id === currentUser.branchId || b.code === currentUser.branchId);
       if (found) return found;
     }
-    if (currentUser?.branchName) {
-      const found = availableBranches.find(b => 
-        b.name.toLowerCase().includes(currentUser.branchName!.toLowerCase()) || 
-        currentUser.branchName!.toLowerCase().includes(b.name.toLowerCase())
-      );
-      if (found) return found;
-    }
-    return availableBranches[0];
+    return undefined;
   }, [availableBranches, currentUser?.branchId, currentUser?.branchName]);
 
   const [activeBranchGps, setActiveBranchGps] = useState<{ lat: number; lng: number } | null>(null);
@@ -130,7 +123,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   const targetLat = activeBranchGps ? activeBranchGps.lat : (targetBranch?.gpsLatitude ?? 0);
   const targetLng = activeBranchGps ? activeBranchGps.lng : (targetBranch?.gpsLongitude ?? 0);
   const allowedRadiusMeters = targetBranch?.attendanceRadius ?? targetBranch?.allowedGpsRadiusMeters ?? 50;
-  const targetWifiSSID = targetBranch?.allowedWifiSSID || currentUser?.allowedWifiSSID || 'WIFI_CUA_HANG';
+  const targetWifiSSID = targetBranch?.allowedWifiSSID || currentUser?.allowedWifiSSID || '';
 
   // Device coordinates & Error messages
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -153,30 +146,18 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     return Math.round(R * c);
   };
   
-  // Face Biometric State & Persistence
+  // Face evidence is supplementary and must never be persisted in localStorage.
   const [isFaceRegistrationOpen, setIsFaceRegistrationOpen] = useState<boolean>(false);
   const [staffFaceProfile, setStaffFaceProfile] = useState<{
     facePhotoUrl?: string;
     assignedFaceEmbedding: boolean;
     faceFeatureVector?: number[];
     faceEnrollmentDate?: string;
-  }>(() => {
-    try {
-      const storageKey = `phonehouse_face_profile_${currentUser.id || currentUser.code || 'STAFF'}`;
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.warn('Could not read saved face profile:', e);
-    }
-    return {
+  }>(() => ({
       facePhotoUrl: currentUser.facePhotoUrl || currentUser.avatar,
-      assignedFaceEmbedding: currentUser.assignedFaceEmbedding ?? true,
-      faceFeatureVector: currentUser.faceFeatureVector,
+      assignedFaceEmbedding: false,
       faceEnrollmentDate: currentUser.faceEnrollmentDate || '2024-01-15'
-    };
-  });
+  }));
 
   const handleSaveSelfFaceProfile = (faceData: {
     facePhotoUrl: string;
@@ -185,20 +166,13 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   }) => {
     const updated = {
       facePhotoUrl: faceData.facePhotoUrl,
-      assignedFaceEmbedding: true,
-      faceFeatureVector: faceData.faceFeatureVector,
+      assignedFaceEmbedding: false,
       faceEnrollmentDate: faceData.faceEnrollmentDate
     };
     setStaffFaceProfile(updated);
-    try {
-      const storageKey = `phonehouse_face_profile_${currentUser.id || currentUser.code || 'STAFF'}`;
-      localStorage.setItem(storageKey, JSON.stringify(updated));
-    } catch (e) {
-      console.warn('Could not persist face profile:', e);
-    }
-    setFaceStatus('SUCCESS');
-    setFaceConfidence(98.8);
-    setFaceFeedbackMsg(`Đã cập nhật & xác thực mẫu Face ID của nhân viên ${currentUser.name}`);
+    setFaceStatus('IDLE');
+    setFaceConfidence(0);
+    setFaceFeedbackMsg(`Ảnh của ${currentUser.name} chỉ dùng làm bằng chứng đối chiếu trong phiên này.`);
   };
 
   // Real Camera Refs & Video Stream Lifecycle
@@ -318,61 +292,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         return;
       }
 
-      // Extract local biometric vector
-      const liveVector = extractFaceFeatureVectorFromCanvas(canvas);
-
-      // Verify registered baseline vector from approved enrollment profile
-      const hasExistingVector = staffFaceProfile?.faceFeatureVector && staffFaceProfile.faceFeatureVector.length > 0;
-      if (!hasExistingVector) {
-        setFaceStatus('ERROR');
-        setFaceConfidence(0);
-        setFaceFeedbackMsg(`Tài khoản ${currentUser.name} chưa được Quản lý duyệt mẫu Face ID. Vui lòng liên hệ Quản lý/Admin.`);
-        setIsVerifyingFace(false);
-        return;
-      }
-
-      // Call backend AI Face Verification endpoint
-      let isVerified = false;
-      try {
-        const res = await fetch('/api/ai/verify-face', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            livePhotoBase64: liveDataUrl,
-            referencePhotoBase64: staffFaceProfile.facePhotoUrl?.startsWith('data:') ? staffFaceProfile.facePhotoUrl : undefined,
-            referencePhotoUrl: !staffFaceProfile.facePhotoUrl?.startsWith('data:') ? staffFaceProfile.facePhotoUrl : undefined,
-            employeeName: currentUser.name,
-            liveVector,
-            storedVector: staffFaceProfile.faceFeatureVector
-          })
-        });
-
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && json.data) {
-            const { isMatched, confidenceScore, matchReason, isHumanFacePresent } = json.data;
-            if (isMatched && isHumanFacePresent) {
-              setFaceStatus('SUCCESS');
-              setFaceConfidence(confidenceScore || 98.6);
-              setFaceFeedbackMsg(matchReason || `Đã đối soát trùng khớp khuôn mặt nhân viên: ${currentUser.name}`);
-              isVerified = true;
-            } else {
-              setFaceStatus('ERROR');
-              setFaceConfidence(confidenceScore || 35.0);
-              setFaceFeedbackMsg(matchReason || `Khuôn mặt không trùng khớp với hồ sơ đăng ký của ${currentUser.name}`);
-              isVerified = true;
-            }
-          }
-        }
-      } catch (apiErr) {
-        console.warn('Backend face verification fallback:', apiErr);
-      }
-
-      if (!isVerified) {
-        setFaceStatus('ERROR');
-        setFaceConfidence(0);
-        setFaceFeedbackMsg('Máy chủ AI xác thực bảo mật không phản hồi. Vui lòng kiểm tra mạng và quét lại.');
-      }
+      setFaceStatus('SUCCESS');
+      setFaceConfidence(0);
+      setFaceFeedbackMsg(`Đã chụp ảnh bằng chứng tùy chọn của ${currentUser.name}. Ảnh không tự quyết định kết quả chấm công.`);
     } catch (err: any) {
       console.error('Execute face scan error:', err);
       setFaceStatus('ERROR');
@@ -418,7 +340,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   const [faceConfidence, setFaceConfidence] = useState<number>(99.4);
   const [gpsDistance, setGpsDistance] = useState<number>(0);
   const [currentWifiSSID, setCurrentWifiSSID] = useState<string>(targetWifiSSID);
-  const [qrSessionCode, setQrSessionCode] = useState<string>(`PH-QR-${targetBranch.code || 'STORE'}-LIVE`);
+  const [qrSessionCode, setQrSessionCode] = useState<string>(`PH-QR-${targetBranch?.code || 'UNASSIGNED'}-LIVE`);
 
   // Real GPS Location Verification via Geolocation API & Haversine Formula
   const fetchRealGPSLocation = (tLat = targetLat, tLng = targetLng, maxMeters = allowedRadiusMeters) => {
@@ -510,8 +432,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     }, 1000);
   };
 
-  // Simplified 3-Factor Verification: GPS + Wi-Fi + Face ID
-  const isAllVerified = gpsStatus === 'SUCCESS' && wifiStatus === 'SUCCESS' && faceStatus === 'SUCCESS';
+  // GPS + store network authorize the automatic path. Face capture is only
+  // supplementary evidence and must never block or authorize attendance.
+  const isAllVerified = gpsStatus === 'SUCCESS' && wifiStatus === 'SUCCESS';
 
   // Retry individual verification step
   const retryStep = (step: 'GPS' | 'WIFI' | 'FACE' | 'QR') => {
@@ -548,7 +471,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       setQrStatus('PENDING');
       setTimeout(() => {
         setQrStatus('SUCCESS');
-        setQrSessionCode(`PH-QR-${targetBranch.code || 'STORE'}-LIVE`);
+        setQrSessionCode(`PH-QR-${targetBranch?.code || 'UNASSIGNED'}-LIVE`);
       }, 700);
     }
   };
@@ -623,6 +546,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
   };
 
   const handleConfirmCheckIn = async () => {
+    if (!targetBranch?.id) {
+      alert('BRANCH_REQUIRED: Tài khoản chưa được gắn với một chi nhánh đang hoạt động.');
+      return;
+    }
     if (attendanceRecord?.checkInTime) {
       alert(`Bạn đã điểm danh vào ca hôm nay lúc ${attendanceRecord.checkInTime}.`);
       return;
@@ -640,8 +567,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         staffId: currentUser.id,
         staffName: currentUser.displayName,
         role: currentUser.role,
-        branchId: targetBranch?.id || currentUser.branchId || 'CN01',
-        branchName: targetBranch?.name || 'Chi nhánh PhoneHouse',
+        branchId: targetBranch.id,
+        branchName: targetBranch.name,
         userCoords: userCoords ? { latitude: userCoords.lat, longitude: userCoords.lng } : undefined,
         storeCoords: targetBranch ? { latitude: targetBranch.gpsLatitude || targetBranch.latitude || 0, longitude: targetBranch.gpsLongitude || targetBranch.longitude || 0 } : undefined,
         allowedRadiusMeters: targetBranch?.attendanceRadius || targetBranch?.allowedGpsRadiusMeters || 50,
@@ -662,17 +589,17 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       qrScanned: qrStatus === 'SUCCESS'
     });
     setCurrentScreen('SUCCESS_CHECKIN');
-    localStorage.setItem(`phonehouse_is_checked_in_${currentUser.id}`, 'true');
   };
 
   const handleConfirmCheckOut = async () => {
     try {
-      await submitServerCheckOut(currentUser.id, targetBranch?.id || currentUser.branchId || 'CN01');
+      const branchId = targetBranch?.id || currentUser.branchId || '';
+      if (!branchId) throw new Error('BRANCH_REQUIRED: Cần chọn chi nhánh trước khi kết thúc ca.');
+      await submitServerCheckOut(currentUser.id, branchId);
     } catch (e) {
       console.warn('Server Check-out sync note:', e);
     }
     onCheckOut();
-    localStorage.removeItem(`phonehouse_is_checked_in_${currentUser.id}`);
     setShiftStatusOverride('AUTO'); // reset demo state
     setCurrentScreen('HOME');
   };
@@ -707,6 +634,18 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       swapWithStaffName: ''
     });
   };
+
+  if (!targetBranch) {
+    return (
+      <div className="min-h-screen bg-[#F7F8FA] p-5 flex items-center justify-center">
+        <div className="w-full max-w-sm rounded-3xl border border-amber-200 bg-white p-6 text-center shadow-lg">
+          <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
+          <h2 className="mt-3 text-lg font-black text-zinc-900">Chưa gắn chi nhánh</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-600">Quản lý cần gắn tài khoản này với đúng mã chi nhánh đang hoạt động trước khi chấm công.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F8FA] pb-24 text-zinc-900 font-sans antialiased select-none max-w-md mx-auto relative border-x border-zinc-200/60 shadow-xl overflow-hidden">
@@ -1524,7 +1463,6 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <button
               onClick={() => {
                 setShiftStatusOverride('IN_PROGRESS');
-                localStorage.setItem(`phonehouse_is_checked_in_${currentUser.id}`, 'true');
                 setCurrentScreen('HOME');
               }}
               className="w-full py-4 bg-[#FF4B16] hover:bg-[#E94312] text-white font-black text-sm rounded-2xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"

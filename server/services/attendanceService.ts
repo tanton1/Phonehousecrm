@@ -1,6 +1,6 @@
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { verifyGeofence, LatLng } from './geofenceService';
-import { verifyFaceBiometric } from './biometricService';
+import { assertAttendanceVerificationSession } from './attendanceVerificationService';
 
 export function resolveAttendanceRadius(branch: { attendanceRadius?: unknown; allowedGpsRadiusMeters?: unknown } | null | undefined): number {
   const canonical = Number(branch?.attendanceRadius);
@@ -20,6 +20,8 @@ export interface CheckInEvidenceRequest {
   faceCaptureBase64?: string;
   faceEmbedding?: number[];
   faceSessionId?: string;
+  verificationNonce?: string;
+  deviceId?: string;
   qrScanned?: boolean;
   clientIp?: string;
   testShiftMock?: ShiftDefinition; // Optional mock for isolated unit testing
@@ -28,6 +30,10 @@ export interface CheckInEvidenceRequest {
 export interface CheckOutRequest {
   staffId: string;
   branchId: string;
+  faceSessionId?: string;
+  verificationNonce?: string;
+  deviceId?: string;
+  clientIp?: string;
 }
 
 export interface AttendanceReviewRequest {
@@ -264,9 +270,9 @@ export async function processServerCheckIn(
     branchId,
     branchName = 'Chi nhánh PhoneHouse',
     userCoords,
-    faceCaptureBase64,
-    faceEmbedding,
     faceSessionId,
+    verificationNonce,
+    deviceId,
     qrScanned = false,
     clientIp = '127.0.0.1',
     testShiftMock
@@ -316,19 +322,12 @@ export async function processServerCheckIn(
     }
   }
 
-  // 1B. Biometric Face Verification V2 (Single Source of Truth: staffFaceProfiles)
-  const faceCheck = await verifyFaceBiometric(db, {
-    staffUid: staffId,
-    liveEmbedding: faceEmbedding,
-    liveCaptureBase64: faceCaptureBase64
-  });
-  const isFaceVerified = faceCheck.verified;
+  // Face capture is supplementary evidence only. Browser-provided embeddings
+  // never authorize attendance and are deliberately ignored.
+  const isFaceVerified = false;
 
   // 2. Authoritative Geofencing Calculation
   const geoCheck = verifyGeofence(userCoords, authoritativeStoreCoords, authoritativeRadius);
-  if (!geoCheck.isInside) {
-    throw new Error(geoCheck.error || 'Vị trí GPS không nằm trong bán kính cho phép của cửa hàng.');
-  }
 
   // 3. Authoritative Server Timestamp (Vietnam Timezone)
   const now = new Date();
@@ -368,7 +367,7 @@ export async function processServerCheckIn(
   let punctualityStatus: 'ON_TIME' | 'LATE' | 'EARLY' = 'ON_TIME';
   let verificationStatus: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED' = 'VERIFIED';
 
-  if (!isFaceVerified || !isNetworkAllowed) {
+  if (!geoCheck.isInside || !isNetworkAllowed) {
     status = 'PENDING_VERIFICATION';
     verificationStatus = 'PENDING_REVIEW';
   } else if (lateMinutes > 0) {
@@ -406,10 +405,9 @@ export async function processServerCheckIn(
     earlyMinutes: 0,
     otMinutes: 0,
     verification: {
-      gpsVerified: true,
+      gpsVerified: geoCheck.isInside,
       distanceMeters: geoCheck.distanceMeters,
       faceVerified: isFaceVerified,
-      faceScore: faceCheck.score,
       networkVerified: isNetworkAllowed,
       qrScanned,
       serverTimeIso
@@ -419,8 +417,19 @@ export async function processServerCheckIn(
   // 6. Persistence with Duplicate Locking
   if (db) {
     const attRef = db.collection('attendance').doc(recordId);
+    if (!faceSessionId || !verificationNonce || !deviceId) throw new Error('VERIFICATION_SESSION_REQUIRED');
+    const sessionRef = db.collection('attendanceVerificationSessions').doc(faceSessionId);
     await db.runTransaction(async (transaction) => {
-      const snap = await transaction.get(attRef);
+      const [sessionSnap, snap] = await Promise.all([transaction.get(sessionRef), transaction.get(attRef)]);
+      assertAttendanceVerificationSession(sessionSnap.exists ? sessionSnap.data() : null, {
+        sessionId: faceSessionId,
+        nonce: verificationNonce,
+        uid: staffId,
+        branchId,
+        deviceId,
+        action: 'CHECK_IN',
+        clientIp
+      });
       if (snap.exists) {
         const existingData = snap.data()!;
         if (existingData.checkInTime) {
@@ -430,6 +439,11 @@ export async function processServerCheckIn(
       transaction.set(attRef, {
         ...newRecord,
         createdAt: FieldValue.serverTimestamp()
+      });
+      transaction.update(sessionRef, {
+        status: 'USED',
+        usedAt: FieldValue.serverTimestamp(),
+        attendanceId: recordId
       });
     });
   }
@@ -460,7 +474,7 @@ export async function processServerCheckOut(
       id: recordId,
       staffId,
       staffName: 'Nhân viên',
-      branchId: payload.branchId || 'CN01',
+      branchId: payload.branchId || 'TEST_BRANCH',
       date: dateStr,
       checkInTime: '08:00:00',
       checkOutTime: timeStr,
@@ -502,7 +516,18 @@ export async function processServerCheckOut(
   }
 
   completedRecord = await db.runTransaction(async (transaction) => {
-    const snap = await transaction.get(targetAttRef);
+    if (!payload.faceSessionId || !payload.verificationNonce || !payload.deviceId) throw new Error('VERIFICATION_SESSION_REQUIRED');
+    const sessionRef = db.collection('attendanceVerificationSessions').doc(payload.faceSessionId);
+    const [sessionSnap, snap] = await Promise.all([transaction.get(sessionRef), transaction.get(targetAttRef)]);
+    assertAttendanceVerificationSession(sessionSnap.exists ? sessionSnap.data() : null, {
+      sessionId: payload.faceSessionId,
+      nonce: payload.verificationNonce,
+      uid: staffId,
+      branchId: payload.branchId,
+      deviceId: payload.deviceId,
+      action: 'CHECK_OUT',
+      clientIp: payload.clientIp || ''
+    });
     if (!snap.exists) {
       throw new Error('NOT_CHECKED_IN: Không tìm thấy lượt điểm danh vào ca đang mở để kết thúc ca.');
     }
@@ -546,6 +571,11 @@ export async function processServerCheckOut(
     };
 
     transaction.update(targetAttRef, updateFields);
+    transaction.update(sessionRef, {
+      status: 'USED',
+      usedAt: FieldValue.serverTimestamp(),
+      attendanceId: targetAttRef.id
+    });
 
     return {
       ...data,

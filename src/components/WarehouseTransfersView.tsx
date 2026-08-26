@@ -219,7 +219,6 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
       window.clearInterval(timer);
     };
     // onTransferSynced intentionally omitted: App recreates the optimistic sync callback on render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser.id]);
 
   useEffect(() => {

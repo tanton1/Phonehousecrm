@@ -118,6 +118,7 @@ export async function executeAtomicCheckout(
     payments: payload.payments,
     payment: payload.payment,
     branchId: payload.branchId || payload.invoice?.branchId,
+    warehouseId: payload.warehouseId || payload.invoice?.warehouseId,
     voucherCode: payload.voucherCode?.trim().toUpperCase(),
     tradeInAppraisalId: payload.tradeInAppraisalId,
     tradeInDevice: payload.tradeInDevice ? {
@@ -128,7 +129,8 @@ export async function executeAtomicCheckout(
     } : null
   };
   const currentPayloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayloadObj)).digest('hex');
-  const checkoutBranchForCare = payload.branchId || payload.invoice?.branchId || authenticatedStaff?.branchId || 'CN01';
+  const checkoutBranchForCare = String(payload.branchId || payload.invoice?.branchId || authenticatedStaff?.branchId || '').trim();
+  if (!checkoutBranchForCare) throw new Error('BRANCH_REQUIRED: Hóa đơn phải được định danh theo chi nhánh.');
   const rawCustomerPhone = String(payload.customerPhone || payload.invoice?.customerPhone || payload.customerPartner?.phone || '').trim();
   let normalizedCustomerPhone = '';
   try { normalizedCustomerPhone = rawCustomerPhone ? normalizeCrmPhone(rawCustomerPhone) : ''; } catch { normalizedCustomerPhone = ''; }
@@ -169,7 +171,17 @@ export async function executeAtomicCheckout(
       }
     }
 
-    const branchId = payload.branchId || payload.invoice?.branchId || authenticatedStaff?.branchId || 'CN01';
+    const branchId = checkoutBranchForCare;
+    if (branchId === 'ALL') throw new Error('BRANCH_REQUIRED: Hóa đơn phải chọn một chi nhánh cụ thể.');
+    const warehouseId = String(payload.warehouseId || payload.invoice?.warehouseId || '').trim();
+    if (!warehouseId || warehouseId === 'ALL') throw new Error('POS_WAREHOUSE_REQUIRED: Hóa đơn phải chọn kho bán hàng cụ thể.');
+    const warehouseSnap = await transaction.get(db.collection('warehouses').doc(warehouseId));
+    if (!warehouseSnap.exists || warehouseSnap.data()?.isActive === false || warehouseSnap.data()?.active === false || warehouseSnap.data()?.isArchived === true) {
+      throw new Error('POS_WAREHOUSE_NOT_ACTIVE: Kho bán hàng không tồn tại hoặc đã ngừng hoạt động.');
+    }
+    if (String(warehouseSnap.data()?.branchId || '') !== branchId) {
+      throw new Error('POS_WAREHOUSE_BRANCH_MISMATCH: Kho bán hàng không thuộc chi nhánh lập hóa đơn.');
+    }
     const branchNameSnapshot = String(payload.branchName || payload.invoice?.branchName || payload.invoice?.branch || '').trim();
     const isMultiPayment = Array.isArray(payload.payments) && payload.payments.length > 0;
     const paymentMethod = isMultiPayment
@@ -271,6 +283,10 @@ export async function executeAtomicCheckout(
       if (devData.branchId && devData.branchId !== branchId) {
         throw new Error(`DEVICE_BRANCH_MISMATCH: Thiết bị ${devData.model} thuộc chi nhánh "${devData.branchId}", không thuộc chi nhánh bán "${branchId}".`);
       }
+      const deviceLocationId = String(devData.currentLocationId || devData.warehouseId || devData.warehouse || '').trim();
+      if (!deviceLocationId || deviceLocationId !== warehouseId) {
+        throw new Error(`DEVICE_LOCATION_MISMATCH: Thiết bị ${devData.model} không nằm tại kho bán "${warehouseId}".`);
+      }
 
       const price = typeof devData.sellPrice === 'number' ? devData.sellPrice : 0;
       loadedDevices.push({ id: devId, ref: devRef, data: devData, listPrice: price, authoritativePrice: price, wasReserved: isReservedForThisLead });
@@ -282,7 +298,6 @@ export async function executeAtomicCheckout(
       : (payload.accessoriesToSell || []);
 
     const loadedAccessories: any[] = [];
-    const warehouseId = payload.warehouseId || payload.invoice?.warehouseId || 'WH01';
 
     for (const acc of accessoryLines) {
       const prodId = acc.productId || acc.product?.id;
@@ -462,6 +477,11 @@ export async function executeAtomicCheckout(
     // 6. Server Truth: Resolve Trade-in Valuation from DB with Consumption Lock & Final Approved Price
     let authoritativeTradeInDeduction = 0;
     let appraisalRef: DocumentReference | null = null;
+    let appraisalData: any = null;
+
+    if (Boolean(payload.tradeInAppraisalId) !== Boolean(payload.tradeInDevice)) {
+      throw new Error('TRADE_IN_PAIR_REQUIRED: Phiếu thu cũ và thông tin IMEI máy nhận phải được gửi cùng nhau.');
+    }
 
     if (payload.tradeInAppraisalId) {
       appraisalRef = db.collection('tradeInAppraisals').doc(payload.tradeInAppraisalId);
@@ -470,6 +490,7 @@ export async function executeAtomicCheckout(
         throw new Error(`TRADE_IN_NOT_FOUND: Phiếu thẩm định thu cũ "${payload.tradeInAppraisalId}" không tồn tại.`);
       }
       const appData = appraisalSnap.data()!;
+      appraisalData = appData;
 
       // Anti-Reuse Lock: Verify appraisal has not been consumed by another invoice
       if (appData.status === 'CONSUMED' || appData.usedByInvoiceId) {
@@ -507,6 +528,15 @@ export async function executeAtomicCheckout(
       if (!authoritativeTradeInDeduction) authoritativeTradeInDeduction = tradeInCost;
 
       const tradeInLocationId = String(draft.currentLocationId || draft.warehouseId || draft.warehouse || warehouseId || '');
+      if (appraisalData?.imei && normalizeImei(appraisalData.imei) !== normalizedImei) {
+        throw new Error('TRADE_IN_IMEI_MISMATCH: IMEI nhập kho không khớp phiếu thẩm định đã duyệt.');
+      }
+      if (appraisalData?.receiveWarehouseId && String(appraisalData.receiveWarehouseId) !== tradeInLocationId) {
+        throw new Error('TRADE_IN_WAREHOUSE_MISMATCH: Kho nhận máy không khớp phiếu thẩm định đã duyệt.');
+      }
+      if (tradeInLocationId !== warehouseId) {
+        throw new Error('TRADE_IN_WAREHOUSE_MISMATCH: Máy thu cũ phải được nhận vào đúng kho đang xuất hóa đơn.');
+      }
       const locationRef = db.collection('warehouses').doc(tradeInLocationId);
       const locationSnap = await transaction.get(locationRef);
       if (!locationSnap.exists || locationSnap.data()?.isActive === false) {
@@ -760,6 +790,12 @@ export async function executeAtomicCheckout(
         usedByInvoiceId: invoiceId,
         consumedAt: FieldValue.serverTimestamp()
       });
+      transaction.set(db.collection('tradeIns').doc(payload.tradeInAppraisalId), {
+        status: 'CONSUMED',
+        usedByInvoiceId: invoiceId,
+        consumedAt: FieldValue.serverTimestamp(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
     }
 
     // 11. Lock Voucher Quota Increment ONLY when voucher was genuinely applied
@@ -1172,6 +1208,16 @@ export async function executeAtomicCheckout(
       },
       timestamp: FieldValue.serverTimestamp()
     });
+
+    const aggregateDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+    const aggregateDelta = {
+      date: aggregateDate,
+      revenue: FieldValue.increment(finalAmount),
+      invoiceCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp()
+    };
+    transaction.set(db.collection('executiveDailyAggregates').doc(`${aggregateDate}_${branchId}`), { ...aggregateDelta, branchId }, { merge: true });
+    transaction.set(db.collection('executiveDailyAggregates').doc(`${aggregateDate}_ALL`), { ...aggregateDelta, branchId: 'ALL' }, { merge: true });
 
     return {
       success: true,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { financeAccountIdFromDraft, validateFinanceAccountDraft } from '../server/routes/finance';
-import { calculateBranchWarehouseCoverage, isWarehouseRecordActive, validateOperationalConfig, validateWarehouseDraft, warehouseHasBlockingDevices } from '../server/routes/configuration';
+import { calculateBranchWarehouseCoverage, isWarehouseRecordActive, validateBranchDraft, validateOperationalConfig, validateStoreSettingsDraft, validateWarehouseDraft, warehouseHasBlockingDevices } from '../server/routes/configuration';
 import { normalizeOperationalPolicyVersions, operationalPolicyPeriodsOverlap, selectEffectiveOperationalPolicy } from '../server/services/operationalPolicyService';
 
 describe('Branch-scoped finance accounts', () => {
@@ -95,6 +95,28 @@ describe('Branch-scoped warehouse hierarchy', () => {
     expect(calculateBranchWarehouseCoverage(['CN01'], [
       { branchId: 'CN01', isActive: true, isArchived: true }
     ])).toMatchObject({ coveredBranches: 0, totalBranches: 1, complete: false });
+  });
+});
+
+describe('Server-authoritative organization settings', () => {
+  it('normalizes the attendance radius and rejects incomplete branch identity', () => {
+    expect(() => validateBranchDraft({ id: 'BR-1', code: 'CN-01', name: 'PhoneHouse' })).toThrow('BRANCH_REQUIRED_FIELDS');
+    expect(validateBranchDraft({
+      id: 'BR-1', code: 'cn-01', name: 'PhoneHouse', address: '109 Hàm Nghi', phone: '0905000001'
+    })).toMatchObject({ code: 'CN-01', attendanceRadius: 50, allowedPublicIps: [] });
+    expect(() => validateBranchDraft({
+      id: 'BR-1', code: 'CN-01', name: 'PhoneHouse', address: '109 Hàm Nghi', phone: '0905000001', attendanceRadius: 0
+    })).toThrow('BRANCH_ATTENDANCE_RADIUS_INVALID');
+  });
+
+  it('keeps branch and warehouse ledgers out of the company settings payload', () => {
+    const settings = validateStoreSettingsDraft({
+      companyName: 'PhoneHouse', hotline: '0905000001', headquarterAddress: '109 Hàm Nghi',
+      branches: [{ id: 'SHOULD_NOT_PERSIST' }], warehouses: [{ id: 'SHOULD_NOT_PERSIST' }], defaultWarrantyMonths: 12
+    });
+    expect(settings).not.toHaveProperty('branches');
+    expect(settings).not.toHaveProperty('warehouses');
+    expect(settings.defaultWarrantyMonths).toBe(12);
   });
 });
 

@@ -99,7 +99,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   onAddPartner
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
-  const defaultBranchId = currentUser?.branchId || branches[0]?.id || '';
+  const defaultBranchId = currentUser?.branchId || '';
   const [isCreateSupplierModalOpen, setIsCreateSupplierModalOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<'CATALOG' | 'ITEMS' | 'PAYMENT'>('ITEMS');
   const [catalogSearch, setCatalogSearch] = useState('');

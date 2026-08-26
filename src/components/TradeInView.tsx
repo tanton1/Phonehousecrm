@@ -22,8 +22,8 @@ import {
 interface TradeInViewProps {
   tradeIns: TradeInAppraisal[];
   devices: DeviceItem[];
-  onAddTradeIn: (tradeIn: TradeInAppraisal) => void;
-  onUpdateTradeIn: (tradeIn: TradeInAppraisal) => void;
+  onAddTradeIn: (tradeIn: TradeInAppraisal) => Promise<TradeInAppraisal> | void;
+  onUpdateTradeIn: (tradeIn: TradeInAppraisal) => Promise<TradeInAppraisal> | void;
   onImportToInventory: (device: DeviceItem) => void;
 }
 
@@ -35,8 +35,8 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
   onImportToInventory
 }) => {
   // Trade-in Studio Assessment Form State
-  const [customerName, setCustomerName] = useState('Trần Văn Hưng');
-  const [customerPhone, setCustomerPhone] = useState('0987654321');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [oldModel, setOldModel] = useState('iPhone 13 Pro Max');
   const [storage, setStorage] = useState('128GB');
   const [color, setColor] = useState('Sierra Blue');
@@ -63,15 +63,7 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
     deductions: string[];
     salesPitchAdvice: string;
     confidenceScore: number;
-  } | null>({
-    suggestedValuation: 13200000,
-    minPrice: 12500000,
-    maxPrice: 13800000,
-    inspectionGrade: 'Loại 1 (Zin all nguyên bản)',
-    deductions: ['Pin 84% - hỗ trợ khách chi phí thay pin xịn khi chốt đơn'],
-    salesPitchAdvice: 'Báo khách mức giá thu tốt 13.200.000đ, tặng kèm voucher 500k phụ kiện để bù chênh lệch 21.300.000đ lên iPhone 16 Pro Max.',
-    confidenceScore: 95
-  });
+  } | null>(null);
 
   const handleRunAIValuation = () => {
     setIsValuating(true);
@@ -110,7 +102,11 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
     }, 400);
   };
 
-  const handleSaveAppraisal = () => {
+  const handleSaveAppraisal = async () => {
+    if (!customerName.trim() || !/^\+?\d{8,15}$/.test(customerPhone.replace(/\s+/g, ''))) {
+      alert('Vui lòng nhập đúng tên và số điện thoại khách hàng.');
+      return;
+    }
     const valuation = evaluationResult ? evaluationResult.suggestedValuation : 12000000;
     const diff = targetNewModelPrice - valuation;
 
@@ -140,38 +136,18 @@ export const TradeInView: React.FC<TradeInViewProps> = ({
       aiReasoning: evaluationResult?.salesPitchAdvice
     };
 
-    onAddTradeIn(newAppraisal);
-    alert('Đã lưu hồ sơ thẩm định thu cũ thành công!');
+    try {
+      const saved = await onAddTradeIn(newAppraisal);
+      alert(saved?.status === 'accepted'
+        ? 'Đã lưu và duyệt hồ sơ thẩm định thu cũ.'
+        : 'Đã lưu hồ sơ. Phiếu đang chờ quản lý duyệt giá trước khi dùng tại POS.');
+    } catch (error: any) {
+      alert(error?.message || 'Không lưu được hồ sơ thẩm định thu cũ.');
+    }
   };
 
-  const handleConvertOldPhoneToInventory = (t: TradeInAppraisal) => {
-    const generatedImei = '35' + Math.floor(1000000000000 + Math.random() * 9000000000000).toString();
-    const newDevice: DeviceItem = {
-      id: `DEV-TRD-${Date.now().toString().slice(-4)}`,
-      imei: generatedImei,
-      serialNo: 'SN-TRD-' + Date.now().toString().slice(-4),
-      model: t.oldModel,
-      storage: t.storage,
-      color: t.color,
-      region: 'LL/A (Thu Cũ)',
-      batteryHealth: t.batteryPercent,
-      condition: t.bodyCondition === 'Keng Không Vết Xước' ? 'Like New 99%' : '98% Cấn Nhẹ',
-      buyPrice: t.estimatedValue,
-      sellPrice: Math.round((t.estimatedValue * 1.2) / 100000) * 100000,
-      status: 'in_stock',
-      warehouse: 'KHO_PHONEHOUSE',
-      branch: 'Phone House Cầu Giấy (136 Cầu Giấy)',
-      supplier: `Thu Cũ Khách (${t.customerName} - ${t.phone})`,
-      receivedDate: new Date().toISOString().split('T')[0],
-      warrantyPeriodMonths: 6,
-      icloudStatus: 'Clean / Đã Thoát',
-      screenStatus: t.screenCondition === 'Màn Zin Đẹp' ? 'Zin Màn Keng' : 'Zin Ép Kính',
-      notes: `Thu cũ đổi mới lên đời ${t.targetNewModel}. Tình trạng: ${t.bodyCondition}, ${t.screenCondition}`
-    };
-
-    onImportToInventory(newDevice);
-    onUpdateTradeIn({ ...t, status: 'completed' });
-    alert(`Đã nhập cây máy ${t.oldModel} (IMEI: ${generatedImei}) vào kho hàng thành công với giá vốn ${t.estimatedValue.toLocaleString('vi-VN')}đ!`);
+  const handleConvertOldPhoneToInventory = (_t: TradeInAppraisal) => {
+    alert('Không tự sinh IMEI hoặc tăng tồn kho. Hãy đưa phiếu đã duyệt vào POS, nhập IMEI thật và xác nhận hóa đơn; máy thu cũ sẽ được nhập kho trong cùng giao dịch.');
   };
 
   const currentValuation = evaluationResult?.suggestedValuation || 0;

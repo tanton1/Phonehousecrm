@@ -29,7 +29,7 @@ describe('Production Attendance & Shift Hardening Test Suite (P0/P1)', () => {
   });
 
   describe('2. Check-in & Biometric State Engine', () => {
-    it('sets PENDING_VERIFICATION if biometric evidence is not verified', async () => {
+    it('treats biometric evidence as supplementary when GPS and network are valid', async () => {
       const result = await processServerCheckIn(null, {
         staffId: 'STAFF-TECH-01',
         staffName: 'Trần Kỹ Thuật',
@@ -39,7 +39,8 @@ describe('Production Attendance & Shift Hardening Test Suite (P0/P1)', () => {
         clientIp: '127.0.0.1'
       });
 
-      expect(result.status).toBe('PENDING_VERIFICATION');
+      expect(['ON_TIME', 'LATE']).toContain(result.status);
+      expect(result.verificationStatus).toBe('VERIFIED');
       expect(result.verification.gpsVerified).toBe(true);
       expect(result.verification.faceVerified).toBe(false);
       expect(result.verification.networkVerified).toBe(true);

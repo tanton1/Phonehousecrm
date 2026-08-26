@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  subscribeToRepairServices, 
-  addRepairServiceToFirestore
+  subscribeToRepairServices
 } from '../services/firestoreService';
 import { 
   WarrantyTicket, 
@@ -16,7 +15,7 @@ import {
   REPAIR_SERVICES_PRICELIST, 
   RepairServiceItem 
 } from '../data/initialData';
-import { fetchTechnicalTaskSettings } from '../services/configurationApiClient';
+import { createRepairService, fetchTechnicalTaskSettings } from '../services/configurationApiClient';
 import { ActivityLog } from './ActivityLog';
 import { TechKanbanBoard } from './TechKanbanBoard';
 import { TechKPIReport } from './TechKPIReport';
@@ -170,7 +169,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
   }, [priceList, priceSearchTerm, selectedPriceCategory]);
 
   // Handle Save New Price List Item
-  const handleSaveNewPriceItem = (e: React.FormEvent) => {
+  const handleSaveNewPriceItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPriceFormData.name.trim()) return;
 
@@ -188,17 +187,19 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       notes: newPriceFormData.notes
     };
 
-    const updated = [newItem, ...priceList];
-    setPriceList(updated);
-    addRepairServiceToFirestore(newItem);
-
-    setIsAddPriceModalOpen(false);
-    setNewPriceFormData({
-      name: '',
-      category: '', categoryName: '', compatibleModels: '', costPrice: 0, sellPrice: 0,
-      techCommission: 0, warrantyPeriodMonths: 0, durationMinutes: 0,
-      notes: ''
-    });
+    try {
+      const saved = await createRepairService(newItem);
+      setPriceList(current => [saved, ...current.filter(item => item.id !== saved.id)]);
+      setIsAddPriceModalOpen(false);
+      setNewPriceFormData({
+        name: '',
+        category: '', categoryName: '', compatibleModels: '', costPrice: 0, sellPrice: 0,
+        techCommission: 0, warrantyPeriodMonths: 0, durationMinutes: 0,
+        notes: ''
+      });
+    } catch (error: any) {
+      alert(error?.message || 'Không lưu được bảng giá dịch vụ.');
+    }
   };
 
   // Handle Save New Tech Task
@@ -231,7 +232,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
       issueType: 'Khác',
       faultDescription: `${newTaskFormData.taskName}${newTaskFormData.notes ? ` - ${newTaskFormData.notes}` : ''}`,
       status: 'received',
-      branchId: formData.branchId || currentUser?.branchId || branches[0]?.id || '',
+      branchId: formData.branchId || currentUser?.branchId || '',
       isWarrantyFree: newTaskFormData.taskType === 'INBOUND_QC' || newTaskFormData.taskType === 'WARRANTY',
       repairCategory: newTaskFormData.taskType === 'INBOUND_QC' || newTaskFormData.taskType === 'WARRANTY' ? 'WARRANTY_FREE' : 'REPAIR_SERVICE',
       estimatedCost: Number(newTaskFormData.estimatedCost) || 0,

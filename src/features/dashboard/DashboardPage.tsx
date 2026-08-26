@@ -51,6 +51,11 @@ export interface DashboardPageProps {
   currentUser?: StaffMember | null;
   onNavigateTab: (tabId: string) => void;
   onOpenAICopilot?: () => void;
+  systemDataCoverage?: {
+    partialDomainCount: number;
+    invoiceLoaded: number;
+    invoiceTotal: number;
+  };
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
@@ -65,7 +70,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   selectedBranchId,
   currentUser,
   onNavigateTab,
-  onOpenAICopilot
+  onOpenAICopilot,
+  systemDataCoverage
 }) => {
   // Resolve current branch dynamically based on logged-in user's assigned branch
   const currentBranch = useMemo(() => {
@@ -83,9 +89,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase()))
       );
       if (found) return found;
-    }
-    if (branches && branches.length > 0) {
-      return branches[0];
     }
     return null;
   }, [branches, currentUser, selectedBranchId]);
@@ -154,6 +157,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       currentBranch={currentBranch}
       onNavigateTab={onNavigateTab}
       onOpenAICopilot={onOpenAICopilot}
+      systemDataCoverage={systemDataCoverage}
     />
   );
 };
@@ -175,7 +179,8 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
   currentUser,
   currentBranch,
   onNavigateTab,
-  onOpenAICopilot
+  onOpenAICopilot,
+  systemDataCoverage
 }) => {
   const currentBranchName = selectedBranchId === 'ALL'
     ? 'Toàn Hệ Thống'
@@ -544,6 +549,11 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
 
   return (
     <div className="w-full min-h-screen bg-[#f8f9fa] text-zinc-900 select-none font-sans">
+      {systemDataCoverage && systemDataCoverage.partialDomainCount > 0 && (
+        <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 sm:mx-6">
+          Toàn hệ thống đang ở chế độ xem nhanh có phân trang: hóa đơn {systemDataCoverage.invoiceLoaded}/{systemDataCoverage.invoiceTotal}, còn {systemDataCoverage.partialDomainCount} nhóm dữ liệu chưa tải hết. Chọn một chi nhánh để xem realtime đầy đủ.
+        </div>
+      )}
       
       {/* ========================================================================= */}
       {/* 🖥️ DESKTOP HUD EXECUTIVE VIEW (>= 1024px) - Bố cục Chuyên Nghiệp Máy Tính (Tràn viền) */}

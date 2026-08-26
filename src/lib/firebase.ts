@@ -35,15 +35,7 @@ export interface FirestoreErrorInfo {
   operationType: OperationType;
   path: string | null;
   authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-    tenantId?: string | null;
-    providerInfo?: {
-      providerId?: string | null;
-      email?: string | null;
-    }[];
+    authenticated: boolean;
   };
 }
 
@@ -67,15 +59,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errInfo: FirestoreErrorInfo = {
     error: errorMsg,
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || [],
+      authenticated: Boolean(auth.currentUser),
     },
     operationType,
     path,
@@ -94,9 +78,9 @@ export async function testFirestoreConnection(): Promise<boolean> {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firestore is currently offline or connecting in cache mode.');
     } else {
-      console.log('Firestore connected (initial test doc verified).');
+      console.warn('Firestore connection check failed.');
     }
-    return true;
+    return false;
   }
 }
 

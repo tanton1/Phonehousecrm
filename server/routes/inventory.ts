@@ -1,8 +1,8 @@
 import { Request, Response, Router } from 'express';
-import { Firestore } from 'firebase-admin/firestore';
+import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
-import { buildInventoryAuditReport, listInventoryDevicesForActor, processImportInventoryDevices } from '../services/inventoryDeviceService';
+import { buildInventoryAuditReport, listInventoryDevicesForActor, processImportInventoryDevices, processUpdateInventoryDeviceMetadata } from '../services/inventoryDeviceService';
 import { getAccessoryStockTrace, listAccessoryStockBalances } from '../services/inventoryStockItemService';
 import { processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
 
@@ -65,6 +65,16 @@ export function createInventoryRouter(db: Firestore | null): Router {
     }
   });
 
+  router.patch('/devices/:deviceId/metadata', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH_LEAD'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const device = await processUpdateInventoryDeviceMetadata(db, req.params.deviceId, req.body || {}, req.user!);
+      return res.json({ success: true, data: { device } });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
   router.post('/purchase-orders/receive', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
@@ -90,6 +100,34 @@ export function createInventoryRouter(db: Firestore | null): Router {
     try {
       const result = await processPayPurchaseOrderDebt(db, req.params.orderId, req.body, req.user!);
       return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
+  router.patch('/purchase-orders/:orderId/note', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const note = String(req.body?.note || '').trim().slice(0, 3000);
+      const orderRef = db.collection('purchaseOrders').doc(req.params.orderId);
+      let order: any;
+      await db.runTransaction(async transaction => {
+        const snapshot = await transaction.get(orderRef);
+        if (!snapshot.exists) throw new Error('PURCHASE_ORDER_NOT_FOUND');
+        const current = snapshot.data()!;
+        const branches = new Set([req.user?.branchId, ...(req.user?.assignedBranchIds || [])].filter(Boolean));
+        if (req.user?.role !== 'ADMIN' && !branches.has(String(current.branchId || ''))) throw new Error('PURCHASE_ORDER_BRANCH_FORBIDDEN');
+        const eventRef = db.collection('purchaseOrderEvents').doc();
+        order = { ...current, id: snapshot.id, notes: note, updatedAt: new Date().toISOString() };
+        transaction.update(orderRef, { notes: note, updatedByUid: req.user?.uid, updatedAt: FieldValue.serverTimestamp() });
+        transaction.create(eventRef, {
+          eventType: 'NOTE_UPDATED', purchaseOrderId: snapshot.id, purchaseOrderCode: current.code,
+          branchId: current.branchId, note, actorUid: req.user?.uid,
+          actorName: req.user?.name || req.user?.email || req.user?.uid,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      });
+      return res.json({ success: true, data: { order } });
     } catch (error: any) {
       return sendInventoryError(res, error);
     }

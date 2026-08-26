@@ -30,7 +30,7 @@ import {
   X 
 } from 'lucide-react';
 import { UserAccount, UserRole, RolePermissionInfo, StoreBranch } from '../types';
-import { auth, loginWithEmail, registerWithEmail } from '../lib/firebase';
+import { auth, loginWithEmail } from '../lib/firebase';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
 
 interface UserManagementViewProps {
@@ -60,28 +60,36 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
   const handleSaveFaceProfile = (faceData: { facePhotoUrl: string; faceFeatureVector: number[]; faceEnrollmentDate: string }) => {
     if (!faceModalUser) return;
-    const updated: UserAccount = {
-      ...faceModalUser,
-      facePhotoUrl: faceData.facePhotoUrl,
-      faceFeatureVector: faceData.faceFeatureVector,
-      faceEnrollmentDate: faceData.faceEnrollmentDate,
-      assignedFaceEmbedding: true
-    };
-    onUpdateUser(updated);
+    // Face photo is supplementary session evidence only; never persist a browser-generated vector.
+    void faceData;
+    setFaceModalUser(null);
+  };
+
+  const handleDeactivateUser = async (user: UserAccount) => {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('UNAUTHENTICATED');
+    const response = await fetch('/api/users/update-role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ uid: user.id, active: false })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.success === false) throw new Error(result.message || result.error || 'USER_DEACTIVATION_FAILED');
+    onUpdateUser({ ...user, active: false });
   };
 
   // Quick Copy Feedback State
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Form State for Adding / Editing
-  const defaultBranchId = availableBranches[0]?.id || 'CN01';
+  const defaultBranchId = '';
   const [formData, setFormData] = useState({
     displayName: '',
     email: '',
     phone: '',
     role: 'SALES' as UserRole,
     branchId: defaultBranchId,
-    assignedBranchIds: [defaultBranchId] as string[],
+    assignedBranchIds: [] as string[],
     password: '',
     notes: '',
     active: true
@@ -91,8 +99,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   const [submitMessage, setSubmitMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Login Test Panel State
-  const [loginEmail, setLoginEmail] = useState('nhattank16.1@gmail.com');
-  const [loginPassword, setLoginPassword] = useState('Tan889603$');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [loginStatus, setLoginStatus] = useState<string | null>(null);
 
   const handleCopy = (text: string, fieldName: string) => {
@@ -122,14 +130,13 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
   const handleOpenAdd = () => {
     setEditingUser(null);
-    const initialBranch = availableBranches[0]?.id || 'CN01';
     setFormData({
       displayName: '',
       email: '',
       phone: '',
       role: 'SALES',
-      branchId: initialBranch,
-      assignedBranchIds: [initialBranch],
+      branchId: '',
+      assignedBranchIds: [],
       password: '',
       notes: '',
       active: true
@@ -142,14 +149,14 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     setEditingUser(user);
     const userBranchIds = user.assignedBranchIds && user.assignedBranchIds.length > 0
       ? user.assignedBranchIds
-      : user.branchId ? [user.branchId] : [availableBranches[0]?.id || 'CN01'];
+      : user.branchId ? [user.branchId] : [];
 
     setFormData({
       displayName: user.displayName,
       email: user.email,
       phone: user.phone || '',
       role: user.role,
-      branchId: user.branchId || userBranchIds[0] || 'CN01',
+      branchId: user.branchId || userBranchIds[0] || '',
       assignedBranchIds: userBranchIds,
       password: '',
       notes: user.notes || '',
@@ -194,6 +201,25 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           notes: formData.notes,
           active: formData.active
         };
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) throw new Error('UNAUTHENTICATED');
+        const response = await fetch('/api/users/update-role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            uid: editingUser.id,
+            role: updated.role,
+            branchId: updated.branchId,
+            active: updated.active,
+            displayName: updated.displayName,
+            phone: updated.phone,
+            assignedBranchIds: updated.assignedBranchIds,
+            workplaceAddresses: updated.workplaceAddresses,
+            notes: updated.notes
+          })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.success === false) throw new Error(result.message || result.error || 'USER_UPDATE_FAILED');
         onUpdateUser(updated);
         setSubmitMessage({ type: 'success', text: 'Cập nhật tài khoản và địa chỉ làm việc thành công!' });
         setTimeout(() => setIsAddModalOpen(false), 800);
@@ -234,36 +260,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           console.warn('[User API creation fallback]:', apiErr);
         }
 
-        // 2. Direct Auth & Firestore fallback
+        // Server is the only writer. Never create Auth/Firestore users from the browser.
         if (!userCreated) {
-          let firebaseUid = `USR-${Date.now().toString().slice(-6)}`;
-          try {
-            const regUser = await registerWithEmail(
-              formData.email.trim().toLowerCase(),
-              formData.password || 'PhoneHouse@2026',
-              formData.displayName
-            );
-            if (regUser?.uid) {
-              firebaseUid = regUser.uid;
-            }
-          } catch (authRegErr: any) {
-            console.warn('[Firebase Auth Register fallback warning]:', authRegErr?.message);
-          }
-
-          const newUser: UserAccount = {
-            id: firebaseUid,
-            email: formData.email.trim().toLowerCase(),
-            displayName: formData.displayName,
-            phone: formData.phone,
-            role: formData.role,
-            branchId: formData.assignedBranchIds[0] || formData.branchId,
-            assignedBranchIds: formData.assignedBranchIds,
-            workplaceAddresses: selectedAddresses,
-            active: true,
-            createdAt: new Date().toISOString().split('T')[0],
-            notes: formData.notes || ''
-          };
-          onAddUser(newUser);
+          throw new Error('USER_CREATION_FAILED: Máy chủ không tạo được tài khoản. Không có dữ liệu tạm nào được ghi từ trình duyệt.');
         }
 
         setSubmitMessage({ type: 'success', text: `Đã tạo tài khoản và cấp phép đăng nhập thành công cho ${formData.displayName}!` });
@@ -410,7 +409,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
               <div 
                 key={user.id} 
                 className={`bg-white rounded-2xl p-4 border transition-all hover:shadow-md flex flex-col justify-between ${
-                  user.email === 'nhattank16.1@gmail.com'
+                  user.email === currentUserEmail
                     ? 'border-orange-300 ring-2 ring-orange-100'
                     : 'border-zinc-200/80 hover:border-orange-200'
                 }`}
@@ -433,8 +432,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       <div>
                         <h3 className="font-bold text-zinc-800 text-sm flex items-center gap-1.5">
                           {user.displayName}
-                          {user.email === 'nhattank16.1@gmail.com' && (
-                            <span className="w-2 h-2 rounded-full bg-orange-500" title="Admin Root"></span>
+                          {user.email === currentUserEmail && (
+                            <span className="w-2 h-2 rounded-full bg-orange-500" title="Tài khoản đang đăng nhập"></span>
                           )}
                         </h3>
                         <p className="text-xs text-zinc-500 font-mono">{user.email}</p>
@@ -480,7 +479,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       <div className="mb-3">
                         <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-1">
                           <Building2 className="w-3 h-3 text-[#FF4B16]" />
-                          <span>Địa chỉ làm việc ({matchedBranches.length || 1}):</span>
+                          <span>Địa chỉ làm việc ({matchedBranches.length}):</span>
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {matchedBranches.length > 0 ? (
@@ -493,7 +492,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                           ) : (
                             <span className="text-[10px] font-bold bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-lg flex items-center gap-1">
                               <MapPin className="w-2.5 h-2.5 shrink-0" />
-                              <span>Showroom Hải Châu</span>
+                              <span>Chưa gắn chi nhánh</span>
                             </span>
                           )}
                         </div>
@@ -526,11 +525,15 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                     </button>
-                    {user.email !== 'nhattank16.1@gmail.com' && (
+                    {user.email !== currentUserEmail && (
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           if (confirm(`Bạn có chắc muốn xóa tài khoản ${user.displayName}?`)) {
-                            onDeleteUser(user.id);
+                            try {
+                              await handleDeactivateUser(user);
+                            } catch (error: any) {
+                              alert(`Không thể ngừng tài khoản: ${error?.message || 'Lỗi máy chủ'}`);
+                            }
                           }
                         }}
                         className="p-1.5 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"

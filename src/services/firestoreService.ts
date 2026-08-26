@@ -1,17 +1,10 @@
 import { 
   collection, 
   doc, 
-  setDoc, 
-  getDoc,
-  updateDoc,
-  deleteDoc, 
   onSnapshot, 
-  getDocs,
-  writeBatch,
-  increment,
-  arrayUnion,
   query,
-  where
+  where,
+  or
 } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { apiJson } from './apiClient';
@@ -19,8 +12,6 @@ import {
   DeviceItem, 
   Lead, 
   TradeInAppraisal, 
-  WarrantyTicket, 
-  WarrantyTicketPart,
   SalesInvoice, 
   UserAccount, 
   Partner, 
@@ -31,9 +22,6 @@ import {
   StoreBranch,
   WarehouseInfo,
   StoreSettings,
-  SparePart,
-  ChatConversation,
-  ChatMessage,
   PurchaseOrder,
   AttendanceRecord,
   ShiftHandoverReport,
@@ -41,32 +29,23 @@ import {
   DailyShiftChecklistItem,
   LeaveRequest,
   StaffMember,
-  WeeklyShiftSchedule,
-  LeadCareActivity,
-  LeadAppointment,
-  LeadQuote
 } from '../types';
 import { RepairServiceItem } from '../data/initialData';
 import { invoiceDateTime } from '../utils/dateValue';
 
 // Firestore Collection Names Constants
-const DEVICES_COL = 'devices';
 const LEADS_COL = 'leads';
 const TRADEINS_COL = 'tradeIns';
-const WARRANTY_COL = 'warrantyTickets';
 const INVOICES_COL = 'invoices';
 const USERS_COL = 'users';
 const PARTNERS_COL = 'partners';
-const PRODUCTS_COL = 'products';
 const TRANSFERS_COL = 'transfers';
 const BRANCHES_COL = 'branches';
 const WAREHOUSES_COL = 'warehouses';
 const SETTINGS_COL = 'storeSettings';
-const SPARE_PARTS_COL = 'spareParts';
 const FUNDS_COL = 'funds';
 const CASH_TRANSACTIONS_COL = 'cashTransactions';
 const REPAIR_SERVICES_COL = 'repairServices';
-const CHAT_CONVERSATIONS_COL = 'chatConversations';
 const PURCHASE_ORDERS_COL = 'purchaseOrders';
 const ATTENDANCE_COL = 'attendance';
 const SHIFT_HANDOVER_COL = 'shiftHandover';
@@ -74,10 +53,15 @@ const SOP_TEMPLATES_COL = 'sopTemplates';
 const DAILY_CHECKLISTS_COL = 'dailyShiftChecklists';
 const LEAVE_REQUESTS_COL = 'leaveRequests';
 const STAFF_MEMBERS_COL = 'staffMembers';
-const WEEKLY_SCHEDULES_COL = 'weeklyShiftSchedules';
-const LEAD_CARE_ACTIVITIES_COL = 'leadCareActivities';
-const LEAD_APPOINTMENTS_COL = 'leadAppointments';
-const LEAD_QUOTES_COL = 'leadQuotes';
+
+function concreteRealtimeBranchId(value: unknown): string | null {
+  const branchId = String(value || '').trim();
+  return branchId && branchId !== 'ALL' ? branchId : null;
+}
+function emptySubscription<T>(onData: (items: T[]) => void) {
+  onData([]);
+  return () => undefined;
+}
 
 // Helper to strip undefined values so Firestore setDoc does not throw
 export function cleanDataForFirestore<T>(data: T): T {
@@ -99,91 +83,14 @@ export function cleanDataForFirestore<T>(data: T): T {
   return data;
 }
 
-// Function to wipe all transaction & demo collections in Firestore
-export async function clearAllFirestoreDemoData(): Promise<void> {
-  const collectionsToWipe = [
-    DEVICES_COL,
-    LEADS_COL,
-    TRADEINS_COL,
-    WARRANTY_COL,
-    INVOICES_COL,
-    PARTNERS_COL,
-    TRANSFERS_COL,
-    PRODUCTS_COL,
-    CASH_TRANSACTIONS_COL,
-    SPARE_PARTS_COL,
-    CHAT_CONVERSATIONS_COL
-  ];
-
-  for (const colName of collectionsToWipe) {
-    try {
-      const snap = await getDocs(collection(db, colName));
-      if (!snap.empty) {
-        const batch = writeBatch(db);
-        snap.forEach((docSnap) => {
-          batch.delete(docSnap.ref);
-        });
-        await batch.commit();
-      }
-    } catch (e) {
-      console.warn(`Could not clear collection ${colName}:`, e);
-    }
-  }
-}
-
-// ----------------- DEVICES -----------------
-export function subscribeToDevices(onData: (devices: DeviceItem[]) => void) {
-  const colRef = collection(db, DEVICES_COL);
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const items: DeviceItem[] = [];
-      snapshot.forEach((doc) => {
-        items.push(doc.data() as DeviceItem);
-      });
-      onData(items);
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.GET, DEVICES_COL);
-    }
-  );
-}
-
-export async function addDeviceToFirestore(device: DeviceItem) {
-  const path = `${DEVICES_COL}/${device.id}`;
-  try {
-    const docRef = doc(db, DEVICES_COL, device.id);
-    await setDoc(docRef, cleanDataForFirestore(device));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateDeviceInFirestore(device: DeviceItem) {
-  const path = `${DEVICES_COL}/${device.id}`;
-  try {
-    const docRef = doc(db, DEVICES_COL, device.id);
-    await setDoc(docRef, cleanDataForFirestore(device), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteDeviceFromFirestore(id: string) {
-  const path = `${DEVICES_COL}/${id}`;
-  try {
-    const docRef = doc(db, DEVICES_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
 // ----------------- LEADS -----------------
-export function subscribeToLeads(onData: (leads: Lead[]) => void) {
+export function subscribeToLeads(onData: (leads: Lead[]) => void, branchId?: string) {
   const colRef = collection(db, LEADS_COL);
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
   return onSnapshot(
-    colRef,
+    scoped,
     (snapshot) => {
       const items: Lead[] = [];
       snapshot.forEach((doc) => {
@@ -197,31 +104,14 @@ export function subscribeToLeads(onData: (leads: Lead[]) => void) {
   );
 }
 
-export async function addLeadToFirestore(lead: Lead) {
-  const path = `${LEADS_COL}/${lead.id}`;
-  try {
-    const docRef = doc(db, LEADS_COL, lead.id);
-    await setDoc(docRef, cleanDataForFirestore(lead));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateLeadInFirestore(lead: Lead) {
-  const path = `${LEADS_COL}/${lead.id}`;
-  try {
-    const docRef = doc(db, LEADS_COL, lead.id);
-    await setDoc(docRef, cleanDataForFirestore(lead), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
 // ----------------- TRADE IN -----------------
-export function subscribeToTradeIns(onData: (tradeIns: TradeInAppraisal[]) => void) {
+export function subscribeToTradeIns(onData: (tradeIns: TradeInAppraisal[]) => void, branchId?: string) {
   const colRef = collection(db, TRADEINS_COL);
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
   return onSnapshot(
-    colRef,
+    scoped,
     (snapshot) => {
       const items: TradeInAppraisal[] = [];
       snapshot.forEach((doc) => {
@@ -235,49 +125,14 @@ export function subscribeToTradeIns(onData: (tradeIns: TradeInAppraisal[]) => vo
   );
 }
 
-export async function addTradeInToFirestore(tradeIn: TradeInAppraisal) {
-  const path = `${TRADEINS_COL}/${tradeIn.id}`;
-  try {
-    const docRef = doc(db, TRADEINS_COL, tradeIn.id);
-    await setDoc(docRef, cleanDataForFirestore(tradeIn));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateTradeInInFirestore(tradeIn: TradeInAppraisal) {
-  const path = `${TRADEINS_COL}/${tradeIn.id}`;
-  try {
-    const docRef = doc(db, TRADEINS_COL, tradeIn.id);
-    await setDoc(docRef, cleanDataForFirestore(tradeIn), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-// ----------------- WARRANTY -----------------
-export function subscribeToWarrantyTickets(onData: (tickets: WarrantyTicket[]) => void) {
-  const colRef = collection(db, WARRANTY_COL);
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const items: WarrantyTicket[] = [];
-      snapshot.forEach((doc) => {
-        items.push(doc.data() as WarrantyTicket);
-      });
-      onData(items);
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.GET, WARRANTY_COL);
-    }
-  );
-}
-
 // ----------------- INVOICES -----------------
-export function subscribeToInvoices(onData: (invoices: SalesInvoice[]) => void) {
+export function subscribeToInvoices(onData: (invoices: SalesInvoice[]) => void, branchId?: string) {
   const colRef = collection(db, INVOICES_COL);
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
   return onSnapshot(
-    colRef,
+    scoped,
     (snapshot) => {
       const items: SalesInvoice[] = [];
       snapshot.forEach((doc) => {
@@ -299,10 +154,18 @@ export function subscribeToInvoices(onData: (invoices: SalesInvoice[]) => void) 
 }
 
 // ----------------- USERS & PERMISSIONS -----------------
-export function subscribeToUsers(onData: (users: UserAccount[]) => void) {
+export function subscribeToUsers(onData: (users: UserAccount[]) => void, userId?: string, branchId?: string) {
   const colRef = collection(db, USERS_COL);
+  if (userId) {
+    return onSnapshot(doc(db, USERS_COL, userId), snapshot => {
+      onData(snapshot.exists() ? [{ ...snapshot.data(), id: snapshot.id } as UserAccount] : []);
+    }, error => handleFirestoreError(error, OperationType.GET, `${USERS_COL}/${userId}`));
+  }
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
   return onSnapshot(
-    colRef,
+    scoped,
     (snapshot) => {
       const items: UserAccount[] = snapshot.docs.map(doc => ({
         ...doc.data(),
@@ -316,45 +179,19 @@ export function subscribeToUsers(onData: (users: UserAccount[]) => void) {
   );
 }
 
-export async function addUserToFirestore(user: UserAccount) {
-  const path = `${USERS_COL}/${user.id}`;
-  try {
-    const docRef = doc(db, USERS_COL, user.id);
-    await setDoc(docRef, cleanDataForFirestore(user));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateUserInFirestore(user: UserAccount) {
-  const path = `${USERS_COL}/${user.id}`;
-  try {
-    const docRef = doc(db, USERS_COL, user.id);
-    await setDoc(docRef, cleanDataForFirestore(user), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteUserFromFirestore(id: string) {
-  const path = `${USERS_COL}/${id}`;
-  try {
-    const docRef = doc(db, USERS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
 // ----------------- PARTNERS (CUSTOMERS & SUPPLIERS) -----------------
-export function subscribeToPartners(onData: (partners: Partner[]) => void) {
+export function subscribeToPartners(onData: (partners: Partner[]) => void, branchId?: string) {
   const colRef = collection(db, PARTNERS_COL);
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
   return onSnapshot(
-    colRef,
+    scoped,
     (snapshot) => {
       const items: Partner[] = [];
       snapshot.forEach((doc) => {
-        items.push(doc.data() as Partner);
+        const partner = doc.data() as Partner & { isActive?: boolean; isArchived?: boolean };
+        if (partner.isActive !== false && partner.isArchived !== true) items.push(partner);
       });
       onData(items);
     },
@@ -365,39 +202,30 @@ export function subscribeToPartners(onData: (partners: Partner[]) => void) {
 }
 
 export async function addPartnerToFirestore(partner: Partner) {
-  const path = `${PARTNERS_COL}/${partner.id}`;
-  try {
-    const docRef = doc(db, PARTNERS_COL, partner.id);
-    await setDoc(docRef, cleanDataForFirestore(partner));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
+  const response = await apiJson<{ success: boolean; partner: Partner }>('/api/partners', {
+    method: 'POST',
+    body: JSON.stringify(partner)
+  });
+  return response.partner;
 }
-
 export async function updatePartnerInFirestore(partner: Partner) {
-  const path = `${PARTNERS_COL}/${partner.id}`;
-  try {
-    const docRef = doc(db, PARTNERS_COL, partner.id);
-    await setDoc(docRef, cleanDataForFirestore(partner), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  const response = await apiJson<{ success: boolean; partner: Partner }>(`/api/partners/${encodeURIComponent(partner.id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(partner)
+  });
+  return response.partner;
 }
 
 export async function deletePartnerFromFirestore(id: string) {
-  const path = `${PARTNERS_COL}/${id}`;
-  try {
-    const docRef = doc(db, PARTNERS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+  return apiJson<{ success: boolean }>(`/api/partners/${encodeURIComponent(id)}/archive`, { method: 'POST' });
 }
 
-export function subscribeToFunds(onData: (funds: FundAccount[]) => void) {
+export function subscribeToFunds(onData: (funds: FundAccount[]) => void, branchId?: string) {
   const colRef = collection(db, FUNDS_COL);
-  return onSnapshot(colRef, (snapshot) => {
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
+  return onSnapshot(scoped, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as FundAccount);
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, FUNDS_COL));
@@ -425,9 +253,12 @@ export async function deleteFundFromFirestore(id: string) {
   });
 }
 
-export function subscribeToCashTransactions(onData: (txs: CashTransaction[]) => void) {
+export function subscribeToCashTransactions(onData: (txs: CashTransaction[]) => void, branchId?: string) {
   const colRef = collection(db, CASH_TRANSACTIONS_COL);
-  return onSnapshot(colRef, (snapshot) => {
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
+  return onSnapshot(scoped, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as CashTransaction);
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, CASH_TRANSACTIONS_COL));
@@ -461,51 +292,15 @@ export async function addCashTransactionToFirestore(tx: CashTransaction) {
 }
 
 // ----------------- TRANSFERS -----------------
-export function subscribeToTransfers(onData: (transfers: StockTransferSlip[]) => void) {
+export function subscribeToTransfers(onData: (transfers: StockTransferSlip[]) => void, branchId?: string) {
   const colRef = collection(db, TRANSFERS_COL);
-  return onSnapshot(colRef, (snapshot) => {
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, or(where('sourceBranchId', '==', concreteBranchId), where('destinationBranchId', '==', concreteBranchId)));
+  return onSnapshot(scoped, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as StockTransferSlip);
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, TRANSFERS_COL));
-}
-
-// ----------------- PRODUCTS (ACCESSORIES / PARTS) -----------------
-export function subscribeToProducts(onData: (products: ProductItem[]) => void) {
-  const colRef = collection(db, PRODUCTS_COL);
-  return onSnapshot(colRef, (snapshot) => {
-    const data = snapshot.docs.map(doc => doc.data() as ProductItem);
-    onData(data);
-  }, (error) => handleFirestoreError(error, OperationType.LIST, PRODUCTS_COL));
-}
-
-export async function addProductToFirestore(product: ProductItem) {
-  const path = `${PRODUCTS_COL}/${product.id}`;
-  try {
-    const docRef = doc(db, PRODUCTS_COL, product.id);
-    await setDoc(docRef, cleanDataForFirestore(product));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateProductInFirestore(product: ProductItem) {
-  const path = `${PRODUCTS_COL}/${product.id}`;
-  try {
-    const docRef = doc(db, PRODUCTS_COL, product.id);
-    await setDoc(docRef, cleanDataForFirestore(product), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteProductFromFirestore(id: string) {
-  const path = `${PRODUCTS_COL}/${id}`;
-  try {
-    const docRef = doc(db, PRODUCTS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
 }
 
 // ----------------- FUND TRANSFER EXECUTION (ATOMIC BATCH) -----------------
@@ -541,50 +336,33 @@ export async function executeFundTransferInFirestore(
 export function subscribeToBranches(onData: (branches: StoreBranch[]) => void) {
   const colRef = collection(db, BRANCHES_COL);
   return onSnapshot(colRef, (snapshot) => {
-    const data = snapshot.docs.map(doc => doc.data() as StoreBranch);
+    const data = snapshot.docs
+      .map(doc => doc.data() as StoreBranch & { isArchived?: boolean })
+      .filter(branch => branch.isActive !== false && branch.isArchived !== true);
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, BRANCHES_COL));
 }
 
 export async function addBranchToFirestore(branch: StoreBranch, existingBranches: StoreBranch[] = []) {
-  const path = `${BRANCHES_COL}/${branch.id}`;
-  try {
-    const batch = writeBatch(db);
-    batch.set(doc(db, BRANCHES_COL, branch.id), cleanDataForFirestore(branch));
-    if (branch.isHeadquarter) {
-      existingBranches.filter(item => item.isHeadquarter && item.id !== branch.id).forEach(item => {
-        batch.set(doc(db, BRANCHES_COL, item.id), { isHeadquarter: false }, { merge: true });
-      });
-    }
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  void existingBranches;
+  const response = await apiJson<{ success: boolean; branch: StoreBranch }>('/api/configuration/branches', {
+    method: 'POST',
+    body: JSON.stringify(branch)
+  });
+  return response.branch;
 }
 
 export async function updateBranchInFirestore(branch: StoreBranch, existingBranches: StoreBranch[] = []) {
-  const path = `${BRANCHES_COL}/${branch.id}`;
-  try {
-    const batch = writeBatch(db);
-    batch.set(doc(db, BRANCHES_COL, branch.id), cleanDataForFirestore(branch), { merge: true });
-    if (branch.isHeadquarter) {
-      existingBranches.filter(item => item.isHeadquarter && item.id !== branch.id).forEach(item => {
-        batch.set(doc(db, BRANCHES_COL, item.id), { isHeadquarter: false }, { merge: true });
-      });
-    }
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  void existingBranches;
+  const response = await apiJson<{ success: boolean; branch: StoreBranch }>(`/api/configuration/branches/${encodeURIComponent(branch.id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(branch)
+  });
+  return response.branch;
 }
 
 export async function deleteBranchFromFirestore(id: string) {
-  const path = `${BRANCHES_COL}/${id}`;
-  try {
-    await deleteDoc(doc(db, BRANCHES_COL, id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+  return apiJson<{ success: boolean }>(`/api/configuration/branches/${encodeURIComponent(id)}/archive`, { method: 'POST' });
 }
 
 // ----------------- WAREHOUSES (KHO HÀNG) -----------------
@@ -626,69 +404,6 @@ export async function restoreWarehouseFromFirestore(id: string) {
 }
 
 // ----------------- STORE SETTINGS (CÀI ĐẶT DOANH NGHIỆP) -----------------
-export function subscribeToChatConversations(onData: (convos: ChatConversation[]) => void) {
-  const q = collection(db, CHAT_CONVERSATIONS_COL);
-  return onSnapshot(
-    q,
-    (snapshot) => {
-      const convos: ChatConversation[] = [];
-      snapshot.forEach((docSnap) => {
-        convos.push({ id: docSnap.id, ...docSnap.data() } as ChatConversation);
-      });
-      // Sort by newest updatedAt
-      convos.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      onData(convos);
-    },
-    (error) => handleFirestoreError(error, OperationType.LIST, CHAT_CONVERSATIONS_COL)
-  );
-}
-
-export async function createChatConversationInFirestore(convo: ChatConversation) {
-  const convRef = doc(db, CHAT_CONVERSATIONS_COL, convo.id);
-  try {
-    await setDoc(convRef, cleanDataForFirestore(convo), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, `${CHAT_CONVERSATIONS_COL}/${convo.id}`);
-  }
-}
-
-export async function sendMessageToChat(conversationId: string, message: ChatMessage) {
-  const convRef = doc(db, CHAT_CONVERSATIONS_COL, conversationId);
-  try {
-    const docSnap = await getDoc(convRef);
-    if (docSnap.exists()) {
-      await updateDoc(convRef, {
-        messages: arrayUnion(message),
-        lastMessage: {
-          content: message.content,
-          sender: message.sender,
-          timestamp: message.timestamp,
-          unread: false
-        },
-        updatedAt: message.timestamp
-      });
-    } else {
-      await setDoc(convRef, cleanDataForFirestore({
-        id: conversationId,
-        customerName: 'Khách hàng',
-        customerPhone: '',
-        channel: 'FACEBOOK',
-        messages: [message],
-        lastMessage: {
-          content: message.content,
-          sender: message.sender,
-          timestamp: message.timestamp,
-          unread: false
-        },
-        status: 'ACTIVE',
-        updatedAt: message.timestamp
-      }));
-    }
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `${CHAT_CONVERSATIONS_COL}/${conversationId}`);
-  }
-}
-
 export function subscribeToStoreSettings(onData: (settings: StoreSettings | null) => void) {
   const docRef = doc(db, SETTINGS_COL, 'main');
   return onSnapshot(docRef, (snapshot) => {
@@ -701,79 +416,13 @@ export function subscribeToStoreSettings(onData: (settings: StoreSettings | null
 }
 
 export async function saveStoreSettingsToFirestore(settings: StoreSettings) {
-  try {
-    await setDoc(doc(db, SETTINGS_COL, 'main'), cleanDataForFirestore(settings));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `${SETTINGS_COL}/main`);
-  }
+  const response = await apiJson<{ success: boolean; settings: StoreSettings }>('/api/configuration/store-settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings)
+  });
+  return response.settings;
 }
 
-
-// ----------------- SPARE PARTS -----------------
-export function subscribeToSpareParts(onData: (parts: SparePart[]) => void) {
-  const colRef = collection(db, SPARE_PARTS_COL);
-  return onSnapshot(
-    colRef,
-    (snapshot) => {
-      const items: SparePart[] = [];
-      snapshot.forEach((doc) => {
-        items.push(doc.data() as SparePart);
-      });
-      onData(items);
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.GET, SPARE_PARTS_COL);
-    }
-  );
-}
-
-export async function addSparePartToFirestore(part: SparePart) {
-  const path = `${SPARE_PARTS_COL}/${part.id}`;
-  try {
-    const docRef = doc(db, SPARE_PARTS_COL, part.id);
-    await setDoc(docRef, cleanDataForFirestore(part));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateSparePartInFirestore(part: SparePart) {
-  const path = `${SPARE_PARTS_COL}/${part.id}`;
-  try {
-    const docRef = doc(db, SPARE_PARTS_COL, part.id);
-    await setDoc(docRef, cleanDataForFirestore(part), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteSparePartFromFirestore(id: string) {
-  const path = `${SPARE_PARTS_COL}/${id}`;
-  try {
-    const docRef = doc(db, SPARE_PARTS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
-export async function deductSparePartsStockForWarrantyTicket(partsUsed: WarrantyTicketPart[]) {
-  if (!partsUsed || partsUsed.length === 0) return;
-  const batch = writeBatch(db);
-  for (const p of partsUsed) {
-    if (p.id) {
-      const partRef = doc(db, SPARE_PARTS_COL, p.id);
-      batch.update(partRef, {
-        stockQuantity: increment(-p.quantity)
-      });
-    }
-  }
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, `${SPARE_PARTS_COL}/deductStock`);
-  }
-}
 
 // ----------------- REPAIR SERVICES (BẢNG GIÁ DỊCH VỤ SỬA CHỮA) -----------------
 export function subscribeToRepairServices(onData: (items: RepairServiceItem[]) => void) {
@@ -793,41 +442,13 @@ export function subscribeToRepairServices(onData: (items: RepairServiceItem[]) =
   );
 }
 
-export async function addRepairServiceToFirestore(item: RepairServiceItem) {
-  const path = `${REPAIR_SERVICES_COL}/${item.id}`;
-  try {
-    const docRef = doc(db, REPAIR_SERVICES_COL, item.id);
-    await setDoc(docRef, cleanDataForFirestore(item));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateRepairServiceInFirestore(item: RepairServiceItem) {
-  const path = `${REPAIR_SERVICES_COL}/${item.id}`;
-  try {
-    const docRef = doc(db, REPAIR_SERVICES_COL, item.id);
-    await setDoc(docRef, cleanDataForFirestore(item), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteRepairServiceFromFirestore(id: string) {
-  const path = `${REPAIR_SERVICES_COL}/${id}`;
-  try {
-    const docRef = doc(db, REPAIR_SERVICES_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
 export async function processCheckoutTransaction(params: {
   invoice: SalesInvoice;
   devicesToSell: DeviceItem[];
   accessoriesToSell: { product: ProductItem; quantity: number }[];
   cashTx?: CashTransaction | null;
+  warehouseId: string;
+  tradeInAppraisalId?: string;
   tradeInDevice?: DeviceItem | null;
   customerPartner?: Partner | null;
   financeCompanyPartner?: Partner | null;
@@ -859,11 +480,13 @@ export async function processCheckoutTransaction(params: {
   }
   headers['x-staff-uid'] = auth.currentUser?.uid || 'staff-pos';
   headers['x-staff-role'] = 'SALES';
-  headers['x-staff-branch-id'] = params.invoice.branchId || 'CN01';
+  if (!params.invoice.branchId) throw new Error('BRANCH_REQUIRED: Hóa đơn chưa có chi nhánh.');
+  headers['x-staff-branch-id'] = params.invoice.branchId;
 
   const payload = {
     idempotencyKey: params.idempotencyKey || `POS-${params.invoice.id}-${Date.now()}`,
-    branchId: params.invoice.branchId || 'CN01',
+    branchId: params.invoice.branchId,
+    warehouseId: params.warehouseId,
     deviceIds: params.devicesToSell.map(d => d.id),
     accessoryLines: params.accessoriesToSell.map(a => ({
       productId: a.product.id,
@@ -883,6 +506,7 @@ export async function processCheckoutTransaction(params: {
     payments: params.payments || (params.invoice.splitPayments as any),
     installmentFinancePartnerId: params.financeCompanyPartner?.id,
     notes: params.invoice.notes,
+    tradeInAppraisalId: params.tradeInAppraisalId,
     invoice: cleanDataForFirestore(params.invoice),
     tradeInDevice: params.tradeInDevice ? cleanDataForFirestore(params.tradeInDevice) : null,
     devicesToSell: params.devicesToSell,
@@ -958,42 +582,15 @@ export async function transferFundsInFirestore(params: {
 }
 
 // ----------------- PURCHASE ORDERS -----------------
-export function subscribeToPurchaseOrders(onData: (orders: PurchaseOrder[]) => void) {
+export function subscribeToPurchaseOrders(onData: (orders: PurchaseOrder[]) => void, branchId?: string) {
   const colRef = collection(db, PURCHASE_ORDERS_COL);
-  return onSnapshot(colRef, (snapshot) => {
+  const concreteBranchId = concreteRealtimeBranchId(branchId);
+  if (!concreteBranchId) return emptySubscription(onData);
+  const scoped = query(colRef, where('branchId', '==', concreteBranchId));
+  return onSnapshot(scoped, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as PurchaseOrder);
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, PURCHASE_ORDERS_COL));
-}
-
-export async function addPurchaseOrderToFirestore(order: PurchaseOrder) {
-  const path = `${PURCHASE_ORDERS_COL}/${order.id}`;
-  try {
-    const docRef = doc(db, PURCHASE_ORDERS_COL, order.id);
-    await setDoc(docRef, cleanDataForFirestore(order));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updatePurchaseOrderInFirestore(order: PurchaseOrder) {
-  const path = `${PURCHASE_ORDERS_COL}/${order.id}`;
-  try {
-    const docRef = doc(db, PURCHASE_ORDERS_COL, order.id);
-    await setDoc(docRef, cleanDataForFirestore(order), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deletePurchaseOrderFromFirestore(id: string) {
-  const path = `${PURCHASE_ORDERS_COL}/${id}`;
-  try {
-    const docRef = doc(db, PURCHASE_ORDERS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
 }
 
 // ----------------- ATTENDANCE (CHẤM CÔNG 4 YẾU TỐ) -----------------
@@ -1006,8 +603,10 @@ export function subscribeToAttendance(
   let attendanceQuery: any = colRef;
 
   // Role-based query scoping to comply with Firestore Security Rules
-  if (userScope && userScope.role && userScope.role !== 'ADMIN' && userScope.role !== 'MANAGER') {
-    if (userScope.uid) {
+  if (userScope && userScope.role) {
+    if (userScope.branchId && userScope.branchId !== 'ALL' && ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(userScope.role)) {
+      attendanceQuery = query(colRef, where('branchId', '==', userScope.branchId));
+    } else if (userScope.role !== 'ADMIN' && userScope.uid) {
       attendanceQuery = query(colRef, where('staffId', '==', userScope.uid));
     }
   }
@@ -1028,66 +627,24 @@ export function subscribeToAttendance(
   );
 }
 
-export async function addAttendanceRecordToFirestore(record: AttendanceRecord) {
-  const path = `${ATTENDANCE_COL}/${record.id}`;
-  try {
-    const docRef = doc(db, ATTENDANCE_COL, record.id);
-    await setDoc(docRef, cleanDataForFirestore(record));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
-}
-
-export async function updateAttendanceRecordInFirestore(record: AttendanceRecord) {
-  const path = `${ATTENDANCE_COL}/${record.id}`;
-  try {
-    const docRef = doc(db, ATTENDANCE_COL, record.id);
-    await setDoc(docRef, cleanDataForFirestore(record), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
-  }
-}
-
-export async function deleteAttendanceRecordFromFirestore(id: string) {
-  const path = `${ATTENDANCE_COL}/${id}`;
-  try {
-    const docRef = doc(db, ATTENDANCE_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-    throw error;
-  }
-}
-
 // ----------------- SHIFT HANDOVER (BÀN GIAO CA TRỰC) -----------------
-export function subscribeToShiftHandovers(onData: (reports: ShiftHandoverReport[]) => void) {
+export function subscribeToShiftHandovers(
+  onData: (reports: ShiftHandoverReport[]) => void,
+  scope?: { role?: string; branchId?: string } | null
+) {
   const colRef = collection(db, SHIFT_HANDOVER_COL);
-  return onSnapshot(colRef, (snapshot) => {
+  const branchId = String(scope?.branchId || '').trim();
+  if (!branchId || branchId === 'ALL') {
+    onData([]);
+    return () => undefined;
+  }
+  const scoped = branchId
+    ? query(colRef, where('branchId', '==', scope.branchId))
+    : colRef;
+  return onSnapshot(scoped, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as ShiftHandoverReport);
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, SHIFT_HANDOVER_COL));
-}
-
-export async function addShiftHandoverToFirestore(report: ShiftHandoverReport) {
-  const path = `${SHIFT_HANDOVER_COL}/${report.id}`;
-  try {
-    const docRef = doc(db, SHIFT_HANDOVER_COL, report.id);
-    await setDoc(docRef, cleanDataForFirestore(report));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateShiftHandoverInFirestore(report: ShiftHandoverReport) {
-  const path = `${SHIFT_HANDOVER_COL}/${report.id}`;
-  try {
-    const docRef = doc(db, SHIFT_HANDOVER_COL, report.id);
-    await setDoc(docRef, cleanDataForFirestore(report), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
 }
 
 // ----------------- SOP TEMPLATES (QUY TRÌNH CHUẨN SOP) -----------------
@@ -1099,86 +656,43 @@ export function subscribeToSOPTemplates(onData: (templates: SOPTemplateItem[]) =
   }, (error) => handleFirestoreError(error, OperationType.LIST, SOP_TEMPLATES_COL));
 }
 
-export async function addSOPTemplateToFirestore(template: SOPTemplateItem) {
-  const path = `${SOP_TEMPLATES_COL}/${template.id}`;
-  try {
-    const docRef = doc(db, SOP_TEMPLATES_COL, template.id);
-    await setDoc(docRef, cleanDataForFirestore(template));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateSOPTemplateInFirestore(template: SOPTemplateItem) {
-  const path = `${SOP_TEMPLATES_COL}/${template.id}`;
-  try {
-    const docRef = doc(db, SOP_TEMPLATES_COL, template.id);
-    await setDoc(docRef, cleanDataForFirestore(template), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteSOPTemplateFromFirestore(id: string) {
-  const path = `${SOP_TEMPLATES_COL}/${id}`;
-  try {
-    const docRef = doc(db, SOP_TEMPLATES_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
 // ----------------- DAILY SHIFT CHECKLISTS -----------------
-export function subscribeToDailyChecklists(onData: (items: DailyShiftChecklistItem[]) => void) {
+export function subscribeToDailyChecklists(
+  onData: (items: DailyShiftChecklistItem[]) => void,
+  scope?: { uid?: string; role?: string; branchId?: string } | null
+) {
   const colRef = collection(db, DAILY_CHECKLISTS_COL);
-  return onSnapshot(colRef, (snapshot) => {
+  const role = String(scope?.role || '').toUpperCase();
+  const elevated = ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(role);
+  const branchId = String(scope?.branchId || '').trim();
+  if (elevated && (!branchId || branchId === 'ALL')) {
+    onData([]);
+    return () => undefined;
+  }
+  const scoped = scope?.uid && !elevated
+    ? query(colRef, where('staffId', '==', scope.uid))
+    : branchId
+      ? query(colRef, where('branchId', '==', branchId))
+      : colRef;
+  return onSnapshot(scoped, (snapshot) => {
     const data = snapshot.docs.map(doc => doc.data() as DailyShiftChecklistItem);
     onData(data);
   }, (error) => handleFirestoreError(error, OperationType.LIST, DAILY_CHECKLISTS_COL));
 }
 
-export async function addDailyChecklistItemToFirestore(item: DailyShiftChecklistItem) {
-  const path = `${DAILY_CHECKLISTS_COL}/${item.id}`;
-  try {
-    const docRef = doc(db, DAILY_CHECKLISTS_COL, item.id);
-    await setDoc(docRef, cleanDataForFirestore(item));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
-}
-
-export async function updateDailyChecklistItemInFirestore(item: DailyShiftChecklistItem) {
-  const path = `${DAILY_CHECKLISTS_COL}/${item.id}`;
-  try {
-    const docRef = doc(db, DAILY_CHECKLISTS_COL, item.id);
-    await setDoc(docRef, cleanDataForFirestore(item), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
-}
-
-export async function deleteDailyChecklistItemFromFirestore(id: string) {
-  const path = `${DAILY_CHECKLISTS_COL}/${id}`;
-  try {
-    const docRef = doc(db, DAILY_CHECKLISTS_COL, id);
-    await deleteDoc(docRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
 // ----------------- LEAVE REQUESTS -----------------
 export function subscribeToLeaveRequests(
   onData: (requests: LeaveRequest[]) => void,
-  userScope?: { uid?: string; role?: string } | null,
+  userScope?: { uid?: string; role?: string; branchId?: string } | null,
   onError?: (error: any) => void
 ) {
   const colRef = collection(db, LEAVE_REQUESTS_COL);
   const role = String(userScope?.role || '').toUpperCase();
-  const scopedQuery = userScope?.uid && !['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(role)
+  const scopedQuery = userScope?.uid && !['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(role)
     ? query(colRef, where('staffId', '==', userScope.uid))
-    : colRef;
+    : userScope?.branchId && userScope.branchId !== 'ALL'
+      ? query(colRef, where('branchId', '==', userScope.branchId))
+      : colRef;
   return onSnapshot(scopedQuery, (snapshot) => {
     const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as LeaveRequest));
     onData(data);
@@ -1187,216 +701,4 @@ export function subscribeToLeaveRequests(
     onError?.(info);
   });
 }
-
-export async function addLeaveRequestToFirestore(request: LeaveRequest) {
-  const path = `${LEAVE_REQUESTS_COL}/${request.id}`;
-  try {
-    const docRef = doc(db, LEAVE_REQUESTS_COL, request.id);
-    await setDoc(docRef, cleanDataForFirestore(request));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
-}
-
-export async function updateLeaveRequestInFirestore(request: LeaveRequest) {
-  const path = `${LEAVE_REQUESTS_COL}/${request.id}`;
-  try {
-    const docRef = doc(db, LEAVE_REQUESTS_COL, request.id);
-    await setDoc(docRef, cleanDataForFirestore(request), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
-  }
-}
-
-// ----------------- WEEKLY SHIFT SCHEDULES (LỊCH & XẾP CA TUẦN) -----------------
-export function subscribeToWeeklyShiftSchedules(
-  onData: (schedules: WeeklyShiftSchedule[]) => void,
-  branchId?: string,
-  weekStart?: string
-) {
-  const colRef = collection(db, WEEKLY_SCHEDULES_COL);
-  let schedQuery: any = colRef;
-  const conditions: any[] = [];
-  if (branchId && branchId !== 'ALL') {
-    conditions.push(where('branchId', '==', branchId));
-  }
-  if (weekStart) {
-    conditions.push(where('weekStart', '==', weekStart));
-  }
-  if (conditions.length > 0) {
-    schedQuery = query(colRef, ...conditions);
-  }
-  return onSnapshot(
-    schedQuery,
-    (snapshot: any) => {
-      const items = snapshot.docs.map((d: any) => ({
-        ...d.data(),
-        id: d.id
-      })) as WeeklyShiftSchedule[];
-      onData(items);
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.LIST, WEEKLY_SCHEDULES_COL);
-    }
-  );
-}
-
-export async function saveWeeklyShiftScheduleToFirestore(schedule: WeeklyShiftSchedule) {
-  const path = `${WEEKLY_SCHEDULES_COL}/${schedule.id}`;
-  try {
-    const docRef = doc(db, WEEKLY_SCHEDULES_COL, schedule.id);
-    await setDoc(docRef, cleanDataForFirestore(schedule), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
-}
-
-// ----------------- LEAD CARE ACTIVITIES (HOẠT ĐỘNG CHĂM SÓC LEAD CÓ BẰNG CHỨNG) -----------------
-export function subscribeToLeadCareActivities(
-  onData: (activities: LeadCareActivity[]) => void,
-  filter?: { leadId?: string; branchId?: string }
-) {
-  const colRef = collection(db, LEAD_CARE_ACTIVITIES_COL);
-  let actQuery: any = colRef;
-  if (filter?.leadId) {
-    actQuery = query(colRef, where('leadId', '==', filter.leadId));
-  } else if (filter?.branchId && filter.branchId !== 'ALL') {
-    actQuery = query(colRef, where('branchId', '==', filter.branchId));
-  }
-  return onSnapshot(
-    actQuery,
-    (snapshot: any) => {
-      const items = snapshot.docs.map((d: any) => ({
-        ...d.data(),
-        id: d.id
-      })) as LeadCareActivity[];
-      onData(items);
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.LIST, LEAD_CARE_ACTIVITIES_COL);
-    }
-  );
-}
-
-export async function addLeadCareActivityToFirestore(activity: LeadCareActivity) {
-  const path = `${LEAD_CARE_ACTIVITIES_COL}/${activity.id}`;
-  try {
-    const docRef = doc(db, LEAD_CARE_ACTIVITIES_COL, activity.id);
-    await setDoc(docRef, cleanDataForFirestore(activity));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
-}
-
-export async function updateLeadCareActivityInFirestore(activity: LeadCareActivity) {
-  const path = `${LEAD_CARE_ACTIVITIES_COL}/${activity.id}`;
-  try {
-    const docRef = doc(db, LEAD_CARE_ACTIVITIES_COL, activity.id);
-    await setDoc(docRef, cleanDataForFirestore(activity), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
-  }
-}
-
-// ----------------- LEAD APPOINTMENTS (LỊCH HẸN SHOWROOM) -----------------
-export function subscribeToLeadAppointments(
-  onData: (appointments: LeadAppointment[]) => void,
-  filter?: { branchId?: string; leadId?: string }
-) {
-  const colRef = collection(db, LEAD_APPOINTMENTS_COL);
-  let apptQuery: any = colRef;
-  if (filter?.leadId) {
-    apptQuery = query(colRef, where('leadId', '==', filter.leadId));
-  } else if (filter?.branchId && filter.branchId !== 'ALL') {
-    apptQuery = query(colRef, where('branchId', '==', filter.branchId));
-  }
-  return onSnapshot(
-    apptQuery,
-    (snapshot: any) => {
-      const items = snapshot.docs.map((d: any) => ({
-        ...d.data(),
-        id: d.id
-      })) as LeadAppointment[];
-      onData(items);
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.LIST, LEAD_APPOINTMENTS_COL);
-    }
-  );
-}
-
-export async function addLeadAppointmentToFirestore(appointment: LeadAppointment) {
-  const path = `${LEAD_APPOINTMENTS_COL}/${appointment.id}`;
-  try {
-    const docRef = doc(db, LEAD_APPOINTMENTS_COL, appointment.id);
-    await setDoc(docRef, cleanDataForFirestore(appointment));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
-}
-
-export async function updateLeadAppointmentInFirestore(appointment: LeadAppointment) {
-  const path = `${LEAD_APPOINTMENTS_COL}/${appointment.id}`;
-  try {
-    const docRef = doc(db, LEAD_APPOINTMENTS_COL, appointment.id);
-    await setDoc(docRef, cleanDataForFirestore(appointment), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
-  }
-}
-
-// ----------------- LEAD QUOTES (BÁO GIÁ SẢN PHẨM & DEAL) -----------------
-export function subscribeToLeadQuotes(
-  onData: (quotes: LeadQuote[]) => void,
-  filter?: { leadId?: string; branchId?: string }
-) {
-  const colRef = collection(db, LEAD_QUOTES_COL);
-  let quoteQuery: any = colRef;
-  if (filter?.leadId) {
-    quoteQuery = query(colRef, where('leadId', '==', filter.leadId));
-  } else if (filter?.branchId && filter.branchId !== 'ALL') {
-    quoteQuery = query(colRef, where('branchId', '==', filter.branchId));
-  }
-  return onSnapshot(
-    quoteQuery,
-    (snapshot: any) => {
-      const items = snapshot.docs.map((d: any) => ({
-        ...d.data(),
-        id: d.id
-      })) as LeadQuote[];
-      onData(items);
-    },
-    (error) => {
-      handleFirestoreError(error, OperationType.LIST, LEAD_QUOTES_COL);
-    }
-  );
-}
-
-export async function addLeadQuoteToFirestore(quote: LeadQuote) {
-  const path = `${LEAD_QUOTES_COL}/${quote.id}`;
-  try {
-    const docRef = doc(db, LEAD_QUOTES_COL, quote.id);
-    await setDoc(docRef, cleanDataForFirestore(quote));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-    throw error;
-  }
-}
-
-export async function updateLeadQuoteInFirestore(quote: LeadQuote) {
-  const path = `${LEAD_QUOTES_COL}/${quote.id}`;
-  try {
-    const docRef = doc(db, LEAD_QUOTES_COL, quote.id);
-    await setDoc(docRef, cleanDataForFirestore(quote), { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-    throw error;
-  }
-}
+export const FIRESTORE_REALTIME_SCOPE_POLICY = 'BRANCH_REQUIRED' as const;

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { adminAuth, adminDb } from '../firebaseAdmin';
+import { normalizeRole } from '../../shared/permissions';
 
 export interface StaffAuthority {
   uid: string;
@@ -69,7 +70,7 @@ export async function getStaffAuthority(uid: string, emailFallback?: string, dbI
     return {
       uid: uid, // Always preserve authoritative Firebase token UID
       email: uData.email || emailFallback,
-      role: (uData.role || '').toUpperCase(),
+      role: normalizeRole(uData.role),
       branchId: uData.branchId || (uData.assignedBranchIds && uData.assignedBranchIds[0]) || '',
       assignedBranchIds: uData.assignedBranchIds || [],
       active: uData.active === true,
@@ -98,10 +99,10 @@ export async function authenticateFirebase(
     if (devUid && devRole && process.env.NODE_ENV !== 'production') {
       req.user = {
         uid: devUid,
-        role: devRole.toUpperCase(),
-        branchId: devBranchId || 'CN01',
+        role: normalizeRole(devRole),
+        branchId: devBranchId || 'DEV_BRANCH',
         email: `${devUid}@phonehouse.local`,
-        assignedBranchIds: [devBranchId || 'CN01']
+        assignedBranchIds: [devBranchId || 'DEV_BRANCH']
       };
       return next();
     }
@@ -126,7 +127,7 @@ export async function authenticateFirebase(
       // In non-production only, allow bootstrap admin claim
       if (process.env.NODE_ENV !== 'production') {
         const claimRole = (decoded.role as string) || (decoded['custom:role'] as string);
-        const claimBranchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || 'CN01';
+        const claimBranchId = (decoded.branchId as string) || (decoded['custom:branchId'] as string) || '';
         if (claimRole === 'ADMIN') {
           staff = {
             uid: decoded.uid,

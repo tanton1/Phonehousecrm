@@ -33,28 +33,21 @@ export const DEFAULT_TECH_COMMISSION_MATRIX: TechCommissionMatrixConfig = {
 };
 
 export const TECH_COMMISSION_MATRIX = DEFAULT_TECH_COMMISSION_MATRIX;
-const STORAGE_KEY = 'phonehouse_tech_matrix_config';
+let compatibilityMatrix = DEFAULT_TECH_COMMISSION_MATRIX;
 
 export function getLiveTechCommissionMatrix(): TechCommissionMatrixConfig {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.models) && Array.isArray(parsed.tasks) && parsed.compensationPolicy) return parsed;
-    }
-  } catch (error) {
-    console.error('Failed to load tech matrix config:', error);
-  }
-  return DEFAULT_TECH_COMMISSION_MATRIX;
+  return compatibilityMatrix;
 }
 
 export function saveLiveTechCommissionMatrix(config: TechCommissionMatrixConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  // Compatibility for the retired editor only. Authoritative task rates are
+  // persisted through System Settings and the technical configuration API.
+  compatibilityMatrix = config;
   window.dispatchEvent(new CustomEvent('tech-matrix-updated', { detail: config }));
 }
 
 export function resetTechCommissionMatrix(): TechCommissionMatrixConfig {
-  localStorage.removeItem(STORAGE_KEY);
+  compatibilityMatrix = DEFAULT_TECH_COMMISSION_MATRIX;
   window.dispatchEvent(new CustomEvent('tech-matrix-updated', { detail: DEFAULT_TECH_COMMISSION_MATRIX }));
   return DEFAULT_TECH_COMMISSION_MATRIX;
 }

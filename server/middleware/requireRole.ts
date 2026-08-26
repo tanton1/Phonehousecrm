@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { normalizeRole } from '../../shared/permissions';
 
 export function requireRole(...allowedRoles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -12,14 +13,14 @@ export function requireRole(...allowedRoles: string[]) {
       });
     }
 
-    const userRole = (user.role || '').toUpperCase();
+    const userRole = normalizeRole(user.role);
 
     // ADMIN has superuser privileges across all routes
     if (userRole === 'ADMIN') {
       return next();
     }
 
-    const isMatch = allowedRoles.some(r => r.toUpperCase() === userRole);
+    const isMatch = allowedRoles.some(r => normalizeRole(r) === userRole);
     if (!isMatch) {
       return res.status(403).json({
         success: false,

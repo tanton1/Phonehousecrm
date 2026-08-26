@@ -14,6 +14,8 @@ export interface POSCheckoutPayload {
   devicesToSell: DeviceItem[];
   accessoriesToSell: { product: ProductItem; quantity: number }[];
   cashTx: CashTransaction | null;
+  warehouseId: string;
+  tradeInAppraisalId?: string;
   tradeInDevice: DeviceItem | null;
   customerPartner: Partner | null;
   financeCompanyPartner: Partner | null;

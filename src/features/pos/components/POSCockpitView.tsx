@@ -42,6 +42,7 @@ type PosDraft = {
   warrantyPackage: string;
   discountAmount: number;
   tradeInDeduction: number;
+  tradeInAppraisalId: string;
   tradeInDevice: DeviceItem | null;
   customerName: string;
   customerPhone: string;
@@ -73,6 +74,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const [warrantyPackage, setWarrantyPackage] = useState('');
   const [discountAmount, setDiscountAmount] = useState(0);
   const [tradeInDeduction, setTradeInDeduction] = useState(0);
+  const [tradeInAppraisalId, setTradeInAppraisalId] = useState('');
   const [tradeInDevice, setTradeInDevice] = useState<DeviceItem | null>(null);
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
 
@@ -101,6 +103,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setWarrantyPackage(saved?.warrantyPackage || '');
     setDiscountAmount(Number(saved?.discountAmount || 0));
     setTradeInDeduction(Number(saved?.tradeInDeduction || 0));
+    setTradeInAppraisalId(saved?.tradeInAppraisalId || '');
     setTradeInDevice(saved?.tradeInDevice || null);
     setCustomerName(saved?.customerName || '');
     setCustomerPhone(saved?.customerPhone || '');
@@ -132,9 +135,39 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
 
   useEffect(() => {
     if (tradeInAppraisal) {
-      setTradeInDeduction(tradeInAppraisal.suggestedTradeInPrice || tradeInAppraisal.finalAppraisalPrice || 0);
+      const approvedPrice = Number(tradeInAppraisal.approvedPrice ?? tradeInAppraisal.finalApprovedPrice ?? tradeInAppraisal.estimatedValue ?? 0);
+      const receiveWarehouseId = String(tradeInAppraisal.receiveWarehouseId || '');
+      const imei = String(tradeInAppraisal.imei || '').replace(/\D/g, '');
+      setTradeInAppraisalId(String(tradeInAppraisal.id || ''));
+      setTradeInDeduction(approvedPrice);
+      setTradeInDevice(imei && receiveWarehouseId && approvedPrice > 0 ? {
+        id: `TRADEIN_${String(tradeInAppraisal.id || imei)}`,
+        branchId: currentBranch.id,
+        imei,
+        serialNo: imei,
+        model: String(tradeInAppraisal.oldModel || '').trim(),
+        storage: String(tradeInAppraisal.storage || '').trim(),
+        color: String(tradeInAppraisal.color || '').trim(),
+        region: 'Không xác định',
+        batteryHealth: Number(tradeInAppraisal.batteryPercent || 0),
+        condition: tradeInAppraisal.bodyCondition === 'Keng Không Vết Xước' ? 'Like New 99%' : '95% Trầy Xước',
+        buyPrice: approvedPrice,
+        currentCost: approvedPrice,
+        sellPrice: approvedPrice,
+        status: 'in_stock',
+        supplier: `Khách thu cũ: ${tradeInAppraisal.customerName || ''}`.trim(),
+        supplierId: tradeInAppraisal.customerId || undefined,
+        warehouse: receiveWarehouseId,
+        warehouseId: receiveWarehouseId,
+        currentLocationId: receiveWarehouseId,
+        receivedDate: new Date().toISOString(),
+        warrantyPeriodMonths: 0,
+        icloudStatus: tradeInAppraisal.icloudUnlocked ? 'Clean / Đã Thoát' : 'Chưa Check',
+        screenStatus: tradeInAppraisal.screenCondition === 'Màn Zin Đẹp' ? 'Zin Màn Keng' : tradeInAppraisal.screenCondition === 'Màn Đã Ép Kính' ? 'Zin Ép Kính' : 'Trầy Phẩy',
+        notes: `Nhập cùng phiếu thu cũ ${tradeInAppraisal.id}`
+      } : null);
     }
-  }, [tradeInAppraisal]);
+  }, [currentBranch.id, tradeInAppraisal]);
 
   // 4. Refs for Keyboard Shortcuts
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -158,6 +191,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       || Boolean(customerName.trim() || customerPhone.trim())
       || discountAmount > 0
       || tradeInDeduction > 0
+      || Boolean(tradeInAppraisalId)
       || Boolean(tradeInDevice);
     const timer = window.setTimeout(() => {
       if (!hasDraftContent) {
@@ -172,6 +206,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         warrantyPackage,
         discountAmount,
         tradeInDeduction,
+        tradeInAppraisalId,
         tradeInDevice,
         customerName,
         customerPhone,
@@ -182,7 +217,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [commissionTagSelections, customerName, customerPhone, discountAmount, downPaymentAmount, linePriceEdits, mobileTab, paymentMethod, posDraftKey, selectedAccessories, selectedDevices, selectedFundId, tradeInDeduction, tradeInDevice, warrantyPackage]);
+  }, [commissionTagSelections, customerName, customerPhone, discountAmount, downPaymentAmount, linePriceEdits, mobileTab, paymentMethod, posDraftKey, selectedAccessories, selectedDevices, selectedFundId, tradeInAppraisalId, tradeInDeduction, tradeInDevice, warrantyPackage]);
 
   // Calculations: dated price policy first, then the audited price entered on this POS slip.
   const retailPricing = getCachedOperationalConfigs().retailPricing;
@@ -311,6 +346,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setSelectedAccessories([]);
     setDiscountAmount(0);
     setTradeInDeduction(0);
+    setTradeInAppraisalId('');
     setTradeInDevice(null);
     setCommissionTagSelections({});
     setLinePriceEdits({});
@@ -326,6 +362,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setWarrantyPackage('');
     setDiscountAmount(0);
     setTradeInDeduction(0);
+    setTradeInAppraisalId('');
     setTradeInDevice(null);
     setCustomerName('');
     setCustomerPhone('');
@@ -336,8 +373,16 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   };
 
   const handleExecuteCheckout = async (splitData?: any) => {
+    if (!currentBranch.id || currentBranch.id === 'ALL' || !currentBranch.warehouseId) {
+      alert('Hãy chọn một chi nhánh có kho bán hàng trước khi xuất hóa đơn.');
+      return;
+    }
     if (selectedDevices.length === 0 && selectedAccessories.length === 0) {
       alert('Giỏ hàng đang trống. Vui lòng chọn máy hoặc phụ kiện.');
+      return;
+    }
+    if (tradeInAppraisalId && (!tradeInDevice || !/^\d{5,15}$/.test(tradeInDevice.imei) || !tradeInDevice.currentLocationId)) {
+      alert('Phiếu thu cũ chưa đủ IMEI hoặc kho nhận. Hãy quay lại phiếu thẩm định và bổ sung thông tin trước khi xuất hóa đơn.');
       return;
     }
     if (!salesConfig?.isActive) {
@@ -426,6 +471,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       createdAt: new Date().toISOString(),
       branchId: currentBranch.id,
       branch: currentBranch.name,
+      warehouseId: String(currentBranch.warehouseId),
       priceList: retailPricing ? `${retailPricing.name} · ${retailPricing.version}` : 'Giá trên mặt hàng',
       creatorName: currentUser?.name || 'Thu Ngân',
       customerName: customerName.trim() || 'Khách vãng lai',
@@ -547,6 +593,8 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       devicesToSell: selectedDevices,
       accessoriesToSell: selectedAccessories,
       cashTx,
+      warehouseId: String(currentBranch.warehouseId),
+      tradeInAppraisalId: tradeInAppraisalId || undefined,
       tradeInDevice: tradeInDevice,
       customerPartner: customerPartner,
       financeCompanyPartner: null,
@@ -580,6 +628,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       setSelectedAccessories([]);
       setDiscountAmount(0);
       setTradeInDeduction(0);
+      setTradeInAppraisalId('');
       setTradeInDevice(null);
       setCommissionTagSelections({});
       setLinePriceEdits({});

@@ -48,6 +48,8 @@ export function useCheckout() {
         devicesToSell: payload.devicesToSell,
         accessoriesToSell: payload.accessoriesToSell,
         cashTx: payload.cashTx,
+        warehouseId: payload.warehouseId,
+        tradeInAppraisalId: payload.tradeInAppraisalId,
         tradeInDevice: payload.tradeInDevice,
         customerPartner: payload.customerPartner,
         financeCompanyPartner: payload.financeCompanyPartner,

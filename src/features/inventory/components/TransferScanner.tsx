@@ -22,7 +22,7 @@ export const TransferScanner: React.FC<TransferScannerProps> = ({
 }) => {
   const [sourceBranchId, setSourceBranchId] = useState(currentBranch.id);
   const [targetBranchId, setTargetBranchId] = useState(
-    branches.find(b => b.id !== currentBranch.id)?.id || branches[0]?.id || ''
+    branches.find(b => b.id !== currentBranch.id)?.id || ''
   );
   const [scanImeiInput, setScanImeiInput] = useState('');
   const [selectedImeis, setSelectedImeis] = useState<string[]>([]);
@@ -32,7 +32,7 @@ export const TransferScanner: React.FC<TransferScannerProps> = ({
   if (!isOpen) return null;
 
   const sourceBranch = branches.find(b => b.id === sourceBranchId) || currentBranch;
-  const targetBranch = branches.find(b => b.id === targetBranchId) || branches[0];
+  const targetBranch = branches.find(b => b.id === targetBranchId);
 
   // In-stock devices in source branch
   const sourceAvailableDevices = devices.filter(
@@ -73,6 +73,10 @@ export const TransferScanner: React.FC<TransferScannerProps> = ({
     }
     if (sourceBranchId === targetBranchId) {
       alert('Chi nhánh nguồn và chi nhánh đích không được trùng nhau.');
+      return;
+    }
+    if (!targetBranch?.id || !targetBranch.warehouseId) {
+      alert('Vui lòng chọn chi nhánh và kho nhận hợp lệ.');
       return;
     }
 

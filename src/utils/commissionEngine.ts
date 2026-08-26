@@ -85,6 +85,11 @@ export function calculateInvoiceCommissions(
   if (!staff?.id || !staff?.name) {
     return transactions;
   }
+  const commissionBranchId = String(invoice.branchId || staff.branchId || '').trim();
+  // A commission ledger line without an owning branch cannot be reconciled
+  // with finance/payroll. Legacy records must be repaired, never assigned to
+  // an invented branch.
+  if (!commissionBranchId || commissionBranchId === 'ALL') return transactions;
 
   const nowStr = invoice.createdAt || invoice.createdDate || new Date().toISOString().replace('T', ' ').slice(0, 19);
   const isCancelled = invoice.status === 'cancelled';
@@ -145,7 +150,7 @@ export function calculateInvoiceCommissions(
           orderItemId: `ITEM-${idx + 1}`,
           productName: item.name,
           imei: item.imei,
-          branchId: invoice.branchId || invoice.branch || staff.branchId || 'BRANCH_1',
+          branchId: commissionBranchId,
           type: type,
           baseAmount,
           profitAmount: baseAmount,
@@ -178,7 +183,7 @@ export function calculateInvoiceCommissions(
           orderItemId: `DEV-${idx + 1}`,
           productName: `${dev.model} ${dev.storage || ''} ${dev.color || ''}`.trim(),
           imei: dev.imei,
-          branchId: invoice.branchId || invoice.branch || staff.branchId || 'BRANCH_1',
+          branchId: commissionBranchId,
           type: 'DEVICE_SALE',
           baseAmount: dev.price || invoice.finalAmount,
           profitAmount: dev.price || invoice.finalAmount,

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { DeviceItem, StaffMember, TradeInAppraisal } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
-import { Repeat, ShieldCheck, CheckCircle2, Lock, ArrowRight, ShoppingCart } from 'lucide-react';
-import { calculateTradeInValuation, TradeInGradingFactors } from '../types';
+import { Repeat, ShoppingCart } from 'lucide-react';
+import { calculateTradeInValuation } from '../types';
 import { OldDeviceAppraisalState } from './OldDeviceAppraisalPanel';
 
 export interface TradeInSummaryPanelProps {
@@ -18,10 +18,6 @@ export const TradeInSummaryPanel: React.FC<TradeInSummaryPanelProps> = ({
   currentUser,
   onCompleteTradeInToPOS
 }) => {
-  const [managerPin, setManagerPin] = useState('');
-  const [isApproved, setIsApproved] = useState(false);
-  const [isApproving, setIsApproving] = useState(false);
-
   const valuation = calculateTradeInValuation(appraisalState.basePrice, {
     batteryPercent: appraisalState.batteryPercent,
     bodyCondition: appraisalState.bodyCondition,
@@ -38,18 +34,8 @@ export const TradeInSummaryPanel: React.FC<TradeInSummaryPanelProps> = ({
   const subsidyAmount = appraisalState.subsidyBonus;
   const upgradeDifference = Math.max(0, targetPrice - oldBuybackValue);
 
-  // Require manager approval if oldBuybackValue > 15,000,000 or subsidy > 500,000
-  const requiresApproval = oldBuybackValue > 15_000_000 || subsidyAmount > 500_000;
-  const canProceed = !requiresApproval || isApproved || currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER';
-
-  const handleManagerApprove = () => {
-    if (managerPin === '8888' || currentUser?.role === 'ADMIN') {
-      setIsApproved(true);
-      alert('Đã phê duyệt định giá thành công.');
-    } else {
-      alert('Mã PIN quản lý không chính xác.');
-    }
-  };
+  const role = String(currentUser?.role || '').toUpperCase();
+  const isManager = ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(role);
 
   const handleFinish = () => {
     if (!targetDevice) {
@@ -60,9 +46,23 @@ export const TradeInSummaryPanel: React.FC<TradeInSummaryPanelProps> = ({
       alert('Vui lòng nhập tên và số điện thoại khách hàng ở cột 1.');
       return;
     }
+    if (!/^\d{5,15}$/.test(appraisalState.imei)) {
+      alert('IMEI máy thu cũ phải gồm từ 5 đến 15 chữ số.');
+      return;
+    }
+    if (!appraisalState.receiveWarehouseId) {
+      alert('Vui lòng chọn kho nhận máy thu cũ.');
+      return;
+    }
+    if (!appraisalState.oldModel.trim() || !appraisalState.storage.trim() || appraisalState.basePrice <= 0) {
+      alert('Vui lòng nhập dòng máy, dung lượng và giá gốc thẩm định hợp lệ.');
+      return;
+    }
 
     const newAppraisal: TradeInAppraisal = {
       id: `APPRAISAL-${Date.now()}`,
+      imei: appraisalState.imei,
+      receiveWarehouseId: appraisalState.receiveWarehouseId,
       customerName: appraisalState.customerName,
       phone: appraisalState.customerPhone,
       oldModel: appraisalState.oldModel,
@@ -80,9 +80,9 @@ export const TradeInSummaryPanel: React.FC<TradeInSummaryPanelProps> = ({
       targetNewModel: targetDevice.model,
       targetNewModelPrice: targetPrice,
       upgradeDiffPrice: upgradeDifference,
-      status: 'accepted',
+      status: isManager ? 'accepted' : 'pending',
       createdDate: new Date().toISOString().split('T')[0],
-      inspectedBy: currentUser?.displayName || 'KTV Thẩm Định'
+      inspectedBy: currentUser?.displayName || currentUser?.name || 'Nhân viên thẩm định'
     };
 
     onCompleteTradeInToPOS(newAppraisal, targetDevice);
@@ -128,43 +128,19 @@ export const TradeInSummaryPanel: React.FC<TradeInSummaryPanelProps> = ({
         </div>
       </div>
 
-      {/* Manager Approval Gate if required */}
-      {requiresApproval && !canProceed && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2 text-xs">
-          <div className="flex items-center space-x-1.5 text-amber-800 font-bold">
-            <Lock className="w-4 h-4 text-amber-600" />
-            <span>Cần Quản Lý Phê Duyệt Giá</span>
-          </div>
-          <p className="text-[11px] text-amber-700">
-            Đơn thu cũ giá trị cao hoặc trợ giá đặc biệt cần mã PIN quản lý để xác nhận.
-          </p>
-
-          <div className="flex space-x-2">
-            <input
-              type="password"
-              placeholder="Nhập mã PIN quản lý..."
-              value={managerPin}
-              onChange={e => setManagerPin(e.target.value)}
-              className="flex-1 h-8 px-2.5 bg-white border border-amber-300 rounded-lg font-mono text-xs"
-            />
-            <Button variant="primary" size="sm" onClick={handleManagerApprove} className="h-8">
-              Duyệt
-            </Button>
-          </div>
-        </div>
-      )}
+      {!isManager && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] font-semibold leading-5 text-amber-800">Nhân viên có thể lưu phiếu ngay. Quản lý sẽ duyệt giá trên hệ thống trước khi phiếu được đưa vào POS.</div>}
 
       {/* Conversion Button */}
       <div className="pt-2 mt-auto border-t border-zinc-100">
         <Button
           variant="primary"
           size="lg"
-          disabled={!canProceed || !targetDevice}
+          disabled={!targetDevice}
           onClick={handleFinish}
           leftIcon={<ShoppingCart className="w-4 h-4" />}
           className="w-full"
         >
-          Tạo Đơn Thu Cũ Sang POS (F2)
+          {isManager ? 'Duyệt & đưa sang POS (F2)' : 'Lưu phiếu chờ duyệt'}
         </Button>
       </div>
     </div>

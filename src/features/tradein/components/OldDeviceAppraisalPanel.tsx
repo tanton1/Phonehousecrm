@@ -1,10 +1,13 @@
 import React from 'react';
-import { Smartphone, Battery, ShieldAlert, Check, X } from 'lucide-react';
+import { Smartphone, Battery, Check, X } from 'lucide-react';
+import { WarehouseInfo } from '../../../types';
 import { calculateTradeInValuation } from '../types';
 
 export interface OldDeviceAppraisalState {
   customerName: string;
   customerPhone: string;
+  imei: string;
+  receiveWarehouseId: string;
   oldModel: string;
   storage: string;
   color: string;
@@ -22,11 +25,13 @@ export interface OldDeviceAppraisalState {
 
 export interface OldDeviceAppraisalPanelProps {
   state: OldDeviceAppraisalState;
+  warehouses: WarehouseInfo[];
   onChange: (updates: Partial<OldDeviceAppraisalState>) => void;
 }
 
 export const OldDeviceAppraisalPanel: React.FC<OldDeviceAppraisalPanelProps> = ({
   state,
+  warehouses,
   onChange
 }) => {
   const valuation = calculateTradeInValuation(state.basePrice, {
@@ -58,7 +63,7 @@ export const OldDeviceAppraisalPanel: React.FC<OldDeviceAppraisalPanelProps> = (
       </div>
 
       {/* 2. Customer Info */}
-      <div className="grid grid-cols-2 gap-2 text-xs">
+      <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
         <input
           type="text"
           placeholder="Tên khách hàng (*)..."
@@ -75,9 +80,27 @@ export const OldDeviceAppraisalPanel: React.FC<OldDeviceAppraisalPanelProps> = (
         />
       </div>
 
+      <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+        <input
+          inputMode="numeric"
+          placeholder="IMEI máy thu cũ (5–15 số) *"
+          value={state.imei}
+          onChange={event => onChange({ imei: event.target.value.replace(/\D/g, '').slice(0, 15) })}
+          className="h-9 rounded-xl border border-zinc-200 bg-zinc-50 px-3 font-mono font-bold focus:border-[#ff4b16] focus:bg-white focus:outline-none"
+        />
+        <select
+          value={state.receiveWarehouseId}
+          onChange={event => onChange({ receiveWarehouseId: event.target.value })}
+          className="h-9 rounded-xl border border-zinc-200 bg-zinc-50 px-3 font-semibold focus:border-[#ff4b16] focus:bg-white focus:outline-none"
+        >
+          <option value="">Chọn kho nhận máy *</option>
+          {warehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+        </select>
+      </div>
+
       {/* 3. Old Device Spec */}
       <div className="space-y-2 text-xs">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <input
             type="text"
             placeholder="Dòng máy (e.g. iPhone 13)"

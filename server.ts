@@ -1,8 +1,10 @@
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { adminDb } from './server/firebaseAdmin';
+import { apiRateLimit, corsAllowlist, productionErrorHandler, requestContext, securityHeaders } from './server/middleware/security';
 
 dotenv.config();
 
@@ -12,10 +14,19 @@ const PORT = Number(process.env.PORT || 3000);
 // Enable trusted proxy for accurate client IP detection behind Vercel/reverse proxies
 app.set('trust proxy', 1);
 
+app.use(requestContext);
+app.use(securityHeaders);
+app.use(corsAllowlist);
+app.use('/api', apiRateLimit);
+app.use('/api/ai', express.json({ limit: '5mb' }));
+app.use(['/api/meta/webhook', '/api/zalo/webhook', '/api/tiktok/webhook'], express.json({
+  limit: '2mb',
+  verify: (req: any, _res, buffer) => { req.rawBody = Buffer.from(buffer); }
+}));
 app.use(express.json({
-  limit: '15mb',
+  limit: '1mb',
   verify: (req: any, _res, buffer) => {
-    if (/^\/api\/(meta|zalo|tiktok)\/webhook/.test(String(req.originalUrl || req.url || ''))) {
+    if (!req.rawBody && /^\/api\/(meta|zalo|tiktok)\/webhook/.test(String(req.originalUrl || req.url || ''))) {
       req.rawBody = Buffer.from(buffer);
     }
   }
@@ -99,7 +110,7 @@ app.get('/api/ready', async (req, res) => {
       status: 'unavailable',
       service: 'phonehouse-crm-api',
       database: 'error',
-      error: dbErr?.message || 'Failed to communicate with Firestore.'
+      error: 'DATABASE_UNAVAILABLE'
     });
   }
 });
@@ -115,15 +126,15 @@ app.get('/api/client-ip', (req, res) => {
   res.json({
     success: true,
     ip,
-    isLocal,
-    sampleStoreIp: '113.161.45.88',
-    userAgent: req.headers['user-agent'],
-    timestamp: new Date().toISOString()
+    isLocal
   });
 });
 
 // Database schema info endpoint
 app.get('/api/database/info', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ success: false, code: 'API_ENDPOINT_NOT_FOUND', requestId: req.requestId });
+  }
   res.json({
     success: true,
     engine: 'Firestore',
@@ -162,6 +173,10 @@ app.use('/api/finance', createFinanceRouter(adminDb));
 
 import { createConfigurationRouter } from './server/routes/configuration';
 app.use('/api/configuration', createConfigurationRouter(adminDb));
+import { createPartnersRouter } from './server/routes/partners';
+app.use('/api/partners', createPartnersRouter(adminDb));
+import { createTradeInsRouter } from './server/routes/tradeIns';
+app.use('/api/trade-ins', createTradeInsRouter(adminDb));
 
 // -------------------------------------------------------------
 // 5. CRM AUTHORITATIVE QA & STATE MACHINE ROUTER
@@ -206,6 +221,8 @@ app.use('/api/catalog', createCatalogRouter(adminDb));
 // -------------------------------------------------------------
 import { createAdminRouter } from './server/routes/admin';
 app.use('/api/admin', createAdminRouter(adminDb));
+import { createEvidenceRouter } from './server/routes/evidence';
+app.use('/api/evidence', createEvidenceRouter(adminDb));
 
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
 
@@ -354,117 +371,86 @@ Số tiền phải được định dạng theo tiền tệ Việt Nam (ví dụ
   });
 });
 
+const telegramChatRateBuckets = new Map<string, { count: number; resetAt: number }>();
 // Inbound Telegram Bot Webhook (Receives voice memo & text from Telegram app)
 app.post('/api/telegram/webhook', async (req, res) => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
+  const configuredChatId = process.env.TELEGRAM_CHAT_ID;
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!token || !configuredChatId || !webhookSecret) {
+    return res.status(503).json({ success: false, code: 'TELEGRAM_NOT_CONFIGURED', requestId: req.requestId });
+  }
+  const suppliedSecret = String(req.headers['x-telegram-bot-api-secret-token'] || '');
+  const expected = Buffer.from(webhookSecret);
+  const supplied = Buffer.from(suppliedSecret);
+  if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
+    return res.status(401).json({ success: false, code: 'TELEGRAM_WEBHOOK_UNAUTHORIZED', requestId: req.requestId });
+  }
   const update = req.body || {};
   const message = update.message || update.edited_message;
 
-  if (!message || !token) {
+  if (!message) {
     return res.status(200).send('OK');
   }
 
   const chatId = message.chat?.id;
-  const text = message.text;
-  const voice = message.voice || message.audio;
-  const senderName = message.from?.first_name || 'Giám Đốc';
-
-  console.log(`📩 Telegram Message from ${senderName} (${chatId}):`, text || '[Voice Note]');
-
-  // Check Whitelist Authorization (Optional if configured)
-  const configuredChatId = process.env.TELEGRAM_CHAT_ID;
-  if (configuredChatId && String(chatId) !== String(configuredChatId)) {
-    // Send polite rejection to unauthorized users
-    try {
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: '⛔ <b>Từ chối truy cập</b>: Tài khoản Telegram này chưa được đăng ký trong danh sách Ban Giám Đốc của PhoneHouse CRM.',
-          parse_mode: 'HTML'
-        })
-      });
-    } catch (e) {}
+  if (String(chatId) !== String(configuredChatId)) return res.status(200).send('OK');
+  const now = Date.now();
+  const previousBucket = telegramChatRateBuckets.get(String(chatId));
+  const bucket = !previousBucket || previousBucket.resetAt <= now ? { count: 0, resetAt: now + 60_000 } : previousBucket;
+  bucket.count += 1;
+  telegramChatRateBuckets.set(String(chatId), bucket);
+  if (bucket.count > 20) return res.status(429).json({ success: false, code: 'TELEGRAM_RATE_LIMITED', requestId: req.requestId });
+  const updateId = String(update.update_id || '');
+  if (!updateId) return res.status(400).json({ success: false, code: 'TELEGRAM_UPDATE_ID_REQUIRED' });
+  const updateRef = adminDb.collection('telegramWebhookUpdates').doc(updateId);
+  try {
+    await updateRef.create({ receivedAt: new Date().toISOString(), chatFingerprint: crypto.createHash('sha256').update(String(chatId)).digest('hex').slice(0, 12) });
+  } catch (error: any) {
+    if (String(error?.code || '').includes('already-exists') || Number(error?.code) === 6) return res.status(200).send('OK');
+    console.error(JSON.stringify({ level: 'error', requestId: req.requestId, code: 'TELEGRAM_DEDUPE_FAILED' }));
+    return res.status(503).json({ success: false, code: 'TELEGRAM_TEMPORARILY_UNAVAILABLE', requestId: req.requestId });
+  }
+  const command = String(message.text || '').trim().split(/\s+/)[0].toLowerCase();
+  if (!['/report', '/baocao', '/help', '/start'].includes(command)) {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: 'Lệnh hỗ trợ: /report (báo cáo hôm nay), /help (hướng dẫn).' })
+    }).catch(() => null);
     return res.status(200).send('OK');
   }
-
-  let queryText = text || '';
-
-  // If voice message, download voice audio and transcribe
-  if (voice && voice.file_id) {
-    try {
-      const fileRes = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${voice.file_id}`);
-      const fileData = await fileRes.json();
-      if (fileData.ok && fileData.result?.file_path) {
-        queryText = `[Voice Memo] Yêu cầu báo cáo nhanh từ Giám Đốc ${senderName}`;
-      }
-    } catch (err) {
-      console.warn('Error fetching Telegram voice file:', err);
-    }
+  if (command === '/help' || command === '/start') {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: 'PhoneHouse CRM: dùng /report để xem báo cáo tổng hợp hôm nay.' })
+    }).catch(() => null);
+    return res.status(200).send('OK');
   }
-
-  // 100% Real Live Metrics from Firestore (Zero hardcoded metrics)
-  let todayRevenue = 0;
-  let todayInvoicesCount = 0;
-  let inStockDevicesCount = 0;
-  let totalFunds = 0;
-  let cashFunds = 0;
-  let bankFunds = 0;
-  let pendingWarrantiesCount = 0;
-
+  const todayStr = getVietnamDateString();
+  let aggregateSnap;
   try {
-    const todayStr = getVietnamDateString();
-
-    const invoicesSnap = await adminDb.collection('invoices').get();
-    invoicesSnap.forEach(d => {
-      const data = d.data();
-      const dateStr = data.createdAt ? (typeof data.createdAt.toDate === 'function' ? getVietnamDateString(data.createdAt.toDate()) : String(data.createdAt).split('T')[0]) : '';
-      if (dateStr === todayStr && data.status !== 'cancelled') {
-        todayRevenue += (data.finalAmount || data.totalAmount || 0);
-        todayInvoicesCount++;
-      }
-    });
-
-    const devicesSnap = await adminDb.collection('devices').where('status', '==', 'in_stock').get();
-    inStockDevicesCount = devicesSnap.size;
-
-    const fundsSnap = await adminDb.collection('funds').get();
-    fundsSnap.forEach(d => {
-      const data = d.data();
-      const bal = data.currentBalance || 0;
-      totalFunds += bal;
-      if (data.type === 'CASH' || (data.name && data.name.toLowerCase().includes('tiền mặt'))) {
-        cashFunds += bal;
-      } else {
-        bankFunds += bal;
-      }
-    });
-
-    const warrantySnap = await adminDb.collection('warrantyTickets').get();
-    warrantySnap.forEach(d => {
-      const data = d.data();
-      if (['received', 'inspecting', 'waiting_parts', 'repairing', 'PENDING', 'IN_PROGRESS', 'WAITING_FOR_PARTS'].includes(data.status)) {
-        pendingWarrantiesCount++;
-      }
-    });
-  } catch (err) {
-    console.warn('Realtime metrics fetch error for Telegram:', err);
+    aggregateSnap = await adminDb.collection('executiveDailyAggregates').doc(`${todayStr}_ALL`).get();
+  } catch (_error) {
+    return res.status(503).json({ success: false, code: 'TELEGRAM_REPORT_UNAVAILABLE', requestId: req.requestId });
   }
-
-  // Synthesize genuine answer
+  const metrics = aggregateSnap.exists ? aggregateSnap.data() || {} : {};
+  const todayRevenue = Number(metrics.revenue || 0);
+  const todayInvoicesCount = Number(metrics.invoiceCount || 0);
+  const hasInventoryAggregate = Number.isFinite(Number(metrics.inStockDeviceCount));
+  const hasFinanceAggregate = Number.isFinite(Number(metrics.totalFundBalance));
+  const hasRepairAggregate = Number.isFinite(Number(metrics.pendingRepairCount));
+  const inStockDevicesCount = Number(metrics.inStockDeviceCount || 0);
+  const totalFunds = Number(metrics.totalFundBalance || 0);
+  const cashFunds = Number(metrics.cashFundBalance || 0);
+  const bankFunds = Number(metrics.bankFundBalance || 0);
+  const pendingWarrantiesCount = Number(metrics.pendingRepairCount || 0);
   const responseHtml = `
 <b>🤖 TRỢ LÝ GIÁM ĐỐC PHONEHOUSE AI</b>
-👋 <i>Chào ${senderName}!</i>
-
-❓ <b>Nội dung tra cứu:</b> <i>"${queryText || 'Báo cáo nhanh'}"</i>
-
 💰 <b>Doanh thu hôm nay:</b> <code>${todayRevenue.toLocaleString('vi-VN')} đ</code> (${todayInvoicesCount} hóa đơn)
-📱 <b>Tồn kho sẵn bán:</b> <b>${inStockDevicesCount} cây máy</b>
-💼 <b>Số dư các quỹ:</b> <code>${totalFunds.toLocaleString('vi-VN')} đ</code> (Két: ${(cashFunds / 1_000_000).toFixed(1)}Tr • NH: ${(bankFunds / 1_000_000).toFixed(1)}Tr)
-🔧 <b>Bảo hành & Sửa chữa:</b> <b>${pendingWarrantiesCount} phiếu</b>
-
-🎙️ <i>Dữ liệu thời gian thực được đồng bộ trực tiếp từ hệ thống PhoneHouse CRM.</i>
+📱 <b>Tồn kho sẵn bán:</b> ${hasInventoryAggregate ? `<b>${inStockDevicesCount} cây máy</b>` : '<i>Chưa tổng hợp</i>'}
+💼 <b>Số dư các quỹ:</b> ${hasFinanceAggregate ? `<code>${totalFunds.toLocaleString('vi-VN')} đ</code> (Két: ${(cashFunds / 1_000_000).toFixed(1)}Tr • NH: ${(bankFunds / 1_000_000).toFixed(1)}Tr)` : '<i>Chưa tổng hợp</i>'}
+🔧 <b>Bảo hành & Sửa chữa:</b> ${hasRepairAggregate ? `<b>${pendingWarrantiesCount} phiếu</b>` : '<i>Chưa tổng hợp</i>'}
+${aggregateSnap.exists ? '✅ <i>Dữ liệu tổng hợp từ PhoneHouse CRM.</i>' : '⚠️ <i>Chưa có bản tổng hợp hôm nay. Vui lòng mở Báo cáo để cập nhật.</i>'}
 `.trim();
 
   try {
@@ -477,8 +463,8 @@ app.post('/api/telegram/webhook', async (req, res) => {
         parse_mode: 'HTML'
       })
     });
-  } catch (error) {
-    console.error('Error replying to Telegram user:', error);
+  } catch (_error) {
+    console.error(JSON.stringify({ level: 'error', requestId: req.requestId, code: 'TELEGRAM_REPLY_FAILED' }));
   }
 
   res.status(200).send('OK');
@@ -770,7 +756,14 @@ app.post('/api/ai/ask-assistant', (req, res) => {
 });
 
 // 6. High-Accuracy Biometric Face ID Verification & Matching Engine
-app.post('/api/ai/verify-face', async (req, res) => {
+app.post('/api/ai/verify-face', authenticateFirebase, async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    code: 'BIOMETRIC_AUTOMATION_DISABLED',
+    message: 'Face ID hiện chỉ là ảnh bằng chứng phụ. GPS, mạng cửa hàng và phiên xác minh server quyết định trạng thái chấm công.',
+    requestId: req.requestId
+  });
+  /* Legacy implementation intentionally unreachable during the safe migration.
   const { 
     employeeName = 'Nhân viên',
     livePhotoBase64,
@@ -963,19 +956,23 @@ Trả về ĐÚNG định dạng JSON sau:
       },
       engine: 'PhoneHouse Biometric Correlation Engine (Offline Fallback)'
     }
+  });*/
+});
+
+// Strict API 404 + error boundary also apply on Vercel, where startServer is
+// not invoked and the exported Express app is the runtime entrypoint.
+app.all('/api/*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    code: 'API_ENDPOINT_NOT_FOUND',
+    message: 'Endpoint API không tồn tại trên hệ thống.',
+    requestId: req.requestId
   });
 });
+app.use(productionErrorHandler);
 
 // Setup Vite middleware for SPA
 async function startServer() {
-  // Strict API 404 Handler: Prevent SPA HTML fallback from swallowing unmatched /api/* calls
-  app.all('/api/*', (_req, res) => {
-    res.status(404).json({
-      success: false,
-      error: 'API_ENDPOINT_NOT_FOUND',
-      message: 'Endpoint API không tồn tại trên hệ thống.'
-    });
-  });
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

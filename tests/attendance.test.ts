@@ -41,7 +41,7 @@ describe('Sprint 2: Attendance Verification & Geofence Test Suite', () => {
     expect(result.error).toContain('chưa được cấu hình tọa độ GPS chuẩn');
   });
 
-  it('Case 4: Xác thực Check-In Server Timestamp & Chuyển PENDING khi Face ID Offline', async () => {
+  it('Case 4: Face ID là bằng chứng phụ và không chặn GPS/QR hợp lệ', async () => {
     const result = await processServerCheckIn(null, {
       staffId: 'STAFF-007',
       staffName: 'Lê Văn B',
@@ -52,7 +52,8 @@ describe('Sprint 2: Attendance Verification & Geofence Test Suite', () => {
     });
 
     expect(result.staffId).toBe('STAFF-007');
-    expect(result.status).toBe('PENDING_VERIFICATION'); // Flagged for manager review
+    expect(['ON_TIME', 'LATE']).toContain(result.status);
+    expect(result.verificationStatus).toBe('VERIFIED');
     expect(result.verification.gpsVerified).toBe(true);
     expect(result.verification.faceVerified).toBe(false);
     expect(result.verification.serverTimeIso).toBeDefined();

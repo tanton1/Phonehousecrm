@@ -3,7 +3,7 @@ import { Firestore } from 'firebase-admin/firestore';
 import { validateCheckoutPayload } from '../validation/checkoutSchema';
 import { executeAtomicCheckout, executeAtomicInvoiceRefund, processUpdateInvoiceNote } from '../services/checkoutService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
-import { requireRole } from '../middleware/requireRole';
+import { requirePermission } from '../middleware/requirePermission';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
 
 export function createPOSCheckoutRouter(db: Firestore): Router {
@@ -12,7 +12,7 @@ export function createPOSCheckoutRouter(db: Firestore): Router {
   router.post(
     '/checkout',
     authenticateFirebase,
-    requireRole('ADMIN', 'MANAGER', 'SALES', 'SALE', 'ACCOUNTANT'),
+    requirePermission('POS_CHECKOUT'),
     requireBranchAccess(),
     async (req: Request, res: Response) => {
       const validation = validateCheckoutPayload(req.body);
@@ -41,7 +41,7 @@ export function createPOSCheckoutRouter(db: Firestore): Router {
   router.patch(
     '/invoices/:invoiceId/notes',
     authenticateFirebase,
-    requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'SALES', 'SALE'),
+    requirePermission('POS_CHECKOUT'),
     async (req: Request, res: Response) => {
       try {
         const invoice = await processUpdateInvoiceNote(db, req.params.invoiceId, req.body?.notes, req.user!);
@@ -56,7 +56,7 @@ export function createPOSCheckoutRouter(db: Firestore): Router {
   router.post(
     '/refund',
     authenticateFirebase,
-    requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'),
+    requirePermission('INVOICE_REFUND'),
     requireBranchAccess(),
     async (req: Request, res: Response) => {
       try {

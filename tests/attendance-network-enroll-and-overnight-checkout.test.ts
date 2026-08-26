@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { processServerCheckIn, processServerCheckOut } from '../server/services/attendanceService';
+import crypto from 'node:crypto';
+
+const digest = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
+const verificationInput = {
+  faceSessionId: 'AVS_TEST',
+  verificationNonce: 'nonce-test',
+  deviceId: 'device-test-001'
+};
+
+const openSession = (staffId: string, branchId: string, clientIp: string) => ({
+  uid: staffId,
+  branchId,
+  action: 'CHECK_IN',
+  status: 'OPEN',
+  expiresAtMs: Date.now() + 60_000,
+  deviceIdHash: digest(verificationInput.deviceId),
+  clientIpHash: digest(clientIp),
+  nonceHash: digest(verificationInput.verificationNonce)
+});
 
 describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Checkout Suite', () => {
 
@@ -63,7 +82,9 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async () => ({ exists: false }),
+            get: async (ref: any) => ref.col === 'attendanceVerificationSessions'
+              ? ({ exists: true, data: () => openSession('STAFF_001', 'CN01', '113.161.45.99') })
+              : ({ exists: false }),
             set: () => {},
             update: () => {}
           };
@@ -76,6 +97,7 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
         branchId: 'CN01',
         userCoords: { latitude: 16.06121, longitude: 108.21701 },
         clientIp: '113.161.45.99'
+        ,...verificationInput
       });
 
       expect(result.attendanceStatus).toBe('CHECKED_IN');
@@ -133,7 +155,9 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async () => ({ exists: false }),
+            get: async (ref: any) => ref.col === 'attendanceVerificationSessions'
+              ? ({ exists: true, data: () => openSession('STAFF_001', 'CN01', '14.232.208.10') })
+              : ({ exists: false }),
             set: () => {},
             update: () => {}
           };
@@ -146,6 +170,7 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
         branchId: 'CN01',
         userCoords: { latitude: 16.06121, longitude: 108.21701 },
         clientIp: '14.232.208.10'
+        ,...verificationInput
       });
 
       expect(result.verification.networkVerified).toBe(true);
@@ -184,7 +209,10 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async () => ({
+            get: async (ref: any) => ref.col === 'attendanceVerificationSessions' ? ({
+              exists: true,
+              data: () => ({ ...openSession('STAFF_001', 'CN01', '113.161.45.99'), action: 'CHECK_OUT' })
+            }) : ({
               exists: true,
               data: () => ({
                 id: 'ATT_STAFF_001_20260820',
@@ -196,7 +224,8 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
                 scheduledBreakMinutes: 60
               })
             }),
-            update: (_ref: any, fields: any) => {
+            update: (ref: any, fields: any) => {
+              if (ref.col !== 'attendance') return;
               updatedStatus = fields.status;
               updatedAttendanceStatus = fields.attendanceStatus;
             }
@@ -207,7 +236,9 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
 
       const result = await processServerCheckOut(mockDb, {
         staffId: 'STAFF_001',
-        branchId: 'CN01'
+        branchId: 'CN01',
+        clientIp: '113.161.45.99',
+        ...verificationInput
       });
 
       expect(result).toBeDefined();

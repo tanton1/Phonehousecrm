@@ -43,29 +43,28 @@ import {
   SOPTargetRole, 
   TaskPriority,
   StoreBranch,
-  StaffMember
+  StaffMember,
+  UserAccount
 } from '../types';
 import {
   subscribeToSOPTemplates,
-  addSOPTemplateToFirestore,
-  updateSOPTemplateInFirestore,
-  deleteSOPTemplateFromFirestore,
   subscribeToDailyChecklists,
-  addDailyChecklistItemToFirestore,
-  updateDailyChecklistItemInFirestore,
-  subscribeToShiftHandovers,
-  updateShiftHandoverInFirestore
+  subscribeToShiftHandovers
 } from '../services/firestoreService';
+import { archiveSopTemplate, createSopTemplate, updateSopTemplate } from '../services/configurationApiClient';
+import { requestReviewDailyChecklist, requestReviewShiftHandover, requestSaveDailyChecklist } from '../services/attendanceApiClient';
 
 interface SOPManagementViewProps {
   branches?: StoreBranch[];
   staffMembers?: StaffMember[];
+  currentUser?: UserAccount | null;
   onNotify?: (message: string) => void;
 }
 
 export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   branches = [],
   staffMembers = [],
+  currentUser,
   onNotify
 }) => {
   // Main Sub-tabs for Leadership
@@ -88,18 +87,19 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
     const unsubTemplates = subscribeToSOPTemplates((data) => {
       setSopTemplates(data || []);
     });
+    const scope = currentUser ? { uid: currentUser.id, role: currentUser.role, branchId: currentUser.branchId } : null;
     const unsubChecklists = subscribeToDailyChecklists((data) => {
       setDailyChecklists(data || []);
-    });
+    }, scope);
     const unsubHandovers = subscribeToShiftHandovers((data) => {
       setHandoverReports(data || []);
-    });
+    }, scope);
     return () => {
       unsubTemplates();
       unsubChecklists();
       unsubHandovers();
     };
-  }, []);
+  }, [currentUser?.id, currentUser?.role, currentUser?.branchId]);
 
   // Modal State for SOP Template creation / editing
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -185,7 +185,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
   };
 
   // Save SOP Template (Create or Update)
-  const handleSaveTemplate = (e: React.FormEvent) => {
+  const handleSaveTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) return;
 
@@ -230,8 +230,14 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
         bonusPoints: formBonusPoints,
         updatedAt: new Date().toLocaleDateString('vi-VN')
       };
-      setSopTemplates(prev => prev.map(t => t.id === editingTemplate.id ? updatedTemplate : t));
-      updateSOPTemplateInFirestore(updatedTemplate).then(() => onNotify?.('Đã cập nhật SOP'));
+      try {
+        const saved = await updateSopTemplate(updatedTemplate);
+        setSopTemplates(prev => prev.map(t => t.id === saved.id ? saved : t));
+        onNotify?.('Đã cập nhật SOP');
+      } catch (error: any) {
+        onNotify?.(error?.message || 'Không cập nhật được SOP');
+        return;
+      }
     } else {
       // Create new
       const newTemplate: SOPTemplateItem = {
@@ -255,35 +261,47 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
         createdAt: new Date().toLocaleDateString('vi-VN'),
         version: '1.0'
       };
-      setSopTemplates([newTemplate, ...sopTemplates]);
-      addSOPTemplateToFirestore(newTemplate).then(() => onNotify?.('Đã tạo SOP'));
+      try {
+        const saved = await createSopTemplate(newTemplate);
+        setSopTemplates(prev => [saved, ...prev.filter(item => item.id !== saved.id)]);
+        onNotify?.('Đã tạo SOP');
+      } catch (error: any) {
+        onNotify?.(error?.message || 'Không tạo được SOP');
+        return;
+      }
     }
 
     setIsModalOpen(false);
   };
 
   // Toggle SOP Template Active State
-  const handleToggleTemplateActive = (id: string) => {
-    setSopTemplates(prev => prev.map(t => {
-      if (t.id === id) {
-        const updated = { ...t, isActive: !t.isActive };
-        updateSOPTemplateInFirestore(updated).then(() => onNotify?.('Đã cập nhật trạng thái SOP'));
-        return updated;
-      }
-      return t;
-    }));
+  const handleToggleTemplateActive = async (id: string) => {
+    const current = sopTemplates.find(item => item.id === id);
+    if (!current) return;
+    try {
+      const saved = await updateSopTemplate({ ...current, isActive: !current.isActive });
+      setSopTemplates(items => items.map(item => item.id === id ? saved : item));
+      onNotify?.('Đã cập nhật trạng thái SOP');
+    } catch (error: any) {
+      onNotify?.(error?.message || 'Không cập nhật được trạng thái SOP');
+    }
   };
 
   // Delete SOP Template
-  const handleDeleteTemplate = (id: string) => {
+  const handleDeleteTemplate = async (id: string) => {
     if (window.confirm('Bạn có chắc chắn muốn xóa tiêu chuẩn SOP này?')) {
-      setSopTemplates(prev => prev.filter(t => t.id !== id));
-      deleteSOPTemplateFromFirestore(id).then(() => onNotify?.('Đã xóa SOP'));
+      try {
+        await archiveSopTemplate(id);
+        setSopTemplates(prev => prev.filter(t => t.id !== id));
+        onNotify?.('Đã xóa/ngừng dùng SOP');
+      } catch (error: any) {
+        onNotify?.(error?.message || 'Không xóa được SOP');
+      }
     }
   };
 
   // Manager Assigns Instant Task to Staff
-  const handleDispatchTask = (e: React.FormEvent) => {
+  const handleDispatchTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dispatchTaskTitle.trim()) return;
 
@@ -311,46 +329,36 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
       assignedByLeaderName: 'Ban Giám Đốc / CHT'
     };
 
-    setDailyChecklists([newTask, ...dailyChecklists]);
-    addDailyChecklistItemToFirestore(newTask);
-    setDispatchTaskTitle('');
-    setIsDispatchModalOpen(false);
+    try {
+      const saved = await requestSaveDailyChecklist(newTask);
+      setDailyChecklists(current => [saved, ...current.filter(item => item.id !== saved.id)]);
+      setDispatchTaskTitle('');
+      setIsDispatchModalOpen(false);
+    } catch (error: any) {
+      onNotify?.(error?.message || 'Không giao được task');
+    }
   };
 
   // Manager Audits / Signs off on a staff checklist
-  const handleManagerAuditChecklist = (checkId: string) => {
-    setDailyChecklists(prev => prev.map(item => {
-      if (item.id === checkId) {
-        const updated: DailyShiftChecklistItem = {
-          ...item,
-          verifiedByManager: true,
-          verifiedAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-          verifiedBy: 'Cửa hàng trưởng'
-        };
-        updateDailyChecklistItemInFirestore(updated);
-        return updated;
-      }
-      return item;
-    }));
+  const handleManagerAuditChecklist = async (checkId: string) => {
+    try {
+      const saved = await requestReviewDailyChecklist(checkId);
+      setDailyChecklists(items => items.map(item => item.id === checkId ? saved : item));
+    } catch (error: any) {
+      onNotify?.(error?.message || 'Không duyệt được checklist');
+    }
   };
 
   // Manager Approves Handover Report
-  const handleApproveHandover = (reportId: string) => {
-    setHandoverReports(prev => prev.map(r => {
-      if (r.id === reportId) {
-        const updated: ShiftHandoverReport = {
-          ...r,
-          status: 'APPROVED_BY_MANAGER',
-          managerApprovedBy: 'Ban Giám Đốc / CHT',
-          managerFeedback: managerFeedbackText || 'Đã kiểm tra đối soát, số quỹ và máy tồn chính xác 100%.'
-        };
-        updateShiftHandoverInFirestore(updated);
-        return updated;
-      }
-      return r;
-    }));
-    setViewingHandover(null);
-    setManagerFeedbackText('');
+  const handleApproveHandover = async (reportId: string) => {
+    try {
+      const saved = await requestReviewShiftHandover(reportId, managerFeedbackText);
+      setHandoverReports(items => items.map(item => item.id === reportId ? saved : item));
+      setViewingHandover(null);
+      setManagerFeedbackText('');
+    } catch (error: any) {
+      onNotify?.(error?.message || 'Không duyệt được biên bản bàn giao');
+    }
   };
 
   return (
@@ -399,6 +407,12 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
           </div>
         </div>
       </div>
+
+      {!currentUser?.branchId && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+          Hãy chọn một chi nhánh cụ thể ở thanh trên để xem checklist và biên bản bàn giao ca. Thư viện mẫu SOP vẫn có thể chỉnh sửa ở chế độ Toàn hệ thống.
+        </div>
+      )}
 
       {/* 2. SUB-NAVIGATION TABS */}
       <div className="flex items-center gap-2 border-b border-zinc-200 overflow-x-auto pb-1">
@@ -691,7 +705,7 @@ export const SOPManagementView: React.FC<SOPManagementViewProps> = ({
                         {check.staffName} ({check.staffRole})
                       </span>
                       <span className="text-xs text-zinc-500 font-medium">
-                        {check.branchName || 'Showroom Hải Châu'}
+                        {check.branchName || 'Chưa gắn chi nhánh'}
                       </span>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                         check.category === 'OPENING' ? 'bg-orange-50 text-orange-700 border border-orange-200' :

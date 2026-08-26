@@ -58,7 +58,7 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
     const ids = new Set([currentUser.branchId, ...(currentUser.assignedBranchIds || [])].filter(Boolean));
     return branches.filter(branch => ids.has(branch.id));
   }, [branches, currentUser]);
-  const [branchId, setBranchId] = useState(currentUser?.branchId || allowedBranches[0]?.id || branches[0]?.id || '');
+  const [branchId, setBranchId] = useState(currentUser?.branchId || '');
   const [viewMode, setViewMode] = useState<ViewMode>('MY_WORK');
   const [serverLeads, setServerLeads] = useState<Lead[]>(legacyLeads);
   const [nextCursor, setNextCursor] = useState<string | null>(null);

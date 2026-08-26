@@ -20,7 +20,7 @@ export const RoleAssignmentDrawer: React.FC<RoleAssignmentDrawerProps> = ({
   onSaveStaffSettings
 }) => {
   const [role, setRole] = useState<UserRole>((staff?.role as UserRole) || 'SALE');
-  const [branchId, setBranchId] = useState(staff?.branchId || branches[0]?.id || '');
+  const [branchId, setBranchId] = useState(staff?.branchId || '');
   const [baseSalary, setBaseSalary] = useState(staff?.baseSalary || 7000000);
   const [isActive, setIsActive] = useState(staff?.status !== 'INACTIVE');
   const [isSubmitting, setIsSubmitting] = useState(false);

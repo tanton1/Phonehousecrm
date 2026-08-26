@@ -42,16 +42,15 @@ import {
   StaffRole 
 } from '../types';
 import { 
-  addShiftHandoverToFirestore, 
-  addDailyChecklistItemToFirestore, 
-  updateDailyChecklistItemInFirestore,
   subscribeToSOPTemplates
 } from '../services/firestoreService';
+import { requestCreateShiftHandover, requestSaveDailyChecklist } from '../services/attendanceApiClient';
 
 interface ShiftChecklistModuleProps {
   staffId: string;
   staffName: string;
   staffRole: string; // 'SALES' | 'TECHNICIAN' | 'CASHIER' ...
+  branchId: string;
   branchName?: string;
   currentActivity?: string;
   onChangeActivity?: (activity: string) => void;
@@ -62,7 +61,8 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
   staffId,
   staffName,
   staffRole,
-  branchName = 'Showroom Hải Châu',
+  branchId,
+  branchName = 'Chưa xác định chi nhánh',
   currentActivity = staffRole === 'SALES' ? 'Bán hàng Showroom' : 'Sửa chữa & KCS',
   onChangeActivity,
   onHandoverSubmit
@@ -85,6 +85,7 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       staffId,
       staffName,
       staffRole,
+      branchId,
       branchName,
       title: sop.title,
       category: sop.category,
@@ -93,7 +94,7 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       priority: sop.priority,
       isCompleted: false
     }));
-  }, [staffId, staffName, staffRole, branchName, sopTemplates]);
+  }, [staffId, staffName, staffRole, branchId, branchName, sopTemplates]);
 
   const [checklistItems, setChecklistItems] = useState<DailyShiftChecklistItem[]>(initialChecklist);
   React.useEffect(() => setChecklistItems(initialChecklist), [initialChecklist]);
@@ -102,9 +103,9 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
 
   // Handover state
   const [isHandoverOpen, setIsHandoverOpen] = useState(false);
-  const [handoverCashSafe, setHandoverCashSafe] = useState('12450000');
-  const [handoverRevenue, setHandoverRevenue] = useState('85000000');
-  const [handoverNote, setHandoverNote] = useState('Đã đối soát khớp tiền két; Khách anh Hoàng hẹn 15:30 chiều mai lấy iPhone 15 Pro Max.');
+  const [handoverCashSafe, setHandoverCashSafe] = useState('');
+  const [handoverRevenue, setHandoverRevenue] = useState('');
+  const [handoverNote, setHandoverNote] = useState('');
   const [isGlassLocked, setIsGlassLocked] = useState(true);
   const [isHeatTurnedOff, setIsHeatTurnedOff] = useState(true);
   const [isHandoverSuccess, setIsHandoverSuccess] = useState(false);
@@ -115,35 +116,28 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
   const [customCategory, setCustomCategory] = useState<SOPCategory>('MID_SHIFT');
 
   const completedCount = checklistItems.filter(i => i.isCompleted).length;
-  const progressPercent = Math.round((completedCount / checklistItems.length) * 100);
+  const progressPercent = checklistItems.length ? Math.round((completedCount / checklistItems.length) * 100) : 0;
 
   const formatVND = (num: number) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
   };
 
-  const handleToggleTask = (id: string) => {
-    setChecklistItems(prev => prev.map(item => {
-      if (item.id === id) {
-        const nextDone = !item.isCompleted;
-        const timeNow = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-        const updated: DailyShiftChecklistItem = {
-          ...item,
-          isCompleted: nextDone,
-          completedAt: nextDone ? timeNow : undefined,
-          completedBy: nextDone ? staffName : undefined
-        };
-        updateDailyChecklistItemInFirestore(updated);
-        return updated;
-      }
-      return item;
-    }));
+  const handleToggleTask = async (id: string) => {
+    const item = checklistItems.find(entry => entry.id === id);
+    if (!item) return;
+    try {
+      const saved = await requestSaveDailyChecklist({ ...item, branchId, isCompleted: !item.isCompleted });
+      setChecklistItems(current => current.map(entry => entry.id === id ? saved : entry));
+    } catch (error: any) {
+      alert(error?.message || 'Không cập nhật được checklist.');
+    }
   };
 
   const handleUpdateNote = (id: string, text: string) => {
     setChecklistItems(prev => prev.map(item => item.id === id ? { ...item, note: text } : item));
   };
 
-  const handleAddCustomTask = (e: React.FormEvent) => {
+  const handleAddCustomTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customTitle.trim()) return;
 
@@ -153,6 +147,7 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       staffId,
       staffName,
       staffRole,
+      branchId,
       branchName,
       title: customTitle.trim(),
       category: customCategory,
@@ -163,13 +158,17 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       isCustomTask: true
     };
 
-    setChecklistItems([...checklistItems, newTask]);
-    addDailyChecklistItemToFirestore(newTask);
-    setCustomTitle('');
-    setIsAddingCustom(false);
+    try {
+      const saved = await requestSaveDailyChecklist(newTask);
+      setChecklistItems(current => [...current, saved]);
+      setCustomTitle('');
+      setIsAddingCustom(false);
+    } catch (error: any) {
+      alert(error?.message || 'Không thêm được việc phát sinh.');
+    }
   };
 
-  const handleSubmitHandover = (e: React.FormEvent) => {
+  const handleSubmitHandover = async (e: React.FormEvent) => {
     e.preventDefault();
     const handoverId = `HO-${Date.now()}`;
     const fullReport: ShiftHandoverReport = {
@@ -177,7 +176,7 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       code: `BG-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${Math.floor(10 + Math.random() * 90)}`,
       date: new Date().toISOString().split('T')[0],
       shiftName: 'Ca trực hôm nay',
-      branchId: 'BRANCH_1',
+      branchId,
       branchName,
       staffId,
       staffName,
@@ -187,7 +186,7 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       posCardRevenueToday: 0,
       qrBankRevenueToday: 0,
       totalRevenueToday: Number(handoverRevenue) || 0,
-      demoDevicesCount: 8,
+      demoDevicesCount: 0,
       demoDevicesLocked: true,
       glassShowcasesLocked: isGlassLocked,
       powerHeatDevicesTurnedOff: isHeatTurnedOff,
@@ -201,17 +200,17 @@ export const ShiftChecklistModule: React.FC<ShiftChecklistModuleProps> = ({
       createdAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
     };
 
-    addShiftHandoverToFirestore(fullReport);
-
-    if (onHandoverSubmit) {
-      onHandoverSubmit(fullReport);
+    try {
+      const saved = await requestCreateShiftHandover(fullReport);
+      onHandoverSubmit?.(saved);
+      setIsHandoverSuccess(true);
+      setTimeout(() => {
+        setIsHandoverSuccess(false);
+        setIsHandoverOpen(false);
+      }, 2500);
+    } catch (error: any) {
+      alert(error?.message || 'Không gửi được biên bản bàn giao ca.');
     }
-
-    setIsHandoverSuccess(true);
-    setTimeout(() => {
-      setIsHandoverSuccess(false);
-      setIsHandoverOpen(false);
-    }, 2500);
   };
 
   const filteredTasks = useMemo(() => {

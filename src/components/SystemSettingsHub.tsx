@@ -24,7 +24,8 @@ import {
   SalesSetupConfig,
   SystemSetupCheck,
   SystemSetupStatus,
-  TechnicalTaskTypeConfig
+  TechnicalTaskTypeConfig,
+  UserAccount
 } from '../types';
 import {
   fetchOperationalConfigurationState,
@@ -43,6 +44,7 @@ interface SystemSettingsHubProps extends StoreSettingsViewProps {
   initialTab?: SetupTab;
   onNavigate: (tab: string) => void;
   onSetupStatusChange?: (status: SystemSetupStatus) => void;
+  currentUser?: UserAccount | null;
 }
 
 const TAB_BY_CHECK: Record<SystemSetupCheck['id'], SetupTab> = {
@@ -520,7 +522,7 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
       onNavigateToCashbook={(branchId) => { if (branchId) sessionStorage.setItem('phonehouse_target_branch', branchId); onNavigate('funds'); }}
     />}
     {activeTab === 'finance' && <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><div className="flex flex-col justify-between gap-4 md:flex-row md:items-center"><div><h2 className="text-lg font-black">Tài khoản tài chính theo chi nhánh</h2><p className="text-sm text-zinc-500">Mỗi quỹ tiền mặt và tài khoản ngân hàng bắt buộc có branchId.</p></div><button onClick={() => onNavigate('funds')} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white">Mở thiết lập tài khoản & Sổ quỹ</button></div><div className="mt-5 grid gap-3 md:grid-cols-2">{storeProps.branches.filter(b => b.isActive !== false).map(branch => { const accounts = (storeProps.funds || []).filter(f => f.branchId === branch.id && (f as any).isArchived !== true); return <div key={branch.id} className="rounded-xl border p-4"><div className="flex items-center gap-2 font-black"><Building2 className="h-4 w-4 text-orange-600" />{branch.name}</div><p className="mt-2 text-sm text-zinc-600">{accounts.length ? `${accounts.length} tài khoản đã định danh` : 'Chưa tạo tài khoản'}</p></div>; })}</div></section>}
-    {activeTab === 'sop' && <SOPManagementView branches={storeProps.branches} staffMembers={storeProps.staffMembers} onNotify={() => { void load(); }} />}
+    {activeTab === 'sop' && <SOPManagementView branches={storeProps.branches} staffMembers={storeProps.staffMembers} currentUser={storeProps.currentUser} onNotify={() => { void load(); }} />}
     {activeTab === 'technicalTasks' && <TechnicalTaskPanel onSaved={load} />}
     {activeTab === 'sales' && <OperationalPolicyPanel kind="sales" policies={policyVersions.sales} onSaved={load} />}
     {activeTab === 'retailPricing' && <RetailPricingPanel policies={policyVersions.retailPricing} branches={storeProps.branches} devices={storeProps.devices} products={storeProps.products} onSaved={load} />}

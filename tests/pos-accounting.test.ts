@@ -316,6 +316,7 @@ describe('PhoneHouse POS & Financial Invariants Test Suite', () => {
     const result = validateCheckoutPayload({
       idempotencyKey: 'POS-SPLIT-0001',
       branchId: 'CN01',
+      warehouseId: 'KHO01',
       deviceIds: ['DEV-01'],
       payments: [
         { method: 'CASH', amount: 5000, fundId: 'FUND-CASH' },
@@ -325,14 +326,28 @@ describe('PhoneHouse POS & Financial Invariants Test Suite', () => {
     });
     expect(result.isValid).toBe(true);
     const legacyMobilePayload = validateCheckoutPayload({
-      idempotencyKey: 'POS-SPLIT-0002', branchId: 'CN01', deviceIds: ['DEV-01'],
+      idempotencyKey: 'POS-SPLIT-0002', branchId: 'CN01', warehouseId: 'KHO01', deviceIds: ['DEV-01'],
       payments: [{ method: 'Tiền mặt', amount: 5000, fundId: 'FUND-CASH' }]
     });
     expect(legacyMobilePayload.isValid).toBe(true);
     expect(legacyMobilePayload.data?.payments[0].method).toBe('CASH');
     expect(validateCheckoutPayload({
-      idempotencyKey: 'POS-SPLIT-0003', branchId: 'CN01', deviceIds: ['DEV-01'],
+      idempotencyKey: 'POS-SPLIT-0003', branchId: 'CN01', warehouseId: 'KHO01', deviceIds: ['DEV-01'],
       payments: [{ method: 'CRYPTO', amount: 5000, fundId: 'FUND-CASH' }]
     }).isValid).toBe(false);
+  });
+
+  it('Case 9: phiếu thu cũ và IMEI nhận kho phải đi cùng nhau', () => {
+    const base = {
+      idempotencyKey: 'POS-TRADE-IN-0001', branchId: 'CN01', warehouseId: 'KHO01', deviceIds: ['DEV-01'],
+      payment: { method: 'CASH', fundId: 'FUND-CASH' }
+    };
+    expect(validateCheckoutPayload({ ...base, tradeInAppraisalId: 'APP-01' }).isValid).toBe(false);
+    expect(validateCheckoutPayload({ ...base, tradeInDevice: { imei: '12345', currentLocationId: 'KHO01' } }).isValid).toBe(false);
+    expect(validateCheckoutPayload({
+      ...base,
+      tradeInAppraisalId: 'APP-01',
+      tradeInDevice: { imei: '12345', currentLocationId: 'KHO01' }
+    }).isValid).toBe(true);
   });
 });

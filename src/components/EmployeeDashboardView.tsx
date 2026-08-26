@@ -106,7 +106,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       roleTitle: u.role || 'Nhân viên',
       phone: u.phone || '0900000000',
       email: u.email || '',
-      branchId: u.branchId || 'CN01',
+      branchId: u.branchId || '',
       branchName: 'Chi nhánh chính',
       baseSalary: u.baseSalary || 6000000,
       monthlyTargetRevenue: u.kpiTargetRevenue || 150000000,
@@ -135,13 +135,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
 
   // Manual Ledger (Thưởng / Phạt)
-  const [manualLedger, setManualLedger] = useState<{id: string, staffId: string, month: string, amount: number, note: string}[]>(() => {
-    const saved = localStorage.getItem('phonehouse_manual_ledger');
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
-    }
-    return [];
-  });
+  const [manualLedger, setManualLedger] = useState<{id: string, staffId: string, month: string, amount: number, note: string}[]>([]);
 
   const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
   const [ledgerForm, setLedgerForm] = useState({ amount: 0, note: '' });
@@ -160,7 +154,6 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
     
     const updated = [newEntry, ...manualLedger];
     setManualLedger(updated);
-    localStorage.setItem('phonehouse_manual_ledger', JSON.stringify(updated));
     setLedgerForm({ amount: 0, note: '' });
     setIsLedgerModalOpen(false);
   };

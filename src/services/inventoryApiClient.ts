@@ -10,7 +10,7 @@ interface ApiEnvelope<T> {
 
 async function sendInventoryRequest<T>(
   endpoint: string,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PATCH',
   payload?: Record<string, any>,
   currentUser?: UserAccount
 ): Promise<T> {
@@ -26,7 +26,7 @@ async function sendInventoryRequest<T>(
   const response = await fetch(`/api/inventory/${endpoint}`, {
     method,
     headers,
-    body: method === 'POST' ? JSON.stringify(payload || {}) : undefined
+    body: method === 'GET' ? undefined : JSON.stringify(payload || {})
   });
   const result = await response.json().catch(() => ({ success: false, error: `HTTP_${response.status}` })) as ApiEnvelope<T>;
   if (!response.ok || !result.success || !result.data) throw new Error(result.error || result.message || `Yêu cầu kho thất bại (HTTP ${response.status}).`);
@@ -38,6 +38,19 @@ export function createInventoryIdempotencyKey(scope: string): string {
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${scope}:${suffix}`;
+}
+
+export async function requestUpdateInventoryDeviceMetadata(
+  device: DeviceItem,
+  currentUser?: UserAccount
+): Promise<DeviceItem> {
+  const result = await sendInventoryRequest<{ device: DeviceItem }>(
+    `devices/${encodeURIComponent(device.id)}/metadata`,
+    'PATCH',
+    device as unknown as Record<string, any>,
+    currentUser
+  );
+  return result.device;
 }
 
 export interface InventoryDeviceSummary {
@@ -201,6 +214,17 @@ export async function requestPayPurchaseOrderDebt(
     note,
     idempotencyKey: idempotencyKey || createInventoryIdempotencyKey(`purchase-payment:${orderId}`)
   }, currentUser);
+}
+
+export async function requestUpdatePurchaseOrderNote(
+  orderId: string,
+  note: string,
+  currentUser?: UserAccount
+): Promise<PurchaseOrder> {
+  const result = await sendInventoryRequest<{ order: PurchaseOrder }>(
+    `purchase-orders/${encodeURIComponent(orderId)}/note`, 'PATCH', { note }, currentUser
+  );
+  return result.order;
 }
 
 export async function fetchInventoryAudit(currentUser?: UserAccount): Promise<{

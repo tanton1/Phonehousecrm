@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Copy, ExternalLink, HelpCircle, Link2, Loader2, RefreshCw, WandSparkles, X } from 'lucide-react';
 import { ChatConversation } from '../types';
 import { DeviceItem } from '../../../types';
@@ -90,9 +90,17 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [threadControlConflict, setThreadControlConflict] = useState(false);
+  const [conversationRealtimeFailed, setConversationRealtimeFailed] = useState(false);
+  const [messageRealtimeFailed, setMessageRealtimeFailed] = useState(false);
+  const [isRealtimeLeader, setIsRealtimeLeader] = useState(true);
+  const realtimeChannelRef = useRef<BroadcastChannel | null>(null);
 
   const activeConvo = conversations.find(conversation => conversation.id === selectedConvoId) || null;
-  const activeChannel = useMemo(() => channels.find(channel => channel.branchId === currentBranchId) || channels[0], [channels, currentBranchId]);
+  const activeChannel = useMemo(() => {
+    const branchId = String(currentBranchId || '').trim();
+    if (!branchId || branchId === 'ALL') return undefined;
+    return channels.find(channel => channel.branchId === branchId);
+  }, [channels, currentBranchId]);
   const directMeta = activeChannel?.provider === 'META_MESSENGER';
   const directZalo = activeChannel?.provider === 'ZALO_OA';
   const directTikTok = activeChannel?.provider === 'TIKTOK_BUSINESS';
@@ -101,10 +109,58 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   const pageDisconnected = activeChannel?.connectionStatus === 'DISCONNECTED';
   const webhookReceiving = activeChannel?.webhookStatus === 'RECEIVING' && !pageDisconnected;
 
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return undefined;
+    const tabId = crypto.randomUUID();
+    const leaseKey = 'phonehouse:chat-realtime-leader';
+    const channel = new BroadcastChannel('phonehouse-chat-realtime-v1');
+    realtimeChannelRef.current = channel;
+    const branchId = activeChannel?.branchId || currentBranchId || '';
+    const updateLease = () => {
+      const now = Date.now();
+      let lease: { tabId?: string; expiresAt?: number } = {};
+      try { lease = JSON.parse(localStorage.getItem(leaseKey) || '{}'); } catch { lease = {}; }
+      const canClaim = !lease.tabId || Number(lease.expiresAt || 0) <= now || lease.tabId === tabId;
+      if (canClaim) localStorage.setItem(leaseKey, JSON.stringify({ tabId, expiresAt: now + 12_000 }));
+      setIsRealtimeLeader(canClaim);
+    };
+    channel.onmessage = event => {
+      const payload = event.data || {};
+      if (payload.branchId !== branchId) return;
+      if (payload.type === 'conversations' && Array.isArray(payload.items)) {
+        setConversations(current => payload.items.map((item: ChatConversation) => ({
+          ...item,
+          messages: current.find(old => old.id === item.id)?.messages || []
+        })));
+      }
+      if (payload.type === 'messages' && payload.conversationId && Array.isArray(payload.items)) {
+        setConversations(current => current.map(item => item.id === payload.conversationId ? { ...item, messages: payload.items } : item));
+      }
+    };
+    updateLease();
+    const timer = window.setInterval(updateLease, 5_000);
+    return () => {
+      window.clearInterval(timer);
+      channel.close();
+      realtimeChannelRef.current = null;
+      try {
+        const lease = JSON.parse(localStorage.getItem(leaseKey) || '{}');
+        if (lease.tabId === tabId) localStorage.removeItem(leaseKey);
+      } catch { /* no-op */ }
+    };
+  }, [activeChannel?.branchId, currentBranchId]);
+
   const loadConversations = useCallback(async (showSpinner = false, branchIdOverride = '') => {
     if (showSpinner) setLoading(true);
     try {
-      const page = await requestPancakeConversations({ branchId: branchIdOverride || activeChannel?.branchId || currentBranchId, limit: 100 });
+      const branchId = branchIdOverride || activeChannel?.branchId || currentBranchId || '';
+      if (!branchId || branchId === 'ALL') {
+        setConversations([]);
+        setSelectedConvoId(null);
+        setError('Hãy chọn một chi nhánh cụ thể để mở đúng hộp thoại của chi nhánh đó.');
+        return;
+      }
+      const page = await requestPancakeConversations({ branchId, limit: 100 });
       setConversations(current => page.items.map(item => {
         const previous = current.find(old => old.id === item.id);
         return { ...item, messages: previous?.messages || [] };
@@ -121,7 +177,10 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
 
   const loadSummary = useCallback(async (branchIdOverride = '') => {
     const branchId = branchIdOverride || activeChannel?.branchId || currentBranchId || '';
-    if (!branchId) return;
+    if (!branchId || branchId === 'ALL') {
+      setChatSummary(null);
+      return;
+    }
     setLoadingSummary(true);
     try {
       setChatSummary(await requestPancakeChatSummary(branchId, 30));
@@ -134,9 +193,12 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
 
   const loadChannelsAndConversations = useCallback(async () => {
     setLoading(true);
+    const branchId = String(currentBranchId || '').trim();
     const [channelResult, conversationResult] = await Promise.allSettled([
       requestPancakeChannels(),
-      requestPancakeConversations({ branchId: currentBranchId, limit: 100 })
+      branchId && branchId !== 'ALL'
+        ? requestPancakeConversations({ branchId, limit: 100 })
+        : Promise.resolve({ items: [], nextCursor: null, hasMore: false })
     ]);
     if (channelResult.status === 'fulfilled') {
       setChannels(channelResult.value.channels);
@@ -149,6 +211,7 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
         return { ...item, messages: previous?.messages || [] };
       }));
       setSelectedConvoId(current => current || conversationResult.value.items[0]?.id || null);
+      if (!branchId || branchId === 'ALL') setError('Hãy chọn một chi nhánh cụ thể để mở đúng hộp thoại của chi nhánh đó.');
     } else setError(friendlyError(conversationResult.reason));
     setLoading(false);
   }, [currentBranchId]);
@@ -195,28 +258,28 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   }, [activeChannel, branchOptions, currentBranchId, mappingBranchId]);
 
   useEffect(() => {
-    // Firestore remains the instant path. This local API refresh is deliberately
-    // kept active so a missing browser listener/index/network reconnect cannot
-    // leave the inbox frozen while the webhook is healthy.
-    const interval = directRealtime && webhookReceiving ? 8_000 : 12_000;
-    const timer = window.setInterval(() => { void loadConversations(false); }, interval);
+    if (!conversationRealtimeFailed) return undefined;
+    const timer = window.setInterval(() => { void loadConversations(false); }, 15_000);
     return () => window.clearInterval(timer);
-  }, [directRealtime, loadConversations, webhookReceiving]);
+  }, [conversationRealtimeFailed, loadConversations]);
 
   useEffect(() => {
     const branchId = activeChannel?.branchId || currentBranchId;
-    if (!branchId) return undefined;
+    if (!branchId || !isRealtimeLeader) return undefined;
     return subscribeChatConversations(branchId, items => {
+      setConversationRealtimeFailed(false);
       setConversations(current => items.map(item => {
         const previous = current.find(old => old.id === item.id);
         return { ...item, messages: previous?.messages || [] };
       }));
       setSelectedConvoId(current => current && items.some(item => item.id === current) ? current : items[0]?.id || null);
+      realtimeChannelRef.current?.postMessage({ type: 'conversations', branchId, items });
     }, caught => {
       console.warn('[Chat conversation realtime]', caught);
+      setConversationRealtimeFailed(true);
       void loadConversations(false);
     });
-  }, [activeChannel?.branchId, currentBranchId, loadConversations]);
+  }, [activeChannel?.branchId, currentBranchId, isRealtimeLeader, loadConversations]);
 
   const loadMessages = useCallback(async (conversationId: string, refreshFromPancake = true, showSpinner = true) => {
     if (showSpinner) setLoadingMessages(true);
@@ -232,38 +295,29 @@ export const OmnichannelChatView: React.FC<OmnichannelChatViewProps> = ({
   }, []);
 
   useEffect(() => {
-    if (selectedConvoId) void loadMessages(selectedConvoId, true, true);
+    if (selectedConvoId) void loadMessages(selectedConvoId, false, true);
   }, [selectedConvoId, loadMessages]);
 
   useEffect(() => {
-    if (!selectedConvoId || !activeConvo?.branchId) return undefined;
+    if (!selectedConvoId || !activeConvo?.branchId || !isRealtimeLeader) return undefined;
     return subscribePancakeMessages(selectedConvoId, activeConvo.branchId, messages => {
+      setMessageRealtimeFailed(false);
       setConversations(current => current.map(item => item.id === selectedConvoId ? { ...item, messages } : item));
+      realtimeChannelRef.current?.postMessage({ type: 'messages', branchId: activeConvo.branchId, conversationId: selectedConvoId, items: messages });
     }, caught => {
       console.warn('[Pancake realtime]', caught);
+      setMessageRealtimeFailed(true);
       void loadMessages(selectedConvoId, false, false);
     });
-  }, [activeConvo?.branchId, loadMessages, selectedConvoId]);
+  }, [activeConvo?.branchId, isRealtimeLeader, loadMessages, selectedConvoId]);
 
-  // Webhook + Firestore listener is instant when Pancake calls our endpoint.
-  // This slower source refresh is a safety net while webhook has not yet sent
-  // an event (and also repairs historical messages saved with an old shape).
   useEffect(() => {
-    if (!selectedConvoId) return undefined;
-    // Fast local polling backs up the realtime listener without calling an
-    // external provider. A slower provider refresh also repairs a missed
-    // webhook automatically.
+    if (!selectedConvoId || !messageRealtimeFailed) return undefined;
     const localTimer = window.setInterval(() => {
       void loadMessages(selectedConvoId, false, false);
-    }, 5_000);
-    const providerTimer = window.setInterval(() => {
-      void loadMessages(selectedConvoId, true, false);
-    }, webhookReceiving ? 30_000 : 20_000);
-    return () => {
-      window.clearInterval(localTimer);
-      window.clearInterval(providerTimer);
-    };
-  }, [directRealtime, loadMessages, selectedConvoId, webhookReceiving]);
+    }, 10_000);
+    return () => window.clearInterval(localTimer);
+  }, [loadMessages, messageRealtimeFailed, selectedConvoId]);
 
   const handleSelectConversation = (conversation: ChatConversation) => {
     const alreadySelected = conversation.id === selectedConvoId;

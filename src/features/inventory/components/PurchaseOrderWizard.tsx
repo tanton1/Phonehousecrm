@@ -26,7 +26,7 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
   // Step 1: Supplier & Meta
   const suppliers = partners.filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH');
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id || '');
-  const [branchId, setBranchId] = useState(branches[0]?.id || '');
+  const [branchId, setBranchId] = useState('');
   const [orderCode, setOrderCode] = useState(`PO-${Date.now().toString().slice(-6)}`);
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
@@ -64,7 +64,7 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
   if (!isOpen) return null;
 
   const selectedSupplier = suppliers.find(s => s.id === supplierId) || suppliers[0];
-  const selectedBranch = branches.find(b => b.id === branchId) || branches[0];
+  const selectedBranch = branches.find(b => b.id === branchId);
   const remainingDebt = Math.max(0, totalAmount - paidAmount);
 
   const handleAddRow = () => {
@@ -96,6 +96,11 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
   };
 
   const handleFinish = async () => {
+    if (!selectedBranch?.id || !selectedBranch.warehouseId) {
+      alert('Vui lòng chọn chi nhánh và kho nhận hàng trước khi tạo phiếu.');
+      setStep(1);
+      return;
+    }
     // Validate IMEIs
     const emptyImeis = deviceRows.filter(r => !/^\d{5,15}$/.test(r.imei.trim()));
     if (emptyImeis.length > 0) {

@@ -131,7 +131,7 @@ describe('Hardening Sprint: Production Security & Server Truth Suite', () => {
 
   it('Case 6: mỗi dòng POS phải chọn đúng một tag hoa hồng', () => {
     const base = {
-      idempotencyKey: 'IDEM-TAG-01', branchId: 'CN01', deviceIds: ['DEV-01'],
+      idempotencyKey: 'IDEM-TAG-01', branchId: 'CN01', warehouseId: 'KHO01', deviceIds: ['DEV-01'],
       payment: { method: 'BANK', fundId: 'BANK-01' }
     };
     expect(validateCheckoutPayload({

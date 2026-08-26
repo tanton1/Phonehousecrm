@@ -65,8 +65,6 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
   onClose,
   onSubmitActivity
 }) => {
-  if (!isOpen) return null;
-
   // 1. Separate Attempt Sequence vs. Meaningful Care Sequence
   const totalLeadActivities = useMemo(() => {
     return existingActivities.filter(a => a.leadId === lead.id);
@@ -119,6 +117,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
     }
     return 0;
   }, [objectionCategory, responseCode, storePrice, competitorPrice]);
+
+  if (!isOpen) return null;
 
   // Handle Response Code change with Auto-suggestion engine
   const handleSelectResponseCode = (code: CustomerResponseCode) => {
@@ -174,7 +174,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
     // Strict Identity Invariant Check (No mock fallback)
     const effectiveStaffId = currentUser?.id || lead.assignedStaffId;
     const effectiveStaffName = currentUser?.displayName || lead.assignedStaff;
-    const effectiveBranchId = currentUser?.branchId || lead.branchId || branches[0]?.id;
+    const effectiveBranchId = currentUser?.branchId || lead.branchId;
 
     if (!effectiveStaffId || !effectiveStaffName) {
       setValidationError('Không thể xác định danh tính nhân viên đang thao tác. Vui lòng đăng nhập lại.');

@@ -6,6 +6,8 @@ import {
   SystemSetupStatus,
   TechnicalTaskTypeConfig
 } from '../types';
+import { SOPTemplateItem } from '../types';
+import { RepairServiceItem } from '../data/initialData';
 
 let operationalConfigCache: { sales?: SalesSetupConfig; customerCare?: CustomerCareSetupConfig; retailPricing?: RetailPricingSetupConfig } = {};
 let operationalPolicyVersionsCache: { sales: SalesSetupConfig[]; customerCare: CustomerCareSetupConfig[]; retailPricing: RetailPricingSetupConfig[] } = { sales: [], customerCare: [], retailPricing: [] };
@@ -73,6 +75,27 @@ export async function saveOperationalConfig(
   return response.data.policy;
 }
 
+export interface FinanceCategoriesConfig {
+  receiptCategories: string[];
+  paymentCategories: string[];
+}
+
+export async function fetchFinanceCategories(): Promise<FinanceCategoriesConfig> {
+  const response = await apiJson<{ success: boolean; data: FinanceCategoriesConfig }>('/api/configuration/finance-categories');
+  return {
+    receiptCategories: response.data.receiptCategories || [],
+    paymentCategories: response.data.paymentCategories || []
+  };
+}
+
+export async function addFinanceCategory(type: 'RECEIPT' | 'PAYMENT', name: string): Promise<FinanceCategoriesConfig> {
+  const response = await apiJson<{ success: boolean; data: FinanceCategoriesConfig }>('/api/configuration/finance-categories', {
+    method: 'POST',
+    body: JSON.stringify({ type, name })
+  });
+  return response.data;
+}
+
 export async function fetchTechnicalTaskSettings(): Promise<TechnicalTaskTypeConfig[]> {
   const response = await apiJson<{ success: boolean; data: { taskTypes: TechnicalTaskTypeConfig[] } }>('/api/inventory-transfers/metadata');
   return response.data.taskTypes || [];
@@ -84,4 +107,29 @@ export async function saveTechnicalTaskSetting(task: TechnicalTaskTypeConfig): P
     body: JSON.stringify(task)
   });
   return response.data.taskType;
+}
+
+export async function createSopTemplate(template: SOPTemplateItem): Promise<SOPTemplateItem> {
+  const response = await apiJson<{ success: boolean; data: SOPTemplateItem }>('/api/configuration/sop-templates', {
+    method: 'POST', body: JSON.stringify(template)
+  });
+  return response.data;
+}
+
+export async function updateSopTemplate(template: SOPTemplateItem): Promise<SOPTemplateItem> {
+  const response = await apiJson<{ success: boolean; data: SOPTemplateItem }>(`/api/configuration/sop-templates/${encodeURIComponent(template.id)}`, {
+    method: 'PATCH', body: JSON.stringify(template)
+  });
+  return response.data;
+}
+
+export async function archiveSopTemplate(templateId: string): Promise<void> {
+  await apiJson(`/api/configuration/sop-templates/${encodeURIComponent(templateId)}/archive`, { method: 'POST' });
+}
+
+export async function createRepairService(item: RepairServiceItem): Promise<RepairServiceItem> {
+  const response = await apiJson<{ success: boolean; data: RepairServiceItem }>('/api/configuration/repair-services', {
+    method: 'POST', body: JSON.stringify(item)
+  });
+  return response.data;
 }

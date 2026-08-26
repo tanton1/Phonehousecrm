@@ -81,7 +81,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
             <h1 className="text-sm font-black uppercase tracking-wider">Sales Desk</h1>
             <div className="text-[10px] text-orange-200 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span>
-              {branches && branches.length > 0 ? branches[0].name : (currentUser?.branchName || storeSettings?.storeName || 'Chi nhánh chính')}
+              {currentUser?.branchName || storeSettings?.storeName || 'Chưa gán chi nhánh'}
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
+import { requirePermission } from '../middleware/requirePermission';
 import { processPartnerDebtSettlement } from '../services/partnerDebtService';
 import { processInstallmentDisbursement } from '../services/installmentDisbursementService';
 
@@ -84,7 +85,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
     }).format(new Date()).replace('T', ' ');
   };
 
-  router.get('/accounts', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.get('/accounts', requirePermission('FINANCE_VIEW'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const requestedBranchId = String(req.query.branchId || '').trim();
@@ -263,7 +264,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/partner-debts/settle', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/partner-debts/settle', requirePermission('FINANCE_POST'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await processPartnerDebtSettlement(db, {
@@ -284,7 +285,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/installments/disburse', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/installments/disburse', requirePermission('FINANCE_POST'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await processInstallmentDisbursement(db, {
@@ -309,7 +310,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
    * Lập phiếu thu tiền (+), cộng số dư quỹ, ghi nhận cashTransactions atomically
    * Quyền: ADMIN, MANAGER, ACCOUNTANT
    */
-  router.post('/receipt', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/receipt', requirePermission('FINANCE_POST'), async (req: Request, res: Response) => {
     if (!db) {
       return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu chưa sẵn sàng.' });
     }
@@ -438,7 +439,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
    * Lập phiếu chi tiền (-), trừ số dư quỹ, ghi nhận cashTransactions atomically
    * Quyền: ADMIN, MANAGER, ACCOUNTANT
    */
-  router.post('/payment', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/payment', requirePermission('FINANCE_POST'), async (req: Request, res: Response) => {
     if (!db) {
       return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu chưa sẵn sàng.' });
     }
@@ -573,7 +574,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
    * Chuyển quỹ nội bộ 2 chiều atomically
    * Quyền: ADMIN, MANAGER, ACCOUNTANT
    */
-  router.post('/transfer', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/transfer', requirePermission('FINANCE_POST'), async (req: Request, res: Response) => {
     if (!db) {
       return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu chưa sẵn sàng.' });
     }
@@ -747,7 +748,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
    * Đối soát số dư ca, cập nhật số dư thực tế và ghi nhận chênh lệch
    * Quyền: ADMIN, MANAGER
    */
-  router.post('/reconcile', requireRole('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
+  router.post('/reconcile', requirePermission('FINANCE_POST'), requireRole('ADMIN', 'MANAGER'), async (req: Request, res: Response) => {
     if (!db) {
       return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE: Cơ sở dữ liệu chưa sẵn sàng.' });
     }

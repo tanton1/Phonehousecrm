@@ -87,7 +87,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
   leaveRequests = [],
   onCreateLeaveRequest
 }) => {
-  const currentBranch = branches.find((branch) => branch.id === currentUser?.branchId) || branches[0] || null;
+  const currentBranch = branches.find((branch) => branch.id === currentUser?.branchId) || null;
 
   // Active Tab: CHECKLIST (Checklist trong ngày), ATTENDANCE (Chấm công & Lịch ca), EARNINGS (Ví hoa hồng & KPI), PAYROLL (Phiếu lương), REQUESTS (Đơn từ)
   const [activeTab, setActiveTab] = useState<'CHECKLIST' | 'ATTENDANCE' | 'EARNINGS' | 'PAYROLL' | 'REQUESTS'>('CHECKLIST');
@@ -690,6 +690,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             staffId={staffMember.id}
             staffName={staffMember.name}
             staffRole={staffMember.role}
+            branchId={staffMember.branchId}
             branchName={staffMember.branchName}
             currentActivity={currentActivity}
             onChangeActivity={setCurrentActivity}

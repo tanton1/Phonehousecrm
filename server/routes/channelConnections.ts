@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 import { Firestore } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
+import { requirePermission } from '../middleware/requirePermission';
 import {
   completeMetaOAuth,
   completeTikTokOAuth,
@@ -62,7 +63,7 @@ function requestOrigin(req: Request): string {
 
 export function createChannelConnectionsRouter(db: Firestore | null): Router {
   const router = Router();
-  const managers = requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER');
+  const managers = requirePermission('CHANNEL_MANAGE');
   const admins = requireRole('ADMIN');
 
   router.get('/', authenticateFirebase, managers, async (req, res) => {

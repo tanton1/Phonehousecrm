@@ -28,6 +28,7 @@ import {
 } from '../services/shiftSchedulingApiClient';
 import { applyFixedDepartmentPolicies, resolveStaffDepartment, ShiftDraftDay, ShiftDraftSchedule } from '../utils/shiftPolicy';
 import { HRMetricCarousel } from './HRMetricCarousel';
+import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
 
 interface ShiftSchedulingViewProps {
   currentUser?: any;
@@ -119,7 +120,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
     departmentId: '', departmentName: '', mode: 'FIXED', defaultShiftId: '', workDayIndexes: [0, 1, 2, 3, 4, 5]
   });
 
-  const recoveryKey = `phonehouse_shift_draft_v1_${selectedBranchId}_${weekStart}`;
+  const recoveryKey = browserDraftKey(`shift-${weekStart}`, currentUser?.id, selectedBranchId);
   const markDirty = () => {
     revisionRef.current += 1;
     setAutoSaveBlocked(false);
@@ -148,16 +149,15 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
       setDefinitions(result.definitions || []);
       setPolicies(result.policies || []);
       const serverDraft = scheduleToDraft(result.schedules || []);
-      const recoveryRaw = window.localStorage.getItem(recoveryKey);
-      if (recoveryRaw) {
+      const recovery = readBrowserDraft<{ draft: DraftSchedule }>(recoveryKey);
+      if (recovery) {
         try {
-          const recovery = JSON.parse(recoveryRaw);
           setDraft(recovery?.draft && typeof recovery.draft === 'object' ? recovery.draft : serverDraft);
           revisionRef.current += 1;
           setDirty(true);
           setMessage({ type: 'success', text: 'Đã khôi phục thay đổi chưa kịp đồng bộ. Hệ thống đang tự lưu lại lên server.' });
         } catch {
-          window.localStorage.removeItem(recoveryKey);
+          removeBrowserDraft(recoveryKey);
           setDraft(serverDraft);
           setDirty(false);
         }
@@ -177,7 +177,6 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
 
   useEffect(() => {
     void loadBoard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBranchId, weekStart]);
 
   const branchStaff = useMemo(() => {
@@ -212,7 +211,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
 
   useEffect(() => {
     if (!dirty || !selectedBranchId) return;
-    window.localStorage.setItem(recoveryKey, JSON.stringify({ draft, savedAt: new Date().toISOString() }));
+    writeBrowserDraft(recoveryKey, { draft });
   }, [dirty, draft, recoveryKey, selectedBranchId]);
 
   useEffect(() => {
@@ -229,7 +228,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
       void saveShiftBoard({ branchId: selectedBranchId, weekStart, status: 'DRAFT', entries, operationKey: `SHIFT_AUTO_${selectedBranchId}_${weekStart}_${Date.now()}` })
         .then((result) => {
           if (revisionRef.current !== revisionAtStart) return;
-          window.localStorage.removeItem(recoveryKey);
+          removeBrowserDraft(recoveryKey);
           setLastSavedAt(result.savedAt || new Date().toISOString());
           setDirty(false);
           setMessage({ type: 'success', text: `Đã tự lưu ${result.saved} lịch lên server.` });
@@ -276,7 +275,6 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
       setMessage({ type: 'success', text: `Đã tự điền lịch cố định cho ${result.fixedStaffIds.size} nhân viên. NVBH & CSKH vẫn để quản lý xếp xoay ca.` });
     }
     // Reapply only when the saved policy/week/staff set changes; manual exceptions must not be overwritten.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [policySignature, weekStart, selectedBranchId, allBranchStaff.length, loading]);
 
   const setAssignment = (staffId: string, date: string, shiftId: string, note = '') => {
@@ -323,7 +321,7 @@ const ShiftSchedulingView: React.FC<ShiftSchedulingViewProps> = ({ currentUser, 
         entries,
         operationKey: `SHIFT_${selectedBranchId}_${weekStart}_${status}_${Date.now()}`
       });
-      window.localStorage.removeItem(recoveryKey);
+      removeBrowserDraft(recoveryKey);
       setLastSavedAt(result.savedAt || new Date().toISOString());
       setMessage({ type: 'success', text: status === 'PUBLISHED' ? `Đã đăng lịch cho ${entries.length} nhân viên.` : `Đã lưu bản nháp cho ${entries.length} nhân viên.` });
       await loadBoard();

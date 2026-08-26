@@ -30,7 +30,6 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   const currentBranch = suppliedCurrentBranch
     || branches.find(branch => branch.id === currentBranchId)
     || branches.find(branch => branch.id === currentUser?.branchId)
-    || branches[0]
     || { id: currentUser?.branchId || '', name: 'Chi nhánh hiện tại' };
   const canChooseStaff = ['ADMIN', 'MANAGER'].includes(String(currentUser?.role || ''));
 

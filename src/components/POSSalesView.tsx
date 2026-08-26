@@ -113,38 +113,62 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
   partners,
   onUpdateProduct
 }) => {
-  // Available stock items
-  const inStockDevices = devices.filter(d => d.status === 'in_stock');
-
-  // Warehouses list
-  const activeWarehouses = useMemo(() => {
-    return (warehouses || []).filter(isWarehouseActive);
-  }, [warehouses]);
+  const selectableBranches = useMemo(() => {
+    const role = String(currentUser?.role || '').toUpperCase();
+    if (role === 'ADMIN' || role === 'REGIONAL_MANAGER') return branches.filter(branch => branch.isActive !== false);
+    const allowed = new Set([currentUser?.branchId, ...(currentUser?.assignedBranchIds || [])].filter(Boolean));
+    return branches.filter(branch => branch.isActive !== false && allowed.has(branch.id));
+  }, [branches, currentUser?.assignedBranchIds, currentUser?.branchId, currentUser?.role]);
 
   // Selected Branch & Warehouse state
-  const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
-    if (branches && branches.length > 0) return branches[0].id;
-    return 'BRANCH_1';
-  });
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(() => currentUser?.branchId || '');
 
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>(() => {
-    if (warehouses && warehouses.length > 0) return warehouses[0].id;
-    return 'KHO_PHONEHOUSE';
-  });
+  useEffect(() => {
+    if (selectableBranches.some(branch => branch.id === selectedBranchId)) return;
+    const ownBranchId = currentUser?.branchId && selectableBranches.some(branch => branch.id === currentUser.branchId)
+      ? currentUser.branchId
+      : '';
+    setSelectedBranchId(ownBranchId);
+  }, [currentUser?.branchId, selectableBranches, selectedBranchId]);
 
   const currentBranch = useMemo(() => {
-    return branches.find(b => b.id === selectedBranchId) || branches[0] || {
-      id: 'BRANCH_1',
-      name: 'Phone House Cầu Giấy (Apple Premium)',
-      address: '136 Cầu Giấy, Q. Cầu Giấy, Hà Nội',
-      phone: '0909.123.456',
-      code: 'HN-CG'
+    return selectableBranches.find(branch => branch.id === selectedBranchId) || {
+      id: '',
+      name: 'Chưa chọn cửa hàng',
+      address: '',
+      phone: '',
+      code: '',
+      email: '',
+      manager: '',
+      openingHours: '',
+      warehouseId: '',
+      isActive: false
     };
-  }, [branches, selectedBranchId]);
+  }, [selectableBranches, selectedBranchId]);
+
+  const activeWarehouses = useMemo(() => (warehouses || []).filter(warehouse => (
+    isWarehouseActive(warehouse) && warehouse.branchId === currentBranch.id
+  )), [currentBranch.id, warehouses]);
+
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+
+  useEffect(() => {
+    if (activeWarehouses.some(warehouse => String(warehouse.id) === selectedWarehouseId)) return;
+    setSelectedWarehouseId(String(activeWarehouses.find(warehouse => String(warehouse.id) === String(currentBranch.warehouseId))?.id || ''));
+  }, [activeWarehouses, currentBranch.warehouseId, selectedWarehouseId]);
 
   const currentWarehouse = useMemo(() => {
-    return activeWarehouses.find(w => w.id === currentBranch.warehouseId) || activeWarehouses[0];
-  }, [activeWarehouses, currentBranch]);
+    return activeWarehouses.find(warehouse => String(warehouse.id) === selectedWarehouseId) || {
+      id: '', branchId: '', name: 'Chưa chọn kho', shortName: '', code: '', address: '', manager: '', phone: '', isActive: false
+    };
+  }, [activeWarehouses, selectedWarehouseId]);
+
+  const inStockDevices = useMemo(() => devices.filter(device => {
+    const locationId = String(device.currentLocationId || device.warehouseId || device.warehouse || '');
+    return device.status === 'in_stock'
+      && device.branchId === currentBranch.id
+      && locationId === String(currentWarehouse.id);
+  }), [currentBranch.id, currentWarehouse.id, devices]);
 
   // Active Stepper stage (1: Chọn máy, 2: Khách hàng, 3: Phụ kiện & Ưu đãi, 4: Thanh toán)
   const [activeStep, setActiveStep] = useState<number>(1);
@@ -319,6 +343,10 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
 
   const handleCheckout = () => {
     if (isProcessingCheckout) return;
+    if (!currentBranch.id || !currentWarehouse.id) {
+      alert('Hãy chọn đúng cửa hàng và kho xuất bán trước khi thanh toán.');
+      return;
+    }
     if (selectedDevices.length === 0) {
       alert('Vui lòng chọn ít nhất 1 cây máy để thanh toán!');
       return;
@@ -466,32 +494,12 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
     });
 
     // 2. Prepare Trade-in Device payload (if any)
-    let tradeInDevice: DeviceItem | null = null;
     if (tradeInDiscount > 0) {
-      tradeInDevice = {
-        id: `DEV-TRD-${Date.now().toString().slice(-5)}`,
-        imei: tradeInImei,
-        serialNo: 'SN-TRD-' + Date.now().toString().slice(-4),
-        model: tradeInModel || 'iPhone Thu Cũ',
-        storage: '128GB',
-        color: 'Thu Cũ Khách',
-        region: 'LL/A (Thu Cũ)',
-        batteryHealth: 85,
-        condition: '98% Cấn Nhẹ',
-        buyPrice: tradeInDiscount,
-        sellPrice: Math.round((tradeInDiscount * 1.25) / 100000) * 100000,
-        status: 'in_stock',
-        warehouse: currentWarehouse.id,
-        branch: currentBranch.name,
-        branchId: currentBranch.id,
-        supplier: `Thu Cũ Đổi Mới Khách (${customerName} - ${customerPhone})`,
-        receivedDate: new Date().toISOString().split('T')[0],
-        warrantyPeriodMonths: 3,
-        icloudStatus: 'Clean / Đã Thoát',
-        screenStatus: 'Zin Màn Keng',
-        notes: `Tự động nhập kho từ đơn hàng POS ${newInvoice.id}. Khách: ${customerName} (${customerPhone}). Giá thu: ${tradeInDiscount.toLocaleString('vi-VN')}đ`
-      };
+      alert('Thu cũ phải được tạo và quản lý duyệt tại trang Thu cũ đổi mới trước khi đưa sang POS. Hệ thống không còn tự sinh máy thu cũ từ dữ liệu nhập tay.');
+      setIsProcessingCheckout(false);
+      return;
     }
+    const tradeInDevice: DeviceItem | null = null;
 
     // 3. Single Atomic Writer: Execute atomic transaction (NO PRE-WRITES)
     const customerPartner = partners.find(p => p.phone === customerPhone) || null;
@@ -503,6 +511,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
       devicesToSell: selectedDevices,
       accessoriesToSell,
       cashTx,
+      warehouseId: String(currentWarehouse.id),
       tradeInDevice,
       customerPartner,
       financeCompanyPartner,
@@ -587,8 +596,8 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
               onChange={(e) => setSelectedBranchId(e.target.value)}
               className="w-full bg-transparent font-bold text-zinc-900 focus:outline-none truncate text-xs cursor-pointer"
             >
-              {branches && branches.length > 0 ? (
-                branches.map(b => (
+              {selectableBranches.length > 0 ? (
+                selectableBranches.map(b => (
                   <option key={b.id} value={b.id}>
                     {b.name}
                   </option>

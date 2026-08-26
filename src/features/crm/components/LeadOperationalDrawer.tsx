@@ -78,28 +78,28 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
   onSaveQuote,
   onConvertQuoteToPOS
 }) => {
-  if (!isOpen || !lead) return null;
+  const activeLead = lead as Lead;
 
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'CARE_TIMELINE' | 'QUOTES' | 'APPOINTMENTS' | 'ORDERS'>('CARE_TIMELINE');
 
   // Filter activities for this lead
   const leadActivities = useMemo(() => {
     return activities
-      .filter(a => a.leadId === lead.id)
+      .filter(a => a.leadId === activeLead?.id)
       .sort((a, b) => (a.attemptNo || a.sequence) - (b.attemptNo || b.sequence));
-  }, [activities, lead.id]);
+  }, [activities, activeLead?.id]);
 
   const leadAppointments = useMemo(() => {
-    return appointments.filter(a => a.leadId === lead.id);
-  }, [appointments, lead.id]);
+    return appointments.filter(a => a.leadId === activeLead?.id);
+  }, [appointments, activeLead?.id]);
 
   const leadQuotes = useMemo(() => {
-    return quotes.filter(q => q.leadId === lead.id);
-  }, [quotes, lead.id]);
+    return quotes.filter(q => q.leadId === activeLead?.id);
+  }, [quotes, activeLead?.id]);
 
   // Lead Temperature & Priority calculation
-  const temp = calculateLeadTemperature(lead);
-  const prio = calculateLeadPriority(lead);
+  const temp = activeLead ? calculateLeadTemperature(activeLead) : null;
+  const prio = activeLead ? calculateLeadPriority(activeLead) : null;
   const canCreateQuote = ['ADMIN', 'MANAGER', 'SALES'].includes(String(currentUser?.role || ''));
 
   // Appointment Form State
@@ -108,12 +108,12 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
     const tomorrow = new Date(Date.now() + 86400000);
     return tomorrow.toISOString().slice(0, 11) + '15:00';
   });
-  const [apptBranchId, setApptBranchId] = useState<string>(lead.branchId || currentUser?.branchId || branches[0]?.id || '');
+  const [apptBranchId, setApptBranchId] = useState<string>(activeLead?.branchId || currentUser?.branchId || '');
   const [apptNotes, setApptNotes] = useState<string>('');
 
   // Quote Form State
   const [isCreatingQuote, setIsCreatingQuote] = useState(false);
-  const [quoteModel, setQuoteModel] = useState<string>(lead.interestedModel || '');
+  const [quoteModel, setQuoteModel] = useState<string>(activeLead?.interestedModel || '');
   const [quoteUnitPrice, setQuoteUnitPrice] = useState<number>(0);
   const [quoteTradeInSubsidy, setQuoteTradeInSubsidy] = useState<number>(0);
   const [quoteDiscount, setQuoteDiscount] = useState<number>(0);
@@ -121,6 +121,8 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
   const [quoteReservedDeviceId, setQuoteReservedDeviceId] = useState<string>('');
 
   const quoteFinalPrice = quoteUnitPrice - quoteTradeInSubsidy - quoteDiscount;
+
+  if (!isOpen || !lead) return null;
 
   const handleCreateAppointmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,7 +155,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
     e.preventDefault();
     const effectiveStaffId = currentUser?.id || lead.assignedStaffId || 'STAFF';
     const effectiveStaffName = currentUser?.displayName || lead.assignedStaff || 'Chuyên viên';
-    const effectiveBranchId = currentUser?.branchId || lead.branchId || branches[0]?.id || '';
+    const effectiveBranchId = currentUser?.branchId || lead.branchId || '';
 
     const newQuote: LeadQuote = {
       id: `QUOTE_${lead.id}_${Date.now()}`,

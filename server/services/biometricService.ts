@@ -49,31 +49,13 @@ export async function verifyFaceBiometric(
   db: Firestore | null,
   params: VerifyBiometricParams
 ): Promise<BiometricVerificationResult> {
-  const { staffUid, liveEmbedding, liveCaptureBase64, threshold = 0.85 } = params;
+  const { staffUid } = params;
 
   if (!staffUid) {
     return { verified: false, reason: 'MISSING_STAFF_UID' };
   }
 
-  if (!db) {
-    // In-memory test mode
-    if (liveEmbedding && liveEmbedding.length > 0) {
-      // Mock registered vector for unit testing
-      const mockRegistered = liveEmbedding;
-      const sim = cosineSimilarity(liveEmbedding, mockRegistered);
-      return {
-        verified: sim >= threshold,
-        similarity: sim,
-        score: Math.round(sim * 100)
-      };
-    }
-    const isMockValid = Boolean(liveCaptureBase64 && liveCaptureBase64.startsWith('VALID_CAPTURE_'));
-    return {
-      verified: isMockValid,
-      score: isMockValid ? 95 : 20,
-      reason: isMockValid ? undefined : 'INVALID_CAPTURE'
-    };
-  }
+  if (!db) return { verified: false, reason: 'BIOMETRIC_SUPPLEMENTARY_ONLY' };
 
   try {
     const profileDoc = await db.collection('staffFaceProfiles').doc(staffUid).get();
@@ -95,33 +77,12 @@ export async function verifyFaceBiometric(
       return { verified: false, reason: `PROFILE_REVOKED: Hồ sơ khuôn mặt đã bị thu hồi vào ngày ${pData.revokedAt}.` };
     }
 
-    // Vector Embedding Matching
-    const registeredEmbedding = pData.faceEmbedding || pData.faceFeatureVector;
-    if (liveEmbedding && registeredEmbedding && Array.isArray(registeredEmbedding)) {
-      const similarity = cosineSimilarity(liveEmbedding, registeredEmbedding);
-      const isMatch = similarity >= threshold;
-      return {
-        verified: isMatch,
-        similarity,
-        score: Math.round(similarity * 100),
-        reason: isMatch ? undefined : `BIOMETRIC_MISMATCH: Độ khớp khuôn mặt (${Math.round(similarity * 100)}%) thấp hơn ngưỡng yêu cầu (${Math.round(threshold * 100)}%).`,
-        enrolledAt: pData.enrolledAt,
-        approvedAt: pData.approvedAt
-      };
-    }
-
-    // Capture Base64 Validation fallback if vector not supplied
-    if (liveCaptureBase64 && pData.facePhotoUrl) {
-      const isValid = liveCaptureBase64.length > 200 && !liveCaptureBase64.includes('FAKE');
-      return {
-        verified: isValid,
-        score: isValid ? 88 : 30,
-        enrolledAt: pData.enrolledAt,
-        approvedAt: pData.approvedAt
-      };
-    }
-
-    return { verified: false, reason: 'MISSING_LIVE_BIOMETRIC_DATA: Không nhận được dữ liệu khuôn mặt live.' };
+    return {
+      verified: false,
+      reason: 'BIOMETRIC_SUPPLEMENTARY_ONLY: Ảnh khuôn mặt chỉ được lưu làm bằng chứng để quản lý đối chiếu.',
+      enrolledAt: pData.enrolledAt,
+      approvedAt: pData.approvedAt
+    };
   } catch (err: any) {
     console.error('[Biometric Verification Error]:', err);
     return { verified: false, reason: err.message || 'Lỗi kiểm tra sinh trắc học.' };

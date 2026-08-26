@@ -71,7 +71,7 @@ interface PurchaseOrdersViewProps {
   selectedBranchId?: string;
   currentUser?: UserAccount | null;
   onAddPurchaseOrder: (order: PurchaseOrder, autoCreateDevices: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
-  onUpdatePurchaseOrder: (order: PurchaseOrder) => void;
+  onUpdatePurchaseOrder: (order: PurchaseOrder) => Promise<PurchaseOrder | void> | void;
   onDeletePurchaseOrder: (orderId: string) => Promise<void> | void;
   onPaySupplierDebt?: (orderId: string, supplierId: string, amount: number, fundId: string, note: string, idempotencyKey: string) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
@@ -229,7 +229,7 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   };
 
   // Save Note in Detail View
-  const handleSaveNote = () => {
+  const handleSaveNote = async () => {
     if (!selectedOrder) return;
     const updatedOrder: PurchaseOrder = {
       ...selectedOrder,
@@ -244,10 +244,14 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         }
       ]
     };
-    setSelectedOrder(updatedOrder);
-    onUpdatePurchaseOrder(updatedOrder);
-    setIsEditingNote(false);
-    triggerToast('Đã lưu ghi chú phiếu nhập hàng');
+    try {
+      const saved = await onUpdatePurchaseOrder(updatedOrder);
+      setSelectedOrder(saved ? { ...updatedOrder, ...saved } : updatedOrder);
+      setIsEditingNote(false);
+      triggerToast('Đã lưu ghi chú phiếu nhập hàng');
+    } catch (error: any) {
+      alert(`Không thể lưu ghi chú: ${error?.message || 'Yêu cầu không hợp lệ.'}`);
+    }
   };
 
   // Handle Pay Debt Confirmation

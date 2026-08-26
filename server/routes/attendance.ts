@@ -1,10 +1,40 @@
 import { Router, Request, Response } from 'express';
-import { Firestore } from 'firebase-admin/firestore';
+import { FieldValue, Firestore } from 'firebase-admin/firestore';
 import { processServerCheckIn, processServerCheckOut } from '../services/attendanceService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
 import { requireRole } from '../middleware/requireRole';
 import { listShiftBoard, saveShiftBoard, upsertShiftDefinition, upsertShiftDepartmentPolicy } from '../services/shiftSchedulingService';
+import { createAttendanceVerificationSession } from '../services/attendanceVerificationService';
+import { normalizeRole } from '../../shared/permissions';
+
+const CHECKLIST_CATEGORIES = new Set(['OPENING', 'MID_SHIFT', 'CLOSING']);
+const CHECKLIST_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'NORMAL']);
+const safeText = (value: unknown, max = 500) => String(value || '').trim().slice(0, max);
+const elevatedHrRole = (role: unknown) => ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'].includes(normalizeRole(role));
+
+function actorCanAccessBranch(actor: { role?: string; branchId?: string; assignedBranchIds?: string[] }, branchId: string) {
+  const role = normalizeRole(actor.role);
+  return role === 'ADMIN' || role === 'REGIONAL_MANAGER' || actor.branchId === branchId || (actor.assignedBranchIds || []).includes(branchId);
+}
+
+export function validateChecklistInput(input: any) {
+  const date = safeText(input?.date, 10);
+  const title = safeText(input?.title, 240);
+  const category = safeText(input?.category, 30).toUpperCase();
+  const priority = safeText(input?.priority || 'NORMAL', 20).toUpperCase();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !title) throw new Error('CHECKLIST_REQUIRED_FIELDS');
+  if (!CHECKLIST_CATEGORIES.has(category) || !CHECKLIST_PRIORITIES.has(priority)) throw new Error('CHECKLIST_CLASSIFICATION_INVALID');
+  return {
+    date, title, category, priority,
+    categoryName: category === 'OPENING' ? 'Đầu ca trực' : category === 'MID_SHIFT' ? 'Trong ca làm' : 'Cuối ca trực & Bàn giao',
+    timeHint: safeText(input?.timeHint, 100),
+    note: safeText(input?.note, 2000),
+    photoProofUrl: safeText(input?.photoProofUrl, 1000),
+    isCompleted: input?.isCompleted === true,
+    isCustomTask: input?.isCustomTask === true
+  };
+}
 
 export function createAttendanceRouter(db: Firestore | null): Router {
   const router = Router();
@@ -89,6 +119,23 @@ export function createAttendanceRouter(db: Firestore | null): Router {
   });
 
   // 2. Authoritative Check-In Endpoint (Requires Firebase Auth Token & Branch Access)
+  router.post('/verification-sessions', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
+    try {
+      const branchId = String(req.body?.branchId || req.user?.branchId || '').trim();
+      if (!branchId) return res.status(400).json({ success: false, code: 'BRANCH_REQUIRED', message: 'Cần chọn chi nhánh trước khi xác minh.' });
+      const result = await createAttendanceVerificationSession(db, {
+        uid: req.user!.uid,
+        branchId,
+        deviceId: String(req.body?.deviceId || ''),
+        action: req.body?.action === 'CHECK_OUT' ? 'CHECK_OUT' : 'CHECK_IN',
+        clientIp: getClientIp(req)
+      });
+      return res.status(201).json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, code: String(error?.message || 'VERIFICATION_SESSION_FAILED').split(':')[0], message: 'Không tạo được phiên xác minh chấm công.' });
+    }
+  });
+
   router.post('/check-in', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
       const ip = getClientIp(req);
@@ -96,12 +143,13 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         staffId: req.user!.uid,
         staffName: req.user?.name || req.user?.email || 'Nhân viên',
         role: req.user?.role || 'STAFF',
-        branchId: req.body.branchId || req.user?.branchId || 'CN01',
+        branchId: req.body.branchId || req.user?.branchId || '',
         branchName: req.body.branchName,
         userCoords: req.body.userCoords,
         faceCaptureBase64: req.body.faceCaptureBase64,
-        faceEmbedding: req.body.faceEmbedding,
         faceSessionId: req.body.faceSessionId,
+        verificationNonce: req.body.verificationNonce,
+        deviceId: req.body.deviceId,
         qrScanned: Boolean(req.body.qrScanned),
         clientIp: ip
       };
@@ -126,7 +174,8 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         ...req.body,
         staffId: req.user?.uid || req.body.staffId,
         staffUid: req.user?.uid,
-        branchId: req.body.branchId || req.user?.branchId
+        branchId: req.body.branchId || req.user?.branchId,
+        clientIp: getClientIp(req)
       };
       const result = await processServerCheckOut(db, bodyWithAuth);
       return res.json({ success: true, data: result });
@@ -188,6 +237,223 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         success: false,
         error: error?.message || 'Lỗi xử lý phê duyệt chấm công.'
       });
+    }
+  });
+
+  router.post('/leave-requests', authenticateFirebase, async (req: Request, res: Response) => {
+    try {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      const actor = getActor(req);
+      const branchId = String(actor.branchId || '').trim();
+      const type = String(req.body?.type || '').trim().toUpperCase();
+      const startDate = String(req.body?.startDate || '').trim();
+      const endDate = String(req.body?.endDate || '').trim();
+      const totalDays = Number(req.body?.totalDays);
+      const reason = String(req.body?.reason || '').trim().slice(0, 1000);
+      if (!branchId) throw new Error('BRANCH_REQUIRED');
+      if (!['ANNUAL_LEAVE', 'HALF_DAY', 'UNPAID', 'SHIFT_SWAP', 'SICK_LEAVE'].includes(type)) throw new Error('LEAVE_TYPE_INVALID');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) throw new Error('LEAVE_DATE_INVALID');
+      if (!Number.isFinite(totalDays) || totalDays <= 0 || totalDays > 365 || !reason) throw new Error('LEAVE_REQUIRED_FIELDS');
+      const leaveRef = db.collection('leaveRequests').doc();
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const branch = await transaction.get(db.collection('branches').doc(branchId));
+        if (!branch.exists || branch.data()?.isActive === false) throw new Error('BRANCH_NOT_ACTIVE');
+        const now = new Date().toISOString();
+        result = {
+          id: leaveRef.id, code: `NP-${now.slice(0, 7).replace('-', '')}-${leaveRef.id.slice(0, 5).toUpperCase()}`,
+          staffId: actor.uid, staffName: actor.name, role: actor.role, branchId,
+          branchName: String(branch.data()?.name || req.body?.branchName || ''),
+          type, startDate, endDate, totalDays, reason,
+          swapWithStaffId: String(req.body?.swapWithStaffId || '').trim() || null,
+          swapWithStaffName: String(req.body?.swapWithStaffName || '').trim() || null,
+          swapDate: String(req.body?.swapDate || '').trim() || null,
+          status: 'PENDING', createdAt: now, createdByUid: actor.uid
+        };
+        transaction.create(leaveRef, { ...result, createdAtServer: new Date() });
+      });
+      return res.status(201).json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'LEAVE_CREATE_FAILED' });
+    }
+  });
+
+  router.post('/leave-requests/:requestId/review', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      const actor = getActor(req);
+      const decision = String(req.body?.decision || '').trim().toUpperCase();
+      if (!['APPROVE', 'REJECT'].includes(decision)) throw new Error('LEAVE_REVIEW_DECISION_INVALID');
+      const leaveRef = db.collection('leaveRequests').doc(req.params.requestId);
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const leave = await transaction.get(leaveRef);
+        if (!leave.exists) throw new Error('LEAVE_REQUEST_NOT_FOUND');
+        const current = leave.data()!;
+        const staff = current.branchId ? null : await transaction.get(db.collection('users').doc(String(current.staffId || '')));
+        const branchId = String(current.branchId || staff?.data()?.branchId || '').trim();
+        const allowed = actor.role === 'ADMIN' || actor.branchId === branchId || actor.assignedBranchIds.includes(branchId);
+        if (!branchId || !allowed) throw new Error('LEAVE_BRANCH_FORBIDDEN');
+        if (current.status !== 'PENDING') throw new Error('LEAVE_REQUEST_ALREADY_REVIEWED');
+        const status = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+        result = { ...current, id: leave.id, branchId, status, approvedBy: actor.name, approvedByUid: actor.uid, approvedAt: new Date().toISOString() };
+        transaction.update(leaveRef, {
+          branchId, status, approvedBy: actor.name, approvedByUid: actor.uid,
+          approvedAt: result.approvedAt, reviewReason: String(req.body?.reason || '').trim().slice(0, 1000)
+        });
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'LEAVE_REVIEW_FAILED' });
+    }
+  });
+
+  router.post('/checklists/:checklistId/save', authenticateFirebase, async (req: Request, res: Response) => {
+    try {
+      if (!db) throw new Error('DATABASE_UNAVAILABLE');
+      const checklistId = safeText(req.params.checklistId, 180);
+      if (!/^[A-Za-z0-9_-]{3,180}$/.test(checklistId)) throw new Error('CHECKLIST_ID_INVALID');
+      const actor = getActor(req);
+      const ref = db.collection('dailyShiftChecklists').doc(checklistId);
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const currentSnap = await transaction.get(ref);
+        const current = currentSnap.exists ? currentSnap.data()! : null;
+        const targetStaffId = safeText(current?.staffId || req.body?.staffId || actor.uid, 128);
+        const templateId = safeText(current?.templateId || req.body?.templateId, 128);
+        const [staffSnap, templateSnap] = await Promise.all([
+          transaction.get(db.collection('users').doc(targetStaffId)),
+          templateId ? transaction.get(db.collection('sopTemplates').doc(templateId)) : Promise.resolve(null)
+        ]);
+        const manager = elevatedHrRole(actor.role);
+        if (targetStaffId !== actor.uid && !manager) throw new Error('CHECKLIST_STAFF_FORBIDDEN');
+        const targetStaff = staffSnap.exists ? staffSnap.data()! : {};
+        const branchId = safeText(current?.branchId || targetStaff.branchId || req.body?.branchId || actor.branchId, 80);
+        if (!branchId || branchId === 'ALL') throw new Error('BRANCH_REQUIRED');
+        if (!actorCanAccessBranch(actor, branchId)) throw new Error('CHECKLIST_BRANCH_FORBIDDEN');
+        if (current && current.staffId !== actor.uid && !manager) throw new Error('CHECKLIST_OWNER_FORBIDDEN');
+        const source = templateSnap?.exists ? { ...req.body, ...templateSnap.data(), date: req.body?.date || current?.date } : { ...current, ...req.body };
+        const draft = validateChecklistInput(source);
+        const now = new Date().toISOString();
+        result = {
+          ...(current || {}), ...draft, id: checklistId, templateId: templateId || null,
+          staffId: targetStaffId,
+          staffName: safeText(targetStaff.displayName || targetStaff.name || req.body?.staffName || actor.name, 160),
+          staffRole: safeText(targetStaff.role || req.body?.staffRole || actor.role, 40),
+          branchId,
+          branchName: safeText(req.body?.branchName || current?.branchName, 160),
+          isCustomTask: !templateId || draft.isCustomTask,
+          assignedByLeaderName: targetStaffId !== actor.uid ? actor.name : safeText(current?.assignedByLeaderName, 160),
+          completedAt: draft.isCompleted ? (current?.completedAt || now) : null,
+          completedBy: draft.isCompleted ? actor.name : null,
+          updatedAt: now,
+          updatedByUid: actor.uid,
+          createdAt: current?.createdAt || now,
+          createdByUid: current?.createdByUid || actor.uid
+        };
+        transaction.set(ref, { ...result, updatedAtServer: FieldValue.serverTimestamp(), ...(current ? {} : { createdAtServer: FieldValue.serverTimestamp() }) }, { merge: false });
+      });
+      return res.status(201).json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'CHECKLIST_SAVE_FAILED' });
+    }
+  });
+
+  router.post('/checklists/:checklistId/review', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      if (!db) throw new Error('DATABASE_UNAVAILABLE');
+      const actor = getActor(req);
+      const ref = db.collection('dailyShiftChecklists').doc(req.params.checklistId);
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const snap = await transaction.get(ref);
+        if (!snap.exists) throw new Error('CHECKLIST_NOT_FOUND');
+        const current = snap.data()!;
+        const branchId = safeText(current.branchId, 80);
+        if (!branchId || !actorCanAccessBranch(actor, branchId)) throw new Error('CHECKLIST_BRANCH_FORBIDDEN');
+        const now = new Date().toISOString();
+        result = { ...current, id: snap.id, verifiedByManager: true, verifiedAt: now, verifiedBy: actor.name, verifiedByUid: actor.uid };
+        transaction.update(ref, { verifiedByManager: true, verifiedAt: now, verifiedBy: actor.name, verifiedByUid: actor.uid, updatedAtServer: FieldValue.serverTimestamp() });
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'CHECKLIST_REVIEW_FAILED' });
+    }
+  });
+
+  router.post('/handovers', authenticateFirebase, async (req: Request, res: Response) => {
+    try {
+      if (!db) throw new Error('DATABASE_UNAVAILABLE');
+      const actor = getActor(req);
+      const branchId = safeText(req.body?.branchId || actor.branchId, 80);
+      if (!branchId || branchId === 'ALL') throw new Error('BRANCH_REQUIRED');
+      if (!actorCanAccessBranch(actor, branchId)) throw new Error('HANDOVER_BRANCH_FORBIDDEN');
+      const ref = db.collection('shiftHandover').doc();
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const branchSnap = await transaction.get(db.collection('branches').doc(branchId));
+        if (!branchSnap.exists || branchSnap.data()?.isActive === false) throw new Error('BRANCH_NOT_ACTIVE');
+        const numeric = (value: unknown, field: string, max = 10_000_000_000) => {
+          const parsed = Number(value || 0);
+          if (!Number.isFinite(parsed) || parsed < 0 || parsed > max) throw new Error(`${field}_INVALID`);
+          return Math.round(parsed);
+        };
+        const now = new Date().toISOString();
+        result = {
+          id: ref.id,
+          code: `BG-${now.slice(0, 10).replace(/-/g, '')}-${ref.id.slice(0, 5).toUpperCase()}`,
+          date: now.slice(0, 10),
+          shiftName: safeText(req.body?.shiftName || 'Ca trực hôm nay', 120),
+          branchId,
+          branchName: safeText(branchSnap.data()?.name, 160),
+          staffId: actor.uid,
+          staffName: actor.name,
+          staffRole: actor.role,
+          cashInSafe: numeric(req.body?.cashInSafe, 'HANDOVER_CASH'),
+          cashRevenueToday: numeric(req.body?.cashRevenueToday, 'HANDOVER_CASH_REVENUE'),
+          posCardRevenueToday: numeric(req.body?.posCardRevenueToday, 'HANDOVER_CARD_REVENUE'),
+          qrBankRevenueToday: numeric(req.body?.qrBankRevenueToday, 'HANDOVER_BANK_REVENUE'),
+          totalRevenueToday: numeric(req.body?.totalRevenueToday, 'HANDOVER_TOTAL_REVENUE'),
+          demoDevicesCount: numeric(req.body?.demoDevicesCount, 'HANDOVER_DEVICE_COUNT', 100_000),
+          demoDevicesLocked: req.body?.demoDevicesLocked === true,
+          glassShowcasesLocked: req.body?.glassShowcasesLocked === true,
+          powerHeatDevicesTurnedOff: req.body?.powerHeatDevicesTurnedOff === true,
+          pendingRepairsCount: numeric(req.body?.pendingRepairsCount, 'HANDOVER_REPAIR_COUNT', 100_000),
+          pendingTradeInsCount: numeric(req.body?.pendingTradeInsCount, 'HANDOVER_TRADEIN_COUNT', 100_000),
+          pendingAppointmentsNote: safeText(req.body?.pendingAppointmentsNote, 2000),
+          generalNotes: safeText(req.body?.generalNotes, 4000),
+          completedTasksCount: numeric(req.body?.completedTasksCount, 'HANDOVER_COMPLETED_TASK_COUNT', 100_000),
+          totalTasksCount: numeric(req.body?.totalTasksCount, 'HANDOVER_TOTAL_TASK_COUNT', 100_000),
+          status: 'SUBMITTED', createdAt: now, createdByUid: actor.uid
+        };
+        transaction.create(ref, { ...result, createdAtServer: FieldValue.serverTimestamp(), updatedAtServer: FieldValue.serverTimestamp() });
+      });
+      return res.status(201).json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'HANDOVER_CREATE_FAILED' });
+    }
+  });
+
+  router.post('/handovers/:handoverId/review', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      if (!db) throw new Error('DATABASE_UNAVAILABLE');
+      const actor = getActor(req);
+      const ref = db.collection('shiftHandover').doc(req.params.handoverId);
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const snap = await transaction.get(ref);
+        if (!snap.exists) throw new Error('HANDOVER_NOT_FOUND');
+        const current = snap.data()!;
+        const branchId = safeText(current.branchId, 80);
+        if (!branchId || !actorCanAccessBranch(actor, branchId)) throw new Error('HANDOVER_BRANCH_FORBIDDEN');
+        if (current.status === 'APPROVED_BY_MANAGER') throw new Error('HANDOVER_ALREADY_APPROVED');
+        const now = new Date().toISOString();
+        result = { ...current, id: snap.id, status: 'APPROVED_BY_MANAGER', managerApprovedBy: actor.name, managerApprovedByUid: actor.uid, managerFeedback: safeText(req.body?.feedback, 2000), approvedAt: now };
+        transaction.update(ref, { status: result.status, managerApprovedBy: result.managerApprovedBy, managerApprovedByUid: actor.uid, managerFeedback: result.managerFeedback, approvedAt: now, updatedAtServer: FieldValue.serverTimestamp() });
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'HANDOVER_REVIEW_FAILED' });
     }
   });
 

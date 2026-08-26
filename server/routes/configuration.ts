@@ -15,6 +15,130 @@ function requiredBranchId(value: unknown): string {
   return branchId;
 }
 
+function optionalText(value: unknown, maxLength = 500): string {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
+export function validateBranchDraft(input: any) {
+  const id = optionalText(input?.id, 80);
+  const code = optionalText(input?.code, 30).toUpperCase();
+  const name = optionalText(input?.name, 160);
+  const address = optionalText(input?.address, 500);
+  const phone = optionalText(input?.phone, 30);
+  const attendanceRadius = Number(input?.attendanceRadius ?? input?.allowedGpsRadiusMeters ?? 50);
+  const gpsLatitude = input?.gpsLatitude === '' || input?.gpsLatitude == null ? null : Number(input.gpsLatitude);
+  const gpsLongitude = input?.gpsLongitude === '' || input?.gpsLongitude == null ? null : Number(input.gpsLongitude);
+  if (!id || !/^[A-Z0-9_-]{2,30}$/.test(code) || !name || !address || !phone) throw new Error('BRANCH_REQUIRED_FIELDS');
+  if (!Number.isFinite(attendanceRadius) || attendanceRadius < 10 || attendanceRadius > 5000) throw new Error('BRANCH_ATTENDANCE_RADIUS_INVALID');
+  if (gpsLatitude !== null && (!Number.isFinite(gpsLatitude) || gpsLatitude < -90 || gpsLatitude > 90)) throw new Error('BRANCH_LATITUDE_INVALID');
+  if (gpsLongitude !== null && (!Number.isFinite(gpsLongitude) || gpsLongitude < -180 || gpsLongitude > 180)) throw new Error('BRANCH_LONGITUDE_INVALID');
+  const allowedPublicIps = Array.isArray(input?.allowedPublicIps)
+    ? [...new Set(input.allowedPublicIps.map((value: unknown) => optionalText(value, 80)).filter(Boolean))]
+    : optionalText(input?.storePublicIp, 500).split(/[,;\s]+/).filter(Boolean);
+  return {
+    id, code, name, address, phone,
+    email: optionalText(input?.email, 160),
+    manager: optionalText(input?.manager, 160),
+    openingHours: optionalText(input?.openingHours, 100),
+    warehouseId: optionalText(input?.warehouseId, 80),
+    systemType: optionalText(input?.systemType, 30),
+    taxCode: optionalText(input?.taxCode, 50),
+    notes: optionalText(input?.notes, 1000),
+    allowedWifiSSID: optionalText(input?.allowedWifiSSID, 160),
+    allowedPublicIps,
+    attendanceRadius,
+    ...(gpsLatitude === null ? {} : { gpsLatitude }),
+    ...(gpsLongitude === null ? {} : { gpsLongitude }),
+    isActive: input?.isActive !== false,
+    isHeadquarter: input?.isHeadquarter === true
+  };
+}
+
+export function validateStoreSettingsDraft(input: any) {
+  const companyName = optionalText(input?.companyName, 200);
+  const hotline = optionalText(input?.hotline, 30);
+  const headquarterAddress = optionalText(input?.headquarterAddress, 500);
+  if (!companyName || !hotline || !headquarterAddress) throw new Error('STORE_SETTINGS_REQUIRED_FIELDS');
+  const defaultWarrantyMonths = Number(input?.defaultWarrantyMonths ?? 0);
+  if (!Number.isFinite(defaultWarrantyMonths) || defaultWarrantyMonths < 0 || defaultWarrantyMonths > 120) throw new Error('DEFAULT_WARRANTY_INVALID');
+  return {
+    companyName,
+    brandName: optionalText(input?.brandName, 160),
+    hotline,
+    supportEmail: optionalText(input?.supportEmail, 160),
+    website: optionalText(input?.website, 300),
+    taxCode: optionalText(input?.taxCode, 50),
+    headquarterAddress,
+    slogan: optionalText(input?.slogan, 300),
+    logoUrl: optionalText(input?.logoUrl, 1000),
+    printHeaderNote: optionalText(input?.printHeaderNote, 1000),
+    printFooterNote: optionalText(input?.printFooterNote, 1000),
+    defaultWarrantyMonths,
+    warrantyPackages: Array.isArray(input?.warrantyPackages) ? input.warrantyPackages.slice(0, 50).map((item: any) => ({
+      name: optionalText(item?.name, 160),
+      price: Math.max(0, Number(item?.price || 0))
+    })).filter((item: any) => item.name && Number.isFinite(item.price)) : []
+  };
+}
+
+const SOP_ROLES = new Set(['ALL', 'SALES', 'SALE_ONLINE', 'TECHNICIAN', 'CASHIER', 'WAREHOUSE', 'MANAGER']);
+const SOP_CATEGORIES = new Set(['OPENING', 'MID_SHIFT', 'CLOSING']);
+const SOP_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'NORMAL']);
+
+export function validateSopTemplateDraft(input: any) {
+  const code = optionalText(input?.code, 50).toUpperCase().replace(/[^A-Z0-9_-]/g, '-');
+  const title = optionalText(input?.title, 200);
+  const targetRole = optionalText(input?.targetRole, 30).toUpperCase();
+  const category = optionalText(input?.category, 30).toUpperCase();
+  const priority = optionalText(input?.priority || 'NORMAL', 20).toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9_-]{2,49}$/.test(code) || !title) throw new Error('SOP_REQUIRED_FIELDS');
+  if (!SOP_ROLES.has(targetRole) || !SOP_CATEGORIES.has(category) || !SOP_PRIORITIES.has(priority)) throw new Error('SOP_CLASSIFICATION_INVALID');
+  const roleNames: Record<string, string> = {
+    ALL: 'Toàn bộ nhân sự', SALES: 'Nhân viên bán hàng Showroom', SALE_ONLINE: 'Sale Online & Chăm sóc CRM',
+    TECHNICIAN: 'Kỹ thuật viên & KCS', CASHIER: 'Thu ngân Showroom', WAREHOUSE: 'Thủ kho & Kiểm kê', MANAGER: 'Cửa hàng trưởng'
+  };
+  const categoryNames: Record<string, string> = { OPENING: 'Đầu ca trực', MID_SHIFT: 'Trong ca làm', CLOSING: 'Cuối ca trực & Bàn giao' };
+  const penaltyPoints = Number(input?.penaltyPoints || 0);
+  const bonusPoints = Number(input?.bonusPoints || 0);
+  const orderIndex = Number(input?.orderIndex || 0);
+  if (![penaltyPoints, bonusPoints, orderIndex].every(Number.isFinite) || penaltyPoints < 0 || bonusPoints < 0 || orderIndex < 0) throw new Error('SOP_NUMERIC_VALUE_INVALID');
+  return {
+    code, title, targetRole, targetRoleName: roleNames[targetRole], category, categoryName: categoryNames[category], priority,
+    timeHint: optionalText(input?.timeHint, 100),
+    description: optionalText(input?.description, 2000),
+    guidelines: Array.isArray(input?.guidelines) ? input.guidelines.map((item: unknown) => optionalText(item, 500)).filter(Boolean).slice(0, 30) : [],
+    requiresPhotoProof: input?.requiresPhotoProof === true,
+    requiresNote: input?.requiresNote === true,
+    penaltyPoints, bonusPoints, orderIndex,
+    isActive: input?.isActive !== false,
+    version: optionalText(input?.version || '1.0', 30)
+  };
+}
+
+export function validateRepairServiceDraft(input: any) {
+  const category = optionalText(input?.category, 80).toUpperCase();
+  const categoryName = optionalText(input?.categoryName, 160);
+  const name = optionalText(input?.name, 240);
+  const compatibleModels = optionalText(input?.compatibleModels, 1000);
+  if (!category || !categoryName || !name) throw new Error('REPAIR_SERVICE_REQUIRED_FIELDS');
+  const numeric = (value: unknown, field: string, max: number) => {
+    const parsed = Number(value || 0);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > max) throw new Error(`${field}_INVALID`);
+    return Math.round(parsed);
+  };
+  const costPrice = numeric(input?.costPrice, 'REPAIR_SERVICE_COST', 10_000_000_000);
+  const sellPrice = numeric(input?.sellPrice, 'REPAIR_SERVICE_PRICE', 10_000_000_000);
+  if (sellPrice < costPrice) throw new Error('REPAIR_SERVICE_PRICE_BELOW_COST');
+  return {
+    category, categoryName, name, compatibleModels, costPrice, sellPrice,
+    techCommission: numeric(input?.techCommission, 'REPAIR_SERVICE_COMMISSION', 1_000_000_000),
+    warrantyPeriodMonths: numeric(input?.warrantyPeriodMonths, 'REPAIR_SERVICE_WARRANTY', 120),
+    durationMinutes: numeric(input?.durationMinutes, 'REPAIR_SERVICE_DURATION', 525_600),
+    notes: optionalText(input?.notes, 2000),
+    isActive: input?.isActive !== false
+  };
+}
+
 export function validateWarehouseDraft(input: any) {
   const id = String(input?.id || '').trim();
   const branchId = requiredBranchId(input?.branchId);
@@ -67,6 +191,38 @@ export function calculateBranchWarehouseCoverage(branchIds: string[], warehouses
 }
 
 const OPERATIONAL_CONFIG_KEYS = new Set(['sales', 'customerCare', 'retailPricing']);
+
+export type FinanceCategoryType = 'RECEIPT' | 'PAYMENT';
+
+function normalizeFinanceCategoryList(value: unknown): string[] {
+  const source = Array.isArray(value) ? value : [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const rawValue of source) {
+    const name = optionalText(rawValue, 100).replace(/\s+/g, ' ');
+    const normalized = name.toLocaleLowerCase('vi-VN');
+    if (!name || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(name);
+    if (result.length >= 100) break;
+  }
+  return result;
+}
+
+export function validateFinanceCategoryDraft(input: any): { type: FinanceCategoryType; name: string } {
+  const type = optionalText(input?.type, 20).toUpperCase() as FinanceCategoryType;
+  const name = optionalText(input?.name, 100).replace(/\s+/g, ' ');
+  if (!['RECEIPT', 'PAYMENT'].includes(type)) throw new Error('FINANCE_CATEGORY_TYPE_INVALID');
+  if (name.length < 2) throw new Error('FINANCE_CATEGORY_NAME_REQUIRED');
+  return { type, name };
+}
+
+function normalizeFinanceCategories(data: any) {
+  return {
+    receiptCategories: normalizeFinanceCategoryList(data?.receiptCategories),
+    paymentCategories: normalizeFinanceCategoryList(data?.paymentCategories)
+  };
+}
 
 export function validateOperationalConfig(configKey: string, input: any) {
   if (!OPERATIONAL_CONFIG_KEYS.has(configKey)) throw new Error('CONFIG_KEY_INVALID');
@@ -224,6 +380,190 @@ export function createConfigurationRouter(db: Firestore | null): Router {
   const router = Router();
   router.use(authenticateFirebase);
 
+  router.post('/branches', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const branch = validateBranchDraft(req.body);
+      const branchRef = db.collection('branches').doc(branch.id);
+      await db.runTransaction(async transaction => {
+        const [current, sameCode, allBranches] = await Promise.all([
+          transaction.get(branchRef),
+          transaction.get(db.collection('branches').where('code', '==', branch.code)),
+          branch.isHeadquarter ? transaction.get(db.collection('branches')) : Promise.resolve(null)
+        ]);
+        if (current.exists) throw new Error('BRANCH_ID_DUPLICATE');
+        if (!sameCode.empty) throw new Error('BRANCH_CODE_DUPLICATE');
+        if (allBranches) allBranches.docs.filter(item => item.data().isHeadquarter === true).forEach(item => transaction.update(item.ref, { isHeadquarter: false, updatedAt: FieldValue.serverTimestamp() }));
+        transaction.create(branchRef, { ...branch, createdByUid: req.user?.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      });
+      return res.status(201).json({ success: true, branch });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'BRANCH_CREATE_FAILED' });
+    }
+  });
+
+  router.patch('/branches/:branchId', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const branch = validateBranchDraft({ ...req.body, id: req.params.branchId });
+      const branchRef = db.collection('branches').doc(branch.id);
+      await db.runTransaction(async transaction => {
+        const [current, sameCode, allBranches] = await Promise.all([
+          transaction.get(branchRef),
+          transaction.get(db.collection('branches').where('code', '==', branch.code)),
+          branch.isHeadquarter ? transaction.get(db.collection('branches')) : Promise.resolve(null)
+        ]);
+        if (!current.exists) throw new Error('BRANCH_NOT_FOUND');
+        if (sameCode.docs.some(item => item.id !== branch.id)) throw new Error('BRANCH_CODE_DUPLICATE');
+        if (allBranches) allBranches.docs.filter(item => item.id !== branch.id && item.data().isHeadquarter === true).forEach(item => transaction.update(item.ref, { isHeadquarter: false, updatedAt: FieldValue.serverTimestamp() }));
+        transaction.set(branchRef, { ...branch, updatedByUid: req.user?.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      });
+      return res.json({ success: true, branch });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'BRANCH_UPDATE_FAILED' });
+    }
+  });
+
+  router.post('/branches/:branchId/archive', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const branchRef = db.collection('branches').doc(req.params.branchId);
+      await db.runTransaction(async transaction => {
+        const [branchSnap, activeWarehouses, users, funds] = await Promise.all([
+          transaction.get(branchRef),
+          transaction.get(db.collection('warehouses').where('branchId', '==', req.params.branchId)),
+          transaction.get(db.collection('users').where('branchId', '==', req.params.branchId)),
+          transaction.get(db.collection('funds').where('branchId', '==', req.params.branchId))
+        ]);
+        if (!branchSnap.exists) throw new Error('BRANCH_NOT_FOUND');
+        if (branchSnap.data()?.isHeadquarter === true) throw new Error('HEADQUARTER_CANNOT_ARCHIVE');
+        if (activeWarehouses.docs.some(item => isWarehouseRecordActive(item.data()))) throw new Error('BRANCH_HAS_ACTIVE_WAREHOUSES');
+        if (users.docs.some(item => item.data().active === true)) throw new Error('BRANCH_HAS_ACTIVE_USERS');
+        if (funds.docs.some(item => item.data().isActive !== false && item.data().isArchived !== true)) throw new Error('BRANCH_HAS_ACTIVE_FUNDS');
+        transaction.update(branchRef, { isActive: false, isArchived: true, archivedByUid: req.user?.uid, archivedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      });
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'BRANCH_ARCHIVE_FAILED' });
+    }
+  });
+
+  router.put('/store-settings', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const settings = validateStoreSettingsDraft(req.body);
+      await db.collection('storeSettings').doc('main').set({ ...settings, updatedByUid: req.user?.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return res.json({ success: true, settings });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'STORE_SETTINGS_UPDATE_FAILED' });
+    }
+  });
+
+  router.post('/sop-templates', requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const draft = validateSopTemplateDraft(req.body);
+      const ref = db.collection('sopTemplates').doc();
+      const record = { ...draft, id: ref.id, createdByUid: req.user?.uid, createdBy: req.user?.name || req.user?.email || req.user?.uid };
+      await db.runTransaction(async transaction => {
+        const sameCode = await transaction.get(db.collection('sopTemplates').where('code', '==', draft.code));
+        if (sameCode.docs.some(item => item.data().isArchived !== true)) throw new Error('SOP_CODE_DUPLICATE');
+        transaction.create(ref, { ...record, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      });
+      return res.status(201).json({ success: true, data: record });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'SOP_CREATE_FAILED' });
+    }
+  });
+
+  router.patch('/sop-templates/:templateId', requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const ref = db.collection('sopTemplates').doc(req.params.templateId);
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const current = await transaction.get(ref);
+        if (!current.exists) throw new Error('SOP_NOT_FOUND');
+        if (current.data()?.isArchived === true) throw new Error('SOP_ARCHIVED');
+        const draft = validateSopTemplateDraft({ ...current.data(), ...req.body });
+        const sameCode = await transaction.get(db.collection('sopTemplates').where('code', '==', draft.code));
+        if (sameCode.docs.some(item => item.id !== ref.id && item.data().isArchived !== true)) throw new Error('SOP_CODE_DUPLICATE');
+        result = { ...current.data(), ...draft, id: ref.id, updatedByUid: req.user?.uid };
+        transaction.set(ref, { ...draft, id: ref.id, updatedByUid: req.user?.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(String(error.message).includes('NOT_FOUND') ? 404 : 400).json({ success: false, error: error.message || 'SOP_UPDATE_FAILED' });
+    }
+  });
+
+  router.post('/sop-templates/:templateId/archive', requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const ref = db.collection('sopTemplates').doc(req.params.templateId);
+      let archived = false;
+      await db.runTransaction(async transaction => {
+        const [current, linked] = await Promise.all([
+          transaction.get(ref),
+          transaction.get(db.collection('dailyShiftChecklists').where('templateId', '==', req.params.templateId).limit(1))
+        ]);
+        if (!current.exists) throw new Error('SOP_NOT_FOUND');
+        if (linked.empty) transaction.delete(ref);
+        else {
+          archived = true;
+          transaction.update(ref, { isActive: false, isArchived: true, archivedByUid: req.user?.uid, archivedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+        }
+      });
+      return res.json({ success: true, data: { id: req.params.templateId, archived } });
+    } catch (error: any) {
+      return res.status(String(error.message).includes('NOT_FOUND') ? 404 : 400).json({ success: false, error: error.message || 'SOP_ARCHIVE_FAILED' });
+    }
+  });
+
+  router.post('/repair-services', requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const draft = validateRepairServiceDraft(req.body);
+      const ref = db.collection('repairServices').doc();
+      const record = { ...draft, id: ref.id, createdByUid: req.user?.uid };
+      await ref.create({ ...record, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      return res.status(201).json({ success: true, data: record });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'REPAIR_SERVICE_CREATE_FAILED' });
+    }
+  });
+
+  router.patch('/repair-services/:serviceId', requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const ref = db.collection('repairServices').doc(req.params.serviceId);
+      let result: any;
+      await db.runTransaction(async transaction => {
+        const current = await transaction.get(ref);
+        if (!current.exists) throw new Error('REPAIR_SERVICE_NOT_FOUND');
+        const draft = validateRepairServiceDraft({ ...current.data(), ...req.body });
+        result = { ...current.data(), ...draft, id: ref.id, updatedByUid: req.user?.uid };
+        transaction.set(ref, { ...draft, id: ref.id, updatedByUid: req.user?.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(String(error.message).includes('NOT_FOUND') ? 404 : 400).json({ success: false, error: error.message || 'REPAIR_SERVICE_UPDATE_FAILED' });
+    }
+  });
+
+  router.post('/repair-services/:serviceId/archive', requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const ref = db.collection('repairServices').doc(req.params.serviceId);
+      const current = await ref.get();
+      if (!current.exists) throw new Error('REPAIR_SERVICE_NOT_FOUND');
+      await ref.update({ isActive: false, isArchived: true, archivedByUid: req.user?.uid, archivedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(String(error.message).includes('NOT_FOUND') ? 404 : 400).json({ success: false, error: error.message || 'REPAIR_SERVICE_ARCHIVE_FAILED' });
+    }
+  });
+
   router.get('/setup-status', async (_req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
@@ -288,6 +628,43 @@ export function createConfigurationRouter(db: Firestore | null): Router {
       customerCare: selectEffectiveOperationalPolicy(policyVersions.customerCare)
     };
     return res.json({ success: true, data: { configs, policyVersions } });
+  });
+
+  router.get('/finance-categories', async (_req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const snapshot = await db.collection('operationalConfigs').doc('financeCategories').get();
+      return res.json({ success: true, data: normalizeFinanceCategories(snapshot.exists ? snapshot.data() : null) });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'FINANCE_CATEGORIES_LOAD_FAILED' });
+    }
+  });
+
+  router.post('/finance-categories', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const draft = validateFinanceCategoryDraft(req.body);
+      const configRef = db.collection('operationalConfigs').doc('financeCategories');
+      let result = { receiptCategories: [] as string[], paymentCategories: [] as string[] };
+      await db.runTransaction(async transaction => {
+        const currentSnapshot = await transaction.get(configRef);
+        const current = normalizeFinanceCategories(currentSnapshot.exists ? currentSnapshot.data() : null);
+        const targetKey = draft.type === 'RECEIPT' ? 'receiptCategories' : 'paymentCategories';
+        const duplicate = current[targetKey].some(name => name.toLocaleLowerCase('vi-VN') === draft.name.toLocaleLowerCase('vi-VN'));
+        result = duplicate
+          ? current
+          : { ...current, [targetKey]: [...current[targetKey], draft.name] };
+        transaction.set(configRef, {
+          id: 'financeCategories',
+          ...result,
+          updatedAt: new Date().toISOString(),
+          updatedByUid: req.user?.uid || null
+        }, { merge: false });
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'FINANCE_CATEGORY_SAVE_FAILED' });
+    }
   });
 
   router.put('/operational-configs/:configKey', requireRole('ADMIN'), async (req: Request, res: Response) => {

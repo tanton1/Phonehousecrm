@@ -81,7 +81,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const receiptDraftKey = browserDraftKey('purchase-stock', currentUser?.id, currentUser?.branchId || branches[0]?.id);
+  const receiptDraftKey = browserDraftKey('purchase-stock', currentUser?.id, currentUser?.branchId);
   const wasOpenRef = useRef(false);
   const draftHydratedRef = useRef(false);
   const skipPaymentSyncRef = useRef(false);
@@ -139,7 +139,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
     wasOpenRef.current = true;
     draftHydratedRef.current = false;
 
-    const initialBranch = currentUser?.branchId || branches[0]?.id || '';
+    const initialBranch = currentUser?.branchId || '';
     const saved = readBrowserDraft<StockReceiptDraft>(receiptDraftKey);
     setBranchId(saved?.branchId || initialBranch);
     setWarehouseId(saved?.warehouseId || '');
@@ -233,7 +233,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
     draftHydratedRef.current = false;
     skipPaymentSyncRef.current = true;
     removeBrowserDraft(receiptDraftKey);
-    const initialBranch = currentUser?.branchId || branches[0]?.id || '';
+    const initialBranch = currentUser?.branchId || '';
     setBranchId(initialBranch);
     setWarehouseId('');
     setSupplierId(suppliers[0]?.id || '');

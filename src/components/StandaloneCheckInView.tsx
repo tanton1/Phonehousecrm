@@ -76,8 +76,8 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
         name: currentUser.displayName || (currentUser as any).name || 'Nhân Viên',
         code: (currentUser as any).code || 'NV01',
         role: currentUser.role as any || 'SALES',
-        branchId: (currentUser as any).branchId || (branches[0]?.id ?? ''),
-        branchName: (currentUser as any).branchName || (branches[0]?.name ?? '')
+        branchId: (currentUser as any).branchId || '',
+        branchName: (currentUser as any).branchName || ''
       } as StaffMember];
     }
     return [];
@@ -95,12 +95,12 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   }, [availableStaff, selectedStaffId]);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
-    return selectedStaff?.branchId || branches[0]?.id || '';
+    return selectedStaff?.branchId || currentUser?.branchId || '';
   });
 
   const targetBranch = useMemo(() => {
-    return (branches || []).find(b => b && (b.id === selectedBranchId || b.name === selectedStaff?.branchName)) || branches[0];
-  }, [branches, selectedBranchId, selectedStaff]);
+    return (branches || []).find(b => b && (b.id === selectedBranchId || b.code === selectedBranchId));
+  }, [branches, selectedBranchId]);
 
   // Live Digital Clock
   const [liveTime, setLiveTime] = useState(new Date());
@@ -114,17 +114,21 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
   // STEP 2: GPS State
   const [gpsStatus, setGpsStatus] = useState<'PENDING' | 'SCANNING' | 'SUCCESS' | 'ERROR'>('PENDING');
-  const [gpsDistance, setGpsDistance] = useState<number>(12);
+  const [gpsDistance, setGpsDistance] = useState<number>(0);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsErrorMsg, setGpsErrorMsg] = useState<string | null>(null);
-  const targetLat = targetBranch?.gpsLatitude || 10.7769;
-  const targetLng = targetBranch?.gpsLongitude || 106.7009;
-  const allowedRadius = targetBranch?.allowedGpsRadiusMeters || 100;
+  const targetLat = targetBranch?.gpsLatitude ?? targetBranch?.latitude ?? 0;
+  const targetLng = targetBranch?.gpsLongitude ?? targetBranch?.longitude ?? 0;
+  const allowedRadius = targetBranch?.attendanceRadius ?? targetBranch?.allowedGpsRadiusMeters ?? 50;
 
   // STEP 3: Wi-Fi State
   const [wifiStatus, setWifiStatus] = useState<'PENDING' | 'SCANNING' | 'SUCCESS' | 'ERROR'>('PENDING');
-  const targetWifiSSID = targetBranch?.allowedWifiSSID || 'WIFI_CUA_HANG';
+  const targetWifiSSID = targetBranch?.allowedWifiSSID || '';
   const [currentWifiSSID, setCurrentWifiSSID] = useState<string>(targetWifiSSID);
+
+  useEffect(() => {
+    setCurrentWifiSSID(targetWifiSSID);
+  }, [targetWifiSSID]);
 
   // STEP 4: Face ID State
   const [faceStatus, setFaceStatus] = useState<'PENDING' | 'SCANNING' | 'SUCCESS' | 'ERROR' | 'FAILED'>('PENDING');
@@ -142,38 +146,21 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
 
-  // Staff Face Profile (Local persistence per staff)
+  // Face profile is display-only. Biometric vectors and images are never persisted in browser storage.
   const [staffFaceProfile, setStaffFaceProfile] = useState<{
     facePhotoUrl?: string;
     faceFeatureVector?: number[];
     faceEnrollmentDate?: string;
-  }>(() => {
-    const sId = selectedStaff?.id || 'STAFF_001';
-    try {
-      const saved = localStorage.getItem(`phonehouse_face_profile_${sId}`);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return {
+  }>(() => ({
       facePhotoUrl: selectedStaff?.facePhotoUrl || selectedStaff?.avatar,
-      faceFeatureVector: selectedStaff?.faceFeatureVector,
       faceEnrollmentDate: selectedStaff?.faceEnrollmentDate || '2025-01-10'
-    };
-  });
+  }));
 
   useEffect(() => {
-    const sId = selectedStaff?.id || 'STAFF_001';
-    try {
-      const saved = localStorage.getItem(`phonehouse_face_profile_${sId}`);
-      if (saved) {
-        setStaffFaceProfile(JSON.parse(saved));
-      } else {
-        setStaffFaceProfile({
-          facePhotoUrl: selectedStaff?.facePhotoUrl || selectedStaff?.avatar,
-          faceFeatureVector: selectedStaff?.faceFeatureVector,
-          faceEnrollmentDate: selectedStaff?.faceEnrollmentDate || '2025-01-10'
-        });
-      }
-    } catch (e) {}
+    setStaffFaceProfile({
+      facePhotoUrl: selectedStaff?.facePhotoUrl || selectedStaff?.avatar,
+      faceEnrollmentDate: selectedStaff?.faceEnrollmentDate || '2025-01-10'
+    });
   }, [selectedStaff?.id]);
 
   // Camera Management
@@ -275,6 +262,17 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     setGpsStatus('SCANNING');
     setGpsErrorMsg(null);
 
+    if (!targetBranch) {
+      setGpsStatus('ERROR');
+      setGpsErrorMsg('Cần chọn đúng chi nhánh trước khi kiểm tra GPS.');
+      return;
+    }
+    if (!targetLat || !targetLng) {
+      setGpsStatus('ERROR');
+      setGpsErrorMsg(`Chi nhánh ${targetBranch.name} chưa được cấu hình tọa độ GPS.`);
+      return;
+    }
+
     if (navigator?.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -306,6 +304,10 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   // Run Network & Internet Check (Using Authoritative Public IP verification)
   const runWifiCheck = async () => {
     setWifiStatus('SCANNING');
+    if (!targetBranch) {
+      setWifiStatus('ERROR');
+      return;
+    }
     try {
       const netCheck = await requestNetworkCheck(targetBranch.id);
       if (netCheck.isAllowed) {
@@ -365,70 +367,9 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
     const liveDataUrl = canvas.toDataURL('image/jpeg', 0.85);
     setCapturedSnapshotUrl(liveDataUrl);
-    const liveVector = extractFaceFeatureVectorFromCanvas(canvas);
-
-    // If staff profile has no approved registered vector, require proper registration & manager approval
-    const hasExistingVector = staffFaceProfile?.faceFeatureVector && staffFaceProfile.faceFeatureVector.length > 0;
-    if (!hasExistingVector) {
-      setFaceStatus('FAILED');
-      setFaceConfidence(0);
-      setFaceFeedbackMsg(`⚠️ ${selectedStaff.name} chưa có dữ liệu gương mặt được Quản lý phê duyệt. Vui lòng bấm "Đăng ký Face ID" để gửi yêu cầu phê duyệt.`);
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/ai/verify-face', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employeeName: selectedStaff.name,
-          livePhotoBase64: liveDataUrl,
-          referencePhotoBase64: staffFaceProfile?.facePhotoUrl?.startsWith('data:image') ? staffFaceProfile.facePhotoUrl : undefined,
-          referencePhotoUrl: staffFaceProfile?.facePhotoUrl?.startsWith('http') ? staffFaceProfile.facePhotoUrl : undefined,
-          liveVector,
-          storedVector: staffFaceProfile?.faceFeatureVector
-        })
-      });
-
-      if (response.ok) {
-        const resData = await response.json();
-        if (resData.success && resData.data) {
-          const { isMatched, confidenceScore, matchReason, isHumanFacePresent } = resData.data;
-
-          if (isHumanFacePresent === false) {
-            setFaceStatus('ERROR');
-            setFaceConfidence(confidenceScore || 15.0);
-            setFaceFeedbackMsg('❌ Không phát hiện khuôn mặt người thật rõ nét.');
-            return;
-          }
-
-          if (isMatched) {
-            setFaceStatus('SUCCESS');
-            setFaceConfidence(confidenceScore || 98.6);
-            setFaceFeedbackMsg(matchReason || `✅ Trùng khớp chính chủ: ${selectedStaff.name}`);
-          } else {
-            setFaceStatus('ERROR');
-            setFaceConfidence(confidenceScore || 32.0);
-            setFaceFeedbackMsg(matchReason || `❌ Khuôn mặt không trùng khớp với hồ sơ đăng ký của ${selectedStaff.name}`);
-          }
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Server face check error, fallback to local Z-Score engine:', e);
-    }
-
-    // Local Fallback
-    const match = compareFaceVectors(liveVector, staffFaceProfile?.faceFeatureVector, selectedStaff.name);
-    if (match.isMatched) {
-      setFaceStatus('SUCCESS');
-      setFaceConfidence(match.matchScore);
-      setFaceFeedbackMsg(match.statusText);
-    } else {
-      setFaceStatus('ERROR');
-      setFaceConfidence(match.matchScore);
-      setFaceFeedbackMsg(match.statusText);
-    }
+    setFaceStatus('SUCCESS');
+    setFaceConfidence(0);
+    setFaceFeedbackMsg(`Đã chụp ảnh bằng chứng tùy chọn của ${selectedStaff.name}. Ảnh không tự xác nhận chấm công.`);
   };
 
   // Final Success record & Submitting state
@@ -441,6 +382,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     setSubmitErrorMsg(null);
 
     try {
+      if (!targetBranch) throw new Error('BRANCH_REQUIRED: Cần chọn chi nhánh đang hoạt động.');
       const today = getVietnamDateString();
       const timeStr = getVietnamTimeString();
       const now = new Date();
@@ -564,7 +506,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               <div className="text-[11px] text-zinc-400 font-bold uppercase tracking-wider">Cửa Hàng Trực</div>
               <div className="font-extrabold text-sm text-white mt-0.5 flex items-center gap-1.5">
                 <Building2 className="w-4 h-4 text-[#FF4B16]" />
-                <span>{targetBranch.name}</span>
+                <span>{targetBranch?.name || 'Chưa chọn chi nhánh'}</span>
               </div>
               <div className="text-[11px] text-orange-200 mt-0.5">
                 Bán kính cho phép: ≤ {allowedRadius}m
@@ -708,7 +650,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                   <MapPin className="w-5 h-5 text-[#FF4B16]" />
                   <span>Bước 2: Định Vị Tọa Độ GPS Cửa Hàng</span>
                 </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">Yêu cầu thiết bị nằm trong bán kính ≤ {allowedRadius}m của {targetBranch.name}</p>
+                <p className="text-xs text-zinc-500 mt-0.5">Yêu cầu thiết bị nằm trong bán kính ≤ {allowedRadius}m của {targetBranch?.name || 'chi nhánh đã chọn'}</p>
               </div>
               <span className="text-xs font-black bg-orange-100 text-[#FF4B16] px-2.5 py-1 rounded-full">
                 Bước 2 / 4
@@ -741,7 +683,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               </div>
 
               <div className="text-xs space-y-1">
-                <p>Chi nhánh đích: <strong>{targetBranch.name}</strong> ({targetBranch.address})</p>
+                <p>Chi nhánh đích: <strong>{targetBranch?.name || 'Chưa chọn'}</strong>{targetBranch?.address ? ` (${targetBranch.address})` : ''}</p>
                 {gpsErrorMsg && <p className="text-rose-700 font-bold bg-white/80 p-2 rounded-xl border border-rose-200 mt-2">⚠️ {gpsErrorMsg}</p>}
               </div>
 
@@ -796,7 +738,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                   <Wifi className="w-5 h-5 text-[#FF4B16]" />
                   <span>Bước 3: Xác Thực Wi-Fi Nội Bộ Cửa Hàng</span>
                 </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">Yêu cầu kết nối đúng mạng Wi-Fi được cấu hình: <strong>{targetWifiSSID}</strong></p>
+                <p className="text-xs text-zinc-500 mt-0.5">Mạng được kiểm tra theo cấu hình chi nhánh trên server{targetWifiSSID ? `: ${targetWifiSSID}` : '.'}</p>
               </div>
               <span className="text-xs font-black bg-orange-100 text-[#FF4B16] px-2.5 py-1 rounded-full">
                 Bước 3 / 4
@@ -828,10 +770,10 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               </div>
 
               <div className="text-xs space-y-1">
-                <p>Wi-Fi yêu cầu: <strong className="text-orange-700 bg-white px-2 py-0.5 rounded border border-orange-200">{targetWifiSSID}</strong></p>
+                <p>Wi-Fi yêu cầu: <strong className="text-orange-700 bg-white px-2 py-0.5 rounded border border-orange-200">{targetWifiSSID || 'Chưa cấu hình'}</strong></p>
                 {wifiStatus === 'ERROR' && (
                   <p className="text-rose-700 font-bold bg-white/80 p-2 rounded-xl border border-rose-200 mt-2">
-                    ⚠️ Mạng hiện tại ({currentWifiSSID}) không phải Wi-Fi cửa hàng. Vui lòng kết nối vào Wi-Fi: {targetWifiSSID}.
+                    ⚠️ Mạng hiện tại ({currentWifiSSID || 'không xác định'}) chưa được server xác nhận cho chi nhánh này.
                   </p>
                 )}
               </div>
@@ -1017,7 +959,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               </button>
 
               <button
-                disabled={faceStatus !== 'SUCCESS' || isSubmittingCheckIn}
+                disabled={gpsStatus !== 'SUCCESS' || wifiStatus !== 'SUCCESS' || isSubmittingCheckIn}
                 onClick={handleFinishCheckIn}
                 className="bg-[#FF4B16] hover:bg-[#E94312] disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-600/25 cursor-pointer active:scale-95"
               >
@@ -1064,7 +1006,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               </div>
               <div className="flex justify-between items-center pb-2 border-b border-zinc-200 font-bold">
                 <span className="text-zinc-500">Chi nhánh:</span>
-                <span className="text-zinc-900 font-bold">{targetBranch.name}</span>
+                <span className="text-zinc-900 font-bold">{targetBranch?.name || 'Chưa chọn chi nhánh'}</span>
               </div>
               <div className="flex justify-between items-center pb-2 border-b border-zinc-200 font-bold">
                 <span className="text-zinc-500">Vị trí GPS:</span>
@@ -1130,13 +1072,6 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               faceFeatureVector: faceData.faceFeatureVector,
               faceEnrollmentDate: faceData.faceEnrollmentDate
             });
-            try {
-              localStorage.setItem(`phonehouse_face_profile_${selectedStaff.id}`, JSON.stringify({
-                facePhotoUrl: faceData.facePhotoUrl,
-                faceFeatureVector: faceData.faceFeatureVector,
-                faceEnrollmentDate: faceData.faceEnrollmentDate
-              }));
-            } catch (e) {}
             setIsFaceRegistrationOpen(false);
           }}
         />

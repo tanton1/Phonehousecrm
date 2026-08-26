@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
 import { InterBranchDebtPanel } from '../features/finance/components/InterBranchDebtPanel';
+import { addFinanceCategory, fetchFinanceCategories } from '../services/configurationApiClient';
 
 // format helpers
 const formatCurrency = (amount: number) => {
@@ -152,20 +153,26 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   const [isCreatePartnerModalOpen, setIsCreatePartnerModalOpen] = useState(false);
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryError, setCategoryError] = useState('');
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
 
-  // Custom categories list
-  const [customReceiptCategories, setCustomReceiptCategories] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('ph_custom_receipt_categories');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
-  const [customPaymentCategories, setCustomPaymentCategories] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('ph_custom_payment_categories');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  // Hạng mục tùy chỉnh là cấu hình nghiệp vụ dùng chung, không lưu cục bộ trên từng máy.
+  const [customReceiptCategories, setCustomReceiptCategories] = useState<string[]>([]);
+  const [customPaymentCategories, setCustomPaymentCategories] = useState<string[]>([]);
+
+  React.useEffect(() => {
+    let active = true;
+    fetchFinanceCategories()
+      .then(config => {
+        if (!active) return;
+        setCustomReceiptCategories(config.receiptCategories);
+        setCustomPaymentCategories(config.paymentCategories);
+      })
+      .catch(error => {
+        if (active) setCategoryError(error?.message || 'Không tải được hạng mục thu/chi.');
+      });
+    return () => { active = false; };
+  }, []);
 
   const [selectedTx, setSelectedTx] = useState<CashTransaction | null>(null);
   const [modalType, setModalType] = useState<'RECEIPT' | 'PAYMENT'>('RECEIPT');
@@ -212,7 +219,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     accountNumber: '',
     accountHolder: '',
     initialBalance: '',
-    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || branches[0]?.id || ''),
+    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || ''),
     isDefault: false
   });
   const [formData, setFormData] = useState({
@@ -229,13 +236,13 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     referenceCode: '',
     creator: currentUser?.displayName || 'Nhân viên kế toán',
     notes: '',
-    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || branches[0]?.id || 'CN01'),
+    branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || ''),
     isPLAccounted: true // Mặc định có hạch toán vào Kết quả kinh doanh
   });
 
   // Funds filtered for transaction create modal according to chosen branch
   const availableFundsForForm = useMemo(() => {
-    const currentBranchId = formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id) || 'CN01';
+    const currentBranchId = formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : currentUser?.branchId) || '';
     return funds.filter(f => f.branchId === currentBranchId && f.isActive !== false && f.isArchived !== true);
   }, [funds, formData.branchId, selectedBranchId, branches]);
 
@@ -323,7 +330,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         accountNumber: '',
         accountHolder: '',
         initialBalance: '',
-        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || branches[0]?.id || ''),
+        branchId: selectedBranchId !== 'ALL' ? selectedBranchId : (currentUser?.branchId || ''),
         isDefault: false
       });
     }
@@ -1505,7 +1512,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   <div>
                     <label className="block text-xs font-bold text-zinc-700 mb-1">Chi nhánh phát sinh *</label>
                     <select
-                      value={formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'CN01')}
+                      value={formData.branchId || (selectedBranchId !== 'ALL' ? selectedBranchId : currentUser?.branchId || '')}
                       onChange={(e) => {
                         const newBranchId = e.target.value;
                         const matchingFunds = funds.filter(f => f.branchId === newBranchId && f.isActive !== false && f.isArchived !== true);
@@ -2092,23 +2099,24 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={(e) => {
+            <form onSubmit={async (e) => {
               e.preventDefault();
-              if (!newCategoryName.trim()) return;
+              if (!newCategoryName.trim() || isSavingCategory) return;
               const cat = newCategoryName.trim();
-              if (modalType === 'RECEIPT') {
-                const updated = [...customReceiptCategories, cat];
-                setCustomReceiptCategories(updated);
-                localStorage.setItem('ph_custom_receipt_categories', JSON.stringify(updated));
+              setCategoryError('');
+              setIsSavingCategory(true);
+              try {
+                const config = await addFinanceCategory(modalType, cat);
+                setCustomReceiptCategories(config.receiptCategories);
+                setCustomPaymentCategories(config.paymentCategories);
                 setFormData(prev => ({ ...prev, category: cat as any, categoryName: cat }));
-              } else {
-                const updated = [...customPaymentCategories, cat];
-                setCustomPaymentCategories(updated);
-                localStorage.setItem('ph_custom_payment_categories', JSON.stringify(updated));
-                setFormData(prev => ({ ...prev, category: cat as any, categoryName: cat }));
+                setNewCategoryName('');
+                setIsAddCategoryModalOpen(false);
+              } catch (error: any) {
+                setCategoryError(error?.message || 'Không lưu được hạng mục.');
+              } finally {
+                setIsSavingCategory(false);
               }
-              setNewCategoryName('');
-              setIsAddCategoryModalOpen(false);
             }} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">Tên Hạng Mục Mới *</label>
@@ -2123,6 +2131,12 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 />
               </div>
 
+              {categoryError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                  {categoryError}
+                </div>
+              )}
+
               <div className="flex items-center space-x-2 pt-2">
                 <button
                   type="button"
@@ -2133,9 +2147,10 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-[2] py-2 bg-[#ff4b16] hover:bg-[#e03e0e] text-white font-bold text-xs rounded-xl shadow-sm"
+                  disabled={isSavingCategory}
+                  className="flex-[2] py-2 bg-[#ff4b16] hover:bg-[#e03e0e] disabled:cursor-not-allowed disabled:opacity-60 text-white font-bold text-xs rounded-xl shadow-sm"
                 >
-                  Lưu & Chọn Ngay
+                  {isSavingCategory ? 'Đang lưu...' : 'Lưu & Chọn Ngay'}
                 </button>
               </div>
             </form>

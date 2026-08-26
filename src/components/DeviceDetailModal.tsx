@@ -61,9 +61,8 @@ interface DeviceDetailModalProps {
   onPrintBarcode?: (device: DeviceItem) => void;
 }
 
-export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
+const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' | 'isOpen'> & { device: DeviceItem }> = ({
   device,
-  isOpen,
   onClose,
   transfers = [],
   warrantyTickets = [],
@@ -87,8 +86,6 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
   const [newLogDesc, setNewLogDesc] = useState('');
   const [newLogStaff, setNewLogStaff] = useState('');
   const [newCustodian, setNewCustodian] = useState('');
-
-  if (!isOpen || !device) return null;
 
   const handleCopyImei = () => {
     navigator.clipboard.writeText(device.imei);
@@ -1073,4 +1070,9 @@ export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = ({
       </div>
     </div>
   );
+};
+
+export const DeviceDetailModal: React.FC<DeviceDetailModalProps> = (props) => {
+  if (!props.isOpen || !props.device) return null;
+  return <DeviceDetailModalContent {...props} device={props.device} />;
 };

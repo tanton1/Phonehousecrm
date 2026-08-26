@@ -25,6 +25,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
           const mockTransaction = {
             get: async (ref: any) => {
               if (ref.col === 'checkoutRequests') return { exists: false };
+              if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
               if (ref.col === 'funds') {
                 return {
                   exists: true,
@@ -34,7 +35,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
               if (ref.col === 'devices') {
                 return {
                   exists: true,
-                  data: () => ({ id: ref.docId, model: 'iPhone 16 Pro', imei: '123456789012345', sellPrice: 30000000, status: 'in_stock', branchId: 'CN01' })
+                  data: () => ({ id: ref.docId, model: 'iPhone 16 Pro', imei: '123456789012345', sellPrice: 30000000, status: 'in_stock', branchId: 'CN01', currentLocationId: 'KHO01' })
                 };
               }
               if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return {
@@ -66,6 +67,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
       const result = await executeAtomicCheckout(mockDb, {
         deviceIds: ['DEV-01'],
         branchId: 'CN01',
+        warehouseId: 'KHO01',
         customerId: 'CUST-01',
         payment: {
           method: 'INSTALLMENT',
@@ -94,6 +96,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
           const mockTransaction = {
             get: async (ref: any) => {
               if (ref.col === 'checkoutRequests') return { exists: false };
+              if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
               if (ref.col === 'funds') {
                 return {
                   exists: true,
@@ -124,6 +127,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
           deviceIds: [],
           accessoryLines: [{ productId: 'PROD-01', quantity: 1 }],
           branchId: 'CN01',
+          warehouseId: 'KHO01',
           payment: { method: 'CASH', fundId: 'FUND-01' }
         })
       ).rejects.toThrow('BRANCH_STOCK_NOT_INITIALIZED');
@@ -140,6 +144,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
           const mockTransaction = {
             get: async (ref: any) => {
               if (ref.col === 'checkoutRequests') return { exists: false };
+              if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
               if (ref.col === 'funds') {
                 return {
                   exists: true,
@@ -156,7 +161,8 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
                     status: 'reserved',
                     reservedForLeadId: 'LEAD-MATCH-01',
                     reservedUntil: new Date(Date.now() + 15 * 60000).toISOString(),
-                    branchId: 'CN01'
+                    branchId: 'CN01',
+                    currentLocationId: 'KHO01'
                   })
                 };
               }
@@ -176,6 +182,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
       const result = await executeAtomicCheckout(mockDb, {
         deviceIds: ['DEV-RESERVED-01'],
         branchId: 'CN01',
+        warehouseId: 'KHO01',
         leadId: 'LEAD-MATCH-01',
         payment: { method: 'CASH', fundId: 'FUND-01' },
         commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-RESERVED-01', tagIds: ['MAY_TEST'] }]
@@ -194,6 +201,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
           const mockTransaction = {
             get: async (ref: any) => {
               if (ref.col === 'checkoutRequests') return { exists: false };
+              if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
               if (ref.col === 'funds') {
                 return {
                   exists: true,
@@ -210,7 +218,8 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
                     status: 'reserved',
                     reservedForLeadId: 'LEAD-ORIGINAL-01',
                     reservedUntil: new Date(Date.now() + 15 * 60000).toISOString(),
-                    branchId: 'CN01'
+                    branchId: 'CN01',
+                    currentLocationId: 'KHO01'
                   })
                 };
               }
@@ -227,6 +236,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
         executeAtomicCheckout(mockDb, {
           deviceIds: ['DEV-RESERVED-01'],
           branchId: 'CN01',
+          warehouseId: 'KHO01',
           leadId: 'LEAD-DIFFERENT-02',
           payment: { method: 'CASH', fundId: 'FUND-01' }
         })

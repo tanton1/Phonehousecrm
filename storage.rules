@@ -2,21 +2,8 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
-    match /technical-evidence/{workOrderId}/{lineId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-        && request.resource.size < 20 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*')
-        && request.resource.metadata.workOrderId == workOrderId
-        && request.resource.metadata.lineId == lineId;
-    }
-    match /crm-evidence/{leadId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-        && request.resource.size < 8 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*')
-        && request.resource.metadata.leadId == leadId;
-    }
+    // Evidence is uploaded through short-lived server-authorized signed URLs.
+    // No browser identity, including ADMIN, may read/write Storage directly.
     match /{allPaths=**} {
       allow read, write: if false;
     }

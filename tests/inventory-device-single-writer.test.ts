@@ -4,7 +4,8 @@ import {
   decodeInventoryCursor,
   encodeInventoryCursor,
   ImportInventoryDevicesInput,
-  processImportInventoryDevices
+  processImportInventoryDevices,
+  processUpdateInventoryDeviceMetadata
 } from '../server/services/inventoryDeviceService';
 
 type Ref = { kind: 'ref'; col: string; id: string };
@@ -51,6 +52,7 @@ function createInventoryDb(seed: Record<string, Record<string, any>>) {
     runTransaction: async (callback: any) => callback({
       get: async (target: Ref | Query) => target.kind === 'query' ? querySnapshot(target) : snap(target),
       set: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...value }),
+      create: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...value }),
       update: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...(data.get(`${target.col}/${target.id}`) || {}), ...value })
     })
   };
@@ -134,5 +136,25 @@ describe('Inventory device canonical single writer', () => {
     expect(report.counts.DEVICE_BRANCH_MISSING).toBe(1);
     expect(report.counts.DEVICE_STALE_TRANSFER_LOCK).toBe(1);
     expect(store.get('devices', 'DEV_BAD')).toEqual(before);
+  });
+
+  it('updates only sale/display metadata and preserves canonical IMEI, cost and location', async () => {
+    const store = createInventoryDb({ devices: { DEV_01: {
+      id: 'DEV_01', imei: '12345', branchId: 'CN01', currentLocationId: 'KHO_CN01',
+      currentCost: 12_000_000, buyPrice: 12_000_000, model: 'iPhone 12', sellPrice: 13_000_000, status: 'in_stock'
+    } } });
+    await processUpdateInventoryDeviceMetadata(store.db, 'DEV_01', {
+      model: 'iPhone 12 Pro', sellPrice: 14_000_000, currentCost: 1, currentLocationId: 'KHO_KHAC', imei: '99999'
+    }, actor);
+    expect(store.get('devices', 'DEV_01')).toMatchObject({
+      model: 'iPhone 12 Pro', sellPrice: 14_000_000, imei: '12345',
+      currentCost: 12_000_000, buyPrice: 12_000_000, currentLocationId: 'KHO_CN01', status: 'in_stock'
+    });
+    expect(store.values('inventoryAuditEvents')).toHaveLength(1);
+  });
+
+  it('rejects metadata edits from another branch', async () => {
+    const store = createInventoryDb({ devices: { DEV_02: { id: 'DEV_02', imei: '54321', branchId: 'CN02', model: 'iPhone 13' } } });
+    await expect(processUpdateInventoryDeviceMetadata(store.db, 'DEV_02', { notes: 'Sai chi nhánh' }, actor)).rejects.toThrow('INVENTORY_BRANCH_FORBIDDEN');
   });
 });

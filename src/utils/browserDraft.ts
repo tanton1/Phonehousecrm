@@ -1,4 +1,4 @@
-const DEFAULT_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 interface BrowserDraftEnvelope<T> {
   version: 1;

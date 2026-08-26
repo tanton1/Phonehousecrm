@@ -25,7 +25,7 @@ describe('Attendance V2: Biometric Authority, Review Engine & Overnight Relative
       expect(cosineSimilarity(vecA, vecB)).toBe(0);
     });
 
-    it('approves verification when cosine similarity meets 85% threshold', async () => {
+    it('never authorizes attendance from a browser-provided embedding', async () => {
       const liveVec = [0.10, 0.20, 0.30, 0.40, 0.50];
       const res = await verifyFaceBiometric(null, {
         staffUid: 'STAFF-01',
@@ -33,8 +33,8 @@ describe('Attendance V2: Biometric Authority, Review Engine & Overnight Relative
         threshold: 0.85
       });
 
-      expect(res.verified).toBe(true);
-      expect(res.score).toBeGreaterThanOrEqual(85);
+      expect(res.verified).toBe(false);
+      expect(res.reason).toBe('BIOMETRIC_SUPPLEMENTARY_ONLY');
     });
   });
 

@@ -25,57 +25,21 @@ import {
   SystemSetupStatus
 } from './types';
 import { AppShell } from './app/AppShell';
-import { DashboardPage } from './features/dashboard/DashboardPage';
-import { POSCockpitView } from './features/pos/components/POSCockpitView';
-import { RetailRepairView } from './features/warranty/components/RetailRepairView';
 import { RepairIntakeModal } from './features/warranty/components/RepairIntakeModal';
-import { TradeInCockpitView } from './features/tradein/components/TradeInCockpitView';
-import { CashLedgerTable } from './features/finance/components/CashLedgerTable';
-import { CashbookView } from './components/CashbookView';
-import { OmnichannelChatView } from './features/chat/components/OmnichannelChatView';
-import { ChannelConnectionsView } from './features/chat/components/ChannelConnectionsView';
-import { ReportsPage } from './features/reports/ReportsPage';
-import { StaffHRView } from './components/StaffHRView';
-
-import { PurchaseOrdersView } from './components/PurchaseOrdersView';
-import { InventoryView } from './components/InventoryView';
-import { WarehouseTransfersView } from './components/WarehouseTransfersView';
-import { MasterCatalogView } from './components/MasterCatalogView';
-import { PartsInventoryHub } from './components/PartsInventoryHub';
-import { InvoicesView } from './components/InvoicesView';
-import { InstallmentReconciliationView } from './components/InstallmentReconciliationView';
-import { UserManagementView } from './components/UserManagementView';
-import { PartnersView } from './components/PartnersView';
-import { SystemSettingsHub } from './components/SystemSettingsHub';
-import { MoreHubView } from './components/MoreHubView';
-import { HRHubView } from './components/HRHubView';
-import { StandaloneCheckInView } from './components/StandaloneCheckInView';
-import { TechWorkspaceView } from './components/TechWorkspaceView';
-import { SalesWorkspaceView } from './components/SalesWorkspaceView';
 import { AICopilotModal } from './components/AICopilotModal';
 import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
 
-const CRMLeadsView = React.lazy(() => import('./components/CRMLeadsView').then(module => ({ default: module.CRMLeadsView })));
 import { fetchOperationalConfigs, fetchSystemSetupStatus } from './services/configurationApiClient';
 import { testFirestoreConnection, auth } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
-  updateDeviceInFirestore,
-  deleteDeviceFromFirestore,
   subscribeToLeads,
-  addLeadToFirestore,
-  updateLeadInFirestore,
   subscribeToTradeIns,
-  addTradeInToFirestore,
-  updateTradeInInFirestore,
   subscribeToInvoices,
   cancelInvoiceInFirestore,
   subscribeToUsers,
-  addUserToFirestore,
-  updateUserInFirestore,
-  deleteUserFromFirestore,
   subscribeToPartners,
   addPartnerToFirestore,
   updatePartnerInFirestore,
@@ -88,7 +52,6 @@ import {
   addCashTransactionToFirestore,
   executeFundTransferInFirestore,
   subscribeToTransfers,
-  subscribeToProducts,
   subscribeToBranches,
   addBranchToFirestore,
   updateBranchInFirestore,
@@ -101,33 +64,66 @@ import {
   subscribeToStoreSettings,
   saveStoreSettingsToFirestore,
   subscribeToPurchaseOrders,
-  updatePurchaseOrderInFirestore,
   subscribeToAttendance,
-  subscribeToLeaveRequests,
-  addLeaveRequestToFirestore,
-  updateLeaveRequestInFirestore,
-  addAttendanceRecordToFirestore,
-  updateAttendanceRecordInFirestore,
-  deleteAttendanceRecordFromFirestore,
-  subscribeToShiftHandovers,
-  addShiftHandoverToFirestore,
-  subscribeToSOPTemplates,
-  subscribeToDailyChecklists
+  subscribeToLeaveRequests
 } from './services/firestoreService';
+import { requestCreateTradeIn, requestUpdateTradeIn } from './services/tradeInApiClient';
 import { getVietnamDateString, getVietnamTimeString } from './utils/dateTimeUtils';
 import { recordBelongsToBranch } from './utils/branchScope';
-import { requestServerCheckIn, requestServerCheckOut } from './services/attendanceApiClient';
+import { requestCreateLeaveRequest, requestReviewLeaveRequest, requestServerCheckIn, requestServerCheckOut } from './services/attendanceApiClient';
 import {
   createInventoryIdempotencyKey,
+  fetchInventoryAccessoryBalances,
   fetchInventoryDevices,
   type InventoryDeviceSummary,
   requestImportInventoryDevices,
   requestReceivePurchaseOrder,
   requestCancelPurchaseOrder,
-  requestPayPurchaseOrderDebt
+  requestPayPurchaseOrderDebt,
+  requestUpdateInventoryDeviceMetadata,
+  requestUpdatePurchaseOrderNote
 } from './services/inventoryApiClient';
 import { requestInstallmentDisbursement, requestSettlePartnerDebt, type PartnerDebtSettlementDirection } from './services/financeApiClient';
+import { fetchAdminOperationalSnapshot, type AdminOperationalSnapshot } from './services/adminOperationalApiClient';
 import { requestUpdateInvoiceNote } from './services/posApiClient';
+import { requestLeadStateTransition } from './services/crmApiClient';
+
+const DashboardPage = React.lazy(() => import('./features/dashboard/DashboardPage').then(module => ({ default: module.DashboardPage })));
+const POSCockpitView = React.lazy(() => import('./features/pos/components/POSCockpitView').then(module => ({ default: module.POSCockpitView })));
+const RetailRepairView = React.lazy(() => import('./features/warranty/components/RetailRepairView').then(module => ({ default: module.RetailRepairView })));
+const TradeInCockpitView = React.lazy(() => import('./features/tradein/components/TradeInCockpitView').then(module => ({ default: module.TradeInCockpitView })));
+const CashLedgerTable = React.lazy(() => import('./features/finance/components/CashLedgerTable').then(module => ({ default: module.CashLedgerTable })));
+const CashbookView = React.lazy(() => import('./components/CashbookView').then(module => ({ default: module.CashbookView })));
+const OmnichannelChatView = React.lazy(() => import('./features/chat/components/OmnichannelChatView').then(module => ({ default: module.OmnichannelChatView })));
+const ChannelConnectionsView = React.lazy(() => import('./features/chat/components/ChannelConnectionsView').then(module => ({ default: module.ChannelConnectionsView })));
+const ReportsPage = React.lazy(() => import('./features/reports/ReportsPage').then(module => ({ default: module.ReportsPage })));
+const StaffHRView = React.lazy(() => import('./components/StaffHRView').then(module => ({ default: module.StaffHRView })));
+const PurchaseOrdersView = React.lazy(() => import('./components/PurchaseOrdersView').then(module => ({ default: module.PurchaseOrdersView })));
+const InventoryView = React.lazy(() => import('./components/InventoryView').then(module => ({ default: module.InventoryView })));
+const WarehouseTransfersView = React.lazy(() => import('./components/WarehouseTransfersView').then(module => ({ default: module.WarehouseTransfersView })));
+const MasterCatalogView = React.lazy(() => import('./components/MasterCatalogView').then(module => ({ default: module.MasterCatalogView })));
+const PartsInventoryHub = React.lazy(() => import('./components/PartsInventoryHub').then(module => ({ default: module.PartsInventoryHub })));
+const InvoicesView = React.lazy(() => import('./components/InvoicesView').then(module => ({ default: module.InvoicesView })));
+const InstallmentReconciliationView = React.lazy(() => import('./components/InstallmentReconciliationView').then(module => ({ default: module.InstallmentReconciliationView })));
+const UserManagementView = React.lazy(() => import('./components/UserManagementView').then(module => ({ default: module.UserManagementView })));
+const PartnersView = React.lazy(() => import('./components/PartnersView').then(module => ({ default: module.PartnersView })));
+const SystemSettingsHub = React.lazy(() => import('./components/SystemSettingsHub').then(module => ({ default: module.SystemSettingsHub })));
+const MoreHubView = React.lazy(() => import('./components/MoreHubView').then(module => ({ default: module.MoreHubView })));
+const HRHubView = React.lazy(() => import('./components/HRHubView').then(module => ({ default: module.HRHubView })));
+const StandaloneCheckInView = React.lazy(() => import('./components/StandaloneCheckInView').then(module => ({ default: module.StandaloneCheckInView })));
+const TechWorkspaceView = React.lazy(() => import('./components/TechWorkspaceView').then(module => ({ default: module.TechWorkspaceView })));
+const SalesWorkspaceView = React.lazy(() => import('./components/SalesWorkspaceView').then(module => ({ default: module.SalesWorkspaceView })));
+const CRMLeadsView = React.lazy(() => import('./components/CRMLeadsView').then(module => ({ default: module.CRMLeadsView })));
+
+function PageLoadingFallback() {
+  return (
+    <div className="flex min-h-[45vh] items-center justify-center bg-zinc-50 px-4">
+      <div className="rounded-2xl border border-orange-100 bg-white px-5 py-4 text-sm font-bold text-zinc-600 shadow-sm">
+        Đang mở trang…
+      </div>
+    </div>
+  );
+}
 
 const BUSINESS_DATA_RESET_MARKER = 'phonehouse_business_data_reset_2026_08_21_v1';
 const BUSINESS_CACHE_KEYS = [
@@ -175,113 +171,44 @@ export default function App() {
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [inventorySummary, setInventorySummary] = useState<InventoryDeviceSummary | undefined>();
 
-  const [leads, setLeads] = useState<Lead[]>(() => {
-    const saved = localStorage.getItem('istore_leads');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [leads, setLeads] = useState<Lead[]>([]);
 
-  const [tradeIns, setTradeIns] = useState<TradeInAppraisal[]>(() => {
-    const saved = localStorage.getItem('istore_tradeins');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [tradeIns, setTradeIns] = useState<TradeInAppraisal[]>([]);
 
   // Legacy warrantyTickets are intentionally no longer loaded into the application.
   // New repair work is technicalWorkOrders only.
   const [warrantyTickets] = useState<WarrantyTicket[]>([]);
 
-  const [invoices, setInvoices] = useState<SalesInvoice[]>(() => {
-    const saved = localStorage.getItem('istore_invoices');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [invoices, setInvoices] = useState<SalesInvoice[]>([]);
 
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    const saved = localStorage.getItem('istore_users');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [users, setUsers] = useState<UserAccount[]>([]);
 
-  const [partners, setPartners] = useState<Partner[]>(() => {
-    const saved = localStorage.getItem('istore_partners');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [partners, setPartners] = useState<Partner[]>([]);
 
-  const [funds, setFunds] = useState<FundAccount[]>(() => {
-    const saved = localStorage.getItem('phonehouse_funds');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [funds, setFunds] = useState<FundAccount[]>([]);
 
-  const [cashTransactions, setCashTransactions] = useState<CashTransaction[]>(() => {
-    const saved = localStorage.getItem('phonehouse_cash_transactions');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [cashTransactions, setCashTransactions] = useState<CashTransaction[]>([]);
+  const [adminOperationalSummary, setAdminOperationalSummary] = useState<AdminOperationalSnapshot['summary'] | null>(null);
 
   
-  const [products, setProducts] = useState<ProductItem[]>(() => {
-    const saved = localStorage.getItem('phonehouse_products');
-    if (saved) return JSON.parse(saved);
-    return [];
-  });
+  const [products, setProducts] = useState<ProductItem[]>([]);
 
-  const [transfers, setTransfers] = useState<StockTransferSlip[]>(() => {
-    const saved = localStorage.getItem('phonehouse_transfers');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [transfers, setTransfers] = useState<StockTransferSlip[]>([]);
 
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(() => {
-    const saved = localStorage.getItem('phonehouse_purchase_orders');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
 
-  const [branches, setBranches] = useState<StoreBranch[]>(() => {
-    const saved = localStorage.getItem('phonehouse_branches');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [branches, setBranches] = useState<StoreBranch[]>([]);
 
-  const [warehouses, setWarehouses] = useState<WarehouseInfo[]>(() => {
-    const saved = localStorage.getItem('phonehouse_warehouses');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [warehouses, setWarehouses] = useState<WarehouseInfo[]>([]);
 
-  const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => {
-    const saved = localStorage.getItem('phonehouse_store_settings');
-    return saved ? JSON.parse(saved) : {
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>(() => ({
       companyName: '', brandName: '', hotline: '', supportEmail: '', website: '', taxCode: '',
       headquarterAddress: '', slogan: '', printHeaderNote: '', printFooterNote: '',
       defaultWarrantyMonths: 0, warrantyPackages: [], branches: [], warehouses: []
-    };
-  });
-
-  useEffect(() => {
-    localStorage.setItem('phonehouse_purchase_orders', JSON.stringify(purchaseOrders));
-  }, [purchaseOrders]);
-
-  useEffect(() => {
-    localStorage.setItem('phonehouse_transfers', JSON.stringify(transfers));
-  }, [transfers]);
-
-  useEffect(() => {
-    localStorage.setItem('phonehouse_branches', JSON.stringify(branches));
-  }, [branches]);
-
-  useEffect(() => {
-    localStorage.setItem('phonehouse_warehouses', JSON.stringify(warehouses));
-  }, [warehouses]);
-
-  useEffect(() => {
-    localStorage.setItem('phonehouse_store_settings', JSON.stringify(storeSettings));
-  }, [storeSettings]);
+    }));
 
   // Current Logged-in User Account
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
-    const saved = localStorage.getItem('phonehouse_active_user');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse saved user:', e);
-      }
-    }
-    return null;
-  });
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
 
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(() => auth.currentUser?.uid || null);
@@ -368,9 +295,11 @@ export default function App() {
     }
 
     let evidencePayload: any;
+    const attendanceBranchId = recordOrDraft?.branchId || currentUser.branchId || '';
+    if (!attendanceBranchId) throw new Error('BRANCH_REQUIRED: Cần chọn chi nhánh trước khi chấm công.');
     if (typeof recordOrDraft === 'object' && recordOrDraft !== null) {
       evidencePayload = {
-        branchId: recordOrDraft.branchId || currentUser.branchId || branches[0]?.id || 'CN01',
+        branchId: attendanceBranchId,
         branchName: recordOrDraft.branchName || branches.find(b => b.id === (recordOrDraft.branchId || currentUser.branchId))?.name,
         staffName: currentUser.displayName,
         role: currentUser.role,
@@ -380,7 +309,7 @@ export default function App() {
       };
     } else {
       evidencePayload = {
-        branchId: currentUser.branchId || branches[0]?.id || 'CN01',
+        branchId: attendanceBranchId,
         branchName: branches.find(b => b.id === currentUser.branchId)?.name,
         staffName: currentUser.displayName,
         role: currentUser.role
@@ -411,7 +340,8 @@ export default function App() {
     const today = getVietnamDateString();
 
     try {
-      const completedRecord = await requestServerCheckOut(currentUser.branchId || branches[0]?.id || 'CN01');
+      if (!currentUser.branchId) throw new Error('BRANCH_REQUIRED: Tài khoản chưa được gán chi nhánh.');
+      const completedRecord = await requestServerCheckOut(currentUser.branchId);
       
       // Update state directly with the authoritative completed record from backend (retaining calculated workDurationMinutes)
       setAttendanceRecords(prev => prev.map(a => 
@@ -433,6 +363,21 @@ export default function App() {
     }
     setCurrentUser(null);
     localStorage.removeItem('phonehouse_active_user');
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith('phonehouse:draft:v1:') || key.startsWith('phonehouse_face_profile_')) {
+        localStorage.removeItem(key);
+      }
+    });
+    setLeads([]);
+    setTradeIns([]);
+    setInvoices([]);
+    setPartners([]);
+    setFunds([]);
+    setCashTransactions([]);
+    setProducts([]);
+    setTransfers([]);
+    setPurchaseOrders([]);
+    setAttendanceRecords([]);
     setIsLoginModalOpen(true);
   };
 
@@ -457,9 +402,6 @@ export default function App() {
         (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase()))
       );
       if (found) return found;
-    }
-    if (branches && branches.length > 0) {
-      return branches[0];
     }
     return {
       id: 'ALL',
@@ -596,42 +538,6 @@ export default function App() {
 
     // 2. Setup real-time Firestore subscriptions. An empty snapshot is authoritative.
 
-    unsubLeads = subscribeToLeads((remoteLeads) => {
-      setLeads(remoteLeads || []);
-    });
-
-    unsubTradeIns = subscribeToTradeIns((remoteTradeIns) => {
-      setTradeIns(remoteTradeIns || []);
-    });
-
-    unsubInvoices = subscribeToInvoices((remoteInvoices) => {
-      setInvoices(remoteInvoices || []);
-    });
-
-    unsubUsers = subscribeToUsers((remoteUsers) => {
-      setUsers(remoteUsers || []);
-    });
-
-    unsubPartners = subscribeToPartners((remotePartners) => {
-      setPartners(remotePartners || []);
-    });
-
-    unsubFunds = subscribeToFunds((remoteFunds) => {
-      setFunds(remoteFunds || []);
-    });
-
-    unsubCashTxs = subscribeToCashTransactions((remoteTxs) => {
-      setCashTransactions(remoteTxs || []);
-    });
-
-    unsubTransfers = subscribeToTransfers((remoteTransfers) => {
-      setTransfers(remoteTransfers || []);
-    });
-
-    unsubProducts = subscribeToProducts((remoteProducts) => {
-      setProducts(remoteProducts || []);
-    });
-
     unsubBranches = subscribeToBranches((remoteBranches) => {
       if (remoteBranches) {
         setBranches(remoteBranches);
@@ -648,25 +554,17 @@ export default function App() {
       }
     });
 
-    unsubPurchaseOrders = subscribeToPurchaseOrders((remoteOrders) => {
-      setPurchaseOrders(remoteOrders || []);
-    });
-
     const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
       setFirebaseUid(fbUser?.uid || null);
       setAuthReady(true);
       if (fbUser) {
-        setUsers(currentUsers => {
-          const matched = currentUsers.find(u => u.email?.toLowerCase() === fbUser.email?.toLowerCase() || u.id === fbUser.uid);
-          if (matched) {
-            setCurrentUser({
-              ...matched,
-              id: fbUser.uid,
-              authUid: fbUser.uid
-            });
-          }
-          return currentUsers;
-        });
+        unsubUsers();
+        unsubUsers = subscribeToUsers((remoteUsers) => {
+          setUsers(remoteUsers || []);
+          const matched = remoteUsers[0];
+          if (matched) setCurrentUser({ ...matched, id: fbUser.uid, authUid: fbUser.uid });
+          else setCurrentUser(null);
+        }, fbUser.uid);
       } else {
         setCurrentUser(null);
       }
@@ -696,6 +594,13 @@ export default function App() {
       setAttendanceRecords([]);
       return;
     }
+    const role = String(currentUser.role || '').toUpperCase();
+    if (role === 'ADMIN' && activeBranchId === 'ALL') return;
+    const attendanceBranchId = String(scopedBranchId || currentUser.branchId || '');
+    if (!attendanceBranchId) {
+      setAttendanceRecords([]);
+      return;
+    }
 
     const unsubAttendance = subscribeToAttendance(
       (remoteAttendance) => {
@@ -704,7 +609,7 @@ export default function App() {
       {
         uid: firebaseUid,
         role: currentUser.role,
-        branchId: currentUser.branchId
+        branchId: attendanceBranchId
       },
       (err) => {
         console.warn('[Attendance subscription notice]', err?.error || err);
@@ -712,7 +617,7 @@ export default function App() {
     );
 
     return () => unsubAttendance();
-  }, [authReady, firebaseUid, currentUser?.role, currentUser?.branchId]);
+  }, [authReady, firebaseUid, currentUser?.role, currentUser?.branchId, activeBranchId, scopedBranchId]);
 
   // Leave requests are also authoritative Firestore data. Managers receive the
   // branch-wide list; employees receive only documents whose staffId is their UID.
@@ -721,25 +626,28 @@ export default function App() {
       setLeaveRequests([]);
       return;
     }
+    const role = String(currentUser.role || '').toUpperCase();
+    if (role === 'ADMIN' && activeBranchId === 'ALL') return;
+    const leaveBranchId = String(scopedBranchId || currentUser.branchId || '');
+    if (!leaveBranchId) {
+      setLeaveRequests([]);
+      return;
+    }
     return subscribeToLeaveRequests(
       (items) => setLeaveRequests(items || []),
-      { uid: firebaseUid, role: currentUser.role },
+      { uid: firebaseUid, role: currentUser.role, branchId: leaveBranchId },
       (error) => console.warn('[Leave request subscription notice]', error)
     );
-  }, [authReady, firebaseUid, currentUser?.role]);
+  }, [authReady, firebaseUid, currentUser?.role, currentUser?.branchId, activeBranchId, scopedBranchId]);
 
   const handleCreateLeaveRequest = async (request: LeaveRequest) => {
-    await addLeaveRequestToFirestore(request);
+    const saved = await requestCreateLeaveRequest(request);
+    setLeaveRequests(previous => [saved, ...previous.filter(item => item.id !== saved.id)]);
   };
 
   const handleApproveLeaveRequest = async (request: LeaveRequest) => {
-    const updated: LeaveRequest = {
-      ...request,
-      status: 'APPROVED',
-      approvedBy: currentUser?.displayName || currentUser?.email || currentUser?.id || 'Quản lý',
-      approvedAt: new Date().toISOString()
-    };
-    await updateLeaveRequestInFirestore(updated);
+    const updated = await requestReviewLeaveRequest(request.id, 'APPROVE');
+    setLeaveRequests(previous => previous.map(item => item.id === updated.id ? updated : item));
   };
 
   const refreshInventorySnapshot = useCallback(async () => {
@@ -771,55 +679,112 @@ export default function App() {
     };
   }, [authReady, currentUser]);
 
-  // Safe set localStorage helper to catch QuotaExceededError safely
-  const safeSetLocalStorage = useCallback((key: string, data: any) => {
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-    } catch (e) {
-      console.warn(`localStorage full or quota exceeded for ${key}:`, e);
-    }
-  }, []);
-
-  useEffect(() => {
-    safeSetLocalStorage('istore_leads', leads);
-  }, [leads, safeSetLocalStorage]);
-
-  useEffect(() => {
-    safeSetLocalStorage('istore_tradeins', tradeIns);
-  }, [tradeIns, safeSetLocalStorage]);
-
   useEffect(() => {
     // Remove only the browser cache of the retired legacy flow; no new ticket is stored there.
     localStorage.removeItem('istore_warranty');
   }, []);
 
+  // Operational data is scoped before it reaches the browser. A concrete
+  // branch keeps its realtime listener; ADMIN/ALL receives a bounded server
+  // snapshot instead of opening unrestricted collection listeners.
   useEffect(() => {
-    safeSetLocalStorage('istore_invoices', invoices);
-  }, [invoices, safeSetLocalStorage]);
+    if (!authReady || !currentUser) {
+      setLeads([]); setTradeIns([]); setInvoices([]); setPartners([]); setFunds([]);
+      setCashTransactions([]); setTransfers([]); setProducts([]); setPurchaseOrders([]);
+      setAdminOperationalSummary(null);
+      return;
+    }
+    const role = String(currentUser.role || '').toUpperCase();
+    const mayViewAll = role === 'ADMIN';
+    const isAdminAll = mayViewAll && activeBranchId === 'ALL';
+    const scope = isAdminAll ? '' : String(scopedBranchId || currentUser.branchId || '');
+    if (!scope && !mayViewAll) return;
+    if (isAdminAll) {
+      let active = true;
+      const loadSnapshot = async () => {
+        try {
+          const snapshot = await fetchAdminOperationalSnapshot(150);
+          if (!active) return;
+          setLeads(snapshot.collections.leads || []);
+          setTradeIns(snapshot.collections.tradeIns || []);
+          setInvoices(snapshot.collections.invoices || []);
+          setPartners(snapshot.collections.partners || []);
+          setFunds(snapshot.collections.funds || []);
+          setCashTransactions(snapshot.collections.cashTransactions || []);
+          setTransfers(snapshot.collections.transfers || []);
+          setPurchaseOrders(snapshot.collections.purchaseOrders || []);
+          setAttendanceRecords(snapshot.collections.attendance || []);
+          setLeaveRequests(snapshot.collections.leaveRequests || []);
+          setUsers(snapshot.collections.users || []);
+          setAdminOperationalSummary(snapshot.summary);
+        } catch (error) {
+          if (active) console.warn('[Operational snapshot]', error);
+        }
+      };
+      setLeads([]); setTradeIns([]); setInvoices([]); setPartners([]); setFunds([]);
+      setCashTransactions([]); setTransfers([]); setPurchaseOrders([]);
+      setAttendanceRecords([]); setLeaveRequests([]);
+      void loadSnapshot();
+      const timer = window.setInterval(loadSnapshot, 120000);
+      return () => {
+        active = false;
+        window.clearInterval(timer);
+      };
+    }
+    setAdminOperationalSummary(null);
+    const unsubs = [
+      subscribeToLeads(items => setLeads(items || []), scope),
+      subscribeToTradeIns(items => setTradeIns(items || []), scope),
+      subscribeToInvoices(items => setInvoices(items || []), scope),
+      subscribeToPartners(items => setPartners(items || []), scope),
+      subscribeToFunds(items => setFunds(items || []), scope),
+      subscribeToCashTransactions(items => setCashTransactions(items || []), scope),
+      subscribeToTransfers(items => setTransfers(items || []), scope),
+      subscribeToPurchaseOrders(items => setPurchaseOrders(items || []), scope)
+    ];
+    if (['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(role)) {
+      unsubs.push(subscribeToUsers(items => setUsers(items || []), undefined, scope));
+    }
+    return () => unsubs.forEach(unsubscribe => unsubscribe());
+  }, [authReady, currentUser?.id, currentUser?.role, currentUser?.branchId, activeBranchId, scopedBranchId]);
 
+  // Product metadata is global but stock is not. POS receives a redacted,
+  // location-scoped projection from the inventory API instead of reading the
+  // global products collection (which also contains cost fields).
   useEffect(() => {
-    safeSetLocalStorage('istore_users', users);
-  }, [users, safeSetLocalStorage]);
-
-  useEffect(() => {
-    safeSetLocalStorage('istore_partners', partners);
-  }, [partners, safeSetLocalStorage]);
-
-  useEffect(() => {
-    safeSetLocalStorage('phonehouse_funds', funds);
-  }, [funds, safeSetLocalStorage]);
-
-  useEffect(() => {
-    safeSetLocalStorage('phonehouse_cash_transactions', cashTransactions);
-  }, [cashTransactions, safeSetLocalStorage]);
-
-  useEffect(() => {
-    safeSetLocalStorage('phonehouse_products', products);
-  }, [products, safeSetLocalStorage]);
-
-  useEffect(() => {
-    safeSetLocalStorage('phonehouse_attendance', attendanceRecords);
-  }, [attendanceRecords, safeSetLocalStorage]);
+    if (!authReady || !currentUser || !resolvedCurrentBranch.id || resolvedCurrentBranch.id === 'ALL' || !resolvedCurrentBranch.warehouseId) {
+      setProducts([]);
+      return;
+    }
+    let active = true;
+    fetchInventoryAccessoryBalances(currentUser, String(resolvedCurrentBranch.warehouseId))
+      .then(rows => {
+        if (!active) return;
+        setProducts(rows.map(row => ({
+          id: row.productId,
+          productMasterId: row.productMasterId || undefined,
+          catalogGroupCode: row.catalogGroupCode || undefined,
+          catalogModelCode: row.catalogModelCode || undefined,
+          sku: row.sku,
+          name: row.name,
+          category: ['Linh kiện', 'Dịch vụ'].includes(row.category) ? row.category as 'Linh kiện' | 'Dịch vụ' : 'Phụ kiện',
+          brand: row.brand || '',
+          buyPrice: Number(row.currentCost || 0),
+          sellPrice: Number(row.sellPrice || 0),
+          stockQuantity: Number(row.availableQuantity || 0),
+          minStockLevel: Number(row.minStockLevel || 0),
+          status: row.status === 'inactive' ? 'inactive' : 'active',
+          warehouse: row.warehouseId || undefined
+        })));
+      })
+      .catch(error => {
+        if (active) {
+          setProducts([]);
+          console.warn('[POS accessory stock]', error);
+        }
+      });
+    return () => { active = false; };
+  }, [activeTab, authReady, currentUser?.id, resolvedCurrentBranch.id, resolvedCurrentBranch.warehouseId]);
 
   // Keyboard shortcut ⌘K or Ctrl+K for search
   useEffect(() => {
@@ -895,16 +860,15 @@ export default function App() {
     mergeImportedDevices(imported);
   };
 
-  const handleUpdateDevice = (device: DeviceItem) => {
-    setDevices(devices.map(d => (d.id === device.id ? device : d)));
-    updateDeviceInFirestore(device);
+  const handleUpdateDevice = async (device: DeviceItem) => {
+    if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn.');
+    const saved = await requestUpdateInventoryDeviceMetadata(device, currentUser);
+    setDevices(previous => previous.map(item => item.id === saved.id ? saved : item));
   };
 
   const handleDeleteDevice = (id: string) => {
-    if (confirm('Bạn có chắc chắn muốn xóa máy này khỏi hệ thống?')) {
-      setDevices(devices.filter(d => d.id !== id));
-      deleteDeviceFromFirestore(id);
-    }
+    const device = devices.find(item => item.id === id);
+    alert(`Không thể xóa trực tiếp máy ${device?.imei || id}. Hãy hủy phiếu nhập hoặc tạo chứng từ đảo để tồn kho, IMEI và giá vốn luôn khớp.`);
   };
 
   const handleQuickSell = (device: DeviceItem) => {
@@ -912,17 +876,17 @@ export default function App() {
     setActiveTab('pos');
   };
 
+  // Compatibility callbacks for legacy shells. CRMLeadsView creates and edits
+  // through /api/crm and passes the authoritative result back here.
   const handleAddLead = (lead: Lead) => {
-    setLeads([lead, ...leads]);
-    addLeadToFirestore(lead);
+    setLeads(previous => [lead, ...previous.filter(item => item.id !== lead.id)]);
   };
 
   const handleUpdateLead = (lead: Lead) => {
-    setLeads(leads.map(l => (l.id === lead.id ? lead : l)));
-    updateLeadInFirestore(lead);
+    setLeads(previous => previous.map(item => item.id === lead.id ? lead : item));
   };
 
-  const handleConvertLeadToSale = (lead: Lead) => {
+  const handleConvertLeadToSale = async (lead: Lead) => {
     const matched = devices.find(d => 
       d.status === 'in_stock' && 
       (d.model.toLowerCase().includes(lead.interestedModel.toLowerCase()) || 
@@ -932,21 +896,29 @@ export default function App() {
     
     // Update Lead status to negotiating if it was new or contacted
     if (lead.status === 'new' || lead.status === 'contacted') {
-      const updatedLead: Lead = { ...lead, status: 'negotiating' };
-      setLeads(prev => prev.map(l => l.id === lead.id ? updatedLead : l));
-      updateLeadInFirestore(updatedLead);
+      try {
+        const result = await requestLeadStateTransition(lead.id, lead.status, 'negotiating');
+        setLeads(prev => prev.map(item => item.id === lead.id ? { ...item, status: result.status } : item));
+      } catch (error: any) {
+        alert(`Không thể chuyển trạng thái khách hàng: ${error?.message || 'Yêu cầu không hợp lệ.'}`);
+        return;
+      }
     }
     setActiveTab('pos');
   };
 
-  const handleAddTradeIn = (tradeIn: TradeInAppraisal) => {
-    setTradeIns([tradeIn, ...tradeIns]);
-    addTradeInToFirestore(tradeIn);
+  const handleAddTradeIn = async (tradeIn: TradeInAppraisal): Promise<TradeInAppraisal> => {
+    const branchId = activeBranchId && activeBranchId !== 'ALL' ? String(scopedBranchId || activeBranchId) : '';
+    if (!branchId) throw new Error('BRANCH_REQUIRED: Hãy chọn một chi nhánh trước khi tạo phiếu thu cũ.');
+    const saved = await requestCreateTradeIn({ ...tradeIn, branchId });
+    setTradeIns(current => [saved, ...current.filter(item => item.id !== saved.id)]);
+    return saved;
   };
 
-  const handleUpdateTradeIn = (tradeIn: TradeInAppraisal) => {
-    setTradeIns(tradeIns.map(t => (t.id === tradeIn.id ? tradeIn : t)));
-    updateTradeInInFirestore(tradeIn);
+  const handleUpdateTradeIn = async (tradeIn: TradeInAppraisal): Promise<TradeInAppraisal> => {
+    const saved = await requestUpdateTradeIn(tradeIn);
+    setTradeIns(current => current.map(item => item.id === saved.id ? saved : item));
+    return saved;
   };
 
   const handleCreateInvoice = (invoice: SalesInvoice) => {
@@ -1137,32 +1109,29 @@ export default function App() {
 
   const handleAddUser = (newUser: UserAccount) => {
     setUsers([newUser, ...users]);
-    addUserToFirestore(newUser);
   };
 
   const handleUpdateUser = (updatedUser: UserAccount) => {
     setUsers(users.map(u => (u.id === updatedUser.id ? updatedUser : u)));
-    updateUserInFirestore(updatedUser);
   };
 
   const handleDeleteUser = (userId: string) => {
     setUsers(users.filter(u => u.id !== userId));
-    deleteUserFromFirestore(userId);
   };
 
   const handleAddPartner = async (newPartner: Partner) => {
-    await addPartnerToFirestore(newPartner);
-    setPartners(previous => [newPartner, ...previous.filter(partner => partner.id !== newPartner.id)]);
+    const saved = await addPartnerToFirestore(newPartner);
+    setPartners(previous => [saved, ...previous.filter(partner => partner.id !== saved.id)]);
   };
 
-  const handleUpdatePartner = (updatedPartner: Partner) => {
-    setPartners(partners.map(p => (p.id === updatedPartner.id ? updatedPartner : p)));
-    updatePartnerInFirestore(updatedPartner);
+  const handleUpdatePartner = async (updatedPartner: Partner) => {
+    const saved = await updatePartnerInFirestore(updatedPartner);
+    setPartners(previous => previous.map(partner => partner.id === saved.id ? saved : partner));
   };
 
-  const handleDeletePartner = (partnerId: string) => {
-    setPartners(partners.filter(p => p.id !== partnerId));
-    deletePartnerFromFirestore(partnerId);
+  const handleDeletePartner = async (partnerId: string) => {
+    await deletePartnerFromFirestore(partnerId);
+    setPartners(previous => previous.filter(partner => partner.id !== partnerId));
   };
 
   const handleAddCashTransaction = (newTx: CashTransaction) => {
@@ -1265,7 +1234,8 @@ export default function App() {
 
   const handleAddBranch = async (newBranch: StoreBranch) => {
     try {
-      await addBranchToFirestore(newBranch, branches);
+      const saved = await addBranchToFirestore(newBranch, branches);
+      setBranches(previous => [saved, ...previous.filter(branch => branch.id !== saved.id)]);
     } catch (err: any) {
       console.error('Error adding branch:', err);
       alert('Lỗi lưu chi nhánh: ' + (err?.message || 'Không có quyền thực hiện.'));
@@ -1275,7 +1245,8 @@ export default function App() {
 
   const handleUpdateBranch = async (updatedBranch: StoreBranch) => {
     try {
-      await updateBranchInFirestore(updatedBranch, branches);
+      const saved = await updateBranchInFirestore(updatedBranch, branches);
+      setBranches(previous => previous.map(branch => branch.id === saved.id ? saved : branch));
     } catch (err: any) {
       console.error('Error updating branch:', err);
       alert('Lỗi cập nhật chi nhánh: ' + (err?.message || 'Không có quyền thực hiện (Yêu cầu quyền ADMIN).'));
@@ -1285,6 +1256,7 @@ export default function App() {
 
   const handleDeleteBranch = async (branchId: string) => {
     await deleteBranchFromFirestore(branchId);
+    setBranches(previous => previous.filter(branch => branch.id !== branchId));
   };
 
   const handleAddWarehouse = async (newWarehouse: WarehouseInfo) => {
@@ -1308,8 +1280,8 @@ export default function App() {
   };
 
   const handleSaveStoreSettings = async (newSettings: StoreSettings) => {
-    await saveStoreSettingsToFirestore(newSettings);
-    setStoreSettings(newSettings);
+    const saved = await saveStoreSettingsToFirestore(newSettings);
+    setStoreSettings(previous => ({ ...previous, ...saved, branches, warehouses }));
   };
 
   // ==========================================
@@ -1326,9 +1298,11 @@ export default function App() {
     return receipt.order;
   };
 
-  const handleUpdatePurchaseOrder = (updatedOrder: PurchaseOrder) => {
-    setPurchaseOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
-    updatePurchaseOrderInFirestore(updatedOrder);
+  const handleUpdatePurchaseOrder = async (updatedOrder: PurchaseOrder) => {
+    if (!currentUser) throw new Error('Phiên đăng nhập đã hết hạn.');
+    const saved = await requestUpdatePurchaseOrderNote(updatedOrder.id, updatedOrder.notes || '', currentUser);
+    setPurchaseOrders(previous => previous.map(order => order.id === saved.id ? { ...order, ...saved } : order));
+    return saved;
   };
 
   const handleDeletePurchaseOrder = async (orderId: string) => {
@@ -1413,7 +1387,6 @@ export default function App() {
           customerPhone: phone || d.customerPhone,
           soldDate: status === 'sold' ? new Date().toISOString().split('T')[0] : d.soldDate
         };
-        updateDeviceInFirestore(updatedItem);
         return updatedItem;
       }
       return d;
@@ -1443,7 +1416,10 @@ export default function App() {
 
   return (
     <>
-      <GeofenceBackgroundTracker currentUser={currentUser} />
+      <GeofenceBackgroundTracker
+        currentUser={currentUser}
+        isCheckedIn={Boolean(currentAttendance?.checkInTime && !currentAttendance?.checkOutTime)}
+      />
 
       <AppShell
         activeTab={activeTab}
@@ -1454,8 +1430,8 @@ export default function App() {
           name: currentUser.displayName,
           email: currentUser.email,
           role: currentUser.role,
-          branchId: currentUser.branchId || 'CN01',
-          assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
+          branchId: currentUser.branchId || '',
+          assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || ''].filter(Boolean),
           isActive: currentUser.active
         } : null}
         currentBranch={resolvedCurrentBranch}
@@ -1466,13 +1442,13 @@ export default function App() {
         onLogout={handleLogout}
         onOpenQuickSearch={() => setIsQuickSearchOpen(true)}
       >
+        <React.Suspense fallback={<PageLoadingFallback />}>
         {activeTab === 'login' && (
           <PhoneHouseLoginPage
             users={users}
             currentUser={currentUser}
             onLoginSuccess={(loggedUser) => {
               setCurrentUser(loggedUser);
-              localStorage.setItem('phonehouse_active_user', JSON.stringify(loggedUser));
               setActiveTab('dashboard');
             }}
           />
@@ -1507,6 +1483,12 @@ export default function App() {
             } as any : null}
             onNavigateTab={(tab) => setActiveTab(tab)}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
+            systemDataCoverage={activeBranchId === 'ALL' && adminOperationalSummary ? {
+              partialDomainCount: (Object.keys(adminOperationalSummary) as Array<keyof typeof adminOperationalSummary>)
+                .filter(key => adminOperationalSummary[key].partial).length,
+              invoiceLoaded: adminOperationalSummary.invoices.loaded,
+              invoiceTotal: adminOperationalSummary.invoices.total
+            } : undefined}
           />
         )}
 
@@ -1525,8 +1507,8 @@ export default function App() {
               name: currentUser.displayName,
               email: currentUser.email,
               role: currentUser.role,
-              branchId: currentUser.branchId || 'CN01',
-              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
+              branchId: currentUser.branchId || '',
+              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || ''].filter(Boolean),
               isActive: currentUser.active
             } : null}
           />
@@ -1675,6 +1657,7 @@ export default function App() {
         {activeTab === 'tradein' && (
           <TradeInCockpitView
             devices={filteredDevices}
+            warehouses={warehouses}
             currentBranch={resolvedCurrentBranch}
             currentUser={currentUser ? {
               id: currentUser.id,
@@ -1682,19 +1665,27 @@ export default function App() {
               name: currentUser.displayName,
               email: currentUser.email,
               role: currentUser.role,
-              branchId: currentUser.branchId || 'CN01',
-              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
+              branchId: currentUser.branchId || '',
+              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || ''].filter(Boolean),
               isActive: currentUser.active
             } : null}
-            onCompleteTradeInToPOS={(appraisal, targetDevice) => {
-              handleAddTradeIn(appraisal);
+            onCompleteTradeInToPOS={async (appraisal, targetDevice) => {
+              try {
+                const saved = await handleAddTradeIn(appraisal);
+                if (saved.status !== 'accepted') {
+                  window.alert('Phiếu thu cũ đã được lưu ở trạng thái chờ quản lý duyệt giá. Chỉ phiếu đã duyệt mới được trừ vào hóa đơn POS.');
+                  return;
+                }
               if (targetDevice) setPosPreSelectedDevice(targetDevice);
               setPosCustomerContext({
-                name: appraisal.customerName || 'Khách Thu Cũ',
-                phone: appraisal.customerPhone || ''
+                  name: saved.customerName || 'Khách Thu Cũ',
+                  phone: saved.phone || ''
               });
-              setPosTradeInContext(appraisal);
+                setPosTradeInContext(saved);
               setActiveTab('pos');
+              } catch (error: any) {
+                window.alert(error?.message || 'Không lưu được phiếu thu cũ.');
+              }
             }}
           />
         )}
@@ -1714,8 +1705,8 @@ export default function App() {
               name: currentUser.displayName,
               email: currentUser.email,
               role: currentUser.role,
-              branchId: currentUser.branchId || 'CN01',
-              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || 'CN01'],
+              branchId: currentUser.branchId || '',
+              assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || ''].filter(Boolean),
               isActive: currentUser.active
             } : null}
             preSelectedDevice={posPreSelectedDevice}
@@ -1797,6 +1788,10 @@ export default function App() {
             warrantyTickets={warrantyTickets}
             attendanceRecords={attendanceRecords}
             staffMembers={staffMembers}
+            currentUser={currentUser ? {
+              ...currentUser,
+              branchId: activeBranchId === 'ALL' ? '' : String(scopedBranchId || currentUser.branchId || '')
+            } : null}
             onAddBranch={handleAddBranch}
             onUpdateBranch={handleUpdateBranch}
             onDeleteBranch={handleDeleteBranch}
@@ -1926,6 +1921,7 @@ export default function App() {
             onAddDevice={handleAddDevice}
           />
         )}
+        </React.Suspense>
       </AppShell>
 
       <RepairIntakeModal
@@ -1998,7 +1994,6 @@ export default function App() {
   onClose={() => setIsLoginModalOpen(false)}
               onLoginSuccess={(loggedUser) => {
                 setCurrentUser(loggedUser);
-                localStorage.setItem('phonehouse_active_user', JSON.stringify(loggedUser));
                 setIsLoginModalOpen(false);
               }}
             />

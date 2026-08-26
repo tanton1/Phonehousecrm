@@ -238,6 +238,55 @@ export async function processImportInventoryDevices(
   });
 }
 
+export async function processUpdateInventoryDeviceMetadata(
+  db: Firestore,
+  deviceId: string,
+  input: Record<string, any>,
+  actor: InventoryActor
+): Promise<any> {
+  if (!deviceId) throw new Error('DEVICE_ID_REQUIRED');
+  const deviceRef = db.collection('devices').doc(deviceId);
+  return db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(deviceRef);
+    if (!snapshot.exists) throw new Error('DEVICE_NOT_FOUND');
+    const current = snapshot.data()!;
+    if (!canAccessBranch(actor, String(current.branchId || ''))) throw new Error('INVENTORY_BRANCH_FORBIDDEN');
+    const numberOrCurrent = (value: unknown, fallback: number, min: number, max: number) => {
+      if (value === '' || value == null) return fallback;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < min || parsed > max) throw new Error('DEVICE_METADATA_NUMBER_INVALID');
+      return parsed;
+    };
+    const text = (value: unknown, fallback: string, max = 500) => value == null ? fallback : String(value).trim().slice(0, max);
+    const patch = {
+      model: text(input.model, current.model, 160),
+      storage: text(input.storage, current.storage, 80),
+      color: text(input.color, current.color, 100),
+      region: text(input.region, current.region, 80),
+      batteryHealth: numberOrCurrent(input.batteryHealth, Number(current.batteryHealth || 0), 0, 100),
+      condition: text(input.condition, current.condition, 160),
+      sellPrice: numberOrCurrent(input.sellPrice, Number(current.sellPrice || 0), 0, 10_000_000_000),
+      warrantyPeriodMonths: numberOrCurrent(input.warrantyPeriodMonths, Number(current.warrantyPeriodMonths || 0), 0, 120),
+      icloudStatus: text(input.icloudStatus, current.icloudStatus, 100),
+      screenStatus: text(input.screenStatus, current.screenStatus, 160),
+      notes: text(input.notes, current.notes, 2000),
+      images: Array.isArray(input.images) ? input.images.map((value: unknown) => String(value).slice(0, 1000)).slice(0, 20) : (current.images || []),
+      imageUrl: text(input.imageUrl, current.imageUrl, 1000),
+      updatedByUid: actor.uid,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+    if (!patch.model) throw new Error('DEVICE_MODEL_REQUIRED');
+    const changedFields = Object.keys(patch).filter(key => !['updatedByUid', 'updatedAt'].includes(key) && JSON.stringify((patch as any)[key]) !== JSON.stringify(current[key]));
+    transaction.update(deviceRef, patch);
+    transaction.create(db.collection('inventoryAuditEvents').doc(), {
+      eventType: 'DEVICE_METADATA_UPDATED', deviceId, imei: current.imei,
+      branchId: current.branchId, actorUid: actor.uid, changedFields,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    return { ...current, ...patch, updatedAt: new Date().toISOString() };
+  });
+}
+
 export interface InventoryDeviceListOptions {
   limit?: number;
   cursor?: string;

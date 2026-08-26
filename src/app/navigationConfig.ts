@@ -24,6 +24,7 @@ import {
   ScanFace
 } from 'lucide-react';
 import React from 'react';
+import type { Permission } from '../../shared/permissions';
 
 export interface NavigationItem {
   id: string;
@@ -31,6 +32,7 @@ export interface NavigationItem {
   icon: React.ComponentType<{ className?: string }>;
   badge?: string | number;
   roles?: string[]; // Allowed roles (undefined = all authenticated users)
+  permission?: Permission;
   shortcut?: string;
 }
 
@@ -54,7 +56,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     id: 'sales',
     label: 'Bán Hàng & Thu Cũ',
     items: [
-      { id: 'pos', label: 'POS Thu Ngân', icon: ShoppingCart, shortcut: 'F2' },
+      { id: 'pos', label: 'POS Thu Ngân', icon: ShoppingCart, shortcut: 'F2', permission: 'POS_CHECKOUT' },
       { id: 'invoices', label: 'Quản Lý Hóa Đơn', icon: Receipt, shortcut: 'Alt+2' },
       { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: Repeat },
       { id: 'installments', label: 'Đối Soát Trả Góp', icon: DollarSign, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] }
@@ -66,7 +68,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     items: [
       { id: 'crm', label: 'Pipeline Lead CRM', icon: Users, shortcut: 'Alt+4' },
       { id: 'omnichannel-chat', label: 'Inbox Chat Đa Kênh', icon: MessageSquare },
-      { id: 'channel-connections', label: 'Kênh & Kết nối', icon: Link2, roles: ['ADMIN'] }
+      { id: 'channel-connections', label: 'Kênh & Kết nối', icon: Link2, permission: 'CHANNEL_MANAGE' }
     ]
   },
   {
@@ -75,7 +77,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     items: [
       { id: 'inventory', label: 'Kho IMEI Máy', icon: Package, shortcut: 'Alt+3' },
       { id: 'purchase-orders', label: 'Nhập Hàng NCC', icon: ShoppingBag, roles: ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] },
-      { id: 'transfers', label: 'Điều Chuyển Hàng', icon: ArrowRightLeft, roles: ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH', 'TECHNICIAN', 'TECH_LEAD'] },
+      { id: 'transfers', label: 'Điều Chuyển Hàng', icon: ArrowRightLeft, permission: 'INVENTORY_TRANSFER_CREATE' },
       { id: 'products', label: 'Kho Linh Kiện & Phụ Kiện', icon: Store },
       { id: 'master-catalog', label: 'Danh Mục Hàng Hóa SKU', icon: Database, roles: ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] }
     ]
@@ -92,8 +94,8 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     id: 'finance',
     label: 'Tài Chính & Kế Toán',
     items: [
-      { id: 'funds', label: 'Sổ Quỹ & Ngân Hàng', icon: Wallet, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] },
-      { id: 'partners', label: 'Công Nợ & Đối Tác NCC', icon: Building2, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] }
+      { id: 'funds', label: 'Sổ Quỹ & Ngân Hàng', icon: Wallet, permission: 'FINANCE_VIEW' },
+      { id: 'partners', label: 'Công Nợ & Đối Tác NCC', icon: Building2, permission: 'FINANCE_VIEW' }
     ]
   },
   {

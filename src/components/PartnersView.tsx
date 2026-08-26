@@ -50,9 +50,9 @@ interface PartnersViewProps {
   devices?: DeviceItem[];
   branches?: StoreBranch[];
   initialTab?: 'ALL' | 'CUSTOMERS' | 'SUPPLIERS' | 'DEBT_HUB';
-  onAddPartner: (partner: Partner) => void;
-  onUpdatePartner: (partner: Partner) => void;
-  onDeletePartner: (partnerId: string) => void;
+  onAddPartner: (partner: Partner) => Promise<void> | void;
+  onUpdatePartner: (partner: Partner) => Promise<void> | void;
+  onDeletePartner: (partnerId: string) => Promise<void> | void;
   funds: import('../types').FundAccount[];
   onSettleDebt: (input: {
     partnerId: string;
@@ -102,6 +102,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   // Add / Edit Modal
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
+  const [isPartnerSubmitting, setIsPartnerSubmitting] = useState(false);
+  const [partnerSubmitError, setPartnerSubmitError] = useState('');
   
   // Debt Settle Modal
   const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
@@ -257,13 +259,16 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
     setIsFormModalOpen(true);
   };
 
-  const handleSavePartner = (e: React.FormEvent) => {
+  const handleSavePartner = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.phone || !formData.branchId) {
       alert('Vui lòng nhập tên, số điện thoại và chi nhánh quản lý đối tác!');
       return;
     }
 
+    setIsPartnerSubmitting(true);
+    setPartnerSubmitError('');
+    try {
     if (editingPartner) {
       const updated: Partner = {
         ...editingPartner,
@@ -272,7 +277,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         phone: formData.phone!,
         type: formData.type || editingPartner.type,
       };
-      onUpdatePartner(updated);
+      await onUpdatePartner(updated);
       if (selectedPartner?.id === updated.id) {
         setSelectedPartner(updated);
       }
@@ -300,9 +305,14 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         createdAt: new Date().toISOString().split('T')[0],
         lastInteraction: new Date().toISOString().split('T')[0]
       };
-      onAddPartner(newPartner);
+      await onAddPartner(newPartner);
     }
     setIsFormModalOpen(false);
+    } catch (error: any) {
+      setPartnerSubmitError(error?.message || 'Không thể lưu đối tác. Vui lòng kiểm tra lại dữ liệu.');
+    } finally {
+      setIsPartnerSubmitting(false);
+    }
   };
 
   const handleAddTag = () => {
@@ -1127,11 +1137,13 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
               </div>
 
               <div className="pt-3 sm:pt-4 pb-[max(env(safe-area-inset-bottom),1rem)] sm:pb-0 mt-auto sticky bottom-0 bg-white z-10 border-t border-zinc-100">
+                {partnerSubmitError && <div className="mb-2 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">{partnerSubmitError}</div>}
                 <button
                   type="submit"
-                  className="w-full py-3 rounded-2xl text-white font-bold text-sm bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-500/30 transition-all cursor-pointer"
+                  disabled={isPartnerSubmitting}
+                  className="w-full py-3 rounded-2xl text-white font-bold text-sm bg-orange-500 hover:bg-orange-600 shadow-lg shadow-orange-500/30 transition-all cursor-pointer disabled:cursor-wait disabled:opacity-60"
                 >
-                  ✓ Lưu Đối Tác
+                  {isPartnerSubmitting ? 'Đang lưu…' : '✓ Lưu Đối Tác'}
                 </button>
               </div>
             </form>

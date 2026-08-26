@@ -158,7 +158,7 @@ export const RepairIntakeModal: React.FC<RepairIntakeModalProps> = ({
 
   const attachSelectedPhotos = async (workOrderId: string) => {
     if (!photos.length) return;
-    const intakePhotoUrls = await uploadTechnicalEvidence(workOrderId, 'INTAKE', photos);
+    const intakePhotoUrls = await uploadTechnicalEvidence(workOrderId, 'INTAKE', photos, form.branchId);
     await requestAttachIntakeEvidence(workOrderId, intakePhotoUrls);
   };
 

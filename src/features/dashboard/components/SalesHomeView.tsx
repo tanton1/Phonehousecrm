@@ -168,16 +168,16 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
           roleTitle: (u as any).roleTitle || (u.role === 'ADMIN' ? 'Quản lý Showroom' : u.role === 'TECHNICIAN' ? 'Kỹ Thuật Viên' : 'Chuyên viên Tư vấn & Bán hàng'),
           phone: u.phone || '',
           email: u.email || '',
-          branchId: u.branchId || branchObj?.id || 'BRANCH_1',
-          branchName: branchObj?.name || 'Showroom Trực Thuộc',
-          assignedBranchIds: u.assignedBranchIds || (u.branchId ? [u.branchId] : ['BRANCH_1']),
+          branchId: u.branchId || branchObj?.id || '',
+          branchName: branchObj?.name || '',
+          assignedBranchIds: u.assignedBranchIds || (u.branchId ? [u.branchId] : []),
           workplaceAddresses: u.workplaceAddresses || [branchObj?.address || ''],
-          baseSalary: u.baseSalary || (u.role === 'ADMIN' ? 12000000 : 8000000),
-          monthlyTargetRevenue: u.kpiTargetRevenue || 150000000,
-          monthlyTargetOrders: u.kpiTargetOrders || 30,
+          baseSalary: u.baseSalary || 0,
+          monthlyTargetRevenue: u.kpiTargetRevenue || 0,
+          monthlyTargetOrders: u.kpiTargetOrders || 0,
           status: u.active ? 'ACTIVE' : 'INACTIVE',
-          joinDate: u.createdAt || '2025-01-01',
-          allowedWifiSSID: branchObj?.allowedWifiSSID || 'PHONEHOUSE_5G',
+          joinDate: u.createdAt || '',
+          allowedWifiSSID: branchObj?.allowedWifiSSID || '',
           assignedFaceEmbedding: u.assignedFaceEmbedding || false
         };
       });
@@ -196,9 +196,9 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
         branchName: currentBranch?.name || (currentUser as any)?.branch || (currentUser as any)?.branchName || 'Showroom Trực Thuộc',
         assignedBranchIds: currentUser.assignedBranchIds || (currentBranch?.id ? [currentBranch.id] : []),
         workplaceAddresses: currentUser.workplaceAddresses || (currentBranch?.address ? [currentBranch.address] : []),
-        baseSalary: (currentUser as any).baseSalary || 8000000,
-        monthlyTargetRevenue: (currentUser as any).kpiTargetRevenue || 150000000,
-        monthlyTargetOrders: (currentUser as any).kpiTargetOrders || 30,
+        baseSalary: (currentUser as any).baseSalary || 0,
+        monthlyTargetRevenue: (currentUser as any).kpiTargetRevenue || 0,
+        monthlyTargetOrders: (currentUser as any).kpiTargetOrders || 0,
         status: 'ACTIVE',
         joinDate: '2025-01-01',
         allowedWifiSSID: currentBranch?.allowedWifiSSID || '',
@@ -1140,4 +1140,3 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
     </div>
   );
 };
-

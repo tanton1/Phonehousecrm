@@ -29,6 +29,7 @@ describe('Security Rules, Auth Hardening & Finance Idempotency Suite', () => {
           const mockTransaction = {
             get: async (ref: any) => {
               if (ref.col === 'checkoutRequests') return { exists: false };
+              if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
               if (ref.col === 'funds') {
                 return {
                   exists: true,
@@ -45,7 +46,8 @@ describe('Security Rules, Auth Hardening & Finance Idempotency Suite', () => {
                     status: 'reserved',
                     reservedForLeadId: 'LEAD-BUYER-01',
                     reservedUntil: new Date(Date.now() + 20 * 60000).toISOString(),
-                    branchId: 'CN01'
+                    branchId: 'CN01',
+                    currentLocationId: 'KHO01'
                   })
                 };
               }
@@ -69,6 +71,7 @@ describe('Security Rules, Auth Hardening & Finance Idempotency Suite', () => {
       const result = await executeAtomicCheckout(mockDb, {
         deviceIds: ['DEV-RESERVED-10'],
         branchId: 'CN01',
+        warehouseId: 'KHO01',
         leadId: 'LEAD-BUYER-01',
         payment: { method: 'CASH', fundId: 'FUND-01' },
         commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-RESERVED-10', tagIds: ['MAY_TEST'] }]

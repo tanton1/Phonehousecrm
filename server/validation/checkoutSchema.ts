@@ -119,6 +119,19 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
     if (!body.idempotencyKey || typeof body.idempotencyKey !== 'string') {
       return { isValid: false, error: 'Thiếu idempotencyKey để đảm bảo an toàn giao dịch.' };
     }
+    if (!body.warehouseId || typeof body.warehouseId !== 'string' || body.warehouseId === 'ALL') {
+      return { isValid: false, error: 'Bắt buộc chọn kho bán hàng cụ thể (warehouseId).' };
+    }
+    if (Boolean(body.tradeInAppraisalId) !== Boolean(body.tradeInDevice)) {
+      return { isValid: false, error: 'Phiếu thu cũ và thông tin IMEI máy nhận phải được gửi cùng nhau.' };
+    }
+    if (body.tradeInDevice) {
+      const imei = String(body.tradeInDevice.imei || '').replace(/\D/g, '');
+      const locationId = String(body.tradeInDevice.currentLocationId || body.tradeInDevice.warehouseId || body.tradeInDevice.warehouse || '');
+      if (!/^\d{5,15}$/.test(imei) || !locationId) {
+        return { isValid: false, error: 'Máy thu cũ phải có IMEI từ 5–15 số và kho nhận hợp lệ.' };
+      }
+    }
 
     // Check empty cart
     const deviceIds: string[] = body.deviceIds;
