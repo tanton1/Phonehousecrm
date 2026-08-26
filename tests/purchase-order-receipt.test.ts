@@ -124,7 +124,7 @@ describe('Atomic supplier purchase receipt validation', () => {
       })
     };
     data.set('warehouses/KHO_CN01', { id: 'KHO_CN01', branchId: 'CN01', name: 'Kho CN01', isActive: true });
-    data.set('partners/SUP_01', { id: 'SUP_01', name: 'NCC 01', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
+    data.set('partners/SUP_01', { id: 'SUP_01', branchId: 'CN01', type: 'SUPPLIER', name: 'NCC 01', phone: '0905000001', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
     data.set('funds/FUND_CN01', { id: 'FUND_CN01', name: 'Tiền mặt CN01', branchId: 'CN01', type: 'CASH', currentBalance: 30_000_000, totalExpense: 0, isActive: true });
 
     await processPurchaseOrderReceipt(db, {
@@ -173,7 +173,7 @@ describe('Atomic supplier purchase receipt validation', () => {
       })
     };
     data.set('warehouses/KHO_CN01', { id: 'KHO_CN01', branchId: 'CN01', name: 'Kho tổng CN01', isActive: true, type: 'CENTRAL' });
-    data.set('partners/SUP_01', { id: 'SUP_01', name: 'NCC 01', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
+    data.set('partners/SUP_01', { id: 'SUP_01', branchId: 'CN01', type: 'SUPPLIER', name: 'NCC 01', phone: '0905000001', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
     data.set('funds/FUND_CN01', { id: 'FUND_CN01', name: 'Tiền mặt CN01', branchId: 'CN01', type: 'CASH', currentBalance: 1_000_000, totalExpense: 0, isActive: true });
     data.set('catalogItems/CAT_PIN_IP15PM', { id: 'CAT_PIN_IP15PM', sku: 'PIN-IP15PM-PIS', name: 'Pin iPhone 15 Pro Max Pisen', category: 'PART', catalogGroupCode: 'PIN', compatibleModels: ['iPhone 15 Pro Max'], defaultImportPrice: 400_000 });
 
@@ -187,6 +187,11 @@ describe('Atomic supplier purchase receipt validation', () => {
     expect([...data.entries()].find(([key]) => key.startsWith('sparePartLots/'))?.[1]).toMatchObject({ stockQuantity: 2, unitCost: 400_000 });
     expect(data.get('purchaseOrders/PO_PART_01')).toMatchObject({ receiptKind: 'STOCK_ITEM', inventoryPostingStatus: 'POSTED', totalQuantity: 2 });
     expect(data.get('partners/SUP_01')).toMatchObject({ totalPurchasedFrom: 800_000 });
+    expect([...data.entries()].find(([key]) => key.startsWith('branchPartyAccounts/'))?.[1]).toMatchObject({
+      branchId: 'CN01', type: 'SUPPLIER', payableBalance: 0, totalPurchases: 800_000
+    });
+    expect(data.get('debtLedgerEntries/DLE_PO_PO_PART_01_PURCHASE')).toMatchObject({ debitIncrease: 800_000, direction: 'PAYABLE' });
+    expect(data.get('debtLedgerEntries/DLE_PO_PO_PART_01_INITIAL_PAYMENT')).toMatchObject({ creditDecrease: 800_000, direction: 'PAYABLE' });
   });
 
   it('rejects a total that does not equal IMEI cost minus discount plus fees', () => {
@@ -264,7 +269,7 @@ describe('Purchase receipt cancellation rollback', () => {
       devices: { DEV_01: { id: 'DEV_01', imei: '12345', status: 'in_stock', currentLocationId: 'KHO_CN01', inventorySourceId: 'PO_01' } },
       imeiRegistry: { [imeiRegistryId('12345')]: { imei: '12345', deviceId: 'DEV_01' } },
       inventoryMovements: { MOV_01: { id: 'MOV_01', sourceId: 'PO_01', movementType: 'STOCK_RECEIPT' } },
-      partners: { SUP_01: { id: 'SUP_01', outstandingDebt: 0, totalPurchasedFrom: 20_000_000, debtTransactions: [{ referenceId: 'PO_01' }] } },
+      partners: { SUP_01: { id: 'SUP_01', branchId: 'CN01', type: 'SUPPLIER', name: 'NCC 01', phone: '0905000001', outstandingDebt: 0, totalPurchasedFrom: 20_000_000, debtTransactions: [{ referenceId: 'PO_01' }] } },
       funds: {
         FUND_CN01: { id: 'FUND_CN01', currentBalance: 95_000_000, totalExpense: 5_000_000 },
         BANK_CN01: { id: 'BANK_CN01', currentBalance: 85_000_000, totalExpense: 15_000_000 }
@@ -314,7 +319,7 @@ describe('Purchase supplier-debt payment transaction', () => {
     const data = new Map<string, any>();
     const seed: Record<string, Record<string, any>> = {
       purchaseOrders: { PO_01: { ...validOrder({ paidAmount: 0, debtAmount: 20_000_000, fundId: '' }), inventoryPostingStatus: 'POSTED' } },
-      partners: { SUP_01: { id: 'SUP_01', outstandingDebt: 20_000_000, debtTransactions: [] } },
+      partners: { SUP_01: { id: 'SUP_01', branchId: 'CN01', type: 'SUPPLIER', name: 'NCC 01', phone: '0905000001', outstandingDebt: 20_000_000, debtTransactions: [] } },
       funds: {
         FUND_CN01: { id: 'FUND_CN01', branchId: 'CN01', type: 'CASH', name: 'TM CN01', currentBalance: 50_000_000, totalExpense: 0, isActive: true },
         BANK_CN01: { id: 'BANK_CN01', branchId: 'CN01', type: 'BANK', name: 'NH CN01', currentBalance: 30_000_000, totalExpense: 0, isActive: true }

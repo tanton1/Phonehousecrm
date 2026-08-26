@@ -43,6 +43,12 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
                 data: () => ({ name: 'Sales test', isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
               };
               if (ref.col === 'partners') {
+                if (ref.docId === 'CUST-01') {
+                  return {
+                    exists: true,
+                    data: () => ({ id: ref.docId, name: 'Khách test', phone: '0905000001', type: 'CUSTOMER', status: 'ACTIVE', branchId: 'CN01', outstandingDebt: 0 })
+                  };
+                }
                 return {
                   exists: true,
                   data: () => ({ id: ref.docId, name: 'FE Credit', type: 'FINANCE_COMPANY', status: 'ACTIVE', branchId: 'CN01' })

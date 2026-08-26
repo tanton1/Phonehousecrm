@@ -24,6 +24,10 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'catalogItems/SKU-1'), { branchId: 'CN01', lifecycleStatus: 'ACTIVE' });
     await setDoc(doc(context.firestore(), 'branches/CN01'), { id: 'CN01', name: 'PhoneHouse', isActive: true });
     await setDoc(doc(context.firestore(), 'partners/PT-1'), { id: 'PT-1', branchId: 'CN01', name: 'Nhà cung cấp' });
+    await setDoc(doc(context.firestore(), 'partyMasters/PTY-1'), { id: 'PTY-1', displayName: 'Danh tính dùng chung', phoneNormalized: '0905000001' });
+    await setDoc(doc(context.firestore(), 'branchPartyAccounts/BPA-1'), { id: 'BPA-1', branchId: 'CN01', partyMasterId: 'PTY-1', type: 'SUPPLIER', status: 'ACTIVE' });
+    await setDoc(doc(context.firestore(), 'debtLedgerEntries/DLE-1'), { id: 'DLE-1', branchId: 'CN01', partyAccountId: 'BPA-1', direction: 'PAYABLE', debitIncrease: 1000, creditDecrease: 0 });
+    await setDoc(doc(context.firestore(), 'branchProducts/BPR-1'), { id: 'BPR-1', branchId: 'CN01', productMasterId: 'SKU-1', status: 'ACTIVE' });
     await setDoc(doc(context.firestore(), 'leaveRequests/LR-1'), { id: 'LR-1', branchId: 'CN01', staffId: 'staff-1', status: 'PENDING' });
     await setDoc(doc(context.firestore(), 'tradeIns/TR-1'), { id: 'TR-1', branchId: 'CN01', createdByUid: 'staff-1', status: 'pending' });
     await setDoc(doc(context.firestore(), 'sopTemplates/SOP-1'), { id: 'SOP-1', code: 'SOP-OPEN', isActive: true });
@@ -42,6 +46,19 @@ afterAll(async () => { await env?.cleanup(); });
   it('active authenticated users retain explicit safe catalog reads', async () => {
     const db = env.authenticatedContext('admin-1').firestore();
     await assertSucceeds(getDoc(doc(db, 'catalogItems/SKU-1')));
+  });
+
+  it('shared identities stay server-only while branch accounts, ledgers and products stay branch-scoped', async () => {
+    const ownManager = env.authenticatedContext('manager-1').firestore();
+    const otherManager = env.authenticatedContext('manager-2').firestore();
+    const admin = env.authenticatedContext('admin-1').firestore();
+    await assertFails(getDoc(doc(admin, 'partyMasters/PTY-1')));
+    await assertSucceeds(getDoc(doc(ownManager, 'branchPartyAccounts/BPA-1')));
+    await assertSucceeds(getDoc(doc(ownManager, 'debtLedgerEntries/DLE-1')));
+    await assertSucceeds(getDoc(doc(ownManager, 'branchProducts/BPR-1')));
+    await assertFails(getDoc(doc(otherManager, 'branchPartyAccounts/BPA-1')));
+    await assertFails(getDoc(doc(otherManager, 'debtLedgerEntries/DLE-1')));
+    await assertFails(setDoc(doc(admin, 'debtLedgerEntries/DLE-2'), { branchId: 'CN01', debitIncrease: 1 }));
   });
 
   it('browser uploads are denied even for ADMIN', async () => {

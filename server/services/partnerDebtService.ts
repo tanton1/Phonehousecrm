@@ -1,5 +1,12 @@
 import crypto from 'node:crypto';
 import { Firestore } from 'firebase-admin/firestore';
+import {
+  assertPartnerForBranch,
+  debtLedgerEntry,
+  newBranchPartyAccountRecord,
+  newPartyMasterRecord,
+  resolvePartyIdentity
+} from './branchPartyService';
 
 export type PartnerDebtSettlementDirection = 'PAYMENT' | 'RECEIPT';
 
@@ -149,6 +156,24 @@ export async function processPartnerDebtSettlement(
     if (input.direction === 'RECEIPT' && !['CUSTOMER', 'BOTH'].includes(partnerType)) {
       throw new Error('PARTNER_DEBT_RECEIPT_REQUIRES_CUSTOMER');
     }
+    assertPartnerForBranch(
+      partner,
+      branchId,
+      input.direction === 'PAYMENT' ? ['SUPPLIER', 'BOTH'] : ['CUSTOMER', 'BOTH'],
+      'PARTNER_DEBT_PARTNER'
+    );
+    const partnerIdentity = resolvePartyIdentity({ id: partnerSnap.id, ...partner }, branchId);
+    const partyMasterRef = db.collection('partyMasters').doc(partnerIdentity.partyMasterId);
+    const branchPartyAccountRef = db.collection('branchPartyAccounts').doc(partnerIdentity.branchPartyAccountId);
+    const [partyMasterSnap, branchPartyAccountSnap] = await Promise.all([
+      transaction.get(partyMasterRef), transaction.get(branchPartyAccountRef)
+    ]);
+    if (branchPartyAccountSnap.exists) {
+      const account = branchPartyAccountSnap.data()!;
+      if (String(account.branchId || '') !== branchId) throw new Error('PARTNER_DEBT_ACCOUNT_BRANCH_MISMATCH');
+      if (String(account.partyMasterId || '') !== partnerIdentity.partyMasterId) throw new Error('PARTNER_DEBT_ACCOUNT_IDENTITY_MISMATCH');
+      if (account.status === 'ARCHIVED' || account.status === 'INACTIVE') throw new Error('PARTNER_DEBT_ACCOUNT_INACTIVE');
+    }
 
     const currentDebt = Number(partner.outstandingDebt || 0);
     if (!Number.isSafeInteger(currentDebt) || currentDebt < input.amount) throw new Error('PARTNER_DEBT_AMOUNT_EXCEEDS_BALANCE');
@@ -204,6 +229,8 @@ export async function processPartnerDebtSettlement(
       fundType: fund.type,
       date: now,
       partnerId: input.partnerId,
+      partyMasterId: partnerIdentity.partyMasterId,
+      branchPartyAccountId: partnerIdentity.branchPartyAccountId,
       partnerName: partner.name || '',
       partnerType,
       partnerDebtSettlementId: settlementId,
@@ -292,15 +319,56 @@ export async function processPartnerDebtSettlement(
       updatedAt: now
     });
     transaction.update(partnerRef, {
+      partyMasterId: partnerIdentity.partyMasterId,
+      branchPartyAccountId: partnerIdentity.branchPartyAccountId,
       outstandingDebt: nextPartner.outstandingDebt,
       debtTransactions: nextPartner.debtTransactions,
       lastInteraction: nextPartner.lastInteraction,
       updatedAt: now
     });
+    if (!partyMasterSnap.exists) {
+      transaction.set(partyMasterRef, newPartyMasterRecord({ id: partnerSnap.id, ...partner }, partnerIdentity, actor.uid, now));
+    }
+    const account = branchPartyAccountSnap.exists ? branchPartyAccountSnap.data()! : null;
+    const balanceField = input.direction === 'PAYMENT' ? 'payableBalance' : 'receivableBalance';
+    if (!account) {
+      transaction.set(branchPartyAccountRef, newBranchPartyAccountRecord(
+        { id: partnerSnap.id, ...partner }, branchId, partnerIdentity, actor.uid, now,
+        input.direction === 'PAYMENT'
+          ? { payableBalance: nextPartner.outstandingDebt }
+          : { receivableBalance: nextPartner.outstandingDebt }
+      ));
+    } else {
+      const accountBalance = Number(account[balanceField] || 0);
+      if (!Number.isSafeInteger(accountBalance) || accountBalance + 1 < input.amount) throw new Error('PARTNER_DEBT_ACCOUNT_BALANCE_MISMATCH');
+      transaction.update(branchPartyAccountRef, {
+        [balanceField]: Math.max(0, accountBalance - input.amount),
+        updatedAt: now,
+        updatedByUid: actor.uid
+      });
+    }
+    const debtLedgerId = `DLE_${settlementId}`;
+    transaction.set(db.collection('debtLedgerEntries').doc(debtLedgerId), debtLedgerEntry({
+      id: debtLedgerId,
+      branchId,
+      partyAccountId: partnerIdentity.branchPartyAccountId,
+      partyMasterId: partnerIdentity.partyMasterId,
+      legacyPartnerId: input.partnerId,
+      direction: input.direction === 'PAYMENT' ? 'PAYABLE' : 'RECEIVABLE',
+      sourceType: 'PAYMENT',
+      sourceDocumentId: settlementId,
+      sourceDocumentCode: cashCode,
+      creditDecrease: input.amount,
+      actorUid: actor.uid,
+      occurredAt: now,
+      note
+    }));
     transaction.set(db.collection('cashTransactions').doc(cashTransactionId), cashTransaction);
     transaction.set(db.collection('partnerDebtSettlements').doc(settlementId), {
       id: settlementId,
       partnerId: input.partnerId,
+      partyMasterId: partnerIdentity.partyMasterId,
+      branchPartyAccountId: partnerIdentity.branchPartyAccountId,
       partnerName: partner.name || '',
       partnerType,
       branchId,

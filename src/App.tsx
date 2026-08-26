@@ -1522,7 +1522,7 @@ export default function App() {
             invoices={filteredInvoices}
             devices={filteredDevices}
             warrantyTickets={filteredWarrantyTickets}
-            funds={funds}
+            funds={filteredFunds}
             cashTransactions={filteredCashTransactions}
             branches={branches}
             selectedBranchId={selectedBranchId}
@@ -1542,9 +1542,9 @@ export default function App() {
         {activeTab === 'purchase-orders' && (
           <PurchaseOrdersView
             purchaseOrders={filteredPurchaseOrders}
-            partners={partners}
+            partners={filteredPartners}
             warehouses={warehouses}
-            funds={funds}
+            funds={filteredFunds}
             branches={branches}
             selectedBranchId={selectedBranchId}
             currentUser={currentUser}
@@ -1563,8 +1563,8 @@ export default function App() {
             devices={devices}
             branches={branches}
             warehouses={warehouses}
-            partners={partners}
-            funds={funds}
+            partners={filteredPartners}
+            funds={filteredFunds}
             transfers={transfers}
             warrantyTickets={warrantyTickets}
             invoices={invoices}
@@ -1604,10 +1604,10 @@ export default function App() {
         {activeTab === 'master-catalog' && (
           <MasterCatalogView
             currentUser={currentUser}
-            partners={partners}
+            partners={filteredPartners}
             branches={branches}
             warehouses={warehouses}
-            funds={funds}
+            funds={filteredFunds}
             onAddPurchaseOrder={handleAddPurchaseOrder}
           />
         )}
@@ -1616,9 +1616,9 @@ export default function App() {
           <PartsInventoryHub
             products={products}
             warehouses={warehouses}
-            partners={partners}
+            partners={filteredPartners}
             branches={branches}
-            funds={funds}
+            funds={filteredFunds}
             currentUser={currentUser}
             preferredSection={activeTab === 'spare-parts' ? 'technical' : undefined}
             onAddPurchaseOrder={handleAddPurchaseOrder}
@@ -1715,14 +1715,14 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'warranty' && <RetailRepairView currentUser={currentUser} branches={branches} funds={funds} refreshKey={retailRepairRefreshKey} onOpenIntake={() => setIsRepairIntakeOpen(true)} onOpenTechDesk={() => setActiveTab('tech-workspace')} />}
+        {activeTab === 'warranty' && <RetailRepairView currentUser={currentUser} branches={branches} funds={filteredFunds} refreshKey={retailRepairRefreshKey} onOpenIntake={() => setIsRepairIntakeOpen(true)} onOpenTechDesk={() => setActiveTab('tech-workspace')} />}
 
         {activeTab === 'pos' && (
           <POSCockpitView
             devices={filteredDevices}
             products={products}
-            funds={funds}
-            partners={partners}
+            funds={filteredFunds}
+            partners={filteredPartners}
             currentBranch={resolvedCurrentBranch}
             warehouses={activePosWarehouses}
             selectedWarehouseId={selectedPosWarehouseId}
@@ -1765,7 +1765,7 @@ export default function App() {
         {activeTab === 'installments' && (
           <InstallmentReconciliationView
             invoices={filteredInvoices}
-            funds={funds}
+            funds={filteredFunds}
             onConfirmDisbursement={handleInstallmentDisbursement}
           />
         )}
@@ -1776,8 +1776,8 @@ export default function App() {
             branches={branches}
             selectedBranchId={selectedBranchId}
             transactions={filteredCashTransactions}
-            funds={funds}
-            partners={partners}
+            funds={filteredFunds}
+            partners={filteredPartners}
             onAddTransaction={handleAddCashTransaction}
             onAddPartner={handleAddPartner}
             onSaveFund={handleSaveFund}
@@ -1788,15 +1788,16 @@ export default function App() {
 
         {activeTab === 'partners' && (
           <PartnersView
-            partners={partners}
+            partners={filteredPartners}
             branches={branches}
+            selectedBranchId={selectedBranchId}
             devices={filteredDevices}
             onAddPartner={handleAddPartner}
             onUpdatePartner={handleUpdatePartner}
             onDeletePartner={handleDeletePartner}
             onSettleDebt={handleSettlePartnerDebt}
             onOpenInstallmentReconciliation={() => setActiveTab('installments')}
-            funds={funds}
+            funds={filteredFunds}
             onOpenReference={handleOpenDebtReference}
           />
         )}
@@ -1809,7 +1810,7 @@ export default function App() {
             branches={branches}
             warehouses={warehouses}
             settings={storeSettings}
-            funds={funds}
+            funds={filteredFunds}
             invoices={invoices}
             devices={devices}
             products={products}
@@ -1843,7 +1844,7 @@ export default function App() {
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
             onOpenLoginModal={() => setIsLoginModalOpen(true)}
             onLogout={handleLogout}
-            partners={partners}
+            partners={filteredPartners}
             invoices={filteredInvoices}
             devices={filteredDevices}
           />
@@ -1910,7 +1911,7 @@ export default function App() {
             devices={filteredDevices}
             branches={branches}
             warehouses={warehouses}
-            funds={funds}
+            funds={filteredFunds}
             onCheckIn={handleCheckIn}
             onCheckOut={handleCheckOut}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
@@ -1934,7 +1935,7 @@ export default function App() {
             preSelectedDevice={posPreSelectedDevice}
             onNavigateToInvoices={() => setActiveTab('invoices')}
             onOpenPOS={() => setActiveTab('pos')}
-            funds={funds}
+            funds={filteredFunds}
             onAddTransaction={handleAddCashTransaction}
             onOpenNewDeviceModal={() => setActiveTab('inventory')}
             onOpenCheckIn={() => setActiveTab('checkin-portal')}
@@ -1996,10 +1997,10 @@ export default function App() {
       <ExecutiveAIAssistantModal
         isOpen={isExecutiveAIOpen}
         onClose={() => setIsExecutiveAIOpen(false)}
-        invoices={invoices}
-        devices={devices}
-        funds={funds}
-        warrantyTickets={warrantyTickets}
+        invoices={filteredInvoices}
+        devices={filteredDevices}
+        funds={filteredFunds}
+        warrantyTickets={filteredWarrantyTickets}
         attendanceRecords={attendanceRecords}
         staffMembers={staffMembers}
       />

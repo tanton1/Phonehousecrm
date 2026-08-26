@@ -41,7 +41,7 @@ describe('Invoice cancellation debt reversal', () => {
   it('cancels an unpaid customer-debt invoice and reverses customer debt without cash movement', async () => {
     const { db, data } = createDb({
       invoices: { INV_01: { id: 'INV_01', invoiceCode: 'HD-01', branchId: 'CN01', status: 'completed', customerId: 'CUS_01', finalAmount: 10_000_000, paidAmount: 0, debtAmount: 10_000_000 } },
-      partners: { CUS_01: { id: 'CUS_01', branchId: 'CN01', outstandingDebt: 10_000_000, totalSpent: 10_000_000, debtTransactions: [{ referenceId: 'INV_01', amount: 10_000_000 }] } },
+      partners: { CUS_01: { id: 'CUS_01', branchId: 'CN01', type: 'CUSTOMER', name: 'Khách A', phone: '0905000001', outstandingDebt: 10_000_000, totalSpent: 10_000_000, debtTransactions: [{ referenceId: 'INV_01', amount: 10_000_000 }] } },
       devices: { DEV_01: { id: 'DEV_01', soldInvoiceId: 'INV_01', status: 'sold' } }
     });
     const result = await executeAtomicInvoiceRefund(db, {
@@ -61,7 +61,7 @@ describe('Invoice cancellation debt reversal', () => {
         installmentDisbursementStatus: 'PENDING', installmentExpectedAmount: 8_000_000, installmentFinancePartnerId: 'FIN_01'
       } },
       partners: {
-        CUS_01: { id: 'CUS_01', branchId: 'CN01', outstandingDebt: 0, totalSpent: 10_000_000, debtTransactions: [] },
+        CUS_01: { id: 'CUS_01', branchId: 'CN01', type: 'CUSTOMER', name: 'Khách A', phone: '0905000001', outstandingDebt: 0, totalSpent: 10_000_000, debtTransactions: [] },
         FIN_01: { id: 'FIN_01', branchId: 'CN01', outstandingDebt: 8_000_000, debtTransactions: [{ referenceId: 'INV_02', amount: 8_000_000 }] }
       },
       funds: { BANK_01: { id: 'BANK_01', branchId: 'CN01', type: 'BANK', name: 'VCB', currentBalance: 5_000_000, totalExpense: 0, isActive: true } },

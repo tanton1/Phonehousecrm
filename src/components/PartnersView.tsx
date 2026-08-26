@@ -49,6 +49,7 @@ interface PartnersViewProps {
   partners: Partner[];
   devices?: DeviceItem[];
   branches?: StoreBranch[];
+  selectedBranchId?: string;
   initialTab?: 'ALL' | 'CUSTOMERS' | 'SUPPLIERS' | 'DEBT_HUB';
   onAddPartner: (partner: Partner) => Promise<void> | void;
   onUpdatePartner: (partner: Partner) => Promise<void> | void;
@@ -73,6 +74,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   partners,
   devices = [],
   branches = [],
+  selectedBranchId = '',
   initialTab = 'ALL',
   onAddPartner,
   onUpdatePartner,
@@ -233,7 +235,9 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   const handleOpenAdd = (type: PartnerType = 'SUPPLIER') => {
     setEditingPartner(null);
     setFormData({
-      branchId: branches.find(branch => branch.isActive !== false)?.id || '',
+      branchId: selectedBranchId && selectedBranchId !== 'ALL'
+        ? selectedBranchId
+        : branches.find(branch => branch.isActive !== false)?.id || '',
       type,
       name: '',
       phone: '',
@@ -1100,13 +1104,16 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                 </label>
                 <select
                   required
-                  disabled={Boolean(editingPartner)}
+                  disabled={Boolean(editingPartner) || Boolean(selectedBranchId && selectedBranchId !== 'ALL')}
                   value={formData.branchId || ''}
                   onChange={(event) => setFormData(previous => ({ ...previous, branchId: event.target.value }))}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                 >
                   <option value="">-- Chọn chi nhánh --</option>
-                  {branches.filter(branch => branch.isActive !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                  {branches
+                    .filter(branch => branch.isActive !== false)
+                    .filter(branch => !selectedBranchId || selectedBranchId === 'ALL' || branch.id === selectedBranchId)
+                    .map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                 </select>
                 <p className="mt-1 text-[10px] text-zinc-500">Công nợ và tài khoản thanh toán phải cùng chi nhánh; chi nhánh không đổi sau khi tạo.</p>
               </div>

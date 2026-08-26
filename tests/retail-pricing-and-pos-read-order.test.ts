@@ -16,7 +16,7 @@ function checkoutDb() {
       name: 'Giá tháng 8', version: '2026.08', policyId: 'RETAIL_2026_08', effectiveFrom: '2026-08-01', isActive: true,
       entries: [{ id: 'IP15P', itemType: 'DEVICE', matchType: 'MODEL_VARIANT', itemKey: 'IPHONE 15 PRO|256GB|LIKE NEW 99%', itemName: 'iPhone 15 Pro 256GB', branchId: 'ALL', retailPrice: 28000000, minimumPrice: 26000000, isActive: true }]
     }) };
-    if (ref.col === 'partners') return { exists: true, data: () => ({ id: ref.docId, type: 'CUSTOMER', branchId: 'CN01' }) };
+    if (ref.col === 'partners') return { exists: true, data: () => ({ id: ref.docId, type: 'CUSTOMER', branchId: 'CN01', name: 'Khách test', phone: '0905000001' }) };
     if (ref.col === 'leads') return { exists: true, data: () => ({ id: ref.docId, branchId: 'CN01' }) };
     return { exists: false };
   };

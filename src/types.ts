@@ -399,6 +399,8 @@ export interface PurchaseOrder {
   id: string;
   code: string; // PN-20260816-01
   supplierId: string;
+  partyMasterId?: string;
+  branchSupplierAccountId?: string;
   supplierName: string;
   supplierPhone?: string;
   supplierAddress?: string;
@@ -1464,6 +1466,10 @@ export interface PartnerDebtTransaction {
 export interface Partner {
   id: string;
   branchId?: string;
+  /** Shared identity reference. Business history remains branch-owned. */
+  partyMasterId?: string;
+  /** Branch-specific customer/supplier account used by posted documents. */
+  branchPartyAccountId?: string;
   type: PartnerType;
   name: string;
   phone: string;
@@ -1490,6 +1496,73 @@ export interface Partner {
   lastInteraction?: string;
   notes?: string;
   tags?: string[];
+}
+
+export interface PartyMaster {
+  id: string;
+  displayName: string;
+  legalName?: string;
+  phoneNormalized?: string;
+  taxCodeNormalized?: string;
+  email?: string;
+  address?: string;
+  status: 'ACTIVE' | 'ARCHIVED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BranchPartyAccount {
+  id: string;
+  branchId: string;
+  partyMasterId: string;
+  legacyPartnerId?: string;
+  type: PartnerType;
+  code: string;
+  creditLimit: number;
+  paymentTermDays: number;
+  receivableBalance: number;
+  payableBalance: number;
+  totalSales: number;
+  totalPurchases: number;
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DebtLedgerEntry {
+  id: string;
+  branchId: string;
+  partyAccountId: string;
+  partyMasterId?: string;
+  legacyPartnerId: string;
+  direction: 'RECEIVABLE' | 'PAYABLE';
+  sourceType: 'PURCHASE_ORDER' | 'INVOICE' | 'PAYMENT' | 'REFUND' | 'ADJUSTMENT' | 'INTER_BRANCH_TRANSFER';
+  sourceDocumentId: string;
+  sourceDocumentCode: string;
+  debitIncrease: number;
+  creditDecrease: number;
+  balanceDelta: number;
+  amountAllocated: number;
+  dueDate?: string | null;
+  status: 'POSTED' | 'REVERSED';
+  reversalOf?: string | null;
+  occurredAt: string;
+  createdAt: string;
+}
+
+export interface BranchProduct {
+  id: string;
+  branchId: string;
+  productMasterId: string;
+  legacyProductId?: string;
+  sku: string;
+  name: string;
+  retailPrice: number;
+  minimumPrice: number;
+  minStockLevel: number;
+  status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ==========================================

@@ -3,6 +3,13 @@ import crypto from 'crypto';
 import { imeiRegistryId, normalizeImei } from './inventoryDeviceService';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
 import { buildCrmSearchPrefixes, normalizeCrmPhone, prepareCrmPostSalePlan } from './crmOperationsService';
+import {
+  assertPartnerForBranch,
+  debtLedgerEntry,
+  newBranchPartyAccountRecord,
+  newPartyMasterRecord,
+  resolvePartyIdentity
+} from './branchPartyService';
 
 export interface CheckoutResult {
   success: boolean;
@@ -670,8 +677,31 @@ export async function executeAtomicCheckout(
     // Firestore requires every transaction read to finish before the first write.
     // Preload optional CRM documents here; the remaining transaction is write-only.
     const customerId = payload.customerId || payload.customerPartner?.id;
+    if (customerDebtAmount > 0 && !customerId) throw new Error('CUSTOMER_REQUIRED_FOR_DEBT');
     const customerRef: DocumentReference | null = customerId ? db.collection('partners').doc(customerId) : null;
     const customerSnap = customerRef ? await transaction.get(customerRef) : null;
+    const customerProfile = customerSnap?.exists ? customerSnap.data()! : {
+      id: customerId,
+      branchId,
+      type: 'CUSTOMER',
+      name: String(payload.customerName || payload.customerPartner?.name || payload.invoice?.customerName || '').trim() || `Khách ${customerId}`,
+      phone: String(payload.customerPhone || payload.customerPartner?.phone || payload.invoice?.customerPhone || '').trim(),
+      email: String(payload.customerPartner?.email || '').trim(),
+      address: String(payload.customerPartner?.address || '').trim(),
+      outstandingDebt: 0
+    };
+    if (customerSnap?.exists) assertPartnerForBranch(customerProfile, branchId, ['CUSTOMER', 'BOTH'], 'POS_CUSTOMER');
+    const customerIdentity = customerId ? resolvePartyIdentity({ id: customerId, ...customerProfile }, branchId) : null;
+    const customerMasterRef = customerIdentity ? db.collection('partyMasters').doc(customerIdentity.partyMasterId) : null;
+    const customerAccountRef = customerIdentity ? db.collection('branchPartyAccounts').doc(customerIdentity.branchPartyAccountId) : null;
+    const customerMasterSnap = customerMasterRef ? await transaction.get(customerMasterRef) : null;
+    const customerAccountSnap = customerAccountRef ? await transaction.get(customerAccountRef) : null;
+    if (customerAccountSnap?.exists) {
+      const account = customerAccountSnap.data()!;
+      if (String(account.branchId || '') !== branchId) throw new Error('POS_CUSTOMER_ACCOUNT_BRANCH_MISMATCH');
+      if (!['CUSTOMER', 'BOTH'].includes(String(account.type || '').toUpperCase())) throw new Error('POS_CUSTOMER_ACCOUNT_TYPE_INVALID');
+      if (String(account.partyMasterId || '') !== customerIdentity?.partyMasterId) throw new Error('POS_CUSTOMER_ACCOUNT_IDENTITY_MISMATCH');
+    }
     const leadRef: DocumentReference | null = checkoutLeadId ? db.collection('leads').doc(checkoutLeadId) : null;
     const leadSnap = leadRef ? await transaction.get(leadRef) : null;
 
@@ -814,6 +844,10 @@ export async function executeAtomicCheckout(
       ...(branchNameSnapshot ? { branch: branchNameSnapshot, branchName: branchNameSnapshot } : {}),
       warehouseId,
       customerId: payload.customerId || payload.customerPartner?.id || null,
+      ...(customerIdentity ? {
+        customerPartyMasterId: customerIdentity.partyMasterId,
+        branchCustomerAccountId: customerIdentity.branchPartyAccountId
+      } : {}),
       leadId: effectiveLeadId || null,
       quoteId: payload.quoteId || null,
       customerName: payload.customerName || payload.invoice?.customerName || 'Khách vãng lai',
@@ -1080,17 +1114,23 @@ export async function executeAtomicCheckout(
       } : null;
       if (customerSnap.exists) {
         transaction.update(customerRef, {
+          partyMasterId: customerIdentity?.partyMasterId,
+          branchPartyAccountId: customerIdentity?.branchPartyAccountId,
           totalSpent: FieldValue.increment(finalAmount),
           outstandingDebt: FieldValue.increment(customerDebtAmount),
           lastInvoiceId: invoiceId,
           lastPurchaseDate: FieldValue.serverTimestamp(),
-          ...(debtTransaction ? { debtTransactions: FieldValue.arrayUnion(debtTransaction) } : {})
+          ...(debtTransaction ? {
+            debtTransactions: [debtTransaction, ...(Array.isArray(customerProfile.debtTransactions) ? customerProfile.debtTransactions : [])].slice(0, 200)
+          } : {})
         });
       } else {
         const profile = payload.customerPartner || {};
         transaction.set(customerRef, {
           id: customerId,
           branchId,
+          partyMasterId: customerIdentity?.partyMasterId,
+          branchPartyAccountId: customerIdentity?.branchPartyAccountId,
           type: 'CUSTOMER',
           name: String(payload.customerName || profile.name || invoiceRecord.customerName || '').trim() || `Khách ${customerId}`,
           phone: String(payload.customerPhone || profile.phone || invoiceRecord.customerPhone || '').trim(),
@@ -1106,6 +1146,48 @@ export async function executeAtomicCheckout(
           lastInvoiceId: invoiceId,
           lastPurchaseDate: FieldValue.serverTimestamp()
         });
+      }
+      if (customerIdentity && customerMasterRef && customerAccountRef) {
+        const now = new Date().toISOString();
+        if (!customerMasterSnap?.exists) {
+          transaction.set(customerMasterRef, newPartyMasterRecord({ id: customerId, ...customerProfile }, customerIdentity, authenticatedStaff?.uid || 'SYSTEM', now));
+        }
+        const currentLegacyDebt = Number(customerProfile.outstandingDebt || 0);
+        if (!customerAccountSnap?.exists) {
+          transaction.set(customerAccountRef, newBranchPartyAccountRecord(
+            { id: customerId, ...customerProfile, totalSpent: Number(customerProfile.totalSpent || 0) + finalAmount },
+            branchId,
+            customerIdentity,
+            authenticatedStaff?.uid || 'SYSTEM',
+            now,
+            { receivableBalance: currentLegacyDebt + customerDebtAmount }
+          ));
+        } else {
+          transaction.update(customerAccountRef, {
+            receivableBalance: Number(customerAccountSnap.data()?.receivableBalance || 0) + customerDebtAmount,
+            totalSales: Number(customerAccountSnap.data()?.totalSales || 0) + finalAmount,
+            updatedAt: now,
+            updatedByUid: authenticatedStaff?.uid || 'SYSTEM'
+          });
+        }
+        if (customerDebtAmount > 0) {
+          const debtLedgerId = `DLE_INV_${invoiceId}_SALE`;
+          transaction.set(db.collection('debtLedgerEntries').doc(debtLedgerId), debtLedgerEntry({
+            id: debtLedgerId,
+            branchId,
+            partyAccountId: customerIdentity.branchPartyAccountId,
+            partyMasterId: customerIdentity.partyMasterId,
+            legacyPartnerId: customerId,
+            direction: 'RECEIVABLE',
+            sourceType: 'INVOICE',
+            sourceDocumentId: invoiceId,
+            sourceDocumentCode: invoiceCode,
+            debitIncrease: customerDebtAmount,
+            actorUid: authenticatedStaff?.uid || 'SYSTEM',
+            occurredAt: now,
+            note: `Công nợ hóa đơn ${invoiceCode}`
+          }));
+        }
       }
     }
 
@@ -1370,6 +1452,23 @@ export async function executeAtomicInvoiceRefund(
         customerData = matches.docs[0].data();
       }
     }
+    let refundCustomerIdentity: ReturnType<typeof resolvePartyIdentity> | null = null;
+    let refundCustomerMasterRef: DocumentReference | null = null;
+    let refundCustomerAccountRef: DocumentReference | null = null;
+    let refundCustomerMasterSnap: any = null;
+    let refundCustomerAccountSnap: any = null;
+    if (customerRef && customerData) {
+      assertPartnerForBranch(customerData, branchId, ['CUSTOMER', 'BOTH'], 'REFUND_CUSTOMER');
+      refundCustomerIdentity = resolvePartyIdentity({ id: customerRef.id, ...customerData }, branchId);
+      refundCustomerMasterRef = db.collection('partyMasters').doc(refundCustomerIdentity.partyMasterId);
+      refundCustomerAccountRef = db.collection('branchPartyAccounts').doc(refundCustomerIdentity.branchPartyAccountId);
+      [refundCustomerMasterSnap, refundCustomerAccountSnap] = await Promise.all([
+        transaction.get(refundCustomerMasterRef), transaction.get(refundCustomerAccountRef)
+      ]);
+      if (refundCustomerAccountSnap.exists && String(refundCustomerAccountSnap.data()?.branchId || '') !== branchId) {
+        throw new Error('REFUND_CUSTOMER_ACCOUNT_BRANCH_MISMATCH');
+      }
+    }
 
     const pendingFinanceAmount = invoice.installmentDisbursementStatus === 'PENDING'
       ? Number(invoice.installmentExpectedAmount ?? invoice.installmentFinanceAmount ?? invoice.financeAmount ?? 0)
@@ -1464,12 +1563,67 @@ export async function executeAtomicInvoiceRefund(
       const customerOutstandingDebt = Number(customerData.outstandingDebt || 0);
       if (customerDebtToReverse > 0 && customerOutstandingDebt < customerDebtToReverse) throw new Error('REFUND_CUSTOMER_DEBT_MISMATCH');
       transaction.update(customerRef, {
+        ...(refundCustomerIdentity ? {
+          partyMasterId: refundCustomerIdentity.partyMasterId,
+          branchPartyAccountId: refundCustomerIdentity.branchPartyAccountId
+        } : {}),
         totalSpent: Math.max(0, Number(customerData.totalSpent || 0) - Number(invoice.finalAmount || 0)),
         outstandingDebt: Math.max(0, customerOutstandingDebt - customerDebtToReverse),
         debtTransactions: (Array.isArray(customerData.debtTransactions) ? customerData.debtTransactions : [])
           .filter((item: any) => String(item.referenceId || '') !== invoiceId),
         updatedAt: now
       });
+      if (refundCustomerIdentity && refundCustomerMasterRef && refundCustomerAccountRef) {
+        if (!refundCustomerMasterSnap?.exists) {
+          transaction.set(refundCustomerMasterRef, newPartyMasterRecord(
+            { id: customerRef.id, ...customerData }, refundCustomerIdentity, authenticatedStaff?.uid || 'SYSTEM', now
+          ));
+        }
+        if (!refundCustomerAccountSnap?.exists) {
+          transaction.set(refundCustomerAccountRef, newBranchPartyAccountRecord(
+            {
+              id: customerRef.id,
+              ...customerData,
+              totalSpent: Math.max(0, Number(customerData.totalSpent || 0) - Number(invoice.finalAmount || 0))
+            },
+            branchId,
+            refundCustomerIdentity,
+            authenticatedStaff?.uid || 'SYSTEM',
+            now,
+            { receivableBalance: Math.max(0, customerOutstandingDebt - customerDebtToReverse) }
+          ));
+        } else {
+          const receivableBalance = Number(refundCustomerAccountSnap.data()?.receivableBalance || 0);
+          if (!Number.isSafeInteger(receivableBalance) || receivableBalance + 1 < customerDebtToReverse) {
+            throw new Error('REFUND_CUSTOMER_ACCOUNT_DEBT_MISMATCH');
+          }
+          transaction.update(refundCustomerAccountRef, {
+            receivableBalance: Math.max(0, receivableBalance - customerDebtToReverse),
+            totalSales: Math.max(0, Number(refundCustomerAccountSnap.data()?.totalSales || 0) - Number(invoice.finalAmount || 0)),
+            updatedAt: now,
+            updatedByUid: authenticatedStaff?.uid || 'SYSTEM'
+          });
+        }
+        if (customerDebtToReverse > 0) {
+          const reversalId = `DLE_INV_${invoiceId}_REV`;
+          transaction.set(db.collection('debtLedgerEntries').doc(reversalId), debtLedgerEntry({
+            id: reversalId,
+            branchId,
+            partyAccountId: refundCustomerIdentity.branchPartyAccountId,
+            partyMasterId: refundCustomerIdentity.partyMasterId,
+            legacyPartnerId: customerRef.id,
+            direction: 'RECEIVABLE',
+            sourceType: 'REFUND',
+            sourceDocumentId: invoiceId,
+            sourceDocumentCode: String(invoice.invoiceCode || invoiceId),
+            creditDecrease: customerDebtToReverse,
+            actorUid: authenticatedStaff?.uid || 'SYSTEM',
+            occurredAt: now,
+            reversalOf: `DLE_INV_${invoiceId}_SALE`,
+            note: reason || `Hủy hóa đơn ${invoice.invoiceCode || invoiceId}`
+          }));
+        }
+      }
     }
     if (financePartnerRef && financePartnerData && pendingFinanceAmount > 0) {
       transaction.update(financePartnerRef, {

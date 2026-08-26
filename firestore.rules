@@ -161,6 +161,22 @@ service cloud.firestore {
       allow write: if false; // Metadata via /api/partners; debt only via accounting services.
     }
 
+    // Shared identity contains system-wide PII and is resolved only by the API.
+    // A branch must never enumerate identities belonging to another branch.
+    match /partyMasters/{partyMasterId} {
+      allow read, write: if false;
+    }
+
+    match /branchPartyAccounts/{accountId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
+    match /debtLedgerEntries/{entryId} {
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
+    }
+
     match /partnerDebtSettlements/{settlementId} {
       allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
       allow write: if false;
@@ -188,6 +204,11 @@ service cloud.firestore {
     match /inventoryBalances/{balanceId} {
       allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Strict Single Writer: Only Server POS Checkout / Inventory Transfer via Admin SDK
+    }
+
+    match /branchProducts/{branchProductId} {
+      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow write: if false;
     }
 
     match /transfers/{transferId} {

@@ -46,7 +46,7 @@ describe('Atomic partner debt settlement', () => {
 
   it('pays a supplier, allocates oldest purchase orders and writes every ledger once', async () => {
     const { db, data } = createDb({
-      partners: { SUP_01: { id: 'SUP_01', branchId: 'CN01', type: 'SUPPLIER', name: 'NCC A', outstandingDebt: 15_000_000, debtTransactions: [] } },
+      partners: { SUP_01: { id: 'SUP_01', branchId: 'CN01', type: 'SUPPLIER', name: 'NCC A', phone: '0905000001', outstandingDebt: 15_000_000, debtTransactions: [] } },
       funds: { FUND_01: { id: 'FUND_01', branchId: 'CN01', type: 'BANK', name: 'VCB CN01', currentBalance: 50_000_000, totalExpense: 0, totalIncome: 0, isActive: true } },
       purchaseOrders: {
         PO_02: { id: 'PO_02', code: 'PN-02', supplierId: 'SUP_01', branchId: 'CN01', orderDate: '2026-02-01', paidAmount: 0, debtAmount: 5_000_000, status: 'COMPLETED' },
@@ -63,6 +63,9 @@ describe('Atomic partner debt settlement', () => {
     expect(data.get('purchaseOrders/PO_02')).toMatchObject({ paidAmount: 2_000_000, debtAmount: 3_000_000, paymentStatus: 'PARTIAL' });
     expect(data.get(`cashTransactions/${result.cashTransaction.id}`)).toMatchObject({ category: 'SUPPLIER_DEBT_PAY', status: 'COMPLETED', isPLAccounted: false });
     expect(data.get(`partnerDebtSettlements/${result.settlementId}`)).toMatchObject({ amount: 12_000_000, status: 'COMPLETED' });
+    expect([...data.values()].find(value => value?.id === `DLE_${result.settlementId}`)).toMatchObject({
+      branchId: 'CN01', direction: 'PAYABLE', creditDecrease: 12_000_000
+    });
 
     const replay = await processPartnerDebtSettlement(db, input, actor);
     expect(replay.idempotentReplay).toBe(true);
@@ -72,7 +75,7 @@ describe('Atomic partner debt settlement', () => {
 
   it('collects customer debt and updates the linked invoice atomically', async () => {
     const { db, data } = createDb({
-      partners: { CUS_01: { id: 'CUS_01', branchId: 'CN01', type: 'CUSTOMER', name: 'Khách A', outstandingDebt: 8_000_000, debtTransactions: [] } },
+      partners: { CUS_01: { id: 'CUS_01', branchId: 'CN01', type: 'CUSTOMER', name: 'Khách A', phone: '0905000002', outstandingDebt: 8_000_000, debtTransactions: [] } },
       funds: { FUND_01: { id: 'FUND_01', branchId: 'CN01', type: 'CASH', name: 'Két CN01', currentBalance: 1_000_000, totalExpense: 0, totalIncome: 0, isActive: true } },
       invoices: { INV_01: { id: 'INV_01', invoiceCode: 'HD-01', customerId: 'CUS_01', branchId: 'CN01', createdAt: '2026-01-01', paidAmount: 2_000_000, debtAmount: 8_000_000, status: 'completed' } }
     });

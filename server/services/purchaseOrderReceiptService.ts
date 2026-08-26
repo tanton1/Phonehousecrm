@@ -1,6 +1,13 @@
 import crypto from 'crypto';
 import { Firestore } from 'firebase-admin/firestore';
 import { imeiRegistryId, normalizeImei, InventoryActor } from './inventoryDeviceService';
+import {
+  assertPartnerForBranch,
+  debtLedgerEntry,
+  newBranchPartyAccountRecord,
+  newPartyMasterRecord,
+  resolvePartyIdentity
+} from './branchPartyService';
 
 interface ReceiptDeviceDraft {
   imei: string;
@@ -383,6 +390,21 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
     if (warehouse.isActive === false || warehouse.active === false || warehouse.isArchived === true) throw new Error('PURCHASE_WAREHOUSE_INACTIVE');
     if (String(warehouse.branchId || '') !== receipt.branchId) throw new Error('PURCHASE_WAREHOUSE_BRANCH_MISMATCH');
     if (!supplierSnap.exists) throw new Error('PURCHASE_SUPPLIER_NOT_FOUND');
+    const supplier = supplierSnap.data()!;
+    assertPartnerForBranch(supplier, receipt.branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+    const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplier }, receipt.branchId);
+    const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
+    const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
+    const [partyMasterSnap, branchSupplierAccountSnap] = await Promise.all([
+      transaction.get(partyMasterRef), transaction.get(branchSupplierAccountRef)
+    ]);
+    if (branchSupplierAccountSnap.exists) {
+      const account = branchSupplierAccountSnap.data()!;
+      if (String(account.branchId || '') !== receipt.branchId) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_BRANCH_MISMATCH');
+      if (!['SUPPLIER', 'BOTH'].includes(String(account.type || '').toUpperCase())) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_TYPE_INVALID');
+      if (String(account.partyMasterId || '') !== supplierIdentity.partyMasterId) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_IDENTITY_MISMATCH');
+      if (account.status === 'ARCHIVED' || account.status === 'INACTIVE') throw new Error('PURCHASE_SUPPLIER_ACCOUNT_INACTIVE');
+    }
 
     let fund: any = null;
     let fundRef: any = null;
@@ -404,6 +426,7 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
     const stockTargets = receipt.stockItems.map(item => {
       const catalogRef = db.collection('catalogItems').doc(item.catalogItemId);
       const productId = deterministicId('PRD', item.catalogItemId);
+      const branchProductId = deterministicId('BPR', `${receipt.branchId}:${item.catalogItemId}`);
       const partId = deterministicId('SP', `${receipt.branchId}:${receipt.warehouseId}:${item.catalogItemId}`);
       const lotId = deterministicId('SPL', `${partId}:${receipt.order.id}`);
       return {
@@ -411,6 +434,8 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
         catalogRef,
         productId,
         productRef: db.collection('products').doc(productId),
+        branchProductId,
+        branchProductRef: db.collection('branchProducts').doc(branchProductId),
         balanceRef: db.collection('inventoryBalances').doc(`${receipt.branchId}_${receipt.warehouseId}_${productId}`),
         partId,
         partRef: db.collection('spareParts').doc(partId),
@@ -424,6 +449,7 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
     const stockSnapshots = await Promise.all(stockTargets.map(async target => ({
       catalogSnap: await transaction.get(target.catalogRef),
       productSnap: target.item.category === 'ACCESSORY' ? await transaction.get(target.productRef) : null,
+      branchProductSnap: await transaction.get(target.branchProductRef),
       balanceSnap: target.item.category === 'ACCESSORY' ? await transaction.get(target.balanceRef) : null,
       partSnap: target.item.category === 'PART' ? await transaction.get(target.partRef) : null,
       lotSnap: target.item.category === 'PART' ? await transaction.get(target.lotRef) : null
@@ -484,6 +510,8 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
       warehouseName: warehouse.name || receipt.order.warehouseName || '',
       supplierId: receipt.supplierId,
       supplierName: supplierSnap.data()?.name || receipt.order.supplierName || '',
+      partyMasterId: supplierIdentity.partyMasterId,
+      branchSupplierAccountId: supplierIdentity.branchPartyAccountId,
       fundId: receipt.paidAmount > 0 ? receipt.fundId : null,
       fundName: receipt.paidAmount > 0 ? fund.name || '' : null,
       totalAmount: receipt.totalAmount,
@@ -524,6 +552,7 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
         sku: target.sku,
         name: target.name,
         productId: target.item.category === 'ACCESSORY' ? target.productId : undefined,
+        branchProductId: target.branchProductId,
         balanceId: target.item.category === 'ACCESSORY' ? target.balanceRef.id : undefined,
         partId: target.item.category === 'PART' ? target.partId : undefined,
         lotId: target.item.category === 'PART' ? target.lotId : undefined,
@@ -583,6 +612,8 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
         warehouse: receipt.warehouseId,
         supplier: normalizedOrder.supplierName,
         supplierId: receipt.supplierId,
+        supplierPartyMasterId: supplierIdentity.partyMasterId,
+        branchSupplierAccountId: supplierIdentity.branchPartyAccountId,
         receivedDate: receipt.order.orderDate || now.slice(0, 10),
         warrantyPeriodMonths: 12,
         icloudStatus: 'Chưa Check',
@@ -658,6 +689,7 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
       const movementId = `MOV_STOCK_ITEM_RECEIPT_${receipt.order.id}_${index + 1}`;
       if (item.category === 'ACCESSORY') {
         const existingProduct = snapshots.productSnap?.exists ? snapshots.productSnap.data()! : null;
+        const existingBranchProduct = snapshots.branchProductSnap?.exists ? snapshots.branchProductSnap.data()! : null;
         const existingBalance = snapshots.balanceSnap?.exists ? snapshots.balanceSnap.data()! : null;
         const product = withoutUndefined({
           ...(existingProduct || {}),
@@ -696,6 +728,22 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
           createdAt: existingBalance?.createdAt || now
         };
         transaction.set(target.productRef, product);
+        transaction.set(target.branchProductRef, withoutUndefined({
+          ...(existingBranchProduct || {}),
+          id: target.branchProductId,
+          branchId: receipt.branchId,
+          productMasterId: item.catalogItemId,
+          legacyProductId: target.productId,
+          sku: target.sku,
+          name: target.name,
+          retailPrice: item.expectedSellPrice,
+          minimumPrice: Number(existingBranchProduct?.minimumPrice || 0),
+          minStockLevel: Number(existingBranchProduct?.minStockLevel || master.minStockLevel || 0),
+          status: existingBranchProduct?.status || 'ACTIVE',
+          createdAt: existingBranchProduct?.createdAt || now,
+          updatedAt: now,
+          updatedByUid: actor.uid
+        }));
         transaction.set(target.balanceRef, balance);
         transaction.set(db.collection('inventoryMovements').doc(movementId), withoutUndefined({
           id: movementId,
@@ -832,18 +880,71 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
       createdStockItems.push({ id: target.partId, category: item.category, quantity: item.quantity, sku: target.sku });
     });
 
-    const supplier = supplierSnap.data()!;
     const debtTransactions = [
       ...(receipt.paidAmount > 0 ? [{ id: `TX_PAY_${receipt.order.id}`, date: receipt.order.orderDate || now.slice(0, 10), type: 'PAYMENT', amount: receipt.paidAmount, note: `Thanh toán ngay phiếu nhập ${serverOrderCode}`, referenceId: receipt.order.id, referenceCode: serverOrderCode, referenceType: 'PURCHASE_ORDER', fundId: receipt.fundId }] : []),
       { id: `TX_BUY_${receipt.order.id}`, date: receipt.order.orderDate || now.slice(0, 10), type: 'DEBT_INCREASE', amount: receipt.totalAmount, note: `Nhập hàng phiếu ${serverOrderCode}`, referenceId: receipt.order.id, referenceCode: serverOrderCode, referenceType: 'PURCHASE_ORDER' },
       ...(Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : [])
-    ];
+    ].slice(0, 200);
     transaction.update(supplierRef, {
+      partyMasterId: supplierIdentity.partyMasterId,
+      branchPartyAccountId: supplierIdentity.branchPartyAccountId,
       outstandingDebt: Number(supplier.outstandingDebt || 0) + receipt.debtAmount,
       totalPurchasedFrom: Number(supplier.totalPurchasedFrom || 0) + receipt.totalAmount,
       debtTransactions,
       lastInteraction: now.slice(0, 10)
     });
+    if (!partyMasterSnap.exists) {
+      transaction.set(partyMasterRef, newPartyMasterRecord(
+        { id: supplierSnap.id, ...supplier }, supplierIdentity, actor.uid, now
+      ));
+    }
+    const supplierAccount = branchSupplierAccountSnap.exists ? branchSupplierAccountSnap.data()! : null;
+    if (!supplierAccount) {
+      transaction.set(branchSupplierAccountRef, newBranchPartyAccountRecord(
+        { id: supplierSnap.id, ...supplier, totalPurchasedFrom: Number(supplier.totalPurchasedFrom || 0) + receipt.totalAmount },
+        receipt.branchId, supplierIdentity, actor.uid, now,
+        { payableBalance: Number(supplier.outstandingDebt || 0) + receipt.debtAmount }
+      ));
+    } else {
+      transaction.update(branchSupplierAccountRef, {
+        payableBalance: Number(supplierAccount.payableBalance || 0) + receipt.debtAmount,
+        totalPurchases: Number(supplierAccount.totalPurchases || 0) + receipt.totalAmount,
+        updatedAt: now,
+        updatedByUid: actor.uid
+      });
+    }
+    transaction.set(db.collection('debtLedgerEntries').doc(`DLE_PO_${receipt.order.id}_PURCHASE`), debtLedgerEntry({
+      id: `DLE_PO_${receipt.order.id}_PURCHASE`,
+      branchId: receipt.branchId,
+      partyAccountId: supplierIdentity.branchPartyAccountId,
+      partyMasterId: supplierIdentity.partyMasterId,
+      legacyPartnerId: receipt.supplierId,
+      direction: 'PAYABLE',
+      sourceType: 'PURCHASE_ORDER',
+      sourceDocumentId: receipt.order.id,
+      sourceDocumentCode: serverOrderCode,
+      debitIncrease: receipt.totalAmount,
+      actorUid: actor.uid,
+      occurredAt: now,
+      note: `Ghi nhận phải trả từ phiếu nhập ${serverOrderCode}`
+    }));
+    if (receipt.paidAmount > 0) {
+      transaction.set(db.collection('debtLedgerEntries').doc(`DLE_PO_${receipt.order.id}_INITIAL_PAYMENT`), debtLedgerEntry({
+        id: `DLE_PO_${receipt.order.id}_INITIAL_PAYMENT`,
+        branchId: receipt.branchId,
+        partyAccountId: supplierIdentity.branchPartyAccountId,
+        partyMasterId: supplierIdentity.partyMasterId,
+        legacyPartnerId: receipt.supplierId,
+        direction: 'PAYABLE',
+        sourceType: 'PAYMENT',
+        sourceDocumentId: receipt.order.id,
+        sourceDocumentCode: serverOrderCode,
+        creditDecrease: receipt.paidAmount,
+        actorUid: actor.uid,
+        occurredAt: now,
+        note: `Thanh toán ngay phiếu nhập ${serverOrderCode}`
+      }));
+    }
 
     if (receipt.paidAmount > 0) {
       transaction.update(fundRef, {
@@ -941,6 +1042,19 @@ export async function processPayPurchaseOrderDebt(
     const supplierRef = db.collection('partners').doc(String(order.supplierId || ''));
     const supplierSnap = await transaction.get(supplierRef);
     if (!supplierSnap.exists) throw new Error('PURCHASE_SUPPLIER_NOT_FOUND');
+    const supplier = supplierSnap.data()!;
+    assertPartnerForBranch(supplier, branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+    const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplier }, branchId);
+    const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
+    const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
+    const [partyMasterSnap, branchSupplierAccountSnap] = await Promise.all([
+      transaction.get(partyMasterRef), transaction.get(branchSupplierAccountRef)
+    ]);
+    if (branchSupplierAccountSnap.exists) {
+      const account = branchSupplierAccountSnap.data()!;
+      if (String(account.branchId || '') !== branchId) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_BRANCH_MISMATCH');
+      if (!['SUPPLIER', 'BOTH'].includes(String(account.type || '').toUpperCase())) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_TYPE_INVALID');
+    }
     const fundSnapshots = new Map<string, any>();
     for (const allocation of allocations) {
       fundSnapshots.set(allocation.fundId, await transaction.get(db.collection('funds').doc(allocation.fundId)));
@@ -982,6 +1096,8 @@ export async function processPayPurchaseOrderDebt(
         fundName: fund.name,
         date: now,
         partnerId: order.supplierId,
+        partyMasterId: supplierIdentity.partyMasterId,
+        branchPartyAccountId: supplierIdentity.branchPartyAccountId,
         partnerName: order.supplierName,
         partnerType: 'SUPPLIER',
         purchaseOrderId: normalizedOrderId,
@@ -998,7 +1114,6 @@ export async function processPayPurchaseOrderDebt(
       return { ...allocation, fundName: fund.name || '', createdAt: now, createdByUid: actor.uid };
     });
 
-    const supplier = supplierSnap.data()!;
     const supplierOutstandingDebt = Number(supplier.outstandingDebt || 0);
     if (!Number.isFinite(supplierOutstandingDebt) || supplierOutstandingDebt + 1 < paymentAmount) {
       throw new Error('PURCHASE_SUPPLIER_DEBT_MISMATCH');
@@ -1015,16 +1130,54 @@ export async function processPayPurchaseOrderDebt(
       paymentAllocationIds: allocations.map(allocation => allocation.id)
     };
     transaction.update(supplierRef, {
+      partyMasterId: supplierIdentity.partyMasterId,
+      branchPartyAccountId: supplierIdentity.branchPartyAccountId,
       outstandingDebt: Math.max(0, supplierOutstandingDebt - paymentAmount),
-      debtTransactions: [debtTransaction, ...(Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : [])],
+      debtTransactions: [debtTransaction, ...(Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : [])].slice(0, 200),
       lastInteraction: now.slice(0, 10)
     });
+    if (!partyMasterSnap.exists) {
+      transaction.set(partyMasterRef, newPartyMasterRecord({ id: supplierSnap.id, ...supplier }, supplierIdentity, actor.uid, now));
+    }
+    const supplierAccount = branchSupplierAccountSnap.exists ? branchSupplierAccountSnap.data()! : null;
+    if (!supplierAccount) {
+      transaction.set(branchSupplierAccountRef, newBranchPartyAccountRecord(
+        { id: supplierSnap.id, ...supplier }, branchId, supplierIdentity, actor.uid, now,
+        { payableBalance: Math.max(0, supplierOutstandingDebt - paymentAmount) }
+      ));
+    } else {
+      const payableBalance = Number(supplierAccount.payableBalance || 0);
+      if (!Number.isSafeInteger(payableBalance) || payableBalance + 1 < paymentAmount) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
+      transaction.update(branchSupplierAccountRef, {
+        payableBalance: Math.max(0, payableBalance - paymentAmount),
+        updatedAt: now,
+        updatedByUid: actor.uid
+      });
+    }
+    const debtLedgerId = `DLE_PO_${normalizedOrderId}_PAY_${idempotencyId.slice(0, 16).toUpperCase()}`;
+    transaction.set(db.collection('debtLedgerEntries').doc(debtLedgerId), debtLedgerEntry({
+      id: debtLedgerId,
+      branchId,
+      partyAccountId: supplierIdentity.branchPartyAccountId,
+      partyMasterId: supplierIdentity.partyMasterId,
+      legacyPartnerId: String(order.supplierId || ''),
+      direction: 'PAYABLE',
+      sourceType: 'PAYMENT',
+      sourceDocumentId: normalizedOrderId,
+      sourceDocumentCode: String(order.code || normalizedOrderId),
+      creditDecrease: paymentAmount,
+      actorUid: actor.uid,
+      occurredAt: now,
+      note: debtTransaction.note
+    }));
     const updatedOrder = {
       ...order,
       id: orderSnap.id,
       paidAmount: nextPaidAmount,
       debtAmount: nextDebtAmount,
       paymentStatus: nextDebtAmount <= 1 ? 'PAID' : 'PARTIAL',
+      partyMasterId: supplierIdentity.partyMasterId,
+      branchSupplierAccountId: supplierIdentity.branchPartyAccountId,
       paymentAllocations: [...(Array.isArray(order.paymentAllocations) ? order.paymentAllocations : []), ...paymentSnapshots],
       updatedAt: now
     };
@@ -1032,6 +1185,8 @@ export async function processPayPurchaseOrderDebt(
       paidAmount: updatedOrder.paidAmount,
       debtAmount: updatedOrder.debtAmount,
       paymentStatus: updatedOrder.paymentStatus,
+      partyMasterId: supplierIdentity.partyMasterId,
+      branchSupplierAccountId: supplierIdentity.branchPartyAccountId,
       paymentAllocations: updatedOrder.paymentAllocations,
       updatedAt: now
     });
@@ -1073,6 +1228,18 @@ export async function processCancelPurchaseOrderReceipt(
       .filter(doc => doc.data().status !== 'CANCELLED');
     const supplierRef = order.supplierId ? db.collection('partners').doc(String(order.supplierId)) : null;
     const supplierSnap: any = supplierRef ? await transaction.get(supplierRef) : null;
+    if (!supplierRef || !supplierSnap?.exists) throw new Error('PURCHASE_SUPPLIER_NOT_FOUND');
+    const supplierData = supplierSnap.data()!;
+    assertPartnerForBranch(supplierData, branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+    const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplierData }, branchId);
+    const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
+    const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
+    const [partyMasterSnap, branchSupplierAccountSnap] = await Promise.all([
+      transaction.get(partyMasterRef), transaction.get(branchSupplierAccountRef)
+    ]);
+    if (branchSupplierAccountSnap.exists && String(branchSupplierAccountSnap.data()?.branchId || '') !== branchId) {
+      throw new Error('PURCHASE_SUPPLIER_ACCOUNT_BRANCH_MISMATCH');
+    }
     const refundByFund = new Map<string, number>();
     activePaymentDocs.forEach(paymentDoc => {
       const fundId = String(paymentDoc.data()?.fundId || '');
@@ -1208,7 +1375,7 @@ export async function processCancelPurchaseOrderReceipt(
     }));
 
     if (supplierRef && supplierSnap?.exists) {
-      const supplier = supplierSnap.data();
+      const supplier = supplierData;
       const orderDebt = Number(order.debtAmount || 0);
       const supplierOutstandingDebt = Number(supplier.outstandingDebt || 0);
       if (!Number.isFinite(supplierOutstandingDebt) || supplierOutstandingDebt + 1 < orderDebt) {
@@ -1216,11 +1383,67 @@ export async function processCancelPurchaseOrderReceipt(
       }
       const referenceIds = new Set([normalizedOrderId, String(order.code || '')]);
       transaction.update(supplierRef, {
+        partyMasterId: supplierIdentity.partyMasterId,
+        branchPartyAccountId: supplierIdentity.branchPartyAccountId,
         outstandingDebt: Math.max(0, supplierOutstandingDebt - orderDebt),
         totalPurchasedFrom: Math.max(0, Number(supplier.totalPurchasedFrom || 0) - Number(order.totalAmount || 0)),
         debtTransactions: (Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : []).filter((item: any) => !referenceIds.has(String(item.referenceId || ''))),
         lastInteraction: now.slice(0, 10)
       });
+      if (!partyMasterSnap.exists) {
+        transaction.set(partyMasterRef, newPartyMasterRecord({ id: supplierSnap.id, ...supplier }, supplierIdentity, actor.uid, now));
+      }
+      const account = branchSupplierAccountSnap.exists ? branchSupplierAccountSnap.data()! : null;
+      if (!account) {
+        transaction.set(branchSupplierAccountRef, newBranchPartyAccountRecord(
+          { id: supplierSnap.id, ...supplier, totalPurchasedFrom: Math.max(0, Number(supplier.totalPurchasedFrom || 0) - Number(order.totalAmount || 0)) },
+          branchId, supplierIdentity, actor.uid, now,
+          { payableBalance: Math.max(0, supplierOutstandingDebt - orderDebt) }
+        ));
+      } else {
+        const payableBalance = Number(account.payableBalance || 0);
+        if (!Number.isSafeInteger(payableBalance) || payableBalance + 1 < orderDebt) throw new Error('PURCHASE_CANCEL_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
+        transaction.update(branchSupplierAccountRef, {
+          payableBalance: Math.max(0, payableBalance - orderDebt),
+          totalPurchases: Math.max(0, Number(account.totalPurchases || 0) - Number(order.totalAmount || 0)),
+          updatedAt: now,
+          updatedByUid: actor.uid
+        });
+      }
+      transaction.set(db.collection('debtLedgerEntries').doc(`DLE_PO_${normalizedOrderId}_REV_PURCHASE`), debtLedgerEntry({
+        id: `DLE_PO_${normalizedOrderId}_REV_PURCHASE`,
+        branchId,
+        partyAccountId: supplierIdentity.branchPartyAccountId,
+        partyMasterId: supplierIdentity.partyMasterId,
+        legacyPartnerId: String(order.supplierId),
+        direction: 'PAYABLE',
+        sourceType: 'REFUND',
+        sourceDocumentId: normalizedOrderId,
+        sourceDocumentCode: String(order.code || normalizedOrderId),
+        creditDecrease: Number(order.totalAmount || 0),
+        actorUid: actor.uid,
+        occurredAt: now,
+        reversalOf: `DLE_PO_${normalizedOrderId}_PURCHASE`,
+        note: reason || `Hủy phiếu nhập ${order.code || normalizedOrderId}`
+      }));
+      const refundedPaymentAmount = [...refundByFund.values()].reduce((sum, amount) => sum + amount, 0);
+      if (refundedPaymentAmount > 0) {
+        transaction.set(db.collection('debtLedgerEntries').doc(`DLE_PO_${normalizedOrderId}_REV_PAYMENTS`), debtLedgerEntry({
+          id: `DLE_PO_${normalizedOrderId}_REV_PAYMENTS`,
+          branchId,
+          partyAccountId: supplierIdentity.branchPartyAccountId,
+          partyMasterId: supplierIdentity.partyMasterId,
+          legacyPartnerId: String(order.supplierId),
+          direction: 'PAYABLE',
+          sourceType: 'REFUND',
+          sourceDocumentId: normalizedOrderId,
+          sourceDocumentCode: String(order.code || normalizedOrderId),
+          debitIncrease: refundedPaymentAmount,
+          actorUid: actor.uid,
+          occurredAt: now,
+          note: `Hoàn các khoản đã thanh toán khi hủy phiếu ${order.code || normalizedOrderId}`
+        }));
+      }
     }
     for (const [fundId, refundAmount] of refundByFund) {
       const fundSnap = fundSnapshots.get(fundId);
@@ -1246,6 +1469,8 @@ export async function processCancelPurchaseOrderReceipt(
       cancelledAt: now,
       cancelledByUid: actor.uid,
       cancellationReason: reason || 'Hủy phiếu nhập hàng',
+      partyMasterId: supplierIdentity.partyMasterId,
+      branchSupplierAccountId: supplierIdentity.branchPartyAccountId,
       updatedAt: now
     };
     transaction.update(orderRef, {
@@ -1254,6 +1479,8 @@ export async function processCancelPurchaseOrderReceipt(
       cancelledAt: now,
       cancelledByUid: actor.uid,
       cancellationReason: reason || 'Hủy phiếu nhập hàng',
+      partyMasterId: supplierIdentity.partyMasterId,
+      branchSupplierAccountId: supplierIdentity.branchPartyAccountId,
       updatedAt: now
     });
     return { order: cancelledOrder, removedDeviceIds };
