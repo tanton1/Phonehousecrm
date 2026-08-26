@@ -5,6 +5,7 @@ import { catalogApi } from '../services/catalogApiClient';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { HelpHint } from './HelpHint';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
+import { purchaseErrorMessage } from '../utils/purchaseErrors';
 
 type DraftLine = {
   key: string;
@@ -86,7 +87,14 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
   const draftHydratedRef = useRef(false);
   const skipPaymentSyncRef = useRef(false);
 
-  const suppliers = useMemo(() => partners.filter(partner => partner.type === 'SUPPLIER' || partner.type === 'BOTH'), [partners]);
+  const canAdoptLegacySupplier = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER']
+    .includes(String(currentUser?.role || '').toUpperCase());
+  const suppliers = useMemo(() => partners.filter(partner => {
+    if (partner.type !== 'SUPPLIER' && partner.type !== 'BOTH') return false;
+    const partnerBranchId = String(partner.branchId || '').trim();
+    if (partnerBranchId === branchId) return true;
+    return canAdoptLegacySupplier && (!partnerBranchId || partnerBranchId === 'ALL');
+  }), [branchId, canAdoptLegacySupplier, partners]);
   const activeWarehouses = useMemo(() => warehouses.filter(warehouse => warehouse.branchId === branchId && isWarehouseActive(warehouse)), [warehouses, branchId]);
   const selectedItems = useMemo(() => new Map(catalog.map(item => [item.id, item])), [catalog]);
   const visibleCatalog = useMemo(() => catalog.filter(item => searchable(item, query)), [catalog, query]);
@@ -166,7 +174,6 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
   }, [receiptWarehouses, warehouseId, warehouses.length]);
 
   useEffect(() => {
-    if (!suppliers.length) return;
     if (!suppliers.some(supplier => supplier.id === supplierId)) setSupplierId(suppliers[0]?.id || '');
   }, [supplierId, suppliers]);
 
@@ -339,7 +346,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
       removeBrowserDraft(receiptDraftKey);
       onClose();
     } catch (submitError: any) {
-      setError(submitError?.message || 'Không thể tạo phiếu nhập. Dữ liệu chưa được ghi.');
+      setError(purchaseErrorMessage(submitError));
     } finally {
       setSubmitting(false);
     }
@@ -369,7 +376,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="text-xs font-bold text-zinc-700">Chi nhánh<select value={branchId} onChange={event => setBranchId(event.target.value)} disabled={currentUser?.role !== 'ADMIN'} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn chi nhánh</option>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
               <label className="text-xs font-bold text-zinc-700">Kho nhận<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn kho</option>{receiptWarehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.type === 'CENTRAL' ? ' · Kho Tổng' : ''}</option>)}</select></label>
-              <label className="text-xs font-bold text-zinc-700">Nhà cung cấp<select value={supplierId} onChange={event => setSupplierId(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn nhà cung cấp</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
+              <label className="text-xs font-bold text-zinc-700">Nhà cung cấp<select value={supplierId} onChange={event => setSupplierId(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn nhà cung cấp</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}{!supplier.branchId || supplier.branchId === 'ALL' ? ' · dữ liệu cũ, sẽ gắn chi nhánh' : ''}</option>)}</select></label>
             </div>
             <label className="block text-xs font-bold text-zinc-700">Ghi chú phiếu<textarea value={notes} onChange={event => setNotes(event.target.value)} rows={3} className="mt-1 w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm font-medium" placeholder="Ví dụ: Hóa đơn NCC, điều kiện bảo hành, ghi chú giao nhận..." /></label>
             <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 text-xs leading-5 text-sky-900"><b>Quy tắc kho:</b> Linh kiện nhập từ nhà cung cấp phải vào Kho Tổng. Phụ kiện có thể nhận trực tiếp vào kho bán lẻ.</div>

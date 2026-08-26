@@ -190,7 +190,10 @@ export function subscribeToPartners(onData: (partners: Partner[]) => void, branc
     (snapshot) => {
       const items: Partner[] = [];
       snapshot.forEach((doc) => {
-        const partner = doc.data() as Partner & { isActive?: boolean; isArchived?: boolean };
+        // The Firestore document ID is authoritative. Legacy records can carry
+        // a stale embedded `id`; letting it win would make the form submit a
+        // different supplier document than the one shown on screen.
+        const partner = { ...doc.data(), id: doc.id } as Partner & { isActive?: boolean; isArchived?: boolean };
         if (partner.isActive !== false && partner.isArchived !== true) items.push(partner);
       });
       onData(items);

@@ -114,6 +114,107 @@ function canAccessBranch(actor: InventoryActor, branchId: string): boolean {
   return role === 'ADMIN' || role === 'REGIONAL_MANAGER' || actor.branchId === branchId || (actor.assignedBranchIds || []).includes(branchId);
 }
 
+const LEGACY_SUPPLIER_ADOPTION_ROLES = new Set([
+  'ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER'
+]);
+
+type PurchaseSupplierResolution = {
+  supplier: any;
+  shouldAdoptBranch: boolean;
+};
+
+/**
+ * Older partner documents predate branch ownership. They must never be
+ * silently accepted by weakening `assertPartnerForBranch`, because that would
+ * reopen cross-branch debt and cashbook writes. Instead, an elevated actor may
+ * adopt a legacy supplier only when every existing account/purchase reference
+ * resolves to the same target branch. The caller persists the adoption later,
+ * after every transaction read has completed.
+ */
+async function resolvePurchaseSupplierForBranch(
+  db: Firestore,
+  transaction: any,
+  supplierSnap: any,
+  branchId: string,
+  actor: InventoryActor
+): Promise<PurchaseSupplierResolution> {
+  const original = supplierSnap.data()!;
+  const currentBranchId = String(original.branchId || '').trim();
+  if (currentBranchId && currentBranchId !== 'ALL') {
+    assertPartnerForBranch(original, branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+    return { supplier: original, shouldAdoptBranch: false };
+  }
+
+  const actorRole = String(actor.role || '').trim().toUpperCase();
+  if (!LEGACY_SUPPLIER_ADOPTION_ROLES.has(actorRole)) {
+    throw new Error('PURCHASE_SUPPLIER_LEGACY_BRANCH_REQUIRES_MANAGER');
+  }
+
+  const accountQuery = db.collection('branchPartyAccounts')
+    .where('legacyPartnerId', '==', supplierSnap.id)
+    .limit(101);
+  const purchaseQuery = db.collection('purchaseOrders')
+    .where('supplierId', '==', supplierSnap.id)
+    .limit(101);
+  const directAccountId = String(original.branchPartyAccountId || '').trim();
+  const [accountSnapshot, purchaseSnapshot, directAccountSnapshot] = await Promise.all([
+    transaction.get(accountQuery),
+    transaction.get(purchaseQuery),
+    directAccountId
+      ? transaction.get(db.collection('branchPartyAccounts').doc(directAccountId))
+      : Promise.resolve(null)
+  ]);
+  if (accountSnapshot.size > 100 || purchaseSnapshot.size > 100) {
+    throw new Error('PURCHASE_SUPPLIER_LEGACY_HISTORY_REVIEW_REQUIRED');
+  }
+
+  const knownBranches = new Set<string>();
+  const addConcreteBranch = (value: unknown) => {
+    const normalized = String(value || '').trim();
+    if (normalized && normalized !== 'ALL') knownBranches.add(normalized);
+  };
+  accountSnapshot.docs.forEach((doc: any) => addConcreteBranch(doc.data()?.branchId));
+  if (directAccountSnapshot?.exists) addConcreteBranch(directAccountSnapshot.data()?.branchId);
+
+  const unresolvedPurchases = purchaseSnapshot.docs.filter((doc: any) => {
+    const purchaseBranchId = String(doc.data()?.branchId || '').trim();
+    if (purchaseBranchId && purchaseBranchId !== 'ALL') {
+      knownBranches.add(purchaseBranchId);
+      return false;
+    }
+    return true;
+  });
+  const warehouseIds = [...new Set<string>(unresolvedPurchases
+    .map((doc: any) => String(doc.data()?.warehouseId || '').trim())
+    .filter(Boolean))];
+  const warehouseSnapshots = await Promise.all(
+    warehouseIds.map(warehouseId => transaction.get(db.collection('warehouses').doc(warehouseId)))
+  );
+  const warehouseBranchById = new Map<string, string>();
+  warehouseSnapshots.forEach((snapshot: any) => {
+    if (snapshot.exists) warehouseBranchById.set(snapshot.id, String(snapshot.data()?.branchId || '').trim());
+  });
+  const stillUnresolved = unresolvedPurchases.filter((doc: any) => {
+    const resolvedBranchId = warehouseBranchById.get(String(doc.data()?.warehouseId || '').trim()) || '';
+    addConcreteBranch(resolvedBranchId);
+    return !resolvedBranchId || resolvedBranchId === 'ALL';
+  });
+
+  if ([...knownBranches].some(linkedBranchId => linkedBranchId !== branchId)) {
+    throw new Error('PURCHASE_SUPPLIER_BRANCH_MISMATCH');
+  }
+  const hasLegacyFinancialSignals = Number(original.outstandingDebt || 0) !== 0
+    || Number(original.totalPurchasedFrom || 0) !== 0
+    || (Array.isArray(original.debtTransactions) && original.debtTransactions.length > 0);
+  if (stillUnresolved.length > 0 || (hasLegacyFinancialSignals && knownBranches.size === 0)) {
+    throw new Error('PURCHASE_SUPPLIER_LEGACY_HISTORY_REVIEW_REQUIRED');
+  }
+
+  const supplier = { ...original, branchId };
+  assertPartnerForBranch(supplier, branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+  return { supplier, shouldAdoptBranch: true };
+}
+
 /** Keep optional Product Master references safe for Firestore writes. */
 function optionalCatalogReference(value: unknown): string | undefined {
   const normalized = String(value || '').trim();
@@ -390,8 +491,8 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
     if (warehouse.isActive === false || warehouse.active === false || warehouse.isArchived === true) throw new Error('PURCHASE_WAREHOUSE_INACTIVE');
     if (String(warehouse.branchId || '') !== receipt.branchId) throw new Error('PURCHASE_WAREHOUSE_BRANCH_MISMATCH');
     if (!supplierSnap.exists) throw new Error('PURCHASE_SUPPLIER_NOT_FOUND');
-    const supplier = supplierSnap.data()!;
-    assertPartnerForBranch(supplier, receipt.branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+    const supplierResolution = await resolvePurchaseSupplierForBranch(db, transaction, supplierSnap, receipt.branchId, actor);
+    const supplier = supplierResolution.supplier;
     const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplier }, receipt.branchId);
     const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
     const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
@@ -886,6 +987,11 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
       ...(Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : [])
     ].slice(0, 200);
     transaction.update(supplierRef, {
+      ...(supplierResolution.shouldAdoptBranch ? {
+        branchId: receipt.branchId,
+        legacyBranchAdoptedAt: now,
+        legacyBranchAdoptedByUid: actor.uid
+      } : {}),
       partyMasterId: supplierIdentity.partyMasterId,
       branchPartyAccountId: supplierIdentity.branchPartyAccountId,
       outstandingDebt: Number(supplier.outstandingDebt || 0) + receipt.debtAmount,
@@ -1042,8 +1148,8 @@ export async function processPayPurchaseOrderDebt(
     const supplierRef = db.collection('partners').doc(String(order.supplierId || ''));
     const supplierSnap = await transaction.get(supplierRef);
     if (!supplierSnap.exists) throw new Error('PURCHASE_SUPPLIER_NOT_FOUND');
-    const supplier = supplierSnap.data()!;
-    assertPartnerForBranch(supplier, branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+    const supplierResolution = await resolvePurchaseSupplierForBranch(db, transaction, supplierSnap, branchId, actor);
+    const supplier = supplierResolution.supplier;
     const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplier }, branchId);
     const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
     const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
@@ -1130,6 +1236,11 @@ export async function processPayPurchaseOrderDebt(
       paymentAllocationIds: allocations.map(allocation => allocation.id)
     };
     transaction.update(supplierRef, {
+      ...(supplierResolution.shouldAdoptBranch ? {
+        branchId,
+        legacyBranchAdoptedAt: now,
+        legacyBranchAdoptedByUid: actor.uid
+      } : {}),
       partyMasterId: supplierIdentity.partyMasterId,
       branchPartyAccountId: supplierIdentity.branchPartyAccountId,
       outstandingDebt: Math.max(0, supplierOutstandingDebt - paymentAmount),
@@ -1229,8 +1340,8 @@ export async function processCancelPurchaseOrderReceipt(
     const supplierRef = order.supplierId ? db.collection('partners').doc(String(order.supplierId)) : null;
     const supplierSnap: any = supplierRef ? await transaction.get(supplierRef) : null;
     if (!supplierRef || !supplierSnap?.exists) throw new Error('PURCHASE_SUPPLIER_NOT_FOUND');
-    const supplierData = supplierSnap.data()!;
-    assertPartnerForBranch(supplierData, branchId, ['SUPPLIER', 'BOTH'], 'PURCHASE_SUPPLIER');
+    const supplierResolution = await resolvePurchaseSupplierForBranch(db, transaction, supplierSnap, branchId, actor);
+    const supplierData = supplierResolution.supplier;
     const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplierData }, branchId);
     const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
     const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
@@ -1383,6 +1494,11 @@ export async function processCancelPurchaseOrderReceipt(
       }
       const referenceIds = new Set([normalizedOrderId, String(order.code || '')]);
       transaction.update(supplierRef, {
+        ...(supplierResolution.shouldAdoptBranch ? {
+          branchId,
+          legacyBranchAdoptedAt: now,
+          legacyBranchAdoptedByUid: actor.uid
+        } : {}),
         partyMasterId: supplierIdentity.partyMasterId,
         branchPartyAccountId: supplierIdentity.branchPartyAccountId,
         outstandingDebt: Math.max(0, supplierOutstandingDebt - orderDebt),

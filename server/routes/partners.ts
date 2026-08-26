@@ -66,7 +66,7 @@ export function createPartnersRouter(db: Firestore | null): Router {
       if (!canAccessBranch(req.user, branchId)) throw new Error('PARTNER_BRANCH_FORBIDDEN');
       const snapshot = await db.collection('branchPartyAccounts').where('branchId', '==', branchId).limit(300).get();
       const accounts = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .map(doc => ({ ...doc.data(), id: doc.id }))
         .filter((account: any) => account.status === 'ACTIVE')
         .filter((account: any) => !requestedType || account.type === requestedType || account.type === 'BOTH');
       return res.json({ success: true, accounts });

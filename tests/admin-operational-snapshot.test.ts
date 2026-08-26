@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeOperationalSnapshotLimit, redactOperationalUser } from '../server/routes/admin';
+import { normalizeOperationalSnapshotLimit, operationalDocumentProjection, redactOperationalUser } from '../server/routes/admin';
 
 describe('admin operational snapshot boundary', () => {
   it('uses a bounded page size for every request', () => {
@@ -35,5 +35,12 @@ describe('admin operational snapshot boundary', () => {
     expect(safe).not.toHaveProperty('biometricProfile');
     expect(safe).not.toHaveProperty('accessToken');
     expect(safe).not.toHaveProperty('refreshToken');
+  });
+
+  it('uses the Firestore path ID instead of a stale embedded partner ID', () => {
+    expect(operationalDocumentProjection({
+      id: 'SUP_PH109',
+      data: () => ({ id: 'SUP_LEGACY', branchId: 'PH109', name: 'Vũ Thanh' })
+    })).toMatchObject({ id: 'SUP_PH109', branchId: 'PH109', name: 'Vũ Thanh' });
   });
 });

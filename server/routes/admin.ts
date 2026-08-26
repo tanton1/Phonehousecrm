@@ -62,6 +62,12 @@ export function redactOperationalUser(input: Record<string, any>): Record<string
   return redacted;
 }
 
+export function operationalDocumentProjection(document: { id: string; data: () => Record<string, any> }): Record<string, any> {
+  // Never let an old embedded `id` override the actual Firestore path. Doing
+  // so can make ADMIN/ALL select one row while financial APIs load another.
+  return { ...document.data(), id: document.id };
+}
+
 async function readOperationalSnapshotCollection(
   db: Firestore,
   collectionName: OperationalSnapshotCollection,
@@ -75,7 +81,7 @@ async function readOperationalSnapshotCollection(
   const total = Number(countSnapshot.data().count || 0);
   const items = pageSnapshot.docs
     .map(document => {
-      const raw = { id: document.id, ...document.data() };
+      const raw = operationalDocumentProjection(document);
       const safe = collectionName === 'users' ? redactOperationalUser(raw) : raw;
       return serializeFirestoreValue(safe);
     })

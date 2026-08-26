@@ -16,6 +16,48 @@ function validOrder(overrides: Record<string, any> = {}) {
   };
 }
 
+function createQueryAwarePurchaseDb(seed: Record<string, any>) {
+  type Ref = { kind: 'ref'; col: string; id: string };
+  type Query = { kind: 'query'; col: string; filters: Array<{ field: string; value: any }>; limitCount?: number; limit: (count: number) => Query };
+  const data = new Map<string, any>(Object.entries(seed));
+  const ref = (col: string, id: string): Ref => ({ kind: 'ref', col, id });
+  const snap = (target: Ref) => ({
+    id: target.id,
+    ref: target,
+    exists: data.has(`${target.col}/${target.id}`),
+    data: () => data.get(`${target.col}/${target.id}`)
+  });
+  const querySnapshot = (target: Query) => {
+    const docs = [...data.entries()]
+      .filter(([key, value]) => key.startsWith(`${target.col}/`) && target.filters.every(filter => value?.[filter.field] === filter.value))
+      .slice(0, target.limitCount || Number.MAX_SAFE_INTEGER)
+      .map(([key]) => snap(ref(target.col, key.slice(target.col.length + 1))));
+    return { docs, size: docs.length, empty: docs.length === 0 };
+  };
+  const db: any = {
+    collection: (col: string) => ({
+      doc: (id: string) => ref(col, id),
+      where: (field: string, _operator: string, value: any) => {
+        const target: Query = {
+          kind: 'query', col, filters: [{ field, value }],
+          limit: (count: number) => ({ ...target, limitCount: count })
+        };
+        return target;
+      }
+    }),
+    runTransaction: async (callback: any) => callback({
+      get: async (target: Ref | Query) => target.kind === 'query' ? querySnapshot(target) : snap(target),
+      set: (target: Ref, value: any, options?: { merge?: boolean }) => {
+        const key = `${target.col}/${target.id}`;
+        data.set(key, options?.merge ? { ...data.get(key), ...value } : { ...value });
+      },
+      update: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...data.get(`${target.col}/${target.id}`), ...value }),
+      delete: (target: Ref) => data.delete(`${target.col}/${target.id}`)
+    })
+  };
+  return { db, data };
+}
+
 describe('Atomic supplier purchase receipt validation', () => {
   it('requires one concrete warehouse instead of a system-wide fallback', () => {
     expect(() => validatePurchaseReceiptInput({ order: validOrder({ warehouseId: 'ALL' }) }, actor)).toThrow('PURCHASE_WAREHOUSE_REQUIRED');
@@ -150,6 +192,39 @@ describe('Atomic supplier purchase receipt validation', () => {
       model: 'iPhone 15 Pro'
     });
     expect(data.get('purchaseOrders/PO_01').items[0]).toMatchObject({ catalogItemId: 'CAT_IP15PM_256_NAT', catalogModelCode: 'IP15PM' });
+  });
+
+  it('safely adopts an unused legacy supplier into the receipt branch', async () => {
+    const { db, data } = createQueryAwarePurchaseDb({
+      'warehouses/KHO_CN01': { id: 'KHO_CN01', branchId: 'CN01', name: 'Kho CN01', isActive: true },
+      'partners/SUP_01': { id: 'SUP_01', type: 'SUPPLIER', name: 'NCC cũ', phone: '0905000001', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] },
+      'funds/FUND_CN01': { id: 'FUND_CN01', name: 'Tiền mặt CN01', branchId: 'CN01', type: 'CASH', currentBalance: 30_000_000, totalExpense: 0, isActive: true }
+    });
+
+    await processPurchaseOrderReceipt(db, { order: validOrder() }, actor);
+
+    expect(data.get('partners/SUP_01')).toMatchObject({
+      branchId: 'CN01',
+      partyMasterId: expect.stringMatching(/^PTY_/),
+      branchPartyAccountId: expect.stringMatching(/^BPA_/)
+    });
+    expect([...data.entries()].find(([key]) => key.startsWith('branchPartyAccounts/'))?.[1]).toMatchObject({
+      branchId: 'CN01', legacyPartnerId: 'SUP_01', type: 'SUPPLIER'
+    });
+  });
+
+  it('never adopts a legacy supplier that is already referenced by another branch', async () => {
+    const { db, data } = createQueryAwarePurchaseDb({
+      'warehouses/KHO_CN01': { id: 'KHO_CN01', branchId: 'CN01', name: 'Kho CN01', isActive: true },
+      'partners/SUP_01': { id: 'SUP_01', type: 'SUPPLIER', name: 'NCC cũ', phone: '0905000001', outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] },
+      'purchaseOrders/PO_OLD_CN02': { id: 'PO_OLD_CN02', supplierId: 'SUP_01', branchId: 'CN02', warehouseId: 'KHO_CN02' },
+      'funds/FUND_CN01': { id: 'FUND_CN01', name: 'Tiền mặt CN01', branchId: 'CN01', type: 'CASH', currentBalance: 30_000_000, totalExpense: 0, isActive: true }
+    });
+
+    await expect(processPurchaseOrderReceipt(db, { order: validOrder() }, actor))
+      .rejects.toThrow('PURCHASE_SUPPLIER_BRANCH_MISMATCH');
+    expect(data.get('partners/SUP_01').branchId).toBeUndefined();
+    expect(data.has('purchaseOrders/PO_01')).toBe(false);
   });
 
   it('posts a part receipt with its purchase order, supplier ledger and part lot in one transaction', async () => {

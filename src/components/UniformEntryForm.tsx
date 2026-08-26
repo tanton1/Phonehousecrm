@@ -12,6 +12,7 @@ import { CreatePartnerModal } from './CreatePartnerModal';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { catalogApi } from '../services/catalogApiClient';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
+import { purchaseErrorMessage } from '../utils/purchaseErrors';
 
 interface UniformEntryFormProps {
   isOpen: boolean;
@@ -206,7 +207,14 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     void loadCatalogPage(effectiveCatalogSearch, catalogNextCursor, true);
   };
 
-  const suppliers = useMemo(() => partners.filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH'), [partners]);
+  const canAdoptLegacySupplier = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER']
+    .includes(String(currentUser?.role || '').toUpperCase());
+  const suppliers = useMemo(() => partners.filter(partner => {
+    if (partner.type !== 'SUPPLIER' && partner.type !== 'BOTH') return false;
+    const partnerBranchId = String(partner.branchId || '').trim();
+    if (partnerBranchId === watchBranchId) return true;
+    return canAdoptLegacySupplier && (!partnerBranchId || partnerBranchId === 'ALL');
+  }), [canAdoptLegacySupplier, partners, watchBranchId]);
   const branchWarehouses = useMemo(
     () => warehouses.filter(warehouse => warehouse.branchId === watchBranchId && isWarehouseActive(warehouse)),
     [warehouses, watchBranchId]
@@ -240,7 +248,6 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   }, [branchWarehouses, warehouses.length, watchWarehouseId, setValue]);
 
   useEffect(() => {
-    if (!suppliers.length) return;
     const currentSupplierId = String(watchedFormValues?.supplierId || '');
     if (!suppliers.some(supplier => supplier.id === currentSupplierId)) {
       setValue('supplierId', suppliers[0]?.id || '');
@@ -517,7 +524,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         removeBrowserDraft(entryDraftKey);
         onClose();
       } catch (error: any) {
-        alert(error?.message || 'Không thể tạo phiếu nhập. Không có dữ liệu nào được ghi.');
+        alert(purchaseErrorMessage(error));
       } finally {
         setIsSubmitting(false);
       }
@@ -905,7 +912,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             >
               <option value="">-- Chọn Nhà Cung Cấp --</option>
               {suppliers.map(s => (
-                <option key={s.id} value={s.id}>{s.name} ({s.phone || 'N/A'})</option>
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.phone || 'N/A'}){!s.branchId || s.branchId === 'ALL' ? ' · dữ liệu cũ, sẽ gắn chi nhánh' : ''}
+                </option>
               ))}
             </select>
           </div>
