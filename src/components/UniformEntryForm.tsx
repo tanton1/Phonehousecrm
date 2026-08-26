@@ -473,7 +473,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           imeiList: imeis,
           quantity: imeis.length,
           importPrice: Number(item.buyPrice) || 0,
-          expectedSellPrice: item.buyPrice * 1.1, 
+          // Firestore money fields are whole VND. Multiplying by 1.1 can
+          // produce binary artifacts such as 6820.000000000001.
+          expectedSellPrice: Math.round((Number(item.buyPrice) || 0) * 1.1),
           totalAmount: imeis.length * (Number(item.buyPrice) || 0)
         };
       }).filter(item => item.quantity > 0);

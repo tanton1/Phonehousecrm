@@ -113,6 +113,18 @@ function optionalCatalogReference(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
+/**
+ * Money is stored as whole VND. Accept only tiny IEEE-754 artifacts produced
+ * by client-side percentage calculations; real fractional amounts still fail
+ * the existing integer validation below.
+ */
+function normalizeWholeVndArtifact(value: unknown): number {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return amount;
+  const rounded = Math.round(amount);
+  return Math.abs(amount - rounded) <= 1e-6 ? rounded : amount;
+}
+
 function deterministicId(prefix: string, value: string, length = 24): string {
   return `${prefix}_${crypto.createHash('sha256').update(value).digest('hex').slice(0, length).toUpperCase()}`;
 }
@@ -213,8 +225,8 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
       const catalogItemId = String(item.catalogItemId || '').trim();
       const category = String(item.catalogCategory || '').toUpperCase();
       const quantity = Number(item.quantity);
-      const unitCost = Number(item.importPrice);
-      const expectedSellPrice = Number(item.expectedSellPrice ?? item.importPrice);
+      const unitCost = normalizeWholeVndArtifact(item.importPrice);
+      const expectedSellPrice = normalizeWholeVndArtifact(item.expectedSellPrice ?? item.importPrice);
       if (!catalogItemId || !['PART', 'ACCESSORY'].includes(category)) throw new Error('PURCHASE_STOCK_ITEM_CATALOG_REQUIRED');
       if (!Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 10000) throw new Error('PURCHASE_STOCK_ITEM_QUANTITY_INVALID');
       if (!Number.isSafeInteger(unitCost) || unitCost < 0 || !Number.isSafeInteger(expectedSellPrice) || expectedSellPrice < 0) {
@@ -254,8 +266,8 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
         region: item.region || '',
         condition: item.condition || 'Like New 99%',
         batteryHealth: Number(item.batteryHealth ?? 100),
-        buyPrice: Number(item.importPrice),
-        sellPrice: Number(item.expectedSellPrice ?? item.importPrice)
+        buyPrice: normalizeWholeVndArtifact(item.importPrice),
+        sellPrice: normalizeWholeVndArtifact(item.expectedSellPrice ?? item.importPrice)
       });
     }
   }
@@ -268,7 +280,7 @@ export function validatePurchaseReceiptInput(input: any, actor: InventoryActor):
     !Number.isSafeInteger(device.buyPrice) || device.buyPrice < 0 ||
     !Number.isSafeInteger(device.sellPrice) || device.sellPrice < 0 ||
     !Number.isFinite(device.batteryHealth) || Number(device.batteryHealth) < 0 || Number(device.batteryHealth) > 100
-  )) throw new Error('PURCHASE_DEVICE_DATA_INVALID');
+  )) throw new Error('PURCHASE_DEVICE_DATA_INVALID: Kiểm tra tên máy, giá nhập/giá bán phải là số nguyên VNĐ và pin phải từ 0 đến 100.');
   const calculatedTotal = deviceDrafts.reduce((sum, device) => sum + device.buyPrice, 0)
     + stockItems.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
   if (Math.abs(calculatedTotal - Number(order.subTotal ?? calculatedTotal)) > 1) throw new Error('PURCHASE_ITEM_TOTAL_MISMATCH');

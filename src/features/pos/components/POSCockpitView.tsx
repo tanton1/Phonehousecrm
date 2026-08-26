@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { DeviceItem, ProductItem, FundAccount, Partner, StoreBranch, StaffMember, SalesInvoice, CashTransaction } from '../../../types';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { DeviceItem, ProductItem, FundAccount, Partner, StoreBranch, StaffMember, SalesInvoice, CashTransaction, WarehouseInfo } from '../../../types';
 import { ProductSearchPanel } from './ProductSearchPanel';
 import { CartPanel } from './CartPanel';
 import { PaymentPanel } from './PaymentPanel';
@@ -19,6 +19,9 @@ export interface POSCockpitViewProps {
   funds: FundAccount[];
   partners: Partner[];
   currentBranch: StoreBranch;
+  warehouses: WarehouseInfo[];
+  selectedWarehouseId: string;
+  onWarehouseChange: (warehouseId: string) => void;
   currentUser?: StaffMember | null;
   preSelectedDevice?: DeviceItem | null;
   initialCustomer?: { name?: string; phone?: string } | null;
@@ -58,6 +61,9 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   funds,
   partners,
   currentBranch,
+  warehouses,
+  selectedWarehouseId,
+  onWarehouseChange,
   currentUser,
   preSelectedDevice,
   initialCustomer,
@@ -92,6 +98,13 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const [receiptData, setReceiptData] = useState<any | null>(null);
   const posDraftKey = browserDraftKey('pos', currentUser?.id, currentBranch.id);
   const hydratedDraftKeyRef = useRef('');
+  const currentWarehouse = useMemo(
+    () => warehouses.find(warehouse => String(warehouse.id) === selectedWarehouseId),
+    [selectedWarehouseId, warehouses]
+  );
+  const warehouseScopedDevices = useMemo(() => devices.filter(device => (
+    String(device.currentLocationId || device.warehouseId || device.warehouse || '') === selectedWarehouseId
+  )), [devices, selectedWarehouseId]);
 
   useEffect(() => {
     if (hydratedDraftKeyRef.current === posDraftKey) return;
@@ -113,6 +126,16 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
     setMobileTab(saved?.mobileTab || 'PRODUCTS');
     hydratedDraftKeyRef.current = posDraftKey;
   }, [posDraftKey]);
+
+  useEffect(() => {
+    const selectedLocations = [...new Set(selectedDevices
+      .map(device => String(device.currentLocationId || device.warehouseId || device.warehouse || ''))
+      .filter(Boolean))];
+    if (selectedLocations.length !== 1 || selectedLocations[0] === selectedWarehouseId) return;
+    if (warehouses.some(warehouse => String(warehouse.id) === selectedLocations[0])) {
+      onWarehouseChange(selectedLocations[0]);
+    }
+  }, [onWarehouseChange, selectedDevices, selectedWarehouseId, warehouses]);
 
   // Sync incoming contexts
   useEffect(() => {
@@ -373,8 +396,15 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   };
 
   const handleExecuteCheckout = async (splitData?: any) => {
-    if (!currentBranch.id || currentBranch.id === 'ALL' || !currentBranch.warehouseId) {
-      alert('Hãy chọn một chi nhánh có kho bán hàng trước khi xuất hóa đơn.');
+    if (!currentBranch.id || currentBranch.id === 'ALL' || !currentWarehouse) {
+      alert('Hãy chọn một kho bán hàng đang hoạt động trước khi xuất hóa đơn.');
+      return;
+    }
+    const deviceOutsideWarehouse = selectedDevices.find(device => (
+      String(device.currentLocationId || device.warehouseId || device.warehouse || '') !== selectedWarehouseId
+    ));
+    if (deviceOutsideWarehouse) {
+      alert(`Máy ${deviceOutsideWarehouse.imei || deviceOutsideWarehouse.model} không thuộc kho "${currentWarehouse.name}". Hãy chọn lại kho hoặc máy.`);
       return;
     }
     if (selectedDevices.length === 0 && selectedAccessories.length === 0) {
@@ -471,7 +501,8 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       createdAt: new Date().toISOString(),
       branchId: currentBranch.id,
       branch: currentBranch.name,
-      warehouseId: String(currentBranch.warehouseId),
+      warehouseId: selectedWarehouseId,
+      warehouseName: currentWarehouse.name,
       priceList: retailPricing ? `${retailPricing.name} · ${retailPricing.version}` : 'Giá trên mặt hàng',
       creatorName: currentUser?.name || 'Thu Ngân',
       customerName: customerName.trim() || 'Khách vãng lai',
@@ -593,7 +624,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       devicesToSell: selectedDevices,
       accessoriesToSell: selectedAccessories,
       cashTx,
-      warehouseId: String(currentBranch.warehouseId),
+      warehouseId: selectedWarehouseId,
       tradeInAppraisalId: tradeInAppraisalId || undefined,
       tradeInDevice: tradeInDevice,
       customerPartner: customerPartner,
@@ -653,6 +684,18 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
           <span className="px-2 py-0.2 text-[10px] font-bold bg-orange-500/20 text-[#ff4b16] border border-orange-500/30 rounded-full hidden sm:inline-block">
             {currentBranch.name}
           </span>
+          <select
+            value={selectedWarehouseId}
+            onChange={event => onWarehouseChange(event.target.value)}
+            disabled={totalItemsCount > 0}
+            className="max-w-40 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-[10px] font-bold text-orange-100 outline-none disabled:cursor-not-allowed disabled:opacity-70"
+            title={totalItemsCount > 0 ? 'Làm trống giỏ hàng trước khi đổi kho bán' : 'Chọn kho xuất bán'}
+          >
+            {warehouses.length === 0 && <option value="">Chưa có kho bán</option>}
+            {warehouses.map(warehouse => (
+              <option key={warehouse.id} value={String(warehouse.id)}>{warehouse.name}</option>
+            ))}
+          </select>
           <span className="text-[11px] text-zinc-400 font-medium hidden md:inline-block">
             • <b className="text-zinc-200">{currentUser?.name || 'Thu Ngân'}</b>
           </span>
@@ -793,7 +836,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
         {/* Column 1: Product Search & Inventory Grid */}
         <div className={`w-full h-full min-h-0 flex flex-col ${mobileTab !== 'PRODUCTS' ? 'hidden lg:flex' : 'flex'}`}>
           <ProductSearchPanel
-            devices={devices}
+            devices={warehouseScopedDevices}
             products={products}
             selectedDeviceIds={selectedDevices.map(d => d.id)}
             onToggleSelectDevice={handleToggleSelectDevice}

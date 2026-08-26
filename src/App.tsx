@@ -87,6 +87,7 @@ import { requestInstallmentDisbursement, requestSettlePartnerDebt, type PartnerD
 import { fetchAdminOperationalSnapshot, type AdminOperationalSnapshot } from './services/adminOperationalApiClient';
 import { requestUpdateInvoiceNote } from './services/posApiClient';
 import { requestLeadStateTransition } from './services/crmApiClient';
+import { isWarehouseActive } from './utils/warehouseLifecycle';
 
 const DashboardPage = React.lazy(() => import('./features/dashboard/DashboardPage').then(module => ({ default: module.DashboardPage })));
 const POSCockpitView = React.lazy(() => import('./features/pos/components/POSCockpitView').then(module => ({ default: module.POSCockpitView })));
@@ -269,6 +270,7 @@ export default function App() {
   const [posPreSelectedDevice, setPosPreSelectedDevice] = useState<DeviceItem | null>(null);
   const [posCustomerContext, setPosCustomerContext] = useState<{ name?: string; phone?: string } | null>(null);
   const [posTradeInContext, setPosTradeInContext] = useState<any | null>(null);
+  const [selectedPosWarehouseId, setSelectedPosWarehouseId] = useState('');
   const [isFirebaseConnected, setIsFirebaseConnected] = useState(true);
 
   // Global Branch Selection for ADMIN
@@ -428,6 +430,37 @@ export default function App() {
         d.branchId === scopedBranchId ||
         (d.warehouse && warehouses.find(w => w.id === d.warehouse)?.branchId === scopedBranchId)
       );
+
+  const activePosWarehouses = useMemo(() => warehouses.filter(warehouse => (
+    warehouse.branchId === resolvedCurrentBranch.id
+    && isWarehouseActive(warehouse)
+    && (!warehouse.type || ['CENTRAL', 'RETAIL_STORE'].includes(warehouse.type))
+  )), [resolvedCurrentBranch.id, warehouses]);
+
+  const preferredPosWarehouseId = useMemo(() => {
+    const activeIds = new Set(activePosWarehouses.map(warehouse => String(warehouse.id)));
+    const configuredWarehouseId = String(resolvedCurrentBranch.warehouseId || '');
+    if (activeIds.has(configuredWarehouseId)) return configuredWarehouseId;
+
+    const inventoryWarehouseId = devices
+      .filter(device => device.status === 'in_stock' && device.branchId === resolvedCurrentBranch.id)
+      .map(device => String(device.currentLocationId || device.warehouseId || device.warehouse || ''))
+      .find(locationId => activeIds.has(locationId));
+    if (inventoryWarehouseId) return inventoryWarehouseId;
+
+    return String(
+      activePosWarehouses.find(warehouse => warehouse.type === 'RETAIL_STORE')?.id
+      || activePosWarehouses.find(warehouse => warehouse.isMain)?.id
+      || activePosWarehouses[0]?.id
+      || ''
+    );
+  }, [activePosWarehouses, devices, resolvedCurrentBranch.id, resolvedCurrentBranch.warehouseId]);
+
+  useEffect(() => {
+    setSelectedPosWarehouseId(current => activePosWarehouses.some(warehouse => String(warehouse.id) === current)
+      ? current
+      : preferredPosWarehouseId);
+  }, [activePosWarehouses, preferredPosWarehouseId]);
 
   const filteredLeads = activeBranchId === 'ALL' || !activeBranchId 
     ? leads 
@@ -752,12 +785,12 @@ export default function App() {
   // location-scoped projection from the inventory API instead of reading the
   // global products collection (which also contains cost fields).
   useEffect(() => {
-    if (!authReady || !currentUser || !resolvedCurrentBranch.id || resolvedCurrentBranch.id === 'ALL' || !resolvedCurrentBranch.warehouseId) {
+    if (!authReady || !currentUser || !resolvedCurrentBranch.id || resolvedCurrentBranch.id === 'ALL' || !selectedPosWarehouseId) {
       setProducts([]);
       return;
     }
     let active = true;
-    fetchInventoryAccessoryBalances(currentUser, String(resolvedCurrentBranch.warehouseId))
+    fetchInventoryAccessoryBalances(currentUser, selectedPosWarehouseId)
       .then(rows => {
         if (!active) return;
         setProducts(rows.map(row => ({
@@ -784,7 +817,7 @@ export default function App() {
         }
       });
     return () => { active = false; };
-  }, [activeTab, authReady, currentUser?.id, resolvedCurrentBranch.id, resolvedCurrentBranch.warehouseId]);
+  }, [activeTab, authReady, currentUser?.id, resolvedCurrentBranch.id, selectedPosWarehouseId]);
 
   // Keyboard shortcut ⌘K or Ctrl+K for search
   useEffect(() => {
@@ -1699,6 +1732,9 @@ export default function App() {
             funds={funds}
             partners={partners}
             currentBranch={resolvedCurrentBranch}
+            warehouses={activePosWarehouses}
+            selectedWarehouseId={selectedPosWarehouseId}
+            onWarehouseChange={setSelectedPosWarehouseId}
             currentUser={currentUser ? {
               id: currentUser.id,
               uid: currentUser.id,

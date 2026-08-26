@@ -69,6 +69,19 @@ describe('Atomic supplier purchase receipt validation', () => {
     expect(() => validatePurchaseReceiptInput({ order: validOrder({ items: [{ ...shortItem, imeiList: ['1234567890123456'] }] }) }, actor)).toThrow('IMEI_INVALID');
   });
 
+  it('normalizes harmless floating-point artifacts in the suggested retail price', () => {
+    const item = validOrder().items[0];
+    const receipt = validatePurchaseReceiptInput({ order: validOrder({
+      totalAmount: 6_200,
+      subTotal: 6_200,
+      paidAmount: 6_200,
+      debtAmount: 0,
+      items: [{ ...item, importPrice: 6_200, expectedSellPrice: 6_200 * 1.1, totalAmount: 6_200 }]
+    }) }, actor);
+
+    expect(receipt.devices[0]).toMatchObject({ buyPrice: 6_200, sellPrice: 6_820 });
+  });
+
   it('preserves optional Product Master references for each received device', () => {
     const receipt = validatePurchaseReceiptInput({ order: validOrder({
       items: [{
