@@ -446,12 +446,14 @@ export async function processCheckoutTransaction(params: {
   invoice: SalesInvoice;
   devicesToSell: DeviceItem[];
   accessoriesToSell: { product: ProductItem; quantity: number }[];
+  /** @deprecated Server checkout creates the canonical receipt. Ignored. */
   cashTx?: CashTransaction | null;
   warehouseId: string;
   tradeInAppraisalId?: string;
   tradeInDevice?: DeviceItem | null;
   customerPartner?: Partner | null;
   financeCompanyPartner?: Partner | null;
+  /** @deprecated Server checkout updates the canonical fund balance. Ignored. */
   fundToUpdate?: FundAccount | null;
   payments?: Array<{
     method: 'CASH' | 'BANK' | 'CARD' | 'INSTALLMENT' | 'DEBT';

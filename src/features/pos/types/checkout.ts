@@ -1,4 +1,4 @@
-import { SalesInvoice, DeviceItem, ProductItem, CashTransaction, Partner, FundAccount } from '../../../types';
+import { SalesInvoice, DeviceItem, ProductItem, Partner } from '../../../types';
 
 export type CheckoutState =
   | 'IDLE'
@@ -13,13 +13,11 @@ export interface POSCheckoutPayload {
   invoice: SalesInvoice;
   devicesToSell: DeviceItem[];
   accessoriesToSell: { product: ProductItem; quantity: number }[];
-  cashTx: CashTransaction | null;
   warehouseId: string;
   tradeInAppraisalId?: string;
   tradeInDevice: DeviceItem | null;
   customerPartner: Partner | null;
   financeCompanyPartner: Partner | null;
-  fundToUpdate?: FundAccount | null;
   idempotencyKey?: string;
   commissionTagSelections?: Array<{
     itemType: 'DEVICE' | 'ACCESSORY';

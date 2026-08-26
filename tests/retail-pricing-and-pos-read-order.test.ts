@@ -4,6 +4,7 @@ import { validateOperationalConfig } from '../server/routes/configuration';
 
 function checkoutDb() {
   let writeStarted = false;
+  const writes: Array<{ ref: any; data: any }> = [];
   const get = async (ref: any) => {
     if (writeStarted) throw new Error('FIRESTORE_READ_AFTER_WRITE');
     if (ref.col === 'checkoutRequests') return { exists: false };
@@ -21,13 +22,14 @@ function checkoutDb() {
   };
   const transaction = {
     get,
-    set: () => { writeStarted = true; },
+    set: (ref: any, data: any) => { writeStarted = true; writes.push({ ref, data }); },
     update: () => { writeStarted = true; },
     delete: () => { writeStarted = true; }
   };
   const db: any = {
     collection: (col: string) => ({ doc: (docId?: string) => ({ col, docId: docId || `${col}-generated` }) }),
-    runTransaction: async (callback: any) => callback(transaction)
+    runTransaction: async (callback: any) => callback(transaction),
+    __writes: writes
   };
   return db;
 }
@@ -41,7 +43,8 @@ describe('Retail pricing and Firestore POS transaction order', () => {
   });
 
   it('completes all reads before writes and snapshots a POS-adjusted retail price', async () => {
-    const result = await executeAtomicCheckout(checkoutDb(), {
+    const db = checkoutDb();
+    const result = await executeAtomicCheckout(db, {
       deviceIds: ['DEV-01'], branchId: 'CN01', warehouseId: 'KHO01', customerId: 'CUST-01', leadId: 'LEAD-01',
       payment: { method: 'CASH', fundId: 'FUND-01' },
       priceAdjustments: [{ itemType: 'DEVICE', itemId: 'DEV-01', unitPrice: 27500000, reason: 'Khách thân thiết' }]
@@ -56,6 +59,13 @@ describe('Retail pricing and Firestore POS transaction order', () => {
       priceAdjustmentReason: 'Khách thân thiết',
       pricePolicyId: 'RETAIL_2026_08',
       pricePolicyVersion: '2026.08'
+    });
+    expect(db.__writes.filter((write: any) => write.ref.col === 'cashTransactions')).toHaveLength(1);
+    expect(db.__writes.find((write: any) => write.ref.col === 'cashTransactions')?.data).toMatchObject({
+      type: 'RECEIPT',
+      category: 'SALES_REVENUE',
+      invoiceId: result.invoiceId,
+      referenceCode: result.invoice.invoiceCode
     });
   });
 

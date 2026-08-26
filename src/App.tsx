@@ -962,9 +962,7 @@ export default function App() {
   const handlePOSCheckoutSuccess = (
     invoice: SalesInvoice,
     devicesSold: DeviceItem[],
-    accessoriesSold: { product: ProductItem; quantity: number }[],
-    cashTx: CashTransaction | null,
-    updatedFund: FundAccount | null
+    accessoriesSold: { product: ProductItem; quantity: number }[]
   ) => {
     // 1. Add invoice to state (deduplicated by id, Firestore write is handled atomically in processCheckoutTransaction)
     setInvoices(prev => [invoice, ...prev.filter(i => i.id !== invoice.id)]);
@@ -985,15 +983,9 @@ export default function App() {
       }));
     }
 
-    // 4. Record cash transaction in state (deduplicated by id)
-    if (cashTx) {
-      setCashTransactions(prev => [cashTx, ...prev.filter(t => t.id !== cashTx.id)]);
-    }
-
-    // 5. Update fund balance in state
-    if (updatedFund) {
-      setFunds(prev => prev.map(f => f.id === updatedFund.id ? { ...f, currentBalance: (f.currentBalance || 0) + (cashTx?.amount || 0) } : f));
-    }
+    // Cash transactions and fund balances are server-authoritative. Their
+    // scoped realtime listeners will receive exactly the records committed by
+    // checkout; never synthesize a second receipt in browser state.
   };
 
   const handleUpdateInvoiceNote = async (invoiceId: string, notes: string) => {

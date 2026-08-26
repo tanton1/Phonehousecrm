@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { DeviceItem, ProductItem, FundAccount, Partner, StoreBranch, StaffMember, SalesInvoice, CashTransaction, WarehouseInfo } from '../../../types';
+import { DeviceItem, ProductItem, FundAccount, Partner, StoreBranch, StaffMember, SalesInvoice, WarehouseInfo } from '../../../types';
 import { ProductSearchPanel } from './ProductSearchPanel';
 import { CartPanel } from './CartPanel';
 import { PaymentPanel } from './PaymentPanel';
@@ -31,9 +31,7 @@ export interface POSCockpitViewProps {
   onCheckoutSuccess?: (
     invoice: SalesInvoice,
     devicesSold: DeviceItem[],
-    accessoriesSold: { product: ProductItem; quantity: number }[],
-    cashTx: CashTransaction | null,
-    updatedFund: FundAccount | null
+    accessoriesSold: { product: ProductItem; quantity: number }[]
   ) => void;
 }
 
@@ -441,7 +439,6 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       return;
     }
 
-    const currentFund = funds.find(f => f.id === selectedFundId) || funds[0];
     const invoiceCode = `HD-${Date.now().toString().slice(-6)}`;
     const invoiceId = `INV-${Date.now()}`;
 
@@ -580,24 +577,6 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       ]
     };
 
-    const cashTx: CashTransaction | null = paidAmt > 0 ? {
-      id: `TX-${Date.now()}`,
-      code: invoiceCode,
-      branchId: currentBranch.id,
-      type: 'RECEIPT',
-      category: 'SALES_REVENUE',
-      categoryName: isSplit ? 'Thu bán hàng (Đa phương thức)' : 'Thu bán hàng POS',
-      amount: paidAmt,
-      fundType: isSplit ? 'BANK' : (currentFund?.type || 'CASH'),
-      fundName: isSplit ? 'Thanh toán phân bổ quỹ' : (currentFund?.name || 'Quỹ Tiền Mặt Tại Két'),
-      fundId: isSplit ? (splitData.splitBankFundId1 || splitData.splitCashFundId || selectedFundId) : selectedFundId,
-      date: new Date().toISOString(),
-      creator: currentUser?.name || 'Thu Ngân',
-      notes: `Thu tiền đơn hàng ${invoiceCode} - Khách: ${customerName || 'Vãng lai'} ${isSplit ? `(Phân bổ: ${splitPaymentsList?.map(s => `${s.method}: ${s.amount.toLocaleString('vi-VN')}đ`).join(', ')})` : ''}`,
-      referenceCode: invoiceCode,
-      status: 'COMPLETED'
-    } : null;
-
     let customerPartner: Partner | null = null;
     if (customerPhone.trim()) {
       const existingPartner = partners?.find(p => p.phone === customerPhone.trim());
@@ -623,13 +602,11 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       invoice: newInvoice,
       devicesToSell: selectedDevices,
       accessoriesToSell: selectedAccessories,
-      cashTx,
       warehouseId: selectedWarehouseId,
       tradeInAppraisalId: tradeInAppraisalId || undefined,
       tradeInDevice: tradeInDevice,
       customerPartner: customerPartner,
       financeCompanyPartner: null,
-      fundToUpdate: currentFund ? { ...currentFund, balance: currentFund.currentBalance + paidAmt } : null,
       idempotencyKey: `POS-${invoiceId}-${Date.now()}`,
       commissionTagSelections: [
         ...selectedDevices.filter(() => activeCommissionTags.some(tag => tag.appliesTo === 'DEVICE')).map(device => ({ itemType: 'DEVICE' as const, itemId: device.id, tagIds: commissionTagSelections[`DEVICE:${device.id}`] || [] })),
@@ -649,9 +626,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       onCheckoutSuccess?.(
         completedInvoice,
         selectedDevices,
-        selectedAccessories,
-        cashTx,
-        payload.fundToUpdate
+        selectedAccessories
       );
 
       // Clear Cart after success

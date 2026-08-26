@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { 
-  Wallet, ArrowUpRight, ArrowDownLeft, Search, Filter, Plus, Minus, Calendar,
+  Wallet, ArrowUpRight, ArrowDownLeft, Search, Plus, Minus, Calendar,
   CreditCard, Building2, Users, Smartphone, FileText, ChevronDown, ChevronRight, RefreshCw, X, Share2, 
   Printer, ArrowRightLeft, CheckCircle2, AlertCircle, Eye, EyeOff, Sparkles, User as UserIcon, Clock, Trash2
 } from 'lucide-react';
@@ -147,7 +147,6 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
   // Sheet & Modal states
   const [isCreateSheetOpen, setIsCreateSheetOpen] = useState(false);
-  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isCreatePartnerModalOpen, setIsCreatePartnerModalOpen] = useState(false);
@@ -503,7 +502,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
 
   return (
-    <div className="flex flex-col min-h-screen max-w-[1600px] mx-auto p-2 sm:p-4 space-y-4 text-zinc-900 font-sans">
+    <div className="flex min-h-screen w-full min-w-0 flex-col space-y-3 overflow-x-hidden px-2 pb-16 text-zinc-900 font-sans sm:space-y-4 sm:px-4 lg:px-5">
       
       {/* 1. Standard Page Header with consolidated CTA */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-zinc-200 shadow-2xs">
@@ -677,64 +676,30 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         
         {activeMainTab === 'TRANSACTIONS' && (
           <>
-            {/* 3. Financial KPIs: 4 Clean White Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
-                <div className="flex items-center justify-between text-xs text-zinc-500 font-bold mb-1">
-                  <span>Số Dư Khả Dụng</span>
-                  <button onClick={() => setShowBalance(!showBalance)} className="p-1 hover:bg-zinc-100 rounded-lg text-zinc-400 cursor-pointer">
-                    {showBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+            {/* 3. Financial KPIs: compact swipe carousel */}
+            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto px-0.5 pb-1.5 scrollbar-none">
+              <article className="min-w-[82%] snap-start rounded-2xl bg-gradient-to-br from-[#ff4b16] via-orange-500 to-amber-400 p-4 text-white shadow-lg shadow-orange-500/15 sm:min-w-[280px] lg:flex-1">
+                <div className="flex items-center justify-between text-xs font-bold text-orange-50">
+                  <span>Số dư khả dụng</span>
+                  <button type="button" onClick={() => setShowBalance(!showBalance)} className="rounded-lg bg-white/15 p-1.5 text-white" aria-label={showBalance ? 'Ẩn số dư' : 'Hiện số dư'}>
+                    {showBalance ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                   </button>
                 </div>
-                <p className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 tracking-tight">
-                  {showBalance ? formatCurrency(currentBalance) : '***.***.*** đ'}
-                </p>
-                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
-                  {displayFunds.length} quỹ tại chi nhánh
-                </p>
-              </div>
+                <p className="mt-3 font-mono text-2xl font-black tracking-tight sm:text-3xl">{showBalance ? formatCurrency(currentBalance) : '•••••••• đ'}</p>
+                <p className="mt-1 text-[11px] font-semibold text-orange-50/85">{displayFunds.length} quỹ và tài khoản đang hiển thị</p>
+              </article>
 
-              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
-                <div className="flex items-center justify-between text-xs text-emerald-700 font-bold mb-1">
-                  <span className="flex items-center gap-1">
-                    <ArrowDownLeft className="w-3.5 h-3.5" />
-                    <span>Tổng Thu Vào (+)</span>
-                  </span>
-                </div>
-                <p className="text-xl sm:text-2xl font-bold font-mono text-emerald-700 tracking-tight">
-                  +{showBalance ? formatCurrency(totalIn) : '***'}
-                </p>
-                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
-                  {dateFilterPeriodLabel}
-                </p>
-              </div>
+              <article className="min-w-[82%] snap-start rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xs sm:min-w-[280px] lg:flex-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700"><ArrowDownLeft className="h-3.5 w-3.5" /> Thu trong kỳ</div>
+                <p className="mt-3 font-mono text-2xl font-black tracking-tight text-emerald-700 sm:text-3xl">{showBalance ? `+${formatCurrency(totalIn)}` : '•••••••• đ'}</p>
+                <p className="mt-1 truncate text-[11px] font-medium text-zinc-400">{dateFilterPeriodLabel}</p>
+              </article>
 
-              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
-                <div className="flex items-center justify-between text-xs text-rose-700 font-bold mb-1">
-                  <span className="flex items-center gap-1">
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                    <span>Tổng Chi Ra (-)</span>
-                  </span>
-                </div>
-                <p className="text-xl sm:text-2xl font-bold font-mono text-rose-700 tracking-tight">
-                  -{showBalance ? formatCurrency(totalOut) : '***'}
-                </p>
-                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
-                  {dateFilterPeriodLabel}
-                </p>
-              </div>
-
-              <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs flex flex-col justify-between">
-                <div className="flex items-center justify-between text-xs text-zinc-600 font-bold mb-1">
-                  <span>Dòng Tiền Thuần (Net)</span>
-                </div>
-                <p className={`text-xl sm:text-2xl font-bold font-mono tracking-tight ${netFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                  {showBalance ? (netFlow > 0 ? '+' : '') + formatCurrency(netFlow) : '***'}
-                </p>
-                <p className="text-[11px] text-zinc-400 mt-1 font-medium truncate">
-                  Thu (-) Chi trong kỳ
-                </p>
-              </div>
+              <article className="min-w-[82%] snap-start rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xs sm:min-w-[280px] lg:flex-1">
+                <div className="flex items-center justify-between text-xs font-bold text-zinc-700"><span>Dòng tiền thuần</span><span className="text-[10px] text-rose-600">Chi {showBalance ? formatCompact(totalOut) : '•••'}</span></div>
+                <p className={`mt-3 font-mono text-2xl font-black tracking-tight sm:text-3xl ${netFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{showBalance ? `${netFlow > 0 ? '+' : ''}${formatCurrency(netFlow)}` : '•••••••• đ'}</p>
+                <p className="mt-1 truncate text-[11px] font-medium text-zinc-400">Thu trừ chi · {dateFilterPeriodLabel}</p>
+              </article>
             </div>
 
             {/* 4. Fund Carousel */}
@@ -784,82 +749,45 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
               </div>
             </div>
 
-            {/* 5. Unified Clean Filter Bar */}
-            <div className="bg-white p-3 sm:p-4 rounded-2xl border border-zinc-200 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center gap-2.5">
-              {/* Search */}
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Tìm theo mã chứng từ (PT/PC), đối tác, nội dung thu chi..."
-                  className="w-full pl-9 pr-8 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium text-zinc-900 focus:bg-white focus:outline-none focus:border-[#FF4B16] transition-all"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 p-0.5"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
+            {/* 5. Compact full-width filters */}
+            <div className="rounded-2xl border border-zinc-200 bg-white p-2.5 shadow-2xs sm:p-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <input type="search" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Mã phiếu, hóa đơn, khách hàng…" className="h-10 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-9 pr-9 text-xs font-medium text-zinc-900 outline-none transition focus:border-[#ff4b16] focus:bg-white" />
+                {searchQuery && <button type="button" onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-lg p-1 text-zinc-400 hover:bg-zinc-100" aria-label="Xóa tìm kiếm"><X className="h-3.5 w-3.5" /></button>}
               </div>
 
-              {/* Type Filter Dropdown */}
-              <select
-                value={activeFilter}
-                onChange={e => setActiveFilter(e.target.value as any)}
-                className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 focus:bg-white focus:outline-none focus:border-[#FF4B16]"
-              >
-                <option value="ALL">Tất cả thu & chi</option>
-                <option value="RECEIPT">Chỉ xem Thu tiền (+)</option>
-                <option value="PAYMENT">Chỉ xem Chi tiền (-)</option>
-                <option value="RETAIL">Doanh thu bán lẻ POS</option>
-              </select>
-
-              {/* Date Filter Dropdown */}
-              <select
-                value={dateFilterMode}
-                onChange={e => setDateFilterMode(e.target.value as any)}
-                className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 focus:bg-white focus:outline-none focus:border-[#FF4B16]"
-              >
-                <option value="THIS_MONTH">Tháng này ({new Date().getMonth() + 1}/{new Date().getFullYear()})</option>
-                <option value="TODAY">Hôm nay</option>
-                <option value="YESTERDAY">Hôm qua</option>
-                <option value="7DAYS">7 ngày gần nhất</option>
-                <option value="LAST_MONTH">Tháng trước</option>
-                <option value="ALL">Toàn bộ thời gian</option>
-                <option value="CUSTOM">Tùy chọn khoảng ngày...</option>
-              </select>
-
-              {/* Fund Filter Dropdown */}
-              <select
-                value={selectedFundFilter}
-                onChange={e => setSelectedFundFilter(e.target.value)}
-                className="px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 focus:bg-white focus:outline-none focus:border-[#FF4B16]"
-              >
-                <option value="ALL">Tất cả quỹ & tài khoản</option>
-                {displayFunds.map(f => (
-                  <option key={f.id} value={f.id}>{f.name} ({f.type === 'CASH' ? 'Két' : 'Bank'})</option>
-                ))}
-              </select>
+              <div className="mt-2 overflow-x-auto pb-0.5 scrollbar-none">
+                <div className="flex min-w-max items-center gap-2">
+                  <select value={dateFilterMode} onChange={event => setDateFilterMode(event.target.value as any)} className="h-9 min-w-[132px] rounded-xl border border-zinc-200 bg-white px-2.5 text-[11px] font-bold text-zinc-700 outline-none focus:border-[#ff4b16]">
+                    <option value="TODAY">Hôm nay</option>
+                    <option value="YESTERDAY">Hôm qua</option>
+                    <option value="7DAYS">7 ngày gần nhất</option>
+                    <option value="THIS_MONTH">Tháng này</option>
+                    <option value="LAST_MONTH">Tháng trước</option>
+                    <option value="ALL">Toàn bộ</option>
+                    <option value="CUSTOM">Chọn ngày…</option>
+                  </select>
+                  <select value={activeFilter} onChange={event => setActiveFilter(event.target.value as any)} className="h-9 min-w-[126px] rounded-xl border border-zinc-200 bg-white px-2.5 text-[11px] font-bold text-zinc-700 outline-none focus:border-[#ff4b16]">
+                    <option value="ALL">Tất cả thu chi</option>
+                    <option value="RECEIPT">Phiếu thu</option>
+                    <option value="PAYMENT">Phiếu chi</option>
+                    <option value="RETAIL">Bán hàng POS</option>
+                  </select>
+                  <select value={selectedFundFilter} onChange={event => setSelectedFundFilter(event.target.value)} className="h-9 min-w-[150px] max-w-[220px] rounded-xl border border-zinc-200 bg-white px-2.5 text-[11px] font-bold text-zinc-700 outline-none focus:border-[#ff4b16]">
+                    <option value="ALL">Mọi quỹ & tài khoản</option>
+                    {displayFunds.map(fund => <option key={fund.id} value={fund.id}>{fund.name}</option>)}
+                  </select>
+                  {(activeFilter !== 'ALL' || selectedFundFilter !== 'ALL' || dateFilterMode !== 'THIS_MONTH') && (
+                    <button type="button" onClick={() => { setActiveFilter('ALL'); setSelectedFundFilter('ALL'); setDateFilterMode('THIS_MONTH'); setCustomStartDate(''); setCustomEndDate(''); }} className="h-9 rounded-xl bg-zinc-100 px-3 text-[11px] font-bold text-zinc-600 hover:bg-zinc-200">Đặt lại</button>
+                  )}
+                </div>
+              </div>
 
               {dateFilterMode === 'CUSTOM' && (
-                <div className="flex items-center space-x-1.5 text-xs bg-zinc-50 p-1.5 rounded-xl border border-zinc-200">
-                  <input
-                    type="date"
-                    value={customStartDate}
-                    onChange={e => setCustomStartDate(e.target.value)}
-                    className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
-                  />
-                  <span className="text-zinc-400 font-bold">-</span>
-                  <input
-                    type="date"
-                    value={customEndDate}
-                    onChange={e => setCustomEndDate(e.target.value)}
-                    className="px-2 py-1 bg-white border border-zinc-200 rounded-lg text-[11px] font-medium"
-                  />
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="text-[10px] font-bold text-zinc-500">Từ ngày<input type="date" value={customStartDate} onChange={event => setCustomStartDate(event.target.value)} className="mt-1 h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-2 text-[11px] text-zinc-800 outline-none focus:border-[#ff4b16]" /></label>
+                  <label className="text-[10px] font-bold text-zinc-500">Đến ngày<input type="date" value={customEndDate} onChange={event => setCustomEndDate(event.target.value)} className="mt-1 h-9 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-2 text-[11px] text-zinc-800 outline-none focus:border-[#ff4b16]" /></label>
                 </div>
               )}
             </div>
