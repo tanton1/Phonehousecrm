@@ -2,9 +2,45 @@ import { describe, expect, it } from 'vitest';
 import {
   assertPartnerForBranch,
   debtLedgerEntry,
+  ensureBranchPartner,
+  mergeBranchPartyType,
   newBranchPartyAccountRecord,
   resolvePartyIdentity
 } from '../server/services/branchPartyService';
+
+function branchPartyDb(seed: Record<string, Record<string, any>>) {
+  const store = new Map<string, any>();
+  Object.entries(seed).forEach(([collection, docs]) => Object.entries(docs).forEach(([id, value]) => {
+    store.set(`${collection}/${id}`, { ...value });
+  }));
+  const snapshot = (collection: string, id: string) => ({
+    id,
+    exists: store.has(`${collection}/${id}`),
+    data: () => store.get(`${collection}/${id}`)
+  });
+  const reference = (collection: string, id: string) => ({ collection, id });
+  const db: any = {
+    collection: (collection: string) => ({ doc: (id: string) => reference(collection, id) }),
+    runTransaction: async (handler: (transaction: any) => Promise<any>) => handler({
+      get: async (ref: any) => snapshot(ref.collection, ref.id),
+      create: (ref: any, value: any) => {
+        const key = `${ref.collection}/${ref.id}`;
+        if (store.has(key)) throw new Error('ALREADY_EXISTS');
+        store.set(key, { ...value });
+      },
+      set: (ref: any, value: any, options?: { merge?: boolean }) => {
+        const key = `${ref.collection}/${ref.id}`;
+        store.set(key, options?.merge ? { ...(store.get(key) || {}), ...value } : { ...value });
+      },
+      update: (ref: any, value: any) => {
+        const key = `${ref.collection}/${ref.id}`;
+        if (!store.has(key)) throw new Error('NOT_FOUND');
+        store.set(key, { ...store.get(key), ...value });
+      }
+    })
+  };
+  return { db, get: (collection: string, id: string) => store.get(`${collection}/${id}`) };
+}
 
 describe('Shared party identity with isolated branch accounts', () => {
   it('reuses one master identity but creates a different account for every branch', () => {
@@ -53,5 +89,67 @@ describe('Shared party identity with isolated branch accounts', () => {
       debitIncrease: 1, creditDecrease: 1, actorUid: 'ADMIN', occurredAt: '2026-08-26T00:00:00.000Z'
     })).toThrow('DEBT_LEDGER_ONE_SIDED_ENTRY_REQUIRED');
   });
-});
 
+  it('upgrades a customer account to BOTH when the same phone is added as supplier', () => {
+    expect(mergeBranchPartyType('CUSTOMER', 'SUPPLIER')).toBe('BOTH');
+    expect(mergeBranchPartyType('SUPPLIER', 'SUPPLIER')).toBe('SUPPLIER');
+  });
+
+  it('repairs and reuses a branchless legacy supplier instead of rejecting the duplicate phone', async () => {
+    const identity = resolvePartyIdentity({ phone: '0905000001' }, 'CN_A');
+    const { db, get } = branchPartyDb({
+      branches: { CN_A: { id: 'CN_A', isActive: true } },
+      partyMasters: {
+        [identity.partyMasterId]: {
+          id: identity.partyMasterId,
+          displayName: 'NCC cũ',
+          phoneNormalized: '0905000001',
+          status: 'ACTIVE'
+        }
+      },
+      branchPartyAccounts: {
+        [identity.branchPartyAccountId]: {
+          id: identity.branchPartyAccountId,
+          branchId: 'CN_A',
+          partyMasterId: identity.partyMasterId,
+          legacyPartnerId: 'SUP_LEGACY',
+          type: 'SUPPLIER',
+          payableBalance: 125000,
+          status: 'ACTIVE'
+        }
+      },
+      partners: {
+        SUP_LEGACY: {
+          id: 'WRONG_EMBEDDED_ID',
+          name: 'NCC cũ',
+          phone: '0905000001',
+          type: 'SUPPLIER',
+          outstandingDebt: 125000,
+          isActive: true
+        }
+      }
+    });
+
+    const result = await ensureBranchPartner(db, {
+      id: 'SUP_NEW_CLIENT_ID',
+      branchId: 'CN_A',
+      details: { name: 'NCC cũ đã sửa tên', phone: '0905000001', type: 'SUPPLIER' }
+    }, 'ADMIN_01');
+
+    expect(result).toMatchObject({ created: false, repaired: true });
+    expect(result.partner).toMatchObject({
+      id: 'SUP_LEGACY',
+      branchId: 'CN_A',
+      name: 'NCC cũ đã sửa tên',
+      outstandingDebt: 125000,
+      branchPartyAccountId: identity.branchPartyAccountId
+    });
+    expect(get('partners', 'SUP_LEGACY')).toMatchObject({ id: 'SUP_LEGACY', branchId: 'CN_A' });
+    expect(get('branchPartyAccounts', identity.branchPartyAccountId)).toMatchObject({
+      legacyPartnerId: 'SUP_LEGACY',
+      branchId: 'CN_A',
+      status: 'ACTIVE'
+    });
+    expect(get('partners', 'SUP_NEW_CLIENT_ID')).toBeUndefined();
+  });
+});

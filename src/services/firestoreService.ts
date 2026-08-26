@@ -211,6 +211,13 @@ export async function addPartnerToFirestore(partner: Partner) {
   });
   return response.partner;
 }
+export async function fetchLegacyUnassignedPartners(type: 'SUPPLIER' | 'CUSTOMER' = 'SUPPLIER') {
+  const response = await apiJson<{ success: boolean; partners: Partner[] }>(
+    `/api/partners/legacy-unassigned?type=${encodeURIComponent(type)}&limit=200`,
+    { method: 'GET' }
+  );
+  return response.partners || [];
+}
 export async function updatePartnerInFirestore(partner: Partner) {
   const response = await apiJson<{ success: boolean; partner: Partner }>(`/api/partners/${encodeURIComponent(partner.id)}`, {
     method: 'PATCH',

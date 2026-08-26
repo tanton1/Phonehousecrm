@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { FieldValue, Firestore } from 'firebase-admin/firestore';
 
 export type BranchPartyType = 'CUSTOMER' | 'SUPPLIER' | 'BOTH' | 'STAFF';
 export type DebtDirection = 'RECEIVABLE' | 'PAYABLE';
@@ -105,6 +106,133 @@ export function newBranchPartyAccountRecord(
   };
 }
 
+export function mergeBranchPartyType(current: unknown, requested: unknown): BranchPartyType {
+  const left = String(current || '').trim().toUpperCase() as BranchPartyType;
+  const right = String(requested || '').trim().toUpperCase() as BranchPartyType;
+  if (!left) return right;
+  if (!right || left === right) return left;
+  if (left === 'BOTH' || right === 'BOTH') return 'BOTH';
+  if (new Set([left, right]).size === 2 && [left, right].every(type => type === 'CUSTOMER' || type === 'SUPPLIER')) {
+    return 'BOTH';
+  }
+  throw new Error('PARTNER_ACCOUNT_TYPE_CONFLICT');
+}
+
+/**
+ * Idempotently creates or repairs the branch-owned partner projection. This
+ * handles the production migration case where the deterministic account was
+ * already created, but its legacy `partners` document is missing branchId and
+ * therefore cannot appear in a branch-scoped query.
+ */
+export async function ensureBranchPartner(
+  db: Firestore,
+  input: { id: string; branchId: string; details: Record<string, any> },
+  actorUid: string
+): Promise<{ partner: any; created: boolean; repaired: boolean }> {
+  const now = new Date().toISOString();
+  const draft = {
+    id: input.id,
+    branchId: input.branchId,
+    ...input.details,
+    outstandingDebt: 0,
+    totalPurchasedFrom: 0,
+    totalSalesTo: 0,
+    totalSpent: 0,
+    loyaltyPoints: 0,
+    debtTransactions: [],
+    createdAt: now,
+    createdByUid: actorUid,
+    isActive: true
+  };
+  const identity = resolvePartyIdentity(draft, input.branchId);
+  const requestedPartnerRef = db.collection('partners').doc(input.id);
+  const branchRef = db.collection('branches').doc(input.branchId);
+  const masterRef = db.collection('partyMasters').doc(identity.partyMasterId);
+  const accountRef = db.collection('branchPartyAccounts').doc(identity.branchPartyAccountId);
+
+  return db.runTransaction(async transaction => {
+    const [requestedPartnerSnap, branchSnap, masterSnap, accountSnap] = await Promise.all([
+      transaction.get(requestedPartnerRef),
+      transaction.get(branchRef),
+      transaction.get(masterRef),
+      transaction.get(accountRef)
+    ]);
+    if (!branchSnap.exists || branchSnap.data()?.isActive === false || branchSnap.data()?.active === false) {
+      throw new Error('BRANCH_NOT_ACTIVE');
+    }
+
+    const account = accountSnap.exists ? accountSnap.data()! : null;
+    if (account && String(account.branchId || '') !== input.branchId) throw new Error('PARTNER_ACCOUNT_BRANCH_MISMATCH');
+    if (account && String(account.partyMasterId || '') !== identity.partyMasterId) throw new Error('PARTNER_ACCOUNT_IDENTITY_MISMATCH');
+
+    const linkedPartnerId = String(account?.legacyPartnerId || '').trim();
+    const linkedPartnerRef = linkedPartnerId && linkedPartnerId !== input.id
+      ? db.collection('partners').doc(linkedPartnerId)
+      : null;
+    const linkedPartnerSnap = linkedPartnerRef ? await transaction.get(linkedPartnerRef) : null;
+    const targetRef = linkedPartnerSnap?.exists ? linkedPartnerRef! : requestedPartnerRef;
+    const targetSnap = linkedPartnerSnap?.exists ? linkedPartnerSnap : requestedPartnerSnap;
+    const existing = targetSnap.exists ? targetSnap.data()! : null;
+    const existingBranchId = String(existing?.branchId || '').trim();
+    if (existingBranchId && existingBranchId !== 'ALL' && existingBranchId !== input.branchId) {
+      throw new Error('PARTNER_BRANCH_MISMATCH');
+    }
+    if (requestedPartnerSnap.exists && targetRef.id !== requestedPartnerRef.id) throw new Error('PARTNER_ID_DUPLICATE');
+
+    const type = mergeBranchPartyType(account?.type || existing?.type, input.details.type);
+    const partner = {
+      ...(existing || {}),
+      ...draft,
+      id: targetRef.id,
+      branchId: input.branchId,
+      type,
+      partyMasterId: identity.partyMasterId,
+      branchPartyAccountId: identity.branchPartyAccountId,
+      outstandingDebt: Number(existing?.outstandingDebt || account?.payableBalance || account?.receivableBalance || 0),
+      totalPurchasedFrom: Number(existing?.totalPurchasedFrom || account?.totalPurchases || 0),
+      totalSalesTo: Number(existing?.totalSalesTo || account?.totalSales || 0),
+      totalSpent: Number(existing?.totalSpent || 0),
+      loyaltyPoints: Number(existing?.loyaltyPoints || 0),
+      debtTransactions: Array.isArray(existing?.debtTransactions) ? existing.debtTransactions : [],
+      createdAt: existing?.createdAt || now,
+      createdByUid: existing?.createdByUid || actorUid,
+      isActive: true,
+      isArchived: false,
+      updatedByUid: actorUid
+    };
+
+    if (!masterSnap.exists) transaction.create(masterRef, newPartyMasterRecord(partner, identity, actorUid, now));
+    if (!accountSnap.exists) {
+      const supplierSide = type === 'SUPPLIER' || type === 'BOTH';
+      transaction.create(accountRef, newBranchPartyAccountRecord(partner, input.branchId, identity, actorUid, now, {
+        payableBalance: supplierSide ? Number(partner.outstandingDebt || 0) : 0,
+        receivableBalance: supplierSide ? 0 : Number(partner.outstandingDebt || 0)
+      }));
+    } else {
+      transaction.update(accountRef, {
+        legacyPartnerId: targetRef.id,
+        type,
+        status: 'ACTIVE',
+        updatedByUid: actorUid,
+        updatedAt: now
+      });
+    }
+
+    const projection = {
+      ...partner,
+      ...(existingBranchId !== input.branchId ? {
+        legacyBranchAdoptedAt: now,
+        legacyBranchAdoptedByUid: actorUid
+      } : {}),
+      updatedAt: FieldValue.serverTimestamp()
+    };
+    if (targetSnap.exists) transaction.set(targetRef, projection, { merge: true });
+    else transaction.create(targetRef, { ...projection, createdAtServer: FieldValue.serverTimestamp() });
+
+    return { partner, created: !targetSnap.exists, repaired: Boolean(accountSnap.exists || targetSnap.exists) };
+  });
+}
+
 export function debtLedgerEntry(input: {
   id: string;
   branchId: string;
@@ -152,4 +280,3 @@ export function debtLedgerEntry(input: {
     createdAt: input.occurredAt
   };
 }
-

@@ -6,6 +6,7 @@ import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { HelpHint } from './HelpHint';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
 import { purchaseErrorMessage } from '../utils/purchaseErrors';
+import { fetchLegacyUnassignedPartners } from '../services/firestoreService';
 
 type DraftLine = {
   key: string;
@@ -82,6 +83,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [legacySuppliers, setLegacySuppliers] = useState<Partner[]>([]);
   const receiptDraftKey = browserDraftKey('purchase-stock', currentUser?.id, currentUser?.branchId);
   const wasOpenRef = useRef(false);
   const draftHydratedRef = useRef(false);
@@ -89,12 +91,17 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
 
   const canAdoptLegacySupplier = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER']
     .includes(String(currentUser?.role || '').toUpperCase());
-  const suppliers = useMemo(() => partners.filter(partner => {
+  const supplierCandidates = useMemo(() => {
+    const byId = new Map<string, Partner>();
+    [...partners, ...legacySuppliers].forEach(partner => byId.set(partner.id, partner));
+    return [...byId.values()];
+  }, [legacySuppliers, partners]);
+  const suppliers = useMemo(() => supplierCandidates.filter(partner => {
     if (partner.type !== 'SUPPLIER' && partner.type !== 'BOTH') return false;
     const partnerBranchId = String(partner.branchId || '').trim();
     if (partnerBranchId === branchId) return true;
     return canAdoptLegacySupplier && (!partnerBranchId || partnerBranchId === 'ALL');
-  }), [branchId, canAdoptLegacySupplier, partners]);
+  }), [branchId, canAdoptLegacySupplier, supplierCandidates]);
   const activeWarehouses = useMemo(() => warehouses.filter(warehouse => warehouse.branchId === branchId && isWarehouseActive(warehouse)), [warehouses, branchId]);
   const selectedItems = useMemo(() => new Map(catalog.map(item => [item.id, item])), [catalog]);
   const visibleCatalog = useMemo(() => catalog.filter(item => searchable(item, query)), [catalog, query]);
@@ -136,6 +143,18 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
       setLoadingCatalog(false);
     }
   };
+
+  useEffect(() => {
+    if (!isOpen || String(currentUser?.role || '').toUpperCase() !== 'ADMIN') {
+      setLegacySuppliers([]);
+      return;
+    }
+    let active = true;
+    void fetchLegacyUnassignedPartners('SUPPLIER')
+      .then(items => { if (active) setLegacySuppliers(items); })
+      .catch(() => { if (active) setLegacySuppliers([]); });
+    return () => { active = false; };
+  }, [currentUser?.id, currentUser?.role, isOpen]);
 
   useEffect(() => {
     if (!isOpen) {

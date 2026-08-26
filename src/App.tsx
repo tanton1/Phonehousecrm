@@ -1147,6 +1147,7 @@ export default function App() {
   const handleAddPartner = async (newPartner: Partner) => {
     const saved = await addPartnerToFirestore(newPartner);
     setPartners(previous => [saved, ...previous.filter(partner => partner.id !== saved.id)]);
+    return saved;
   };
 
   const handleUpdatePartner = async (updatedPartner: Partner) => {

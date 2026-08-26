@@ -10,7 +10,7 @@ interface CreatePartnerModalProps {
   initialPhone?: string;
   initialName?: string;
   branchId?: string;
-  onSavePartner: (partner: Partner) => void | Promise<void>;
+  onSavePartner: (partner: Partner) => Partner | void | Promise<Partner | void>;
 }
 
 export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
@@ -80,9 +80,18 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
 
       await onSavePartner(newPartner);
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving partner:', error);
-      alert('Không thể lưu đối tác. Vui lòng thử lại!');
+      const message = String(error?.message || '');
+      if (message.includes('PARTNER_BRANCH_FORBIDDEN')) {
+        alert('Không thể tạo nhà cung cấp: chi nhánh chưa được chọn hoặc tài khoản không có quyền tại chi nhánh này.');
+      } else if (message.includes('PARTNER_ACCOUNT_TYPE_CONFLICT')) {
+        alert('Số điện thoại này đang thuộc một loại đối tác không thể chuyển thành nhà cung cấp.');
+      } else if (message.includes('PARTNER_REQUIRED_FIELDS')) {
+        alert('Vui lòng nhập đủ tên và số điện thoại nhà cung cấp.');
+      } else {
+        alert(message ? `Không thể lưu đối tác: ${message}` : 'Không thể lưu đối tác. Vui lòng thử lại!');
+      }
     } finally {
       setIsSubmitting(false);
     }

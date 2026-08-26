@@ -13,6 +13,7 @@ import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { catalogApi } from '../services/catalogApiClient';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
 import { purchaseErrorMessage } from '../utils/purchaseErrors';
+import { fetchLegacyUnassignedPartners } from '../services/firestoreService';
 
 interface UniformEntryFormProps {
   isOpen: boolean;
@@ -24,7 +25,7 @@ interface UniformEntryFormProps {
   catalogItems?: MasterCatalogItem[];
   currentUser?: UserAccount | null;
   onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => PurchaseOrder | void | Promise<PurchaseOrder | void>;
-  onAddPartner?: (partner: Partner) => void | Promise<void>;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
   onAddDevice?: () => void;
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
   onAddCashTransaction?: (tx: import('../types').CashTransaction) => void;
@@ -113,6 +114,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const [selectedCatalogItems, setSelectedCatalogItems] = useState<Record<string, MasterCatalogItem>>({});
   const catalogRequestVersion = useRef(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [legacySuppliers, setLegacySuppliers] = useState<Partner[]>([]);
   const [isCustomPaid, setIsCustomPaid] = useState(false);
   const entryDraftKey = browserDraftKey('purchase-imei', currentUser?.id, defaultBranchId);
   const wasOpenRef = useRef(false);
@@ -207,14 +209,31 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     void loadCatalogPage(effectiveCatalogSearch, catalogNextCursor, true);
   };
 
+  useEffect(() => {
+    if (!isOpen || String(currentUser?.role || '').toUpperCase() !== 'ADMIN') {
+      setLegacySuppliers([]);
+      return;
+    }
+    let active = true;
+    void fetchLegacyUnassignedPartners('SUPPLIER')
+      .then(items => { if (active) setLegacySuppliers(items); })
+      .catch(() => { if (active) setLegacySuppliers([]); });
+    return () => { active = false; };
+  }, [currentUser?.id, currentUser?.role, isOpen]);
+
   const canAdoptLegacySupplier = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER']
     .includes(String(currentUser?.role || '').toUpperCase());
-  const suppliers = useMemo(() => partners.filter(partner => {
+  const supplierCandidates = useMemo(() => {
+    const byId = new Map<string, Partner>();
+    [...partners, ...legacySuppliers].forEach(partner => byId.set(partner.id, partner));
+    return [...byId.values()];
+  }, [legacySuppliers, partners]);
+  const suppliers = useMemo(() => supplierCandidates.filter(partner => {
     if (partner.type !== 'SUPPLIER' && partner.type !== 'BOTH') return false;
     const partnerBranchId = String(partner.branchId || '').trim();
     if (partnerBranchId === watchBranchId) return true;
     return canAdoptLegacySupplier && (!partnerBranchId || partnerBranchId === 'ALL');
-  }), [canAdoptLegacySupplier, partners, watchBranchId]);
+  }), [canAdoptLegacySupplier, supplierCandidates, watchBranchId]);
   const branchWarehouses = useMemo(
     () => warehouses.filter(warehouse => warehouse.branchId === watchBranchId && isWarehouseActive(warehouse)),
     [warehouses, watchBranchId]
@@ -1057,10 +1076,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         onClose={() => setIsCreateSupplierModalOpen(false)}
         branchId={watchBranchId}
         onSavePartner={async (newPartner) => {
-          if (onAddPartner) {
-            await onAddPartner({ ...newPartner, type: 'SUPPLIER', branchId: watchBranchId });
-          }
-          setValue('supplierId', newPartner.id);
+          const savedPartner = onAddPartner
+            ? await onAddPartner({ ...newPartner, type: 'SUPPLIER', branchId: watchBranchId })
+            : undefined;
+          const selectedPartner = savedPartner || newPartner;
+          setValue('supplierId', selectedPartner.id);
           setIsCreateSupplierModalOpen(false);
         }}
         defaultType="SUPPLIER"

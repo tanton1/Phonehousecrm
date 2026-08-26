@@ -3,6 +3,7 @@ import { Firestore, FieldPath, FieldValue, Query } from 'firebase-admin/firestor
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import {
+  ensureBranchPartner,
   newBranchPartyAccountRecord,
   newPartyMasterRecord,
   normalizePartyPhone,
@@ -72,6 +73,36 @@ export function createPartnersRouter(db: Firestore | null): Router {
       return res.json({ success: true, accounts });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message || 'PARTNER_ACCOUNT_LIST_FAILED' });
+    }
+  });
+
+  /** Temporary migration bridge: only ADMIN can see unassigned legacy rows.
+   * Posting still performs the authoritative history check before adoption. */
+  router.get('/legacy-unassigned', requireRole('ADMIN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const requestedType = text(req.query.type, 30).toUpperCase();
+      const limit = Math.min(200, Math.max(25, Number(req.query.limit) || 100));
+      if (requestedType && !PARTNER_TYPES.has(requestedType)) throw new Error('PARTNER_TYPE_INVALID');
+      const snapshots = requestedType
+        ? await Promise.all([...new Set([requestedType, 'BOTH'])].map(type => (
+          db.collection('partners').where('type', '==', type).limit(limit).get()
+        )))
+        : [await db.collection('partners').orderBy(FieldPath.documentId()).limit(limit).get()];
+      const docs = [...new Map(snapshots.flatMap(snapshot => snapshot.docs).map(doc => [doc.id, doc])).values()];
+      const partners = docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as any))
+        .filter(partner => !String(partner.branchId || '').trim() || partner.branchId === 'ALL')
+        .filter(partner => partner.isActive !== false && partner.isArchived !== true)
+        .filter(partner => !requestedType || partner.type === requestedType || partner.type === 'BOTH');
+      return res.json({
+        success: true,
+        partners,
+        scanned: docs.length,
+        partial: snapshots.some(snapshot => snapshot.size === limit)
+      });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'PARTNER_LEGACY_LIST_FAILED' });
     }
   });
 
@@ -238,36 +269,8 @@ export function createPartnersRouter(db: Firestore | null): Router {
       const branchId = text(req.body?.branchId, 100);
       if (!id || !canAccessBranch(req.user, branchId)) throw new Error('PARTNER_BRANCH_FORBIDDEN');
       const details = editablePartnerFields(req.body);
-      const partnerRef = db.collection('partners').doc(id);
-      const branchRef = db.collection('branches').doc(branchId);
-      const draftPartner = {
-        id, branchId, ...details,
-        outstandingDebt: 0,
-        totalPurchasedFrom: 0,
-        totalSalesTo: 0,
-        totalSpent: 0,
-        loyaltyPoints: 0,
-        debtTransactions: [],
-        createdAt: new Date().toISOString(),
-        createdByUid: req.user?.uid,
-        isActive: true
-      };
-      const identity = resolvePartyIdentity(draftPartner, branchId);
-      const partner = { ...draftPartner, partyMasterId: identity.partyMasterId, branchPartyAccountId: identity.branchPartyAccountId };
-      const masterRef = db.collection('partyMasters').doc(identity.partyMasterId);
-      const accountRef = db.collection('branchPartyAccounts').doc(identity.branchPartyAccountId);
-      await db.runTransaction(async transaction => {
-        const [existing, branch, master, account] = await Promise.all([
-          transaction.get(partnerRef), transaction.get(branchRef), transaction.get(masterRef), transaction.get(accountRef)
-        ]);
-        if (existing.exists) throw new Error('PARTNER_ID_DUPLICATE');
-        if (!branch.exists || branch.data()?.isActive === false) throw new Error('BRANCH_NOT_ACTIVE');
-        if (account.exists) throw new Error('PARTNER_ALREADY_ACTIVE_IN_BRANCH');
-        if (!master.exists) transaction.create(masterRef, newPartyMasterRecord(partner, identity, req.user?.uid || '', partner.createdAt));
-        transaction.create(accountRef, newBranchPartyAccountRecord(partner, branchId, identity, req.user?.uid || '', partner.createdAt));
-        transaction.create(partnerRef, { ...partner, createdAtServer: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
-      });
-      return res.status(201).json({ success: true, partner });
+      const result = await ensureBranchPartner(db, { id, branchId, details }, req.user?.uid || '');
+      return res.status(result.created ? 201 : 200).json({ success: true, partner: result.partner, repaired: result.repaired });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message || 'PARTNER_CREATE_FAILED' });
     }
