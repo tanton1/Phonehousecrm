@@ -112,6 +112,12 @@ function toDate(value?: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function formatFilterDate(value: string): string {
+  if (!value) return 'Ngày';
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}/${month}` : 'Ngày';
+}
+
 function Drawer({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   return (
     <div className="fixed inset-0 z-[90] flex justify-end bg-zinc-950/30 backdrop-blur-[2px]" onMouseDown={event => event.target === event.currentTarget && onClose()}>
@@ -522,12 +528,21 @@ export const WarehouseTransfersView: React.FC<WarehouseTransfersViewProps> = ({
         })}
       </InventoryMetricCarousel>
 
-      <section className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_180px_210px_170px]">
-          <label className="relative"><Search className="absolute left-3.5 top-3 h-4 w-4 text-zinc-400" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Tìm mã phiếu, IMEI, kho, người tạo..." className="h-10 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-10 pr-3 text-sm outline-none transition focus:border-orange-300 focus:bg-white" /></label>
-          <select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="h-10 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold outline-none"><option value="ALL">Tất cả trạng thái</option>{statusOptions.map(status => <option key={status} value={status}>{STATUS_META[status]?.label || status}</option>)}</select>
-          <select value={scopeFilter} onChange={event => setScopeFilter(event.target.value)} className="h-10 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold outline-none"><option value="ALL">{activeTab === 'TECHNICAL' ? 'Tất cả kho KTV' : 'Tất cả chi nhánh'}</option>{scopeOptions.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-          <label className="relative"><CalendarDays className="absolute left-3 top-3 h-4 w-4 text-zinc-400" /><input type="date" value={dateFilter} onChange={event => setDateFilter(event.target.value)} className="h-10 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-9 pr-2 text-sm outline-none" /></label>
+      <section className="min-w-0 rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm sm:p-4">
+        <div className="flex min-w-0 flex-col gap-2 lg:flex-row">
+          <label className="relative min-w-0 flex-1"><Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Tìm mã phiếu, IMEI, kho..." className="h-9 w-full min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 pl-9 pr-3 text-xs font-semibold outline-none transition focus:border-[#ff4b16] focus:bg-white" /></label>
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 lg:w-[520px] lg:grid-cols-[150px_190px_auto]">
+            <select aria-label="Lọc trạng thái" value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="h-9 w-full min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs font-bold outline-none focus:border-[#ff4b16]"><option value="ALL">Trạng thái</option>{statusOptions.map(status => <option key={status} value={status}>{STATUS_META[status]?.label || status}</option>)}</select>
+            <select aria-label={activeTab === 'TECHNICAL' ? 'Lọc kho kỹ thuật viên' : 'Lọc chi nhánh'} value={scopeFilter} onChange={event => setScopeFilter(event.target.value)} className="h-9 w-full min-w-0 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs font-bold outline-none focus:border-[#ff4b16]"><option value="ALL">{activeTab === 'TECHNICAL' ? 'Kho KTV' : 'Chi nhánh'}</option>{scopeOptions.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+            <div className="flex min-w-0 gap-1">
+              <label className={`relative inline-flex h-9 min-w-[72px] cursor-pointer items-center justify-center gap-1.5 overflow-hidden rounded-lg border px-2 text-xs font-black ${dateFilter ? 'border-[#ff4b16] bg-orange-50 text-[#ff4b16]' : 'border-zinc-200 bg-zinc-50 text-zinc-600'}`}>
+                <CalendarDays className="h-4 w-4 shrink-0" />
+                <span className="whitespace-nowrap">{formatFilterDate(dateFilter)}</span>
+                <input aria-label="Chọn ngày tạo phiếu" type="date" value={dateFilter} onChange={event => setDateFilter(event.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" />
+              </label>
+              {dateFilter && <button type="button" aria-label="Xóa lọc ngày" onClick={() => setDateFilter('')} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-zinc-200 bg-white text-zinc-500 hover:text-[#ff4b16]"><X className="h-4 w-4" /></button>}
+            </div>
+          </div>
         </div>
       </section>
 
