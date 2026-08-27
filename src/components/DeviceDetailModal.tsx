@@ -1,13 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   DeviceItem, 
-  DeviceHistoryLog, 
   StockTransferSlip, 
   WarrantyTicket, 
   SalesInvoice, 
   WarehouseInfo, 
   UserAccount 
 } from '../types';
+import {
+  DeviceLifecycleTimeline,
+  fetchDeviceLifecycleTimeline,
+  requestAddDeviceLifecycleNote
+} from '../services/inventoryApiClient';
 import { 
   X, 
   Smartphone, 
@@ -68,8 +72,6 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
   warrantyTickets = [],
   invoices = [],
   warehouses = [],
-  users = [],
-  onUpdateDevice,
   onQuickSell,
   onOpenTransferModal,
   onPrintBarcode
@@ -81,11 +83,31 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
 
   // New Log Entry Form State
   const [isAddLogOpen, setIsAddLogOpen] = useState(false);
-  const [newLogType, setNewLogType] = useState<DeviceHistoryLog['type']>('RESPONSIBILITY_CHANGE');
+  const [newLogType, setNewLogType] = useState<'MANUAL_NOTE' | 'INSPECTION_NOTE' | 'FOLLOW_UP_NOTE'>('MANUAL_NOTE');
   const [newLogTitle, setNewLogTitle] = useState('');
   const [newLogDesc, setNewLogDesc] = useState('');
-  const [newLogStaff, setNewLogStaff] = useState('');
-  const [newCustodian, setNewCustodian] = useState('');
+  const [lifecycle, setLifecycle] = useState<DeviceLifecycleTimeline | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState('');
+  const [timelineNoteSaving, setTimelineNoteSaving] = useState(false);
+
+  const loadLifecycle = async () => {
+    setTimelineLoading(true);
+    setTimelineError('');
+    try {
+      const result = await fetchDeviceLifecycleTimeline({ deviceId: device.id, imei: device.imei });
+      setLifecycle(result);
+    } catch (error: any) {
+      setTimelineError(error?.message || 'Chưa tải được lịch sử chuẩn từ server. Đang hiển thị dữ liệu dự phòng trên máy.');
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setLifecycle(null);
+    void loadLifecycle();
+  }, [device.id, device.imei]);
 
   const handleCopyImei = () => {
     navigator.clipboard.writeText(device.imei);
@@ -135,6 +157,85 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
       iconColor: string;
       meta?: any;
     }> = [];
+
+    // Canonical timeline from immutable server ledgers. The older client-side
+    // synthesis below is kept only as an offline/backward-compatible fallback.
+    if (lifecycle?.events?.length) {
+      const categoryMap: Record<string, 'TRANSFER' | 'WARRANTY' | 'CUSTODY' | 'NOTE' | 'STOCK_IN' | 'SALE'> = {
+        INVENTORY: 'STOCK_IN',
+        TRANSFER: 'TRANSFER',
+        CUSTODY: 'CUSTODY',
+        TECHNICAL: 'WARRANTY',
+        PARTS: 'WARRANTY',
+        QC: 'WARRANTY',
+        COST: 'NOTE',
+        SALE: 'SALE',
+        NOTE: 'NOTE'
+      };
+      const iconMap: Record<string, any> = {
+        INVENTORY: Warehouse,
+        TRANSFER: ArrowLeftRight,
+        CUSTODY: UserCheck,
+        TECHNICAL: Wrench,
+        PARTS: Layers,
+        QC: ShieldCheck,
+        COST: DollarSign,
+        SALE: ShoppingCart,
+        NOTE: FileText
+      };
+      const colorMap: Record<string, string> = {
+        INVENTORY: 'bg-orange-500 text-white',
+        TRANSFER: 'bg-orange-600 text-white',
+        CUSTODY: 'bg-rose-600 text-white',
+        TECHNICAL: 'bg-orange-500 text-white',
+        PARTS: 'bg-amber-600 text-white',
+        QC: 'bg-emerald-600 text-white',
+        COST: 'bg-zinc-700 text-white',
+        SALE: 'bg-rose-600 text-white',
+        NOTE: 'bg-zinc-600 text-white'
+      };
+      const canonicalEvents = lifecycle.events.map(event => {
+        const locations = [
+          event.fromLocationName && `Từ ${event.fromLocationName}`,
+          event.toLocationName && `đến ${event.toLocationName}`
+        ].filter(Boolean).join(' ');
+        const duration = Number(event.durationMinutes || 0) > 0
+          ? `Thời gian: ${Number(event.durationMinutes).toLocaleString('vi-VN')} phút.`
+          : '';
+        return {
+          id: event.id,
+          timestamp: event.occurredAt ? new Date(event.occurredAt).toLocaleString('vi-VN') : '',
+          rawTimestamp: event.occurredAt,
+          category: categoryMap[event.category] || 'NOTE',
+          title: event.title,
+          description: [event.description, locations, duration].filter(Boolean).join(' · '),
+          performedBy: event.actorName || event.actorUid || 'Hệ thống',
+          badgeText: event.status || event.category,
+          badgeColor: event.category === 'QC'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+            : event.category === 'SALE'
+              ? 'bg-rose-50 text-rose-800 border-rose-200'
+              : 'bg-orange-50 text-orange-800 border-orange-200',
+          icon: iconMap[event.category] || FileText,
+          iconColor: colorMap[event.category] || 'bg-zinc-600 text-white',
+          meta: {
+            slipCode: event.category === 'TRANSFER' ? event.documentCode : null,
+            ticketNumber: event.workOrderCode || (event.category === 'TECHNICAL' ? event.documentCode : null),
+            invoiceNumber: event.category === 'SALE' ? event.documentCode : null,
+            documentCode: event.documentCode,
+            amount: event.amount,
+            costAfter: event.costAfter,
+            quantity: event.quantity
+          }
+        };
+      });
+      canonicalEvents.sort((a, b) => {
+        const timeA = new Date(a.rawTimestamp || '').getTime() || 0;
+        const timeB = new Date(b.rawTimestamp || '').getTime() || 0;
+        return sortOrder === 'DESC' ? timeB - timeA : timeA - timeB;
+      });
+      return canonicalEvents;
+    }
 
     // A. Initial Stock In — only render when a real source timestamp exists.
     if (device.receivedDate) events.push({
@@ -277,7 +378,7 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
     });
 
     return events;
-  }, [device, relatedTransfers, relatedWarrantyTickets, relatedInvoices, currentWarehouseInfo, sortOrder]);
+  }, [device, lifecycle, relatedTransfers, relatedWarrantyTickets, relatedInvoices, currentWarehouseInfo, sortOrder]);
 
   // Filtered timeline
   const filteredTimeline = useMemo(() => {
@@ -291,6 +392,9 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
 
   // Calculate current custodian
   const currentResponsiblePerson = useMemo(() => {
+    if (lifecycle?.summary.currentCustodianName) {
+      return lifecycle.summary.currentCustodianName;
+    }
     if (device.status === 'sold') {
       return `Khách hàng: ${device.customerName || 'Đã giao'}`;
     }
@@ -304,43 +408,33 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
       return `KTV: ${relatedWarrantyTickets[0].technician}`;
     }
     return currentWarehouseInfo?.manager ? `${currentWarehouseInfo.manager} (${currentWarehouseInfo.shortName})` : 'Chưa có dữ liệu người chịu trách nhiệm';
-  }, [device, currentWarehouseInfo, relatedWarrantyTickets]);
+  }, [device, lifecycle, currentWarehouseInfo, relatedWarrantyTickets]);
 
   // Handle Add New Log Event
-  const handleSaveNewLog = (e: React.FormEvent) => {
+  const handleSaveNewLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLogTitle.trim()) {
-      alert('Vui lòng nhập tiêu đề sự kiện / bàn giao!');
+      setTimelineError('Vui lòng nhập tiêu đề ghi chú.');
       return;
     }
-
-    const newLogItem: DeviceHistoryLog = {
-      id: `HIST-${Date.now()}`,
-      timestamp: new Date().toLocaleString('sv-SE').slice(0, 16).replace('T', ' '),
-      type: newLogType,
-      title: newLogTitle.trim(),
-      description: newLogDesc.trim() || `Ghi nhận sự kiện ${newLogTitle} bởi ${newLogStaff}.`,
-      performedBy: newLogStaff,
-      statusBadge: newLogType === 'RESPONSIBILITY_CHANGE' ? 'BÀN GIAO MỚI' : 'GHI CHÚ KHO'
-    };
-
-    const updatedHistory = [...(device.history || []), newLogItem];
-    const updatedDevice: DeviceItem = {
-      ...device,
-      history: updatedHistory,
-      currentCustodian: newCustodian.trim() ? newCustodian.trim() : device.currentCustodian
-    };
-
-    if (onUpdateDevice) {
-      onUpdateDevice(updatedDevice);
+    setTimelineNoteSaving(true);
+    setTimelineError('');
+    try {
+      await requestAddDeviceLifecycleNote(device.id, {
+        imei: device.imei,
+        noteType: newLogType,
+        title: newLogTitle.trim(),
+        note: newLogDesc.trim() || newLogTitle.trim()
+      });
+      setNewLogTitle('');
+      setNewLogDesc('');
+      setIsAddLogOpen(false);
+      await loadLifecycle();
+    } catch (error: any) {
+      setTimelineError(error?.message || 'Không thể lưu ghi chú lịch sử.');
+    } finally {
+      setTimelineNoteSaving(false);
     }
-
-    // Reset Form
-    setNewLogTitle('');
-    setNewLogDesc('');
-    setNewCustodian('');
-    setIsAddLogOpen(false);
-    alert('✅ Đã cập nhật thành công sự kiện lịch sử & bàn giao mới cho máy!');
   };
 
   const getStatusBadge = (status: DeviceItem['status']) => {
@@ -518,6 +612,57 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
           {/* TAB 1: DÒNG THỜI GIAN (TIMELINE MINH BẠCH) */}
           {activeTab === 'TIMELINE' && (
             <div className="space-y-4">
+
+              {timelineError && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                  {timelineError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                {[
+                  {
+                    label: 'Vị trí hiện tại',
+                    value: lifecycle?.summary.currentLocationName || currentWarehouseInfo?.name || device.warehouse || 'Chưa xác định',
+                    icon: MapPin
+                  },
+                  {
+                    label: 'Người đang giữ',
+                    value: lifecycle?.summary.currentCustodianName || currentResponsiblePerson,
+                    icon: UserCheck
+                  },
+                  {
+                    label: 'Thời gian xử lý',
+                    value: lifecycle ? `${lifecycle.summary.activeWorkMinutes.toLocaleString('vi-VN')} phút` : 'Đang tổng hợp',
+                    icon: Clock
+                  },
+                  {
+                    label: lifecycle?.canViewCost ? 'Giá vốn hiện tại' : 'QC / sửa lại',
+                    value: lifecycle?.canViewCost
+                      ? `${Number(lifecycle.summary.currentCost || 0).toLocaleString('vi-VN')} đ`
+                      : `${lifecycle?.summary.qcFailCount || 0} lỗi · ${lifecycle?.summary.reworkCount || 0} sửa lại`,
+                    icon: lifecycle?.canViewCost ? DollarSign : ShieldCheck
+                  }
+                ].map(item => {
+                  const SummaryIcon = item.icon;
+                  return (
+                    <div key={item.label} className="min-w-0 rounded-2xl border border-orange-100 bg-gradient-to-br from-white to-orange-50/70 p-3">
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                        <SummaryIcon className="h-3.5 w-3.5 text-orange-500" />
+                        <span>{item.label}</span>
+                      </div>
+                      <p className="mt-1 truncate text-xs font-black text-zinc-900" title={item.value}>{item.value}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {timelineLoading && (
+                <div className="flex items-center gap-2 text-xs font-semibold text-orange-700">
+                  <Activity className="h-4 w-4 animate-pulse" />
+                  Đang đối chiếu các sổ kho, kỹ thuật, KCS và hóa đơn…
+                </div>
+              )}
               
               {/* Timeline Action Header & Filters */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-zinc-100">
@@ -557,22 +702,22 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
                   </button>
 
                   <button
-                    disabled
-                    className="text-xs bg-zinc-50 text-zinc-500 font-bold px-2.5 py-1 rounded-lg border border-zinc-200 flex items-center space-x-1"
+                    onClick={() => setIsAddLogOpen(value => !value)}
+                    className="text-xs bg-orange-500 hover:bg-orange-600 text-white font-bold px-2.5 py-1 rounded-lg border border-orange-500 flex items-center space-x-1 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Ledger server tự ghi lịch sử</span>
+                    <span>Thêm ghi chú</span>
                   </button>
                 </div>
               </div>
 
               {/* Add New Log Event Form Modal/Dropdown */}
-              {false && isAddLogOpen && (
+              {isAddLogOpen && (
                 <form onSubmit={handleSaveNewLog} className="p-4 bg-orange-50/70 border border-orange-200 rounded-2xl space-y-3 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-black text-orange-950 flex items-center space-x-1.5">
                       <Sparkles className="w-4 h-4 text-orange-600" />
-                      <span>Thêm Nhật Ký Bàn Giao & Quản Lý Kho Minh Bạch</span>
+                      <span>Thêm ghi chú vào lịch sử IMEI</span>
                     </h4>
                     <button 
                       type="button" 
@@ -585,71 +730,40 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Loại Sự Kiện *</label>
+                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Loại ghi chú *</label>
                       <select
                         value={newLogType}
                         onChange={(e) => setNewLogType(e.target.value as any)}
                         className="w-full bg-white border border-orange-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-zinc-900 focus:border-orange-500"
                       >
-                        <option value="RESPONSIBILITY_CHANGE">👤 Bàn Giao Người Chịu Trách Nhiệm</option>
-                        <option value="MANUAL_NOTE">📝 Nhật Ký Kiểm Kê / Vệ Sinh Máy</option>
-                        <option value="WARRANTY_QC">🛠️ Phát Hiện Lỗi / Ghi Chú Kỹ Thuật</option>
-                        <option value="WAREHOUSE_TRANSFER">🚚 Ghi Chú Điều Vận Kho</option>
+                        <option value="MANUAL_NOTE">Ghi chú chung</option>
+                        <option value="INSPECTION_NOTE">Ghi chú kiểm tra</option>
+                        <option value="FOLLOW_UP_NOTE">Ghi chú cần theo dõi</option>
                       </select>
                     </div>
 
-                    <div>
-                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Người Thực Hiện Ghi Log *</label>
-                      <select
-                        value={newLogStaff}
-                        onChange={(e) => setNewLogStaff(e.target.value)}
-                        className="w-full bg-white border border-orange-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-zinc-900 focus:border-orange-500"
-                      >
-                        <option value="Nhật Tân (Admin Kho)">Nhật Tân (Admin Kho)</option>
-                        <option value="Tuấn (Cửa Hàng Trưởng)">Tuấn (Cửa Hàng Trưởng PhoneHouse)</option>
-                        <option value="Hoàng (Quản Lý Xstore)">Hoàng (Quản Lý Xstore)</option>
-                        <option value="KTV Trọng (Kỹ Thuật)">KTV Trọng (Kỹ Thuật)</option>
-                        <option value="KTV Nam (Kỹ Thuật)">KTV Nam (Kỹ Thuật)</option>
-                        {users.map(u => (
-                          <option key={u.id} value={`${u.name} (${u.role})`}>{u.name} - {u.role}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Người Tiếp Nhận Mới (Nếu có)</label>
-                      <input
-                        type="text"
-                        value={newCustodian}
-                        onChange={(e) => setNewCustodian(e.target.value)}
-                        placeholder="VD: KTV Nam (Giữ máy test FaceID)"
-                        className="w-full bg-white border border-orange-200 rounded-xl px-2.5 py-1.5 text-xs text-zinc-900 focus:border-orange-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Tiêu Đề Tóm Tắt *</label>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Tiêu đề tóm tắt *</label>
                       <input
                         type="text"
                         value={newLogTitle}
                         onChange={(e) => setNewLogTitle(e.target.value)}
-                        placeholder="VD: Bàn giao máy cho KTV Trọng ép kính"
+                        placeholder="VD: Kiểm tra ngoại hình trước khi chuyển kho"
                         className="w-full bg-white border border-orange-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-zinc-900 focus:border-orange-500"
                       />
                     </div>
+                  </div>
 
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Mô Tả Chi Tiết / Lý Do Bàn Giao</label>
-                      <input
-                        type="text"
+                  <div>
+                      <label className="block text-[11px] font-bold text-zinc-700 mb-1">Nội dung chi tiết</label>
+                      <textarea
                         value={newLogDesc}
                         onChange={(e) => setNewLogDesc(e.target.value)}
-                        placeholder="VD: Máy được bàn giao kèm hộp zin, test cảm ứng mượt trước khi nhận..."
-                        className="w-full bg-white border border-orange-200 rounded-xl px-2.5 py-1.5 text-xs text-zinc-900 focus:border-orange-500"
+                        placeholder="Nêu tình trạng, lý do và việc cần tiếp tục theo dõi…"
+                        rows={3}
+                        className="w-full resize-none bg-white border border-orange-200 rounded-xl px-2.5 py-2 text-xs text-zinc-900 focus:border-orange-500"
                       />
-                    </div>
+                      <p className="mt-1 text-[10px] text-zinc-500">Người ghi được lấy tự động từ tài khoản đăng nhập. Ghi chú không thay đổi người giữ máy; bàn giao phải dùng đúng luồng bàn giao IMEI.</p>
                   </div>
 
                   <div className="flex justify-end space-x-2 pt-1">
@@ -662,9 +776,10 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
                     </button>
                     <button
                       type="submit"
-                      className="px-4 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-black shadow-xs cursor-pointer"
+                      disabled={timelineNoteSaving}
+                      className="px-4 py-1 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-black shadow-xs cursor-pointer"
                     >
-                      Lưu Mốc Lịch Sử
+                      {timelineNoteSaving ? 'Đang lưu…' : 'Lưu ghi chú'}
                     </button>
                   </div>
                 </form>
@@ -732,6 +847,20 @@ const DeviceDetailModalContent: React.FC<Omit<DeviceDetailModalProps, 'device' |
                                   <span className="bg-rose-50 text-rose-800 font-mono px-2 py-0.5 rounded border border-rose-200 font-bold">
                                     {event.meta.invoiceNumber}
                                   </span>
+                                )}
+                                {!event.meta.slipCode && !event.meta.ticketNumber && !event.meta.invoiceNumber && event.meta.documentCode && (
+                                  <span className="bg-zinc-50 text-zinc-700 font-mono px-2 py-0.5 rounded border border-zinc-200 font-bold">
+                                    {event.meta.documentCode}
+                                  </span>
+                                )}
+                                {Number(event.meta.quantity || 0) > 0 && (
+                                  <span className="font-bold text-zinc-700">SL {Number(event.meta.quantity).toLocaleString('vi-VN')}</span>
+                                )}
+                                {Number(event.meta.amount || 0) !== 0 && (
+                                  <span className="font-black text-orange-700">{Number(event.meta.amount).toLocaleString('vi-VN')} đ</span>
+                                )}
+                                {Number(event.meta.costAfter || 0) > 0 && (
+                                  <span className="font-black text-zinc-800">Vốn sau: {Number(event.meta.costAfter).toLocaleString('vi-VN')} đ</span>
                                 )}
                               </div>
                             )}

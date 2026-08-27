@@ -3,11 +3,15 @@ import {
   AlertCircle,
   CheckCircle2,
   DollarSign,
+  Clock,
+  History,
   Loader2,
+  MapPin,
   Package,
   RefreshCw,
   ScanLine,
   Wrench,
+  UserCheck,
   X,
 } from "lucide-react";
 import {
@@ -48,6 +52,10 @@ import {
 } from "../services/technicalApiClient";
 import { fetchTechnicalTaskSettings } from "../services/configurationApiClient";
 import { uploadTechnicalEvidence } from "../services/technicalEvidenceService";
+import {
+  DeviceLifecycleTimeline,
+  fetchDeviceLifecycleTimeline,
+} from "../services/inventoryApiClient";
 
 interface TechnicalWorkOrderDrawerProps {
   task: WarrantyTicket | null;
@@ -286,6 +294,7 @@ export const TechnicalWorkOrderDrawer: React.FC<
     "OVERVIEW" | "TASKS" | "PARTS" | "COST" | "QC" | "TIMELINE" | "RETURN"
   >("OVERVIEW");
   const [details, setDetails] = useState<any>(null);
+  const [lifecycle, setLifecycle] = useState<DeviceLifecycleTimeline | null>(null);
   const [parts, setParts] = useState<any[]>([]);
   const [centralParts, setCentralParts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -412,6 +421,15 @@ export const TechnicalWorkOrderDrawer: React.FC<
           : Promise.resolve([]),
       ]);
       setDetails(nextDetails);
+      const nextLifecycle = await fetchDeviceLifecycleTimeline(
+        {
+          deviceId: String(nextDetails?.workOrder?.deviceId || (task as any)?.deviceId || ""),
+          imei: String(nextDetails?.workOrder?.imei || (task as any)?.imei || ""),
+          workOrderId,
+        },
+        currentUser || undefined,
+      ).catch(() => null);
+      setLifecycle(nextLifecycle);
       setParts(nextParts || []);
       setDeliveryPayment((current) => ({
         ...current,
@@ -495,6 +513,7 @@ export const TechnicalWorkOrderDrawer: React.FC<
     if (!task) return;
     setActiveTab("OVERVIEW");
     setDetails(null);
+    setLifecycle(null);
     setError("");
     setMessage("");
     setSelectedLineId(String((task as any).lineId || ""));
@@ -2791,46 +2810,96 @@ export const TechnicalWorkOrderDrawer: React.FC<
               )}
 
               {activeTab === "TIMELINE" && (
-                <section className="overflow-hidden rounded-2xl border bg-white">
-                  <div className="border-b px-4 py-3 font-black">
-                    Ledger theo thời gian thực
-                  </div>
-                  <div className="divide-y">
-                    {(details?.timeline || []).map((event: any) => (
-                      <div
-                        key={event.id}
-                        className="grid gap-2 p-4 sm:grid-cols-[170px_1fr]"
-                      >
-                        <time className="text-xs font-bold text-zinc-500">
-                          {new Date(event.occurredAt).toLocaleString("vi-VN")}
-                        </time>
-                        <div>
-                          <p className="font-bold">{event.title}</p>
-                          <p className="mt-1 text-xs text-zinc-500">
-                            {event.actorName ||
-                              event.actorUid ||
-                              "Không có dữ liệu người thực hiện"}
-                            {event.fromLocationId || event.toLocationId
-                              ? ` · ${event.fromLocationId || "—"} → ${event.toLocationId || "—"}`
-                              : ""}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                    {[
+                      {
+                        label: "Vị trí hiện tại",
+                        value: lifecycle?.summary.currentLocationName || workOrder.currentLocationName || "Chưa xác định",
+                        icon: MapPin,
+                      },
+                      {
+                        label: "Người đang giữ",
+                        value: lifecycle?.summary.currentCustodianName || workOrder.currentCustodianName || "Chưa xác định",
+                        icon: UserCheck,
+                      },
+                      {
+                        label: "Thời gian thực làm",
+                        value: lifecycle ? `${lifecycle.summary.activeWorkMinutes.toLocaleString("vi-VN")} phút` : "Đang tổng hợp",
+                        icon: Clock,
+                      },
+                      {
+                        label: lifecycle?.canViewCost ? "Giá vốn hiện tại" : "KCS / sửa lại",
+                        value: lifecycle?.canViewCost
+                          ? money.format(Number(lifecycle.summary.currentCost || 0))
+                          : `${lifecycle?.summary.qcFailCount || 0} lỗi · ${lifecycle?.summary.reworkCount || 0} sửa lại`,
+                        icon: lifecycle?.canViewCost ? DollarSign : CheckCircle2,
+                      },
+                    ].map((item) => {
+                      const SummaryIcon = item.icon;
+                      return (
+                        <div key={item.label} className="min-w-0 rounded-2xl border border-orange-100 bg-gradient-to-br from-white to-orange-50/70 p-3">
+                          <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-zinc-500">
+                            <SummaryIcon className="h-3.5 w-3.5 text-orange-500" />
+                            {item.label}
                           </p>
-                          {details.canViewCost && event.amount != null && (
-                            <p className="mt-1 text-xs font-black text-orange-700">
-                              Biến động {money.format(Number(event.amount))} ·
-                              Giá vốn sau{" "}
-                              {money.format(Number(event.costAfter || 0))}
-                            </p>
-                          )}
+                          <p className="mt-1 truncate text-xs font-black text-zinc-900" title={item.value}>{item.value}</p>
                         </div>
-                      </div>
-                    ))}
-                    {!details?.timeline?.length && (
-                      <p className="p-8 text-center text-sm text-zinc-500">
-                        Không có dữ liệu lịch sử từ ledger.
-                      </p>
-                    )}
+                      );
+                    })}
                   </div>
-                </section>
+
+                  <section className="overflow-hidden rounded-2xl border bg-white">
+                    <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+                      <div>
+                        <p className="flex items-center gap-2 font-black"><History className="h-4 w-4 text-orange-500" /> Event Timeline IMEI</p>
+                        <p className="mt-0.5 text-[11px] text-zinc-500">Đối chiếu từ kho, custody, task, linh kiện, KCS, giá vốn và hóa đơn.</p>
+                      </div>
+                      {lifecycle && <span className="rounded-full bg-orange-50 px-2 py-1 text-[10px] font-black text-orange-700">{lifecycle.summary.eventCount} mốc</span>}
+                    </div>
+                    <div className="divide-y">
+                      {(lifecycle?.events || details?.timeline || []).map((event: any) => (
+                        <div
+                          key={event.id}
+                          className="grid gap-2 p-4 sm:grid-cols-[170px_1fr]"
+                        >
+                          <time className="text-xs font-bold text-zinc-500">
+                            {new Date(event.occurredAt).toLocaleString("vi-VN")}
+                          </time>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {event.category && <span className="rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[9px] font-black text-orange-800">{event.category}</span>}
+                              <p className="font-bold">{event.title}</p>
+                            </div>
+                            {event.description && <p className="mt-1 text-xs leading-relaxed text-zinc-600">{event.description}</p>}
+                            <p className="mt-1 text-xs text-zinc-500">
+                              {event.actorName || event.actorUid || "Hệ thống"}
+                              {event.fromLocationName || event.toLocationName || event.fromLocationId || event.toLocationId
+                                ? ` · ${event.fromLocationName || event.fromLocationId || "—"} → ${event.toLocationName || event.toLocationId || "—"}`
+                                : ""}
+                              {Number(event.durationMinutes || 0) > 0 ? ` · ${Number(event.durationMinutes).toLocaleString("vi-VN")} phút` : ""}
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-bold text-zinc-500">
+                              {(event.documentCode || event.workOrderCode) && <span className="rounded border bg-zinc-50 px-1.5 py-0.5 font-mono">{event.documentCode || event.workOrderCode}</span>}
+                              {Number(event.quantity || 0) > 0 && <span>SL {Number(event.quantity).toLocaleString("vi-VN")}</span>}
+                            </div>
+                            {(lifecycle?.canViewCost ?? details.canViewCost) && event.amount != null && (
+                              <p className="mt-1 text-xs font-black text-orange-700">
+                                Biến động {money.format(Number(event.amount))}
+                                {event.costAfter != null ? ` · Giá vốn sau ${money.format(Number(event.costAfter || 0))}` : ""}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {!(lifecycle?.events?.length || details?.timeline?.length) && (
+                        <p className="p-8 text-center text-sm text-zinc-500">
+                          Chưa có mốc lịch sử nào cho IMEI này.
+                        </p>
+                      )}
+                    </div>
+                  </section>
+                </div>
               )}
 
               {activeTab === "RETURN" &&

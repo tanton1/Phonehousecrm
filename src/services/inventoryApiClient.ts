@@ -113,6 +113,82 @@ export interface InventoryAccessoryTrace {
   notice?: string;
 }
 
+export type DeviceLifecycleCategory =
+  | 'INVENTORY'
+  | 'TRANSFER'
+  | 'CUSTODY'
+  | 'TECHNICAL'
+  | 'PARTS'
+  | 'QC'
+  | 'COST'
+  | 'SALE'
+  | 'NOTE';
+
+export interface DeviceLifecycleEvent {
+  id: string;
+  occurredAt: string;
+  category: DeviceLifecycleCategory;
+  eventType: string;
+  title: string;
+  description: string;
+  actorUid?: string | null;
+  actorName?: string | null;
+  branchId?: string | null;
+  branchName?: string | null;
+  fromLocationId?: string | null;
+  fromLocationName?: string | null;
+  toLocationId?: string | null;
+  toLocationName?: string | null;
+  workOrderId?: string | null;
+  workOrderCode?: string | null;
+  taskLineId?: string | null;
+  documentType: string;
+  documentId: string;
+  documentCode?: string | null;
+  status?: string | null;
+  durationMinutes?: number | null;
+  quantity?: number | null;
+  amount?: number | null;
+  costAfter?: number | null;
+  note?: string | null;
+}
+
+export interface DeviceLifecycleTimeline {
+  device: {
+    id?: string | null;
+    imei: string;
+    model: string;
+    status: string;
+    branchId: string;
+    branchName: string;
+  };
+  summary: {
+    eventCount: number;
+    firstEventAt?: string | null;
+    lastEventAt?: string | null;
+    currentStatus: string;
+    currentLocationId?: string | null;
+    currentLocationName: string;
+    currentCustodianUid?: string | null;
+    currentCustodianName: string;
+    workOrderCount: number;
+    activeWorkMinutes: number;
+    waitingPartsMinutes: number;
+    qcPassCount: number;
+    qcFailCount: number;
+    reworkCount: number;
+    partsConsumed: number;
+    transferCount: number;
+    acquisitionCost?: number;
+    currentCost?: number;
+    technicalCostAdded?: number;
+  };
+  events: DeviceLifecycleEvent[];
+  canViewCost: boolean;
+  generatedAt: string;
+  sourceOfTruth: 'LEDGER_PROJECTION_V1';
+}
+
 export async function fetchInventoryDevicePage(
   options: {
     limit?: number;
@@ -171,6 +247,35 @@ export async function fetchInventoryAccessoryTrace(
   currentUser?: UserAccount
 ): Promise<InventoryAccessoryTrace> {
   return sendInventoryRequest(`stock-items/accessories/${encodeURIComponent(productId)}/trace`, 'GET', undefined, currentUser);
+}
+
+export async function fetchDeviceLifecycleTimeline(
+  query: { deviceId?: string; imei?: string; workOrderId?: string },
+  currentUser?: UserAccount
+): Promise<DeviceLifecycleTimeline> {
+  const params = new URLSearchParams();
+  if (query.deviceId) params.set('deviceId', query.deviceId);
+  if (query.imei) params.set('imei', query.imei);
+  if (query.workOrderId) params.set('workOrderId', query.workOrderId);
+  return sendInventoryRequest(`device-timeline?${params.toString()}`, 'GET', undefined, currentUser);
+}
+
+export async function requestAddDeviceLifecycleNote(
+  deviceId: string,
+  payload: {
+    imei?: string;
+    workOrderId?: string;
+    noteType: 'MANUAL_NOTE' | 'INSPECTION_NOTE' | 'FOLLOW_UP_NOTE';
+    title: string;
+    note: string;
+    idempotencyKey?: string;
+  },
+  currentUser?: UserAccount
+): Promise<{ note: Record<string, any>; idempotentReplay?: boolean }> {
+  return sendInventoryRequest(`devices/${encodeURIComponent(deviceId)}/timeline-notes`, 'POST', {
+    ...payload,
+    idempotencyKey: payload.idempotencyKey || createInventoryIdempotencyKey(`device-timeline-note:${deviceId}`)
+  }, currentUser);
 }
 
 export async function requestImportInventoryDevices(

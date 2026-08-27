@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/requireRole';
 import { buildInventoryAuditReport, listInventoryDevicesForActor, processImportInventoryDevices, processUpdateInventoryDeviceMetadata } from '../services/inventoryDeviceService';
 import { getAccessoryStockTrace, listAccessoryStockBalances } from '../services/inventoryStockItemService';
 import { processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
+import { getDeviceLifecycleTimeline, processAddDeviceLifecycleNote } from '../services/deviceLifecycleService';
 
 function sendInventoryError(res: Response, error: any) {
   const message = error?.message || 'Lỗi xử lý dữ liệu kho.';
@@ -34,6 +35,57 @@ export function createInventoryRouter(db: Firestore | null): Router {
       return sendInventoryError(res, error);
     }
   });
+
+  /**
+   * One authoritative event timeline for an IMEI. The response is projected
+   * from immutable stock, technical, QC, part, cost and sales ledgers; it does
+   * not create a second inventory or accounting source of truth.
+   */
+  router.get('/device-timeline', async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await getDeviceLifecycleTimeline(db, {
+        deviceId: String(req.query.deviceId || '') || undefined,
+        imei: String(req.query.imei || '') || undefined,
+        workOrderId: String(req.query.workOrderId || '') || undefined
+      }, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
+  router.get('/devices/:deviceId/timeline', async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const result = await getDeviceLifecycleTimeline(db, {
+        deviceId: req.params.deviceId,
+        imei: String(req.query.imei || '') || undefined,
+        workOrderId: String(req.query.workOrderId || '') || undefined
+      }, req.user!);
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendInventoryError(res, error);
+    }
+  });
+
+  router.post(
+    '/devices/:deviceId/timeline-notes',
+    requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD', 'TECH', 'TECHNICIAN', 'SALES', 'SALE'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const result = await processAddDeviceLifecycleNote(db, {
+          deviceId: req.params.deviceId,
+          imei: String(req.body?.imei || '') || undefined,
+          workOrderId: String(req.body?.workOrderId || '') || undefined
+        }, req.body || {}, req.user!);
+        return res.json({ success: true, data: result });
+      } catch (error: any) {
+        return sendInventoryError(res, error);
+      }
+    }
+  );
 
   router.get('/stock-items/accessories', async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
