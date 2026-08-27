@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { 
-  ShoppingCart, Search, Smartphone, Users, ChevronRight, 
+import {
+  ShoppingCart, Search, Smartphone, Users, ChevronRight,
   RefreshCw, TrendingUp, Bell, Target, ArrowRight, Zap, ScanFace
 } from 'lucide-react';
 import { POSSalesView } from './POSSalesView';
@@ -28,12 +28,12 @@ interface SalesWorkspaceViewProps {
   onAddTransaction: (tx: CashTransaction) => void;
   onOpenNewDeviceModal?: () => void;
   onOpenCheckIn?: () => void;
-  
+
   // CRM Props
   onAddLead: (lead: Lead) => void;
   onUpdateLead: (lead: Lead) => void;
   onConvertLeadToSale: (lead: Lead) => void;
-  
+
   // Employee Dashboard & HR Props
   currentUser?: UserAccount | null;
   users: UserAccount[];
@@ -51,8 +51,8 @@ interface SalesWorkspaceViewProps {
   onAddDevice?: (device: DeviceItem) => void;
 }
 
-export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({ 
-  devices, invoices, leads = [], branches, warehouses, storeSettings, 
+export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
+  devices, invoices, leads = [], branches, warehouses, storeSettings,
   onCreateInvoice, onUpdateDeviceStatus, preSelectedDevice, onNavigateToInvoices, onOpenPOS,
   funds, onAddTransaction, onOpenNewDeviceModal, onOpenCheckIn,
   onAddLead, onUpdateLead, onConvertLeadToSale,
@@ -64,7 +64,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const openPos = () => onOpenPOS ? onOpenPOS() : setActiveMode('POS');
 
-  const filteredDevices = devices.filter(d => 
+  const filteredDevices = devices.filter(d =>
     d.model.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (d.imei && d.imei.includes(searchQuery))
   ).slice(0, 5);
@@ -72,7 +72,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
   return (
     <div className="min-h-screen bg-zinc-50 flex flex-col font-sans">
       {/* TOPBAR */}
-      <div className="bg-[#FF4B16] text-white p-2 sm:p-3 sm:px-6 flex items-center justify-between shadow-md z-10">
+      <div className="bg-[#ff4b16] text-white p-2 sm:p-3 sm:px-6 flex items-center justify-between shadow-md z-10">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
             <ShoppingCart className="w-5 h-5 text-white" />
@@ -89,9 +89,9 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
         {/* SEARCH BAR (Center) */}
         <div className="hidden md:flex flex-1 max-w-xl mx-8">
           <div className="relative w-full">
-            <input 
-              type="text" 
-              placeholder="F3: Quét mã vạch / Tên SP..." 
+            <input
+              type="text"
+              placeholder="F3: Quét mã vạch / Tên SP..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -126,9 +126,9 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
           </div>
           <button className="relative w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
             <Bell className="w-4 h-4 text-white" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-orange-400 rounded-full border border-[#FF4B16]"></span>
+            <span className="absolute top-1 right-1 w-2 h-2 bg-orange-400 rounded-full border border-[#ff4b16]"></span>
           </button>
-          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-xs text-[#FF4B16] shadow-inner">
+          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-xs text-[#ff4b16] shadow-inner">
             L
           </div>
         </div>
@@ -155,7 +155,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-black text-[#FF4B16]">{(d.expectedSellPrice || 0).toLocaleString()} đ</div>
+                    <div className="text-sm font-black text-[#ff4b16]">{(d.expectedSellPrice || 0).toLocaleString()} đ</div>
                     <button className="text-[10px] font-bold text-orange-600 opacity-0 group-hover:opacity-100 transition-opacity">Thêm POS &rarr;</button>
                   </div>
                 </div>
@@ -173,7 +173,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
         <div className="flex-1 flex overflow-hidden">
           {activeMode === 'POS' && (
             <div className="flex-1 overflow-hidden relative">
-              <POSSalesView 
+              <POSSalesView
                 devices={devices}
                 attendanceRecords={attendanceRecords}
                 invoices={invoices}
@@ -190,7 +190,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
               />
             </div>
           )}
-          
+
           {activeMode === 'TRADEIN' && (
             <div className="flex-1 bg-zinc-50 overflow-auto p-4 sm:p-6">
               <TradeInView
@@ -202,7 +202,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
               />
             </div>
           )}
-          
+
           {activeMode === 'CRM' && (
             <div className="flex-1 overflow-auto">
               <React.Suspense fallback={<div className="p-10 text-center text-sm font-bold text-zinc-500">Đang mở CRM…</div>}>
@@ -222,7 +222,7 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
               </React.Suspense>
             </div>
           )}
-          
+
           {activeMode === 'KPI' && (
             <div className="flex-1 overflow-auto">
               <EmployeeDashboardView
@@ -238,12 +238,12 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
               />
             </div>
           )}
-          
+
           {activeMode === 'HR' && (
             <div className="flex-1 overflow-auto p-3 sm:p-5">
-              <StaffHRView 
-                currentUser={currentUser} 
-                roleType='SALES' 
+              <StaffHRView
+                currentUser={currentUser}
+                roleType='SALES'
                 branches={branches}
                 onCheckIn={onCheckIn}
                 onCheckOut={onCheckOut}
@@ -255,40 +255,40 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
           )}
         </div>
       </div>
-      
+
       {/* BOTTOM TAB BAR */}
       <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-zinc-200 flex items-center justify-around z-40 px-2 pb-safe">
-        <button 
+        <button
           onClick={openPos}
-          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'POS' ? 'text-[#FF4B16]' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'POS' ? 'text-[#ff4b16]' : 'text-zinc-400'}`}
         >
           <ShoppingCart className={`w-5 h-5 ${activeMode === 'POS' ? 'scale-110' : ''}`} />
           <span className="text-[10px] font-bold">POS</span>
         </button>
-        <button 
+        <button
           onClick={() => setActiveMode('TRADEIN')}
-          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'TRADEIN' ? 'text-[#FF4B16]' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'TRADEIN' ? 'text-[#ff4b16]' : 'text-zinc-400'}`}
         >
           <RefreshCw className={`w-5 h-5 ${activeMode === 'TRADEIN' ? 'scale-110' : ''}`} />
           <span className="text-[10px] font-bold">Thu Cũ</span>
         </button>
-        <button 
+        <button
           onClick={() => setActiveMode('CRM')}
-          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'CRM' ? 'text-[#FF4B16]' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'CRM' ? 'text-[#ff4b16]' : 'text-zinc-400'}`}
         >
           <Users className={`w-5 h-5 ${activeMode === 'CRM' ? 'scale-110' : ''}`} />
           <span className="text-[10px] font-bold">CRM</span>
         </button>
-        <button 
+        <button
           onClick={() => setActiveMode('KPI')}
-          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'KPI' ? 'text-[#FF4B16]' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'KPI' ? 'text-[#ff4b16]' : 'text-zinc-400'}`}
         >
           <TrendingUp className={`w-5 h-5 ${activeMode === 'KPI' ? 'scale-110' : ''}`} />
           <span className="text-[10px] font-bold">KPI</span>
         </button>
-        <button 
+        <button
           onClick={() => setActiveMode('HR')}
-          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'HR' ? 'text-[#FF4B16]' : 'text-zinc-400'}`}
+          className={`flex flex-col items-center justify-center w-16 h-full gap-1 transition-all ${activeMode === 'HR' ? 'text-[#ff4b16]' : 'text-zinc-400'}`}
         >
           <Users className={`w-5 h-5 ${activeMode === 'HR' ? 'scale-110' : ''}`} />
           <span className="text-[10px] font-bold">Nhân Sự</span>

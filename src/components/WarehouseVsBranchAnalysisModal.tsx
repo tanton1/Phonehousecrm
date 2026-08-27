@@ -1,24 +1,24 @@
 import React, { useState } from 'react';
-import { 
-  Warehouse, 
-  Store, 
-  ArrowRight, 
-  ArrowLeftRight, 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
-  Boxes, 
-  ShieldCheck, 
-  RefreshCw, 
-  CheckCircle2, 
-  AlertCircle, 
-  HelpCircle, 
-  Building2, 
-  Truck, 
-  CreditCard, 
-  Coins, 
-  X, 
-  Layers, 
+import {
+  Warehouse,
+  Store,
+  ArrowRight,
+  ArrowLeftRight,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Boxes,
+  ShieldCheck,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  HelpCircle,
+  Building2,
+  Truck,
+  CreditCard,
+  Coins,
+  X,
+  Layers,
   Zap,
   BarChart3,
   FileSpreadsheet
@@ -45,9 +45,9 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full h-[95vh] sm:h-[90vh] max-w-5xl rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200">
-        
+
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-[#F94A1F] via-[#ff5d36] to-orange-600 px-4 sm:px-6 py-4 flex justify-between items-center text-white shrink-0 shadow-sm">
+        <div className="bg-gradient-to-r from-[#ff4b16] via-[#ff5d36] to-orange-600 px-4 sm:px-6 py-4 flex justify-between items-center text-white shrink-0 shadow-sm">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center backdrop-blur-xs border border-white/30">
               <ArrowLeftRight className="w-5 h-5 text-white" />
@@ -89,7 +89,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                   isActive
-                    ? 'bg-[#F94A1F] text-white shadow-xs'
+                    ? 'bg-[#ff4b16] text-white shadow-xs'
                     : 'bg-white text-zinc-600 hover:bg-zinc-200/80 border border-zinc-200/80'
                 }`}
               >
@@ -102,15 +102,15 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
 
         {/* Modal Body Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 custom-scrollbar bg-zinc-50/50">
-          
+
           {/* TAB 1: TỔNG QUAN & SƠ ĐỒ LIÊN KẾT */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
-              
+
               {/* Executive Summary Card */}
               <div className="bg-white rounded-2xl p-4 sm:p-5 border border-orange-100 shadow-xs">
                 <h3 className="text-sm sm:text-base font-extrabold text-zinc-900 mb-2 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-[#F94A1F]" />
+                  <Zap className="w-4 h-4 text-[#ff4b16]" />
                   Tóm Tắt Khác Biệt Cốt Lõi (Core Essence)
                 </h3>
                 <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed">
@@ -137,7 +137,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative items-center">
-                  
+
                   {/* Step 1: Nhà Cung Cấp */}
                   <div className="bg-gradient-to-br from-zinc-900 to-zinc-800 text-white rounded-2xl p-4 border border-zinc-700 shadow-md space-y-2">
                     <div className="flex justify-between items-center">
@@ -155,12 +155,12 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   {/* Step 2: Kho Tổng */}
                   <div className="bg-gradient-to-br from-orange-50 to-orange-50 rounded-2xl p-4 border-2 border-orange-300 shadow-md space-y-2 relative">
                     <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-[#F94A1F] text-white rounded-full">Hub Trung Tâm</span>
-                      <Warehouse className="w-4 h-4 text-[#F94A1F]" />
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-[#ff4b16] text-white rounded-full">Hub Trung Tâm</span>
+                      <Warehouse className="w-4 h-4 text-[#ff4b16]" />
                     </div>
                     <div className="font-black text-sm text-zinc-900">Kho Phân Phối Tổng</div>
                     <p className="text-[11px] text-zinc-600">Kiểm tra QC 28 bước, dán tem mã vạch IMEI K80, lưu kho số lượng lớn, chi tiền thanh toán NCC.</p>
-                    <div className="pt-2 border-t border-orange-200 text-[10px] font-bold text-[#F94A1F] flex items-center justify-between">
+                    <div className="pt-2 border-t border-orange-200 text-[10px] font-bold text-[#ff4b16] flex items-center justify-between">
                       <span>⚡ Chi tiền từ Quỹ Tổng</span>
                       <span>📦 Xuất điều chuyển</span>
                     </div>
@@ -209,11 +209,11 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
 
               {/* Quick 2 Column Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                
+
                 {/* Kho Card */}
                 <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-xs space-y-3">
                   <div className="flex items-center space-x-2 text-orange-600 font-extrabold text-sm border-b border-zinc-100 pb-2">
-                    <Warehouse className="w-4 h-4 text-[#F94A1F]" />
+                    <Warehouse className="w-4 h-4 text-[#ff4b16]" />
                     <span>Đặc Trưng Kho Lưu Hàng Hoá (Warehouse)</span>
                   </div>
                   <ul className="text-xs text-zinc-600 space-y-2">
@@ -339,7 +339,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                 </h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  
+
                   {/* Dòng Tiền Ra */}
                   <div className="bg-rose-50/70 border border-rose-200 rounded-2xl p-4 space-y-2">
                     <div className="flex items-center space-x-2 text-rose-700 font-extrabold text-xs">
@@ -410,7 +410,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                   <thead className="bg-zinc-100/80 text-zinc-700 font-black border-b border-zinc-200">
                     <tr>
                       <th className="p-3 w-1/4">Tiêu Chí Quản Lý</th>
-                      <th className="p-3 w-[37.5%] bg-orange-50/50 text-[#F94A1F]">🏢 Kho Lưu Hàng Hoá (Warehouse)</th>
+                      <th className="p-3 w-[37.5%] bg-orange-50/50 text-[#ff4b16]">🏢 Kho Lưu Hàng Hoá (Warehouse)</th>
                       <th className="p-3 w-[37.5%] bg-orange-50/50 text-orange-700">🏪 Chi Nhánh Showroom (Branch)</th>
                     </tr>
                   </thead>
@@ -476,14 +476,14 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
             <div className="space-y-4">
               <div className="bg-white rounded-2xl p-5 border border-zinc-200 shadow-xs space-y-4">
                 <h3 className="text-sm sm:text-base font-extrabold text-zinc-900 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-[#F94A1F]" />
+                  <ShieldCheck className="w-4 h-4 text-[#ff4b16]" />
                   Bộ Quy Tắc Vận Hành Chuẩn Chuỗi Cửa Hàng PhoneHouse
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div className="bg-orange-50/40 rounded-xl p-3.5 border border-orange-200 space-y-1.5">
                     <div className="font-bold text-orange-950 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-[#F94A1F]" />
+                      <span className="w-2 h-2 rounded-full bg-[#ff4b16]" />
                       <span>1. Nhập hàng luôn gắn với IMEI định danh</span>
                     </div>
                     <p className="text-zinc-600 text-[11px] leading-relaxed">
@@ -525,7 +525,7 @@ export const WarehouseVsBranchAnalysisModal: React.FC<WarehouseVsBranchAnalysisM
                 <div className="pt-2 text-center">
                   <button
                     onClick={onClose}
-                    className="px-6 py-2.5 bg-[#F94A1F] hover:bg-[#e03d14] text-white rounded-xl font-bold text-xs shadow-xs cursor-pointer"
+                    className="px-6 py-2.5 bg-[#ff4b16] hover:bg-[#e03d14] text-white rounded-xl font-bold text-xs shadow-xs cursor-pointer"
                   >
                     Đã Hiểu & Đóng Phân Tích
                   </button>

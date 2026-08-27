@@ -1,26 +1,26 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Smartphone, 
-  Search, 
-  Layers, 
-  Users, 
-  RefreshCw, 
-  Wrench, 
-  ShoppingCart, 
-  BookOpen, 
-  Sparkles, 
-  Zap, 
-  Plus, 
-  Cloud, 
-  Database, 
-  LogIn, 
-  LogOut, 
-  User as UserIcon, 
-  Menu, 
-  X, 
-  ShieldCheck, 
-  ChevronRight, 
-  ShieldAlert, 
+import {
+  Smartphone,
+  Search,
+  Layers,
+  Users,
+  RefreshCw,
+  Wrench,
+  ShoppingCart,
+  BookOpen,
+  Sparkles,
+  Zap,
+  Plus,
+  Cloud,
+  Database,
+  LogIn,
+  LogOut,
+  User as UserIcon,
+  Menu,
+  X,
+  ShieldCheck,
+  ChevronRight,
+  ShieldAlert,
   Building2,
   Crown,
   KeyRound,
@@ -254,8 +254,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="w-full max-w-7xl mx-auto px-2 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Phone House Brand Logo */}
-            <div 
-              className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group" 
+            <div
+              className="flex items-center space-x-2 sm:space-x-3 cursor-pointer group"
               onClick={() => setActiveTab('dashboard')}
             >
               <PhoneHouseLogo size="md" showText={true} />
@@ -279,7 +279,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Actions */}
             <div className="flex items-center space-x-2">
-              
+
 
               {/* Mobile Search Button */}
               <button
@@ -290,7 +290,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <Search className="w-4 h-4" />
               </button>
 
-              
+
               {/* GLOBAL BRANCH SELECTOR */}
               {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'MANAGER') && (
                 <div className="flex items-center space-x-1 bg-orange-50/50 border border-orange-200 rounded-lg px-2 py-1.5 shadow-2xs hover:bg-orange-50 transition-colors cursor-pointer mr-1 sm:mr-2">
@@ -308,9 +308,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               )}
 
-              
 
-              
+
+
 
               {/* Quick POS Checkout (Desktop) */}
               <button
@@ -330,9 +330,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {currentUser ? (
                   <>
                     <div className="relative">
-                      <img 
-                        src={currentUser.avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"} 
-                        alt="Avatar" 
+                      <img
+                        src={currentUser.avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
+                        alt="Avatar"
                         referrerPolicy="no-referrer"
                         className="w-5 h-5 rounded-full object-cover border border-orange-300"
                       />
@@ -384,8 +384,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                 const isHovered = hoveredCluster === cluster.id;
 
                 return (
-                  <div 
-                    key={cluster.id} 
+                  <div
+                    key={cluster.id}
                     className="relative"
                     onMouseEnter={() => hasSub && setHoveredCluster(cluster.id)}
                     onMouseLeave={() => setHoveredCluster(null)}
@@ -474,8 +474,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={() => setActiveTab('dashboard')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-all ${
-            activeTab === 'dashboard' 
-              ? 'text-[#F94A1F] font-extrabold scale-105' 
+            activeTab === 'dashboard'
+              ? 'text-[#ff4b16] font-extrabold scale-105'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
@@ -486,8 +486,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={() => setActiveTab('inventory')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold relative transition-all ${
-            activeTab === 'inventory' 
-              ? 'text-[#F94A1F] font-extrabold scale-105' 
+            activeTab === 'inventory'
+              ? 'text-[#ff4b16] font-extrabold scale-105'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
           title="Kho Máy IMEI"
@@ -495,7 +495,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="relative">
             <Smartphone className="w-4 h-4 mb-0.5" />
             {stockCount > 0 && (
-              <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-[#F94A1F] rounded-full ring-2 ring-white"></span>
+              <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-[#ff4b16] rounded-full ring-2 ring-white"></span>
             )}
           </div>
           <span>Kho IMEI</span>
@@ -504,8 +504,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={() => setActiveTab('invoices')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-all ${
-            activeTab === 'invoices' 
-              ? 'text-[#F94A1F] font-extrabold scale-105' 
+            activeTab === 'invoices'
+              ? 'text-[#ff4b16] font-extrabold scale-105'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >
@@ -517,7 +517,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={() => setActiveTab('crm')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold relative transition-all ${
             activeTab === 'crm' || activeTab === 'customers'
-              ? 'text-[#F94A1F] font-extrabold scale-105' 
+              ? 'text-[#ff4b16] font-extrabold scale-105'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
           title="Khách Hàng & CRM"
@@ -525,7 +525,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="relative">
             <Users className="w-4 h-4 mb-0.5" />
             {leadCount > 0 && (
-              <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-[#F94A1F] rounded-full ring-2 ring-white"></span>
+              <span className="absolute -top-1 -right-1.5 w-2 h-2 bg-[#ff4b16] rounded-full ring-2 ring-white"></span>
             )}
           </div>
           <span>CRM</span>
@@ -535,8 +535,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         <button
           onClick={() => setActiveTab('more')}
           className={`flex flex-col items-center p-1 rounded-xl text-[10px] font-bold transition-all ${
-            activeTab === 'more' 
-              ? 'text-[#F94A1F] font-extrabold scale-105' 
+            activeTab === 'more'
+              ? 'text-[#ff4b16] font-extrabold scale-105'
               : 'text-zinc-500 hover:text-zinc-800'
           }`}
         >

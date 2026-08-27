@@ -1,12 +1,12 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { 
+import {
   Wallet, ArrowUpRight, ArrowDownLeft, Search, Plus, Minus, Calendar,
-  CreditCard, Building2, Users, Smartphone, FileText, ChevronDown, ChevronRight, RefreshCw, X, Share2, 
+  CreditCard, Building2, Users, Smartphone, FileText, ChevronDown, ChevronRight, RefreshCw, X, Share2,
   Printer, ArrowRightLeft, CheckCircle2, AlertCircle, Eye, EyeOff, Sparkles, User as UserIcon, Clock, Trash2
 } from 'lucide-react';
-import { 
-  CashTransaction, FundAccount, CashTransactionType, PaymentFundType, 
-  CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch 
+import {
+  CashTransaction, FundAccount, CashTransactionType, PaymentFundType,
+  CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
 import { InterBranchDebtPanel } from '../features/finance/components/InterBranchDebtPanel';
@@ -36,23 +36,23 @@ interface CashbookViewProps {
 
 export const CashbookView: React.FC<CashbookViewProps> = ({
   currentUser,
-  branches = [], 
+  branches = [],
   selectedBranchId = 'ALL',
-  transactions = [], 
-  funds = [], 
-  partners = [], 
-  onAddTransaction, 
+  transactions = [],
+  funds = [],
+  partners = [],
+  onAddTransaction,
   onSaveFund,
   onDeleteFund,
-  onTransferFunds, 
-  onAddPartner 
+  onTransferFunds,
+  onAddPartner
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<'TRANSACTIONS' | 'INTER_BRANCH_DEBT' | 'ACCOUNTS' | 'REPORTS'>('TRANSACTIONS');
   const [selectedFundFilter, setSelectedFundFilter] = useState<string>('ALL');
   const [showBalance, setShowBalance] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'RECEIPT' | 'PAYMENT' | 'RETAIL'>('ALL');
-  
+
   // Date filter state
   const [dateFilterMode, setDateFilterMode] = useState<'ALL' | 'TODAY' | 'YESTERDAY' | '7DAYS' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('THIS_MONTH');
   const [customStartDate, setCustomStartDate] = useState('');
@@ -104,7 +104,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     // 4. Search Filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(t => 
+      result = result.filter(t =>
         (t.code || '').toLowerCase().includes(q) ||
         (t.partnerName || '').toLowerCase().includes(q) ||
         (t.notes || '').toLowerCase().includes(q) ||
@@ -443,7 +443,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       notes: reconcileData.notes,
       status: 'COMPLETED'
     };
-    
+
     onAddTransaction(txAdjust);
     setIsReconcileModalOpen(false);
   };
@@ -503,22 +503,22 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
   return (
     <div className="flex min-h-screen w-full min-w-0 flex-col space-y-3 overflow-x-hidden px-2 pb-16 text-zinc-900 font-sans sm:space-y-4 sm:px-4 lg:px-5">
-      
+
       {/* 1. Standard Page Header with consolidated CTA */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-zinc-200 shadow-2xs">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-[#FF4B16] text-white flex items-center justify-center shadow-md shadow-[#FF4B16]/20 font-bold shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-[#ff4b16] text-white flex items-center justify-center shadow-md shadow-[#ff4b16]/20 font-bold shrink-0">
             <Wallet className="w-5 h-5" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-bold text-zinc-900 tracking-tight">Sổ Quỹ & Ngân Hàng</h1>
-              <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-50 text-[#FF4B16] border border-orange-200 rounded-full">
+              <h1 className="text-xl font-black tracking-tight text-zinc-900 sm:text-2xl">Sổ Quỹ & Ngân Hàng</h1>
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-orange-50 text-[#ff4b16] border border-orange-200 rounded-full">
                 PhoneHouse
               </span>
               {selectedBranchId && selectedBranchId !== 'ALL' && (
                 <span className="px-2 py-0.5 text-[10px] font-bold bg-zinc-100 text-zinc-700 border border-zinc-200 rounded-full flex items-center gap-1">
-                  <Building2 className="w-3 h-3 text-[#FF4B16]" />
+                  <Building2 className="w-3 h-3 text-[#ff4b16]" />
                   <span>{branches.find(b => b.id === selectedBranchId)?.name || 'Chi nhánh'}</span>
                 </span>
               )}
@@ -531,7 +531,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
         {/* Desktop Quick Actions + Mobile Consolidated Menu */}
         <div className="flex items-center gap-2 relative">
-          
+
           {/* Desktop Direct Action 1: + Lập Phiếu Thu (F4) */}
           <button
             type="button"
@@ -562,7 +562,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
               className="w-full sm:w-auto bg-zinc-900 hover:bg-black text-white font-bold text-xs px-3.5 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer"
             >
               <span className="sm:hidden flex items-center space-x-1">
-                <Plus className="w-4 h-4 text-[#FF4B16]" />
+                <Plus className="w-4 h-4 text-[#ff4b16]" />
                 <span>Tạo Chứng Từ</span>
               </span>
               <span className="hidden sm:inline">Thao Tác Khác</span>
@@ -570,7 +570,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             </button>
 
             {isActionMenuOpen && (
-              <div 
+              <div
                 className="absolute right-0 top-full mt-1.5 w-60 bg-white rounded-2xl shadow-xl border border-zinc-200 p-1.5 z-50 animate-in fade-in zoom-in-95 duration-150"
                 onClick={() => setIsActionMenuOpen(false)}
               >
@@ -612,7 +612,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   onClick={handleOpenTransferModal}
                   className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition-colors text-left cursor-pointer"
                 >
-                  <ArrowRightLeft className="w-4 h-4 text-[#FF4B16]" />
+                  <ArrowRightLeft className="w-4 h-4 text-[#ff4b16]" />
                   <span>⇄ Chuyển Quỹ Nội Bộ</span>
                 </button>
 
@@ -647,7 +647,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 onClick={() => setActiveMainTab(tab.id as any)}
                 className={`shrink-0 whitespace-nowrap px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center space-x-1.5 ${
                   isActive
-                    ? 'bg-[#FF4B16] text-white shadow-xs'
+                    ? 'bg-[#ff4b16] text-white shadow-xs'
                     : 'text-zinc-600 hover:bg-zinc-100'
                 }`}
               >
@@ -673,7 +673,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       </div>
 
       <div className="space-y-4">
-        
+
         {activeMainTab === 'TRANSACTIONS' && (
           <>
             {/* 3. Financial KPIs: compact swipe carousel */}
@@ -706,7 +706,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             <div className="space-y-2">
               <div className="flex items-center justify-between px-1">
                 <h3 className="text-xs font-bold text-zinc-600 uppercase tracking-wider">Tài khoản & Két tiền ({displayFunds.length})</h3>
-                <button onClick={() => setActiveMainTab('ACCOUNTS')} className="text-[#FF4B16] text-xs font-bold hover:underline cursor-pointer">
+                <button onClick={() => setActiveMainTab('ACCOUNTS')} className="text-[#ff4b16] text-xs font-bold hover:underline cursor-pointer">
                   Quản lý quỹ & tài khoản ›
                 </button>
               </div>
@@ -723,13 +723,13 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       onClick={() => setSelectedFundFilter(selectedFundFilter === fund.id ? 'ALL' : fund.id)}
                       className={`cursor-pointer border rounded-2xl p-3 min-w-[180px] shrink-0 flex flex-col justify-between transition-all ${
                         isSelected
-                          ? 'bg-orange-50/50 border-[#FF4B16] shadow-xs ring-1 ring-[#FF4B16]'
+                          ? 'bg-orange-50/50 border-[#ff4b16] shadow-xs ring-1 ring-[#ff4b16]'
                           : 'bg-white border-zinc-200 hover:bg-zinc-50'
                       }`}
                     >
                       <div className="flex items-center space-x-2 mb-2">
                         <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold ${
-                          fund.type === 'CASH' ? 'bg-orange-100 text-[#FF4B16]' : 'bg-blue-100 text-blue-700'
+                          fund.type === 'CASH' ? 'bg-orange-100 text-[#ff4b16]' : 'bg-blue-100 text-blue-700'
                         }`}>
                           {fund.type === 'CASH' ? <Wallet className="w-3.5 h-3.5" /> : <Building2 className="w-3.5 h-3.5" />}
                         </div>
@@ -831,7 +831,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                         const branchLabel = assignedBranch?.name || 'Chi nhánh không hợp lệ';
 
                         return (
-                          <tr 
+                          <tr
                             key={tx.id}
                             onClick={() => {
                               setSelectedTx(tx);
@@ -881,7 +881,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                             <td className="py-3 px-4 text-center">
                               <button
                                 type="button"
-                                className="p-1.5 text-zinc-400 hover:text-[#FF4B16] hover:bg-orange-50 rounded-lg transition-colors cursor-pointer"
+                                className="p-1.5 text-zinc-400 hover:text-[#ff4b16] hover:bg-orange-50 rounded-lg transition-colors cursor-pointer"
                                 title="Xem và in phiếu thu/chi"
                               >
                                 <Printer className="w-4 h-4" />
@@ -898,8 +898,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
               {/* MOBILE CARDS VIEW (< lg) */}
               <div className="lg:hidden space-y-2">
                 {filteredTransactions.map(tx => (
-                  <div 
-                    key={tx.id} 
+                  <div
+                    key={tx.id}
                     onClick={() => {
                       setSelectedTx(tx);
                       setIsPrintModalOpen(true);
@@ -970,22 +970,22 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 <p className="text-xs text-zinc-500">Đối soát số dư thực tế, quản lý két tiền mặt tại showroom và tài khoản VietQR</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button 
-                  onClick={handleOpenTransferModal} 
+                <button
+                  onClick={handleOpenTransferModal}
                   className="flex items-center space-x-1.5 bg-orange-600 hover:bg-orange-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-orange-500/20 cursor-pointer"
                 >
                   <ArrowRightLeft className="w-4 h-4" />
                   <span>Chuyển quỹ nội bộ</span>
                 </button>
-                <button 
-                  onClick={handleOpenReconcileModal} 
+                <button
+                  onClick={handleOpenReconcileModal}
                   className="flex items-center space-x-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-orange-500/20 cursor-pointer"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Đối soát số dư</span>
                 </button>
-                <button 
-                  onClick={() => handleOpenFundModal()} 
+                <button
+                  onClick={() => handleOpenFundModal()}
                   className="flex items-center space-x-1.5 bg-[#EA580C] hover:bg-[#128a59] text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-orange-500/20 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
@@ -1020,7 +1020,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 <p className="text-[10px] text-orange-600/80 mt-1">Thu tiền chuyển khoản & POS quẹt thẻ</p>
               </div>
             </div>
-            
+
             {/* Branch Filter Chip Bar for Funds */}
             {branches.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -1057,7 +1057,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 })}
               </div>
             )}
-            
+
             {/* Account Cards Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {displayedFundsForAccountsTab.map((fund) => {
@@ -1071,7 +1071,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center space-x-3">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold ${
-                          fund.type === 'CASH' ? 'bg-orange-50 text-[#FF5A1F]' : 
+                          fund.type === 'CASH' ? 'bg-orange-50 text-[#FF5A1F]' :
                           fund.type === 'BANK' ? 'bg-orange-50 text-orange-600' : 'bg-orange-50 text-orange-600'
                         }`}>
                           {fund.type === 'CASH' ? <Wallet className="w-6 h-6" /> : <Building2 className="w-6 h-6" />}
@@ -1085,8 +1085,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                               {fund.type === 'CASH' ? 'Két tiền mặt' : 'Ngân hàng'}
                             </span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border ${
-                              isAllBranch 
-                                ? 'bg-zinc-100 text-zinc-600 border-zinc-200' 
+                              isAllBranch
+                                ? 'bg-zinc-100 text-zinc-600 border-zinc-200'
                                 : 'bg-orange-50 text-[#ff4b16] border-orange-200'
                             }`}>
                               {isAllBranch ? '🌐' : <Building2 className="w-3 h-3 text-[#ff4b16]" />}
@@ -1326,7 +1326,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
             <div className="p-4 sm:p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 bg-white">
               <form onSubmit={handleSubmitTransaction} className="space-y-4">
-                
+
                 {/* Amount */}
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Số tiền (VNĐ) *</label>
@@ -1447,8 +1447,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                         const currentFundValid = matchingFunds.some(f => f.name === formData.fundName);
                         const nextFund = currentFundValid ? formData.fundName : (matchingFunds[0]?.name || funds[0]?.name || '');
                         const nextFundObj = funds.find(f => f.name === nextFund);
-                        setFormData(prev => ({ 
-                          ...prev, 
+                        setFormData(prev => ({
+                          ...prev,
                           branchId: newBranchId,
                           fundName: nextFund,
                           fundType: nextFundObj?.type || prev.fundType
@@ -1572,8 +1572,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     <label htmlFor="isPLAccounted" className="text-xs text-zinc-800 cursor-pointer select-none">
                       <span className="font-bold block text-zinc-900">Hạch toán vào Kết quả hoạt động kinh doanh (P&L)</span>
                       <span className="text-[11px] text-zinc-500 block mt-0.5">
-                        {formData.isPLAccounted 
-                          ? '✓ Mặc định: Giao dịch này sẽ được ghi nhận vào Báo Cáo Doanh Thu / Chi Phí kinh doanh định kỳ.' 
+                        {formData.isPLAccounted
+                          ? '✓ Mặc định: Giao dịch này sẽ được ghi nhận vào Báo Cáo Doanh Thu / Chi Phí kinh doanh định kỳ.'
                           : '⚡ Bỏ chọn: Giao dịch này chỉ tác động số dư quỹ (luân chuyển vốn, nạp/rút vốn, cho mượn tạm...).'}
                       </span>
                     </label>
@@ -1634,9 +1634,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200">
                     <label className="block text-xs font-bold text-zinc-600 mb-1">1. Quỹ Nguồn (Rút / Chuyển Đi)</label>
-                    <select 
-                      value={transferData.fromFundName} 
-                      onChange={e => setTransferData({...transferData, fromFundName: e.target.value})} 
+                    <select
+                      value={transferData.fromFundName}
+                      onChange={e => setTransferData({...transferData, fromFundName: e.target.value})}
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500"
                     >
                       {funds.filter(f => f.isActive !== false && f.isArchived !== true).map(f => {
@@ -1659,9 +1659,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
                   <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200">
                     <label className="block text-xs font-bold text-zinc-600 mb-1">2. Quỹ Đích (Nạp / Nhận Tiền)</label>
-                    <select 
-                      value={transferData.toFundName} 
-                      onChange={e => setTransferData({...transferData, toFundName: e.target.value})} 
+                    <select
+                      value={transferData.toFundName}
+                      onChange={e => setTransferData({...transferData, toFundName: e.target.value})}
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:ring-2 focus:ring-orange-500"
                     >
                       {funds.filter(f => f.isActive !== false && f.isArchived !== true).map(f => {
@@ -1687,16 +1687,16 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Số Tiền Cần Chuyển (VNĐ) *</label>
                   <div className="relative">
-                    <input 
-                      required 
-                      type="text" 
-                      placeholder="0" 
-                      value={transferData.amount} 
+                    <input
+                      required
+                      type="text"
+                      placeholder="0"
+                      value={transferData.amount}
                       onChange={e => {
                         const val = e.target.value.replace(/[^0-9]/g, '');
                         setTransferData({...transferData, amount: val ? parseInt(val).toLocaleString('vi-VN') : ''});
-                      }} 
-                      className="w-full px-4 py-3 bg-white border border-orange-200 rounded-2xl text-2xl font-black text-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500" 
+                      }}
+                      className="w-full px-4 py-3 bg-white border border-orange-200 rounded-2xl text-2xl font-black text-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-sm text-zinc-400">VNĐ</span>
                   </div>
@@ -1751,12 +1751,12 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Ghi chú / Lý do chuyển tiền</label>
-                  <input 
-                    type="text" 
-                    value={transferData.notes} 
-                    onChange={e => setTransferData({...transferData, notes: e.target.value})} 
+                  <input
+                    type="text"
+                    value={transferData.notes}
+                    onChange={e => setTransferData({...transferData, notes: e.target.value})}
                     placeholder="Ví dụ: Rút tiền mặt nộp vào VietQR Techcombank..."
-                    className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs text-zinc-900 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none" 
+                    className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs text-zinc-900 focus:bg-white focus:ring-2 focus:ring-orange-500 focus:outline-none"
                   />
                 </div>
 
@@ -1768,8 +1768,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   >
                     Hủy
                   </button>
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     className="flex-[2] py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 text-xs flex items-center justify-center space-x-1.5 cursor-pointer"
                   >
                     <ArrowRightLeft className="w-4 h-4" />
@@ -1832,11 +1832,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         </div>
         <div>
           <label className="block text-xs font-bold text-zinc-500 mb-1">Chi nhánh áp dụng quỹ</label>
-          <select 
+          <select
             required
             disabled={!!editingFund}
-            value={fundFormData.branchId} 
-            onChange={e => setFundFormData({...fundFormData, branchId: e.target.value})} 
+            value={fundFormData.branchId}
+            onChange={e => setFundFormData({...fundFormData, branchId: e.target.value})}
             className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-800 focus:ring-2 focus:ring-orange-500"
           >
             <option value="">-- Chọn chi nhánh sở hữu --</option>

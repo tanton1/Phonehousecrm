@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useForm, useFieldArray, useWatch } from 'react-hook-form';
-import { 
+import {
   Search, Check, Box, X, Store, Hash, DollarSign, Plus, Trash2, MapPin, ChevronDown,
   Building2, CreditCard, Coins, ArrowRight, ShieldCheck, QrCode, Sparkles, Smartphone,
   CheckCircle2, PackagePlus, Receipt, Layers, Package, ScanLine, Wallet
 } from 'lucide-react';
-import { 
+import {
   DeviceItem, Partner, StoreBranch, WarehouseInfo, FundAccount, PurchaseOrder, MasterCatalogItem, UserAccount
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
@@ -252,7 +252,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     paymentMethod: 'BANK',
     amountPaid: 0
   }), [defaultBranchId, suppliers, warehouses]);
-  
+
   useEffect(() => {
     if (!funds.length) return;
     const matchingFunds = funds.filter(f => f.type === watchPaymentMethod && f.branchId === watchBranchId && f.isArchived !== true && f.isActive !== false);
@@ -469,7 +469,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         alert(`Chi nhánh "${targetBranch.name}" chưa có ${data.paymentMethod === 'CASH' ? 'quỹ tiền mặt' : 'tài khoản ngân hàng'} phù hợp. Phiếu chưa được tạo.`);
         return;
       }
-      
+
       const orderItems = data.items.map((item, idx) => {
         const catalogItem = selectedCatalogItems[item.catalogItemId]
           || remoteCatalogItems.find(c => c.id === item.catalogItemId)
@@ -500,7 +500,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           color: catalogItem?.color,
           storage: catalogItem?.storage,
           condition: (catalogItem?.condition as any) || 'Like New 99%',
-          region: '', 
+          region: '',
           imeiList: imeis,
           quantity: imeis.length,
           importPrice: Number(item.buyPrice) || 0,
@@ -541,7 +541,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         items: orderItems,
         totalQuantity: totalValidQuantity
       };
-      
+
       try {
         setIsSubmitting(true);
         await onAddPurchaseOrder(purchaseOrder, true);
@@ -559,19 +559,19 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex h-[100dvh] w-screen select-none flex-col overflow-hidden bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      
+
       {/* 1. Dark Document Header with Subtle Orange Glow */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black text-white border-b border-zinc-800 shrink-0 shadow-md relative overflow-hidden">
         <div className="absolute top-0 right-1/4 w-96 h-10 bg-orange-500/10 blur-2xl pointer-events-none" />
-        
+
         <div className="relative z-10 flex min-w-0 items-center space-x-3">
-          <div className="w-8 h-8 rounded-xl bg-[#FF4B16] text-white flex items-center justify-center font-bold shadow-md shadow-[#FF4B16]/20 shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-[#ff4b16] text-white flex items-center justify-center font-bold shadow-md shadow-[#ff4b16]/20 shrink-0">
             <PackagePlus className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center space-x-2">
               <span className="truncate text-sm font-bold uppercase tracking-tight text-white">Phiếu Nhập Hàng Kho</span>
-              <span className="hidden rounded-full border border-[#FF4B16]/30 bg-[#FF4B16]/20 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#FF4B16] sm:inline-block">
+              <span className="hidden rounded-full border border-[#ff4b16]/30 bg-[#ff4b16]/20 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#ff4b16] sm:inline-block">
                 Mã: cấp tự động khi lưu
               </span>
               <span className="hidden sm:inline-block px-2 py-0.2 text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-full">
@@ -631,7 +631,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
           type="button"
           onClick={() => setMobileTab('PAYMENT')}
           className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer ${
-            mobileTab === 'PAYMENT' ? 'bg-[#FF4B16] text-white shadow-xs' : 'text-zinc-600 hover:bg-zinc-200'
+            mobileTab === 'PAYMENT' ? 'bg-[#ff4b16] text-white shadow-xs' : 'text-zinc-600 hover:bg-zinc-200'
           }`}
         >
           <Wallet className="w-3.5 h-3.5" />
@@ -640,7 +640,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.4fr_390px] divide-y lg:divide-y-0 lg:divide-x divide-zinc-200/80 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden bg-white w-full">
-        
+
         <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3 bg-gradient-to-b from-white via-orange-50/15 to-zinc-50/50 ${mobileTab !== 'CATALOG' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
             <div className="flex items-center space-x-2">
@@ -768,8 +768,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 : [];
 
               return (
-                <div 
-                  key={field.id} 
+                <div
+                  key={field.id}
                   className="p-3.5 rounded-2xl bg-gradient-to-br from-white via-zinc-50/70 to-orange-50/20 border border-zinc-200/90 hover:border-orange-300 transition-all space-y-2.5 relative shadow-2xs"
                 >
                   <div className="flex items-center justify-between gap-2 relative">

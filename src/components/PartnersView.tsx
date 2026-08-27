@@ -1,28 +1,28 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Users, 
-  Truck, 
-  DollarSign, 
-  ShieldCheck, 
-  Search, 
-  Filter, 
-  Plus, 
-  Edit3, 
-  Trash2, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  FileText, 
-  TrendingUp, 
-  Award, 
-  Smartphone, 
-  Sparkles, 
-  CheckCircle2, 
-  AlertCircle, 
-  Clock, 
-  CreditCard, 
-  Layers, 
-  Building2, 
+import {
+  Users,
+  Truck,
+  DollarSign,
+  ShieldCheck,
+  Search,
+  Filter,
+  Plus,
+  Edit3,
+  Trash2,
+  Phone,
+  Mail,
+  MapPin,
+  FileText,
+  TrendingUp,
+  Award,
+  Smartphone,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  CreditCard,
+  Layers,
+  Building2,
   ChevronRight,
   ChevronDown,
   ArrowUpDown,
@@ -34,11 +34,11 @@ import {
   Eye,
   SlidersHorizontal
 } from 'lucide-react';
-import { 
-  Partner, 
-  PartnerType, 
-  CustomerTier, 
-  SupplierCategory, 
+import {
+  Partner,
+  PartnerType,
+  CustomerTier,
+  SupplierCategory,
   DeviceItem,
   PartnerDebtTransaction,
   StoreBranch
@@ -98,7 +98,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   const [isTimeDropdownOpen, setIsTimeDropdownOpen] = useState(false);
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'MINIMAL' | 'DETAILED'>('MINIMAL');
-  
+
   // Selected Partner for 360° Drawer / Detail Modal
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
 
@@ -107,7 +107,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
   const [isPartnerSubmitting, setIsPartnerSubmitting] = useState(false);
   const [partnerSubmitError, setPartnerSubmitError] = useState('');
-  
+
   // Debt Settle Modal
   const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -166,7 +166,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   // Calculations for Metrics Banner
   const totalCustomers = partners.filter(p => p.type === 'CUSTOMER' || p.type === 'BOTH').length;
   const totalSuppliers = partners.filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH').length;
-  
+
   // Outstanding Receivables (Phải thu từ khách) & Payables (Phải trả NCC)
   const totalReceivables = partners
     .filter(p => p.type === 'CUSTOMER' || p.type === 'BOTH' || p.supplierCategory === 'FINANCE_PARTNER')
@@ -287,10 +287,10 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         setSelectedPartner(updated);
       }
     } else {
-      const newId = formData.type === 'CUSTOMER' 
+      const newId = formData.type === 'CUSTOMER'
         ? `PT-CUST-${Date.now().toString().slice(-4)}`
         : `PT-SUPP-${Date.now().toString().slice(-4)}`;
-      
+
       const newPartner: Partner = {
         id: newId,
         name: formData.name!,
@@ -425,7 +425,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
               <Truck className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-lg sm:text-xl font-black text-zinc-900 tracking-tight flex items-center gap-2">
+              <h1 className="flex items-center gap-2 text-xl font-black tracking-tight text-zinc-900 sm:text-2xl">
                 {activeTab === 'SUPPLIERS' ? 'Nhà Cung Cấp & Nguồn Hàng' : activeTab === 'CUSTOMERS' ? 'Khách Hàng & CRM' : 'Đối Tác & Công Nợ Phone House'}
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200">
                   {filteredPartners.length} đối tác

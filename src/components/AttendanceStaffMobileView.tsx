@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  StaffMember, 
-  AttendanceRecord, 
-  WeeklyShiftSchedule, 
-  LeaveRequest, 
-  CommissionTransaction, 
+import {
+  StaffMember,
+  AttendanceRecord,
+  WeeklyShiftSchedule,
+  LeaveRequest,
+  CommissionTransaction,
   MonthlyPayrollSlip,
   PayrollLedgerItem,
   StoreBranch
@@ -12,34 +12,34 @@ import {
 import { FaceRegistrationModal } from './FaceRegistrationModal';
 import { compareFaceVectors, extractFaceFeatureVectorFromCanvas, detectFacePresenceInCanvas } from '../utils/faceMatchingEngine';
 import { submitServerCheckIn, submitServerCheckOut } from '../features/attendance/api/attendanceApi';
-import { 
-  CheckCircle2, 
-  Clock, 
-  MapPin, 
-  Wifi, 
-  ScanFace, 
-  QrCode, 
-  Calendar, 
-  TrendingUp, 
-  Sparkles, 
-  ChevronRight, 
-  ArrowLeft, 
+import {
+  CheckCircle2,
+  Clock,
+  MapPin,
+  Wifi,
+  ScanFace,
+  QrCode,
+  Calendar,
+  TrendingUp,
+  Sparkles,
+  ChevronRight,
+  ArrowLeft,
   ArrowRight,
-  Coffee, 
-  ExternalLink, 
-  Truck, 
-  Wrench, 
-  FileText, 
-  AlertCircle, 
-  DollarSign, 
-  Plus, 
-  User, 
-  Bell, 
-  Briefcase, 
-  Home, 
-  Check, 
-  X, 
-  ShieldCheck, 
+  Coffee,
+  ExternalLink,
+  Truck,
+  Wrench,
+  FileText,
+  AlertCircle,
+  DollarSign,
+  Plus,
+  User,
+  Bell,
+  Briefcase,
+  Home,
+  Check,
+  X,
+  ShieldCheck,
   ChevronDown,
   Layers,
   ShoppingBag,
@@ -145,7 +145,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return Math.round(R * c);
   };
-  
+
   // Face evidence is supplementary and must never be persisted in localStorage.
   const [isFaceRegistrationOpen, setIsFaceRegistrationOpen] = useState<boolean>(false);
   const [staffFaceProfile, setStaffFaceProfile] = useState<{
@@ -276,7 +276,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Không thể khởi tạo canvas 2D');
-      
+
       // Capture live frame
       ctx.drawImage(video, 0, 0, width, height);
       const liveDataUrl = canvas.toDataURL('image/jpeg', 0.85);
@@ -353,7 +353,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           const uLat = position.coords.latitude;
           const uLng = position.coords.longitude;
           setUserCoords({ lat: uLat, lng: uLng });
-          
+
           if (!tLat || !tLng || tLat === 0 || tLng === 0) {
             setGpsStatus('ERROR');
             setGpsErrorMsg(`Chi nhánh ${targetBranch.name} chưa được cấu hình tọa độ GPS chuẩn. Vui lòng liên hệ Quản lý/Admin.`);
@@ -491,7 +491,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
   // Demo switch to preview both states: 'CHECKED_IN' or 'NOT_CHECKED_IN' or use real attendanceRecord.status
   const [shiftStatusOverride, setShiftStatusOverride] = useState<'AUTO' | 'NOT_CHECKED_IN' | 'CHECKED_IN'>('AUTO');
-  
+
   // Real Attendance status calculation
   const isActuallyCheckedIn = Boolean(attendanceRecord && attendanceRecord.checkInTime && !attendanceRecord.checkOutTime);
   const isShiftCheckedIn = shiftStatusOverride === 'CHECKED_IN' ? true : (shiftStatusOverride === 'NOT_CHECKED_IN' ? false : isActuallyCheckedIn);
@@ -649,19 +649,19 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
   return (
     <div className="min-h-screen bg-[#F7F8FA] pb-24 text-zinc-900 font-sans antialiased select-none max-w-md mx-auto relative border-x border-zinc-200/60 shadow-xl overflow-hidden">
-      
+
       {/* SCREEN 02: XÁC MINH CHẤM CÔNG (4-FACTOR VERIFICATION: GPS, WI-FI, FACE ID, QR CODE) */}
       {currentScreen === 'VERIFY_CHECKIN' && (
         <div className="min-h-screen bg-[#F8F9FC] flex flex-col p-4 animate-in fade-in duration-200">
-          
+
           {/* BRAND HERO HEADER WITH LIVE DIGITAL CLOCK & STORE CONTEXT */}
           <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 text-white rounded-3xl p-4 shadow-xl border border-zinc-800/80 mb-3.5 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-36 h-36 bg-[#FF4B16]/20 rounded-full blur-3xl pointer-events-none" />
-            <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-[#FF4B16]/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute top-0 right-0 w-36 h-36 bg-[#ff4b16]/20 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-10 -left-10 w-28 h-28 bg-[#ff4b16]/10 rounded-full blur-2xl pointer-events-none" />
 
             {/* Top Bar */}
             <div className="flex items-center justify-between relative z-10 mb-3">
-              <button 
+              <button
                 onClick={() => setCurrentScreen('HOME')}
                 className="p-2 -ml-1 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer backdrop-blur-md flex items-center space-x-1"
               >
@@ -669,9 +669,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <span className="text-[11px] font-bold">Trở về</span>
               </button>
 
-              <div className="flex items-center space-x-1.5 bg-[#FF4B16]/15 border border-[#FF4B16]/30 px-3 py-1 rounded-full backdrop-blur-md">
-                <span className="w-2 h-2 rounded-full bg-[#FF4B16] animate-pulse" />
-                <span className="text-[11px] font-black text-[#FF4B16] tracking-wide uppercase">{targetBranch.name}</span>
+              <div className="flex items-center space-x-1.5 bg-[#ff4b16]/15 border border-[#ff4b16]/30 px-3 py-1 rounded-full backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-[#ff4b16] animate-pulse" />
+                <span className="text-[11px] font-black text-[#ff4b16] tracking-wide uppercase">{targetBranch.name}</span>
               </div>
 
               <button
@@ -680,7 +680,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 title="Đo lại vị trí & Wi-Fi"
                 className="p-2 rounded-2xl bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer backdrop-blur-md disabled:opacity-50 flex items-center space-x-1"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isAutoScanning ? 'animate-spin text-[#FF4B16]' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${isAutoScanning ? 'animate-spin text-[#ff4b16]' : ''}`} />
                 <span className="text-[10px] font-bold">Quét lại</span>
               </button>
             </div>
@@ -689,7 +689,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <div className="flex items-end justify-between relative z-10 pt-1">
               <div>
                 <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex items-center space-x-1">
-                  <Clock className="w-3 h-3 text-[#FF4B16]" />
+                  <Clock className="w-3 h-3 text-[#ff4b16]" />
                   <span>Giờ điểm danh chuẩn</span>
                 </div>
                 <div className="text-3xl font-black font-mono tracking-tight text-white mt-0.5">
@@ -702,10 +702,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
               <div className="text-right">
                 <div className="text-[11px] font-extrabold text-white flex items-center justify-end space-x-1">
-                  <User className="w-3.5 h-3.5 text-[#FF4B16]" />
+                  <User className="w-3.5 h-3.5 text-[#ff4b16]" />
                   <span>{currentUser.name}</span>
                 </div>
-                <div className="text-[10px] text-orange-200 font-bold bg-[#FF4B16]/20 px-2.5 py-0.5 rounded-full border border-[#FF4B16]/30 mt-1 inline-block">
+                <div className="text-[10px] text-orange-200 font-bold bg-[#ff4b16]/20 px-2.5 py-0.5 rounded-full border border-[#ff4b16]/30 mt-1 inline-block">
                   {currentUser.roleName || 'Nhân viên bán hàng'}
                 </div>
               </div>
@@ -715,13 +715,13 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           {/* REAL DEVICE SENSORS TOOLBAR */}
           <div className="bg-white rounded-2xl p-3 border border-zinc-200/80 shadow-2xs mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center space-x-1.5 text-zinc-600 text-xs font-bold">
-              <MapPin className="w-4 h-4 text-[#FF4B16]" />
+              <MapPin className="w-4 h-4 text-[#ff4b16]" />
               <span>Đo cảm biến GPS & mạng thực tế:</span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => fetchRealGPSLocation()}
-                className="py-1.5 px-3 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#FF4B16] border border-orange-200 transition-all flex items-center justify-center space-x-1.5 cursor-pointer text-xs font-black active:scale-95 shadow-2xs"
+                className="py-1.5 px-3 rounded-xl bg-orange-50 hover:bg-orange-100 text-[#ff4b16] border border-orange-200 transition-all flex items-center justify-center space-x-1.5 cursor-pointer text-xs font-black active:scale-95 shadow-2xs"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Quét lại GPS thực tế</span>
@@ -780,21 +780,21 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
           {/* MAIN VERIFICATION CARD CONTAINER */}
           <div className="bg-white rounded-3xl p-4 shadow-sm border border-zinc-200/80 mb-3 space-y-4">
-            
+
             {/* Title & Overall Progress */}
             <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
               <div>
                 <h2 className="text-sm font-black text-zinc-900 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-[#FF4B16]" />
+                  <ShieldCheck className="w-4 h-4 text-[#ff4b16]" />
                   <span>Xác minh 3 yếu tố an toàn</span>
                 </h2>
                 <p className="text-[11px] text-zinc-500 font-medium">Cửa hàng: {targetBranch.name}</p>
               </div>
               <div className="text-right">
                 <span className={`inline-flex items-center space-x-1 px-3 py-1 rounded-xl text-xs font-black border ${
-                  isAllVerified 
-                    ? 'bg-orange-50 text-orange-700 border-orange-200 shadow-2xs' 
-                    : 'bg-orange-50 text-[#FF4B16] border-orange-200'
+                  isAllVerified
+                    ? 'bg-orange-50 text-orange-700 border-orange-200 shadow-2xs'
+                    : 'bg-orange-50 text-[#ff4b16] border-orange-200'
                 }`}>
                   {isAllVerified ? (
                     <>
@@ -803,7 +803,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     </>
                   ) : (
                     <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#FF4B16]" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#ff4b16]" />
                       <span>
                         {[gpsStatus, wifiStatus, faceStatus].filter(s => s === 'SUCCESS').length}/3 Đạt
                       </span>
@@ -815,20 +815,20 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
             {/* CAMERA PREVIEW: REAL-TIME BIOMETRIC LIVE CAMERA & FACE ID SCANNER */}
             <div className="relative rounded-3xl bg-zinc-950 p-4 overflow-hidden border border-zinc-800 shadow-xl">
-              
+
               {/* Hidden canvas for taking snapshot and extracting biometric vectors */}
               <canvas ref={liveCanvasRef} className="hidden" />
 
               {/* Main Camera HUD Viewport */}
               <div className="relative w-full aspect-4/3 max-w-[280px] mx-auto rounded-2xl overflow-hidden bg-zinc-900 flex items-center justify-center border-2 border-zinc-700 shadow-inner">
-                
+
                 {/* Live Video Stream from Device Camera */}
-                <video 
-     ref={liveVideoRef} 
-     autoPlay 
-     playsInline 
-     muted 
-     className={`w-full h-full object-cover ${isCameraActive ? 'block' : 'hidden'}`} 
+                <video
+     ref={liveVideoRef}
+     autoPlay
+     playsInline
+     muted
+     className={`w-full h-full object-cover ${isCameraActive ? 'block' : 'hidden'}`}
      style={{ transform: "scaleX(-1)" }}
      onLoadedMetadata={() => liveVideoRef.current?.play().catch(e=>console.warn(e))}
    />
@@ -836,7 +836,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 {/* Camera Starting / Initializing State */}
                 {isCameraStarting && (
                   <div className="absolute inset-0 bg-zinc-950 flex flex-col items-center justify-center p-4 text-center z-10">
-                    <Loader2 className="w-8 h-8 text-[#FF4B16] animate-spin mb-2" />
+                    <Loader2 className="w-8 h-8 text-[#ff4b16] animate-spin mb-2" />
                     <p className="text-xs font-bold text-zinc-200">Đang khởi động Camera...</p>
                     <p className="text-[10px] text-zinc-500 mt-0.5">Vui lòng cho phép truy cập camera</p>
                   </div>
@@ -852,7 +852,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     <button
                       type="button"
                       onClick={() => startLiveCamera()}
-                      className="text-xs font-black bg-[#FF4B16] hover:bg-[#E03E0C] text-white px-3.5 py-1.5 rounded-xl shadow-md transition-colors cursor-pointer flex items-center gap-1.5 mx-auto"
+                      className="text-xs font-black bg-[#ff4b16] hover:bg-[#E03E0C] text-white px-3.5 py-1.5 rounded-xl shadow-md transition-colors cursor-pointer flex items-center gap-1.5 mx-auto"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
                       <span>Cấp quyền & Bật Camera</span>
@@ -884,27 +884,27 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <div className="absolute inset-3 pointer-events-none flex flex-col justify-between p-1 z-10">
                   <div className="flex justify-between">
                     <div className={`w-6 h-6 border-t-[3px] border-l-[3px] rounded-tl-lg transition-all ${
-                      faceStatus === 'SUCCESS' 
-                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
-                        : faceStatus === 'PENDING' 
-                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                      faceStatus === 'SUCCESS'
+                        ? 'border-orange-400 shadow-sm shadow-orange-400'
+                        : faceStatus === 'PENDING'
+                        ? 'border-[#ff4b16] shadow-sm shadow-orange-500'
                         : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                     <div className={`w-6 h-6 border-t-[3px] border-r-[3px] rounded-tr-lg transition-all ${
-                      faceStatus === 'SUCCESS' 
-                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
-                        : faceStatus === 'PENDING' 
-                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                      faceStatus === 'SUCCESS'
+                        ? 'border-orange-400 shadow-sm shadow-orange-400'
+                        : faceStatus === 'PENDING'
+                        ? 'border-[#ff4b16] shadow-sm shadow-orange-500'
                         : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                   </div>
-                  
+
                   {/* Subtle Face Alignment Oval */}
                   <div className={`w-28 h-36 mx-auto rounded-full border border-dashed transition-colors flex items-center justify-center ${
                     faceStatus === 'SUCCESS' ? 'border-orange-400/60' : faceStatus === 'PENDING' ? 'border-orange-400/60' : 'border-rose-500/60'
                   }`}>
                     {isVerifyingFace && (
-                      <span className="text-[10px] font-bold text-[#FF4B16] bg-zinc-950/80 px-2 py-0.5 rounded-md">
+                      <span className="text-[10px] font-bold text-[#ff4b16] bg-zinc-950/80 px-2 py-0.5 rounded-md">
                         Đang quét...
                       </span>
                     )}
@@ -912,17 +912,17 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                   <div className="flex justify-between">
                     <div className={`w-6 h-6 border-b-[3px] border-l-[3px] rounded-bl-lg transition-all ${
-                      faceStatus === 'SUCCESS' 
-                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
-                        : faceStatus === 'PENDING' 
-                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                      faceStatus === 'SUCCESS'
+                        ? 'border-orange-400 shadow-sm shadow-orange-400'
+                        : faceStatus === 'PENDING'
+                        ? 'border-[#ff4b16] shadow-sm shadow-orange-500'
                         : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                     <div className={`w-6 h-6 border-b-[3px] border-r-[3px] rounded-br-lg transition-all ${
-                      faceStatus === 'SUCCESS' 
-                        ? 'border-orange-400 shadow-sm shadow-orange-400' 
-                        : faceStatus === 'PENDING' 
-                        ? 'border-[#FF4B16] shadow-sm shadow-orange-500' 
+                      faceStatus === 'SUCCESS'
+                        ? 'border-orange-400 shadow-sm shadow-orange-400'
+                        : faceStatus === 'PENDING'
+                        ? 'border-[#ff4b16] shadow-sm shadow-orange-500'
                         : 'border-rose-500 shadow-sm shadow-rose-500'
                     }`} />
                   </div>
@@ -930,7 +930,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                 {/* Laser scan line in PENDING or VERIFYING state */}
                 {(isVerifyingFace || faceStatus === 'PENDING') && isCameraActive && (
-                  <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-[#FF4B16] to-transparent animate-pulse top-1/2 -translate-y-1/2 shadow-lg shadow-orange-500/80 pointer-events-none z-20" />
+                  <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-[#ff4b16] to-transparent animate-pulse top-1/2 -translate-y-1/2 shadow-lg shadow-orange-500/80 pointer-events-none z-20" />
                 )}
 
                 {/* Face ID Status Pill on Camera Viewport */}
@@ -962,10 +962,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="mt-3 bg-zinc-900/90 rounded-2xl p-2.5 border border-zinc-800 flex items-center justify-between gap-2.5">
                 <div className="flex items-center space-x-2.5 min-w-0">
                   <div className="relative shrink-0">
-                    <img 
-                      src={staffFaceProfile.facePhotoUrl || currentUser.avatar} 
-                      alt={currentUser.name} 
-                      className="w-11 h-11 rounded-xl object-cover border-2 border-[#FF4B16]/60 shadow-xs"
+                    <img
+                      src={staffFaceProfile.facePhotoUrl || currentUser.avatar}
+                      alt={currentUser.name}
+                      className="w-11 h-11 rounded-xl object-cover border-2 border-[#ff4b16]/60 shadow-xs"
                     />
                     <span className="absolute -bottom-1 -right-1 bg-orange-500 text-white rounded-full p-0.5 shadow-xs">
                       <Check className="w-2.5 h-2.5" />
@@ -1005,7 +1005,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       ? 'bg-zinc-800 text-zinc-400 cursor-not-allowed'
                       : faceStatus === 'SUCCESS'
                       ? 'bg-orange-600 hover:bg-orange-500 text-white shadow-orange-900/30'
-                      : 'bg-gradient-to-r from-[#FF4B16] to-orange-500 hover:from-[#E03E0C] hover:to-orange-600 text-white shadow-orange-900/40 active:scale-[0.99]'
+                      : 'bg-gradient-to-r from-[#ff4b16] to-orange-500 hover:from-[#E03E0C] hover:to-orange-600 text-white shadow-orange-900/40 active:scale-[0.99]'
                   }`}
                 >
                   {isVerifyingFace ? (
@@ -1030,7 +1030,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
             {/* THE 3 VERIFICATION STEPS: GPS, WI-FI, FACE ID */}
             <div className="space-y-2.5 text-xs">
-              
+
               {/* 1. GPS VERIFICATION */}
               <div className={`p-3 rounded-2xl border transition-all ${
                 gpsStatus === 'SUCCESS'
@@ -1045,7 +1045,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       gpsStatus === 'SUCCESS'
                         ? 'bg-orange-500 text-white'
                         : gpsStatus === 'PENDING'
-                        ? 'bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white animate-pulse'
+                        ? 'bg-gradient-to-br from-[#ff4b16] to-orange-500 text-white animate-pulse'
                         : 'bg-rose-600 text-white'
                     }`}>
                       <MapPin className="w-4 h-4" />
@@ -1064,7 +1064,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       )}
 
                       {gpsStatus === 'PENDING' && (
-                        <div className="text-[11px] text-[#FF4B16] font-medium mt-0.5 flex items-center space-x-1">
+                        <div className="text-[11px] text-[#ff4b16] font-medium mt-0.5 flex items-center space-x-1">
                           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
                           <span>Đang đo khoảng cách tọa độ GPS...</span>
                         </div>
@@ -1087,8 +1087,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     )}
 
                     {gpsStatus === 'PENDING' && (
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
-                        <Clock className="w-3.5 h-3.5 text-[#FF4B16]" />
+                      <span className="bg-orange-100 text-[#ff4b16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
+                        <Clock className="w-3.5 h-3.5 text-[#ff4b16]" />
                         <span>CHỜ</span>
                       </span>
                     )}
@@ -1120,7 +1120,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       wifiStatus === 'SUCCESS'
                         ? 'bg-orange-500 text-white'
                         : wifiStatus === 'PENDING'
-                        ? 'bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white animate-pulse'
+                        ? 'bg-gradient-to-br from-[#ff4b16] to-orange-500 text-white animate-pulse'
                         : 'bg-rose-600 text-white'
                     }`}>
                       <Wifi className="w-4 h-4" />
@@ -1129,7 +1129,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     <div className="min-w-0">
                       <div className="flex items-center space-x-1.5 flex-wrap">
                         <span className="font-extrabold text-zinc-900 text-xs">2. Wi-Fi Cửa Hàng</span>
-                        <span className="text-[10px] bg-orange-100 text-[#FF4B16] font-bold px-1.5 py-0.2 rounded-md">Mạng Nội Bộ</span>
+                        <span className="text-[10px] bg-orange-100 text-[#ff4b16] font-bold px-1.5 py-0.2 rounded-md">Mạng Nội Bộ</span>
                       </div>
 
                       {wifiStatus === 'SUCCESS' && (
@@ -1139,7 +1139,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       )}
 
                       {wifiStatus === 'PENDING' && (
-                        <div className="text-[11px] text-[#FF4B16] font-medium mt-0.5 flex items-center space-x-1">
+                        <div className="text-[11px] text-[#ff4b16] font-medium mt-0.5 flex items-center space-x-1">
                           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
                           <span>Đang kiểm tra tín hiệu Wi-Fi cửa hàng...</span>
                         </div>
@@ -1200,8 +1200,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     )}
 
                     {wifiStatus === 'PENDING' && (
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
-                        <Clock className="w-3.5 h-3.5 text-[#FF4B16]" />
+                      <span className="bg-orange-100 text-[#ff4b16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
+                        <Clock className="w-3.5 h-3.5 text-[#ff4b16]" />
                         <span>CHỜ</span>
                       </span>
                     )}
@@ -1233,7 +1233,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       faceStatus === 'SUCCESS'
                         ? 'bg-orange-500 text-white'
                         : faceStatus === 'PENDING'
-                        ? 'bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white animate-pulse'
+                        ? 'bg-gradient-to-br from-[#ff4b16] to-orange-500 text-white animate-pulse'
                         : 'bg-rose-600 text-white'
                     }`}>
                       <ScanFace className="w-4 h-4" />
@@ -1259,7 +1259,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       )}
 
                       {faceStatus === 'PENDING' && (
-                        <div className="text-[11px] text-[#FF4B16] font-medium mt-0.5 flex items-center space-x-1">
+                        <div className="text-[11px] text-[#ff4b16] font-medium mt-0.5 flex items-center space-x-1">
                           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
                           <span>{faceFeedbackMsg || 'Đang đối soát sinh trắc học khuôn mặt AI...'}</span>
                         </div>
@@ -1291,9 +1291,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                           type="button"
                           disabled={isVerifyingFace}
                           onClick={executeRealFaceScan}
-                          className="text-[10px] font-bold px-2 py-0.5 bg-orange-50 hover:bg-orange-100 text-[#FF4B16] rounded-md border border-orange-300 transition-colors cursor-pointer flex items-center gap-1"
+                          className="text-[10px] font-bold px-2 py-0.5 bg-orange-50 hover:bg-orange-100 text-[#ff4b16] rounded-md border border-orange-300 transition-colors cursor-pointer flex items-center gap-1"
                         >
-                          <RefreshCw className={`w-3 h-3 text-[#FF4B16] ${isVerifyingFace ? 'animate-spin' : ''}`} />
+                          <RefreshCw className={`w-3 h-3 text-[#ff4b16] ${isVerifyingFace ? 'animate-spin' : ''}`} />
                           <span>2. Chụp & Đối soát ngay</span>
                         </button>
                       </div>
@@ -1309,8 +1309,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     )}
 
                     {faceStatus === 'PENDING' && (
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
-                        <Clock className="w-3.5 h-3.5 text-[#FF4B16]" />
+                      <span className="bg-orange-100 text-[#ff4b16] text-[10px] font-black px-2.5 py-1 rounded-xl border border-orange-300 flex items-center space-x-1">
+                        <Clock className="w-3.5 h-3.5 text-[#ff4b16]" />
                         <span>CHỜ</span>
                       </span>
                     )}
@@ -1331,12 +1331,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             </div>
           </div>
 
-          {/* BOTTOM SUBMIT CTA BUTTON IN BRAND ORANGE #FF4B16 */}
+          {/* BOTTOM SUBMIT CTA BUTTON IN BRAND ORANGE #ff4b16 */}
           <div className="mt-auto pt-2 pb-5 space-y-2">
             {isAllVerified ? (
               <button
                 onClick={handleConfirmCheckIn}
-                className="w-full py-4 bg-gradient-to-r from-[#FF4B16] via-[#FF5E2B] to-[#E03E0C] hover:from-[#E94312] hover:to-[#C8340A] text-white font-black text-sm rounded-2xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98] border border-orange-400/30"
+                className="w-full py-4 bg-gradient-to-r from-[#ff4b16] via-[#FF5E2B] to-[#E03E0C] hover:from-[#E94312] hover:to-[#C8340A] text-white font-black text-sm rounded-2xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98] border border-orange-400/30"
               >
                 <CheckCircle2 className="w-5 h-5 text-white animate-pulse" />
                 <span>BẮT ĐẦU CA LÀM VIỆC (3/3 HỢP LỆ)</span>
@@ -1360,11 +1360,11 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
       {currentScreen === 'SUCCESS_CHECKIN' && (
         <div className="min-h-screen bg-[#F7F8FA] flex flex-col justify-between p-5 text-center animate-in fade-in zoom-in-95 duration-300">
           <div className="pt-4 space-y-4">
-            
-            {/* Animated Check-in Confirmation in Orange #FF4B16 & Green */}
+
+            {/* Animated Check-in Confirmation in Orange #ff4b16 & Green */}
             <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
               {/* Outer pulsing ring in brand orange */}
-              <div className="absolute inset-0 rounded-full bg-[#FF4B16]/20 animate-ping" />
+              <div className="absolute inset-0 rounded-full bg-[#ff4b16]/20 animate-ping" />
               {/* Mid ring in orange */}
               <div className="absolute -inset-2 rounded-full bg-orange-500/15 animate-pulse" />
               {/* Main Badge */}
@@ -1372,7 +1372,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <Check className="w-12 h-12 text-white stroke-[3.5]" />
               </div>
               {/* Floating Sparkle Badge */}
-              <div className="absolute -top-1 -right-1 bg-[#FF4B16] text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-md flex items-center space-x-1">
+              <div className="absolute -top-1 -right-1 bg-[#ff4b16] text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-md flex items-center space-x-1">
                 <Sparkles className="w-2.5 h-2.5" />
                 <span>+100 Chuyên cần</span>
               </div>
@@ -1380,7 +1380,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
             <div>
               <h2 className="text-2xl font-black text-zinc-900 tracking-tight">Check-in thành công!</h2>
-              <div className="text-3xl font-black font-mono text-[#FF4B16] mt-1 tracking-tight">
+              <div className="text-3xl font-black font-mono text-[#ff4b16] mt-1 tracking-tight">
                 {recordedCheckInTime || liveTimeString}
               </div>
               <div className="text-xs text-zinc-500 font-semibold mt-0.5">
@@ -1411,7 +1411,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               </div>
               <div className="flex justify-between text-xs py-0.5">
                 <span className="text-zinc-500">Vị trí đảm nhiệm:</span>
-                <span className="font-bold text-[#FF4B16]">{currentUser.roleTitle}</span>
+                <span className="font-bold text-[#ff4b16]">{currentUser.roleTitle}</span>
               </div>
             </div>
 
@@ -1419,10 +1419,10 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <div className="bg-gradient-to-br from-orange-50/90 to-orange-50/70 rounded-2xl p-4 border border-orange-200/80 text-left space-y-3 shadow-2xs">
               <div className="text-xs font-black text-orange-950 flex items-center justify-between">
                 <div className="flex items-center space-x-1.5">
-                  <Award className="w-4 h-4 text-[#FF4B16]" />
+                  <Award className="w-4 h-4 text-[#ff4b16]" />
                   <span className="uppercase tracking-wider">Tóm tắt nhiệm vụ hôm nay</span>
                 </div>
-                <span className="text-[10px] text-[#FF4B16] font-bold bg-white px-2 py-0.5 rounded-full border border-orange-200">
+                <span className="text-[10px] text-[#ff4b16] font-bold bg-white px-2 py-0.5 rounded-full border border-orange-200">
                   Target Ngày
                 </span>
               </div>
@@ -1438,7 +1438,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
                 <div className="bg-white/90 p-2 rounded-xl border border-orange-100">
                   <div className="text-[10px] font-bold text-zinc-500">Doanh số</div>
-                  <div className="text-sm font-black text-[#FF4B16] font-mono mt-0.5">20M đ</div>
+                  <div className="text-sm font-black text-[#ff4b16] font-mono mt-0.5">20M đ</div>
                 </div>
               </div>
 
@@ -1465,7 +1465,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 setShiftStatusOverride('IN_PROGRESS');
                 setCurrentScreen('HOME');
               }}
-              className="w-full py-4 bg-[#FF4B16] hover:bg-[#E94312] text-white font-black text-sm rounded-2xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"
+              className="w-full py-4 bg-[#ff4b16] hover:bg-[#E94312] text-white font-black text-sm rounded-2xl shadow-xl shadow-orange-500/30 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"
             >
               <span>XEM CÔNG VIỆC HÔM NAY</span>
               <ArrowRight className="w-4 h-4" />
@@ -1479,7 +1479,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         <div className="min-h-screen bg-[#F7F8FA] flex flex-col justify-between p-4">
           <div>
             <div className="flex items-center justify-between pt-2 pb-4">
-              <button 
+              <button
                 onClick={() => setCurrentScreen('HOME')}
                 className="p-2 -ml-2 rounded-xl text-zinc-600 hover:bg-zinc-200/60"
               >
@@ -1505,7 +1505,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
                 <div className="bg-orange-50 p-2 rounded-xl border border-orange-100">
                   <div className="text-[10px] text-orange-700 font-bold uppercase">Tính công</div>
-                  <div className="text-xs font-black text-[#FF4B16] mt-0.5">08h 01m</div>
+                  <div className="text-xs font-black text-[#ff4b16] mt-0.5">08h 01m</div>
                 </div>
               </div>
             </div>
@@ -1524,7 +1524,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
                 <div className="flex justify-between py-1 border-b border-zinc-100">
                   <span className="text-zinc-500">Doanh số thực đạt:</span>
-                  <span className="font-bold text-[#FF4B16]">18.500.000 đ (92% KPI)</span>
+                  <span className="font-bold text-[#ff4b16]">18.500.000 đ (92% KPI)</span>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-zinc-500">Hoa hồng dự kiến tích lũy:</span>
@@ -1556,7 +1556,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="bg-white rounded-2xl p-3.5 border border-zinc-200/80 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FF4B16] to-orange-500 flex items-center justify-center text-white font-black text-sm shadow-xs">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#ff4b16] to-orange-500 flex items-center justify-center text-white font-black text-sm shadow-xs">
                       PH
                     </div>
                     <div>
@@ -1571,13 +1571,13 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
                   <div className="flex items-center space-x-2">
                     <div className="text-[11px] font-black font-mono bg-zinc-900 text-white px-2.5 py-1 rounded-xl flex items-center space-x-1 shadow-xs border border-zinc-800">
-                      <Clock className="w-3 h-3 text-[#FF4B16] animate-pulse" />
+                      <Clock className="w-3 h-3 text-[#ff4b16] animate-pulse" />
                       <span>{liveTimeString}</span>
                     </div>
                     <div className="relative">
-                      <img 
-                        src={currentUser.avatar} 
-                        alt={currentUser.name} 
+                      <img
+                        src={currentUser.avatar}
+                        alt={currentUser.name}
                         className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-2xs"
                       />
                       <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${
@@ -1590,7 +1590,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 {/* Mode Switcher for Demo Preview: Chưa Check-in vs Đang Trong Ca */}
                 <div className="flex items-center justify-between pt-2 border-t border-zinc-100 text-xs">
                   <div className="flex items-center space-x-1.5 text-zinc-500">
-                    <Activity className="w-3.5 h-3.5 text-[#FF4B16]" />
+                    <Activity className="w-3.5 h-3.5 text-[#ff4b16]" />
                     <span className="font-semibold text-[11px]">Trạng thái xem:</span>
                   </div>
                   <div className="flex items-center bg-zinc-100 p-0.5 rounded-xl text-[11px] font-bold">
@@ -1605,7 +1605,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     <button
                       onClick={() => setShiftStatusOverride('IN_PROGRESS')}
                       className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                        isCheckedIn ? 'bg-[#FF4B16] text-white shadow-2xs font-extrabold' : 'text-zinc-500 hover:text-zinc-800'
+                        isCheckedIn ? 'bg-[#ff4b16] text-white shadow-2xs font-extrabold' : 'text-zinc-500 hover:text-zinc-800'
                       }`}
                     >
                       Đang Trong Ca
@@ -1623,7 +1623,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                         Ca làm việc hôm nay
                       </span>
-                      <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-extrabold px-2 py-0.2 rounded-full">
+                      <span className="bg-orange-100 text-[#ff4b16] text-[10px] font-extrabold px-2 py-0.2 rounded-full">
                         Ca Sáng (8h)
                       </span>
                     </div>
@@ -1631,7 +1631,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       <span>08:00 – 17:00</span>
                     </div>
                     <div className="text-xs text-zinc-500 font-medium mt-1 flex items-center space-x-1">
-                      <MapPin className="w-3.5 h-3.5 text-[#FF4B16] shrink-0" />
+                      <MapPin className="w-3.5 h-3.5 text-[#ff4b16] shrink-0" />
                       <span>{currentUser.branchName}</span>
                     </div>
                   </div>
@@ -1681,14 +1681,14 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     {/* Countdown Banner */}
                     <div className="bg-orange-50/80 rounded-xl p-2.5 border border-orange-100 text-center text-xs">
                       <span className="text-zinc-600 font-medium">
-                        Còn <strong className="text-[#FF4B16] font-black">12 phút</strong> nữa đến giờ bắt đầu ca làm việc
+                        Còn <strong className="text-[#ff4b16] font-black">12 phút</strong> nữa đến giờ bắt đầu ca làm việc
                       </span>
                     </div>
 
                     {/* Big Check-in CTA Button */}
                     <button
                       onClick={handleStartCheckInVerify}
-                      className="w-full py-3.5 bg-[#FF4B16] hover:bg-[#E94312] text-white font-black text-sm rounded-xl shadow-lg shadow-orange-500/25 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"
+                      className="w-full py-3.5 bg-[#ff4b16] hover:bg-[#E94312] text-white font-black text-sm rounded-xl shadow-lg shadow-orange-500/25 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"
                     >
                       <CheckCircle2 className="w-5 h-5" />
                       <span>CHẤM CÔNG VÀO (FACE ID & GPS)</span>
@@ -1732,35 +1732,35 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none snap-x">
                         <button
                           onClick={() => onChangeActivity('WORKING')}
-                          className="px-3 py-1.5 rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
+                          className="px-3 py-1.5 rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-[#ff4b16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
-                          <Activity className="w-3.5 h-3.5 text-[#FF4B16]" />
+                          <Activity className="w-3.5 h-3.5 text-[#ff4b16]" />
                           <span>Đang làm việc</span>
                         </button>
                         <button
                           onClick={() => onChangeActivity('BREAK')}
-                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#ff4b16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
                           <Coffee className="w-3.5 h-3.5 text-zinc-500" />
                           <span>Nghỉ ca (30p)</span>
                         </button>
                         <button
                           onClick={() => onChangeActivity('OUTSIDE')}
-                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#ff4b16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
                           <ExternalLink className="w-3.5 h-3.5 text-zinc-500" />
                           <span>Ra ngoài (15p)</span>
                         </button>
                         <button
                           onClick={() => onChangeActivity('DELIVERY')}
-                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#ff4b16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
                           <Truck className="w-3.5 h-3.5 text-zinc-500" />
                           <span>Đi giao hàng</span>
                         </button>
                         <button
                           onClick={() => onChangeActivity('SUPPORT_TECH')}
-                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#FF4B16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
+                          className="px-3 py-1.5 rounded-xl bg-zinc-50 hover:bg-orange-50 border border-zinc-200/80 hover:border-orange-200 text-zinc-700 hover:text-[#ff4b16] text-[11px] font-bold transition-all flex items-center space-x-1.5 cursor-pointer whitespace-nowrap snap-start shrink-0"
                         >
                           <Wrench className="w-3.5 h-3.5 text-zinc-500" />
                           <span>Kỹ thuật & KCS</span>
@@ -1771,16 +1771,16 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 )}
               </div>
 
-              {/* CARD: DANH SÁCH NHIỆM VỤ HÔM NAY (TƯ VẤN, ĐƠN HÀNG, DOANH SỐ VỚI PROGRESS BAR MÀU CAM #FF4B16) */}
+              {/* CARD: DANH SÁCH NHIỆM VỤ HÔM NAY (TƯ VẤN, ĐƠN HÀNG, DOANH SỐ VỚI PROGRESS BAR MÀU CAM #ff4b16) */}
               <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <Target className="w-4 h-4 text-[#FF4B16]" />
+                    <Target className="w-4 h-4 text-[#ff4b16]" />
                     <h3 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">
                       Nhiệm vụ hôm nay
                     </h3>
                   </div>
-                  <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                  <span className="bg-orange-100 text-[#ff4b16] text-[10px] font-extrabold px-2 py-0.5 rounded-full">
                     KPI Ngày 16/05/2026
                   </span>
                 </div>
@@ -1791,18 +1791,18 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center font-bold">
                       <span className="text-zinc-700 flex items-center space-x-1.5">
-                        <span className="w-2 h-2 rounded-full bg-[#FF4B16]" />
+                        <span className="w-2 h-2 rounded-full bg-[#ff4b16]" />
                         <span>Tư vấn khách hàng</span>
                       </span>
                       <div className="flex items-center space-x-1.5">
                         <span className="text-zinc-900 font-extrabold">8 / 15 khách</span>
-                        <span className="text-[#FF4B16] font-bold text-[11px]">(53.3%)</span>
+                        <span className="text-[#ff4b16] font-bold text-[11px]">(53.3%)</span>
                       </div>
                     </div>
                     <div className="w-full bg-zinc-100 h-2.5 rounded-full overflow-hidden p-0.5 border border-zinc-200/60">
-                      <div 
-                        className="bg-[#FF4B16] h-full rounded-full transition-all duration-500 shadow-xs" 
-                        style={{ width: '53.3%' }} 
+                      <div
+                        className="bg-[#ff4b16] h-full rounded-full transition-all duration-500 shadow-xs"
+                        style={{ width: '53.3%' }}
                       />
                     </div>
                     <div className="text-[10px] text-zinc-400 font-medium">
@@ -1814,18 +1814,18 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center font-bold">
                       <span className="text-zinc-700 flex items-center space-x-1.5">
-                        <span className="w-2 h-2 rounded-full bg-[#FF4B16]" />
+                        <span className="w-2 h-2 rounded-full bg-[#ff4b16]" />
                         <span>Đơn hàng chốt thành công</span>
                       </span>
                       <div className="flex items-center space-x-1.5">
                         <span className="text-zinc-900 font-extrabold">6 / 10 đơn</span>
-                        <span className="text-[#FF4B16] font-bold text-[11px]">(60.0%)</span>
+                        <span className="text-[#ff4b16] font-bold text-[11px]">(60.0%)</span>
                       </div>
                     </div>
                     <div className="w-full bg-zinc-100 h-2.5 rounded-full overflow-hidden p-0.5 border border-zinc-200/60">
-                      <div 
-                        className="bg-[#FF4B16] h-full rounded-full transition-all duration-500 shadow-xs" 
-                        style={{ width: '60%' }} 
+                      <div
+                        className="bg-[#ff4b16] h-full rounded-full transition-all duration-500 shadow-xs"
+                        style={{ width: '60%' }}
                       />
                     </div>
                     <div className="text-[10px] text-zinc-400 font-medium">
@@ -1837,18 +1837,18 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center font-bold">
                       <span className="text-zinc-700 flex items-center space-x-1.5">
-                        <span className="w-2 h-2 rounded-full bg-[#FF4B16]" />
+                        <span className="w-2 h-2 rounded-full bg-[#ff4b16]" />
                         <span>Doanh số mục tiêu</span>
                       </span>
                       <div className="flex items-center space-x-1.5">
                         <span className="text-zinc-900 font-extrabold">12.5M / 20.0M</span>
-                        <span className="text-[#FF4B16] font-bold text-[11px]">(62.5%)</span>
+                        <span className="text-[#ff4b16] font-bold text-[11px]">(62.5%)</span>
                       </div>
                     </div>
                     <div className="w-full bg-zinc-100 h-2.5 rounded-full overflow-hidden p-0.5 border border-zinc-200/60">
-                      <div 
-                        className="bg-[#FF4B16] h-full rounded-full transition-all duration-500 shadow-xs" 
-                        style={{ width: '62.5%' }} 
+                      <div
+                        className="bg-[#ff4b16] h-full rounded-full transition-all duration-500 shadow-xs"
+                        style={{ width: '62.5%' }}
                       />
                     </div>
                     <div className="text-[10px] text-zinc-400 font-medium">
@@ -1861,7 +1861,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <div className="pt-3 border-t border-zinc-100 space-y-2">
                   <div className="flex items-center justify-between text-xs font-bold text-zinc-800">
                     <div className="flex items-center space-x-1.5">
-                      <Award className="w-3.5 h-3.5 text-[#FF4B16]" />
+                      <Award className="w-3.5 h-3.5 text-[#ff4b16]" />
                       <span>Checklist công việc ca làm</span>
                     </div>
                     <span className="text-[11px] text-zinc-400">
@@ -1875,8 +1875,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                         key={task.id}
                         onClick={() => toggleTask(task.id)}
                         className={`w-full p-2.5 rounded-xl border text-left flex items-start space-x-2.5 transition-all cursor-pointer ${
-                          task.completed 
-                            ? 'bg-zinc-50/80 border-zinc-200 text-zinc-400' 
+                          task.completed
+                            ? 'bg-zinc-50/80 border-zinc-200 text-zinc-400'
                             : 'bg-orange-50/30 hover:bg-orange-50/70 border-orange-200/60 text-zinc-800'
                         }`}
                       >
@@ -1904,7 +1904,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 {/* Estimated Daily Commission Card */}
                 <div className="bg-gradient-to-r from-orange-500/10 via-orange-500/10 to-orange-500/5 rounded-2xl p-3 border border-orange-200 flex items-center justify-between">
                   <div className="flex items-center space-x-2.5">
-                    <div className="p-2 rounded-xl bg-[#FF4B16] text-white">
+                    <div className="p-2 rounded-xl bg-[#ff4b16] text-white">
                       <DollarSign className="w-4 h-4" />
                     </div>
                     <div>
@@ -1913,7 +1913,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     </div>
                   </div>
                   <div className="text-right">
-                    <span className="text-[10px] font-extrabold text-[#FF4B16] bg-white px-2 py-1 rounded-lg border border-orange-200 shadow-2xs">
+                    <span className="text-[10px] font-extrabold text-[#ff4b16] bg-white px-2 py-1 rounded-lg border border-orange-200 shadow-2xs">
                       2 máy • 4 PK
                     </span>
                   </div>
@@ -1931,7 +1931,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     className="p-3 bg-white hover:bg-orange-50/60 rounded-2xl border border-zinc-200/80 shadow-2xs flex flex-col items-center justify-center transition-all cursor-pointer group active:scale-95"
                   >
                     <div className="w-10 h-10 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform">
-                      <Calendar className="w-5 h-5 text-[#FF4B16]" />
+                      <Calendar className="w-5 h-5 text-[#ff4b16]" />
                     </div>
                     <span className="text-xs font-extrabold text-zinc-800">Lịch làm việc</span>
                     <span className="text-[9px] text-zinc-400 mt-0.5">Xem ca tuần</span>
@@ -1968,7 +1968,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     onClick={() => setCurrentScreen('CHECKOUT_SUMMARY')}
                     className="w-full py-3.5 bg-zinc-900 hover:bg-zinc-800 text-white font-black text-xs rounded-2xl shadow-lg transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-[0.98]"
                   >
-                    <LogOut className="w-4 h-4 text-[#FF4B16]" />
+                    <LogOut className="w-4 h-4 text-[#ff4b16]" />
                     <span className="tracking-wider">KẾT THÚC CA LÀM VIỆC</span>
                   </button>
                 </div>
@@ -1986,13 +1986,13 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 </div>
 
                 <div className="flex items-center bg-zinc-100 p-0.5 rounded-xl text-xs font-bold">
-                  <button 
+                  <button
                     onClick={() => setScheduleViewMode('WEEK')}
                     className={`px-3 py-1 rounded-lg transition-all ${scheduleViewMode === 'WEEK' ? 'bg-white text-zinc-900 shadow-2xs' : 'text-zinc-500'}`}
                   >
                     Tuần
                   </button>
-                  <button 
+                  <button
                     onClick={() => setScheduleViewMode('MONTH')}
                     className={`px-3 py-1 rounded-lg transition-all ${scheduleViewMode === 'MONTH' ? 'bg-white text-zinc-900 shadow-2xs' : 'text-zinc-500'}`}
                   >
@@ -2017,7 +2017,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     onClick={() => setSelectedDateKey(d.key)}
                     className={`py-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
                       d.active || selectedDateKey === d.key
-                        ? 'bg-[#FF4B16] text-white font-bold shadow-xs'
+                        ? 'bg-[#ff4b16] text-white font-bold shadow-xs'
                         : 'hover:bg-zinc-100 text-zinc-700'
                     }`}
                   >
@@ -2061,7 +2061,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     <div className="font-extrabold text-sm text-zinc-900">Ca tối (17:00 – 22:00)</div>
                     <div className="text-xs text-zinc-500 font-medium">Chi nhánh Cầu Giấy</div>
                   </div>
-                  <span className="bg-orange-50 text-[#FF4B16] text-[10px] font-bold px-2.5 py-1 rounded-full border border-orange-100">
+                  <span className="bg-orange-50 text-[#ff4b16] text-[10px] font-bold px-2.5 py-1 rounded-full border border-orange-100">
                     Có thể đăng ký
                   </span>
                 </div>
@@ -2071,9 +2071,9 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xs font-extrabold text-zinc-900 uppercase">Quỹ nghỉ phép năm</h3>
-                  <button 
+                  <button
                     onClick={() => setIsLeaveModalOpen(true)}
-                    className="text-xs font-bold text-[#FF4B16] hover:underline"
+                    className="text-xs font-bold text-[#ff4b16] hover:underline"
                   >
                     + Tạo yêu cầu
                   </button>
@@ -2114,7 +2114,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
               <button
                 onClick={() => setIsLeaveModalOpen(true)}
-                className="w-full py-3 bg-[#FF4B16] hover:bg-[#E94312] text-white font-extrabold text-sm rounded-2xl shadow-md transition-all cursor-pointer"
+                className="w-full py-3 bg-[#ff4b16] hover:bg-[#E94312] text-white font-extrabold text-sm rounded-2xl shadow-md transition-all cursor-pointer"
               >
                 ĐĂNG KÝ / ĐỔI CA LÀM
               </button>
@@ -2126,12 +2126,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-extrabold text-zinc-900">Thông báo</h2>
-                <span className="text-xs text-[#FF4B16] font-bold">Đánh dấu đã đọc</span>
+                <span className="text-xs text-[#ff4b16] font-bold">Đánh dấu đã đọc</span>
               </div>
 
               <div className="space-y-2">
                 <div className="bg-white p-3.5 rounded-2xl border border-orange-100 shadow-2xs flex space-x-3">
-                  <div className="w-8 h-8 rounded-full bg-orange-100 text-[#FF4B16] flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-orange-100 text-[#ff4b16] flex items-center justify-center shrink-0">
                     <DollarSign className="w-4 h-4" />
                   </div>
                   <div className="text-xs">
@@ -2158,7 +2158,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           {/* TAB 4: CÁ NHÂN & BẢNG LƯƠNG DỰ KIẾN (SCREEN 08, 09, 10) */}
           {activeBottomTab === 'profile' && (
             <div className="space-y-4">
-              
+
               {/* FACE ID BIOMETRIC REGISTRATION CARD */}
               <div className="bg-gradient-to-r from-orange-500 via-orange-500 to-orange-600 text-white rounded-2xl p-4 shadow-md flex items-center justify-between">
                 <div className="flex items-center space-x-3">
@@ -2173,8 +2173,8 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                       )}
                     </h3>
                     <p className="text-[11px] text-orange-100">
-                      {staffFaceProfile.assignedFaceEmbedding 
-                        ? 'Dữ liệu gương mặt đã mã hóa & sẵn sàng chấm công' 
+                      {staffFaceProfile.assignedFaceEmbedding
+                        ? 'Dữ liệu gương mặt đã mã hóa & sẵn sàng chấm công'
                         : 'Chưa khai báo gương mặt. Bấm để chụp & lưu'}
                     </p>
                   </div>
@@ -2205,7 +2205,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="bg-zinc-900 text-white rounded-2xl p-5 shadow-lg relative overflow-hidden">
                 <div className="relative z-10">
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Tổng dự kiến thực nhận</span>
-                  <div className="text-3xl font-black font-mono text-[#FF4B16] mt-1">
+                  <div className="text-3xl font-black font-mono text-[#ff4b16] mt-1">
                     {payrollSlip.netReceivable.toLocaleString()} VND
                   </div>
                   <div className="text-xs text-zinc-400 mt-1">
@@ -2231,7 +2231,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                     className="w-full flex items-center justify-between text-xs py-1.5 hover:bg-zinc-50 px-2 rounded-xl transition-colors cursor-pointer group text-left"
                   >
                     <div className="min-w-0 pr-2">
-                      <div className="font-bold text-zinc-800 group-hover:text-[#FF4B16] truncate">
+                      <div className="font-bold text-zinc-800 group-hover:text-[#ff4b16] truncate">
                         {item.title}
                       </div>
                       <div className="text-[10px] text-zinc-400 truncate">{item.description}</div>
@@ -2248,7 +2248,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               <div className="bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xs font-extrabold text-zinc-900 uppercase">Hiệu suất tháng 8</h3>
-                  <span className="text-sm font-black text-[#FF4B16]">82% KPI</span>
+                  <span className="text-sm font-black text-[#ff4b16]">82% KPI</span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
@@ -2288,7 +2288,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Truy vết nguồn tiền</span>
                 <h3 className="text-sm font-black text-zinc-900">{selectedLedgerItem.title}</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setSelectedLedgerItem(null)}
                 className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200"
               >
@@ -2298,7 +2298,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
 
             <div className="bg-orange-50/70 p-3 rounded-2xl border border-orange-100 flex justify-between items-center">
               <span className="text-xs font-bold text-zinc-700">Tổng khoản này:</span>
-              <span className="text-base font-black font-mono text-[#FF4B16]">
+              <span className="text-base font-black font-mono text-[#ff4b16]">
                 {selectedLedgerItem.amount.toLocaleString()} đ
               </span>
             </div>
@@ -2309,7 +2309,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               {commissions.map(c => (
                 <div key={c.id} className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200/70 text-xs space-y-1">
                   <div className="flex justify-between font-bold">
-                    <span className="text-[#FF4B16]">#{c.orderCode}</span>
+                    <span className="text-[#ff4b16]">#{c.orderCode}</span>
                     <span className="text-orange-700">+{c.commissionAmount.toLocaleString()} đ</span>
                   </div>
                   <div className="text-zinc-800 font-semibold">{c.productName}</div>
@@ -2337,7 +2337,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
           <form onSubmit={handleSubmitLeave} className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl space-y-3 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom duration-200">
             <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
               <h3 className="text-sm font-black text-zinc-900">Tạo yêu cầu Nghỉ phép / Đổi ca</h3>
-              <button 
+              <button
                 type="button"
                 onClick={() => setIsLeaveModalOpen(false)}
                 className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500"
@@ -2419,7 +2419,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
               </button>
               <button
                 type="submit"
-                className="flex-1 py-3 bg-[#FF4B16] text-white font-black text-xs rounded-xl shadow-md shadow-orange-500/20"
+                className="flex-1 py-3 bg-[#ff4b16] text-white font-black text-xs rounded-xl shadow-md shadow-orange-500/20"
               >
                 GỬI DUYỆT
               </button>
@@ -2433,7 +2433,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         <button
           onClick={() => { setActiveBottomTab('today'); setCurrentScreen('HOME'); }}
           className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all cursor-pointer ${
-            activeBottomTab === 'today' ? 'text-[#FF4B16]' : 'text-zinc-400 hover:text-zinc-600'
+            activeBottomTab === 'today' ? 'text-[#ff4b16]' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
           <Home className="w-5 h-5 mb-0.5" />
@@ -2443,7 +2443,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         <button
           onClick={() => { setActiveBottomTab('schedule'); setCurrentScreen('HOME'); }}
           className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all cursor-pointer ${
-            activeBottomTab === 'schedule' ? 'text-[#FF4B16]' : 'text-zinc-400 hover:text-zinc-600'
+            activeBottomTab === 'schedule' ? 'text-[#ff4b16]' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
           <Briefcase className="w-5 h-5 mb-0.5" />
@@ -2453,12 +2453,12 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         <button
           onClick={() => { setActiveBottomTab('notifications'); setCurrentScreen('HOME'); }}
           className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all cursor-pointer relative ${
-            activeBottomTab === 'notifications' ? 'text-[#FF4B16]' : 'text-zinc-400 hover:text-zinc-600'
+            activeBottomTab === 'notifications' ? 'text-[#ff4b16]' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
           <div className="relative">
             <Bell className="w-5 h-5 mb-0.5" />
-            <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#FF4B16] rounded-full" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 bg-[#ff4b16] rounded-full" />
           </div>
           <span className="text-[10px] font-bold">Thông báo</span>
         </button>
@@ -2466,7 +2466,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
         <button
           onClick={() => { setActiveBottomTab('profile'); setCurrentScreen('HOME'); }}
           className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all cursor-pointer ${
-            activeBottomTab === 'profile' ? 'text-[#FF4B16]' : 'text-zinc-400 hover:text-zinc-600'
+            activeBottomTab === 'profile' ? 'text-[#ff4b16]' : 'text-zinc-400 hover:text-zinc-600'
           }`}
         >
           <User className="w-5 h-5 mb-0.5" />

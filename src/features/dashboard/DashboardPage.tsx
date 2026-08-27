@@ -1,22 +1,22 @@
 import React, { useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem, Lead, WarrantyTicket, FundAccount, Partner, StoreBranch, StaffMember, UserAccount } from '../../types';
 import { invoiceDateTime } from '../../utils/dateValue';
-import { 
-  Phone, 
-  Bell, 
-  Mail, 
-  Calendar, 
-  ChevronDown, 
-  Users, 
-  Wrench, 
-  MessageSquare, 
-  BookOpen, 
-  Clock, 
-  CreditCard, 
-  Maximize2, 
-  Smartphone, 
-  TrendingUp, 
-  Shield, 
+import {
+  Phone,
+  Bell,
+  Mail,
+  Calendar,
+  ChevronDown,
+  Users,
+  Wrench,
+  MessageSquare,
+  BookOpen,
+  Clock,
+  CreditCard,
+  Maximize2,
+  Smartphone,
+  TrendingUp,
+  Shield,
   Sparkles,
   ShoppingBag,
   ArrowRight,
@@ -83,9 +83,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
     const userBranch = currentUser?.branchId || (currentUser as any)?.branch;
     if (userBranch && branches && branches.length > 0) {
-      const found = branches.find(b => 
-        b.id === userBranch || 
-        b.code === userBranch || 
+      const found = branches.find(b =>
+        b.id === userBranch ||
+        b.code === userBranch ||
         (b.name && b.name.toLowerCase().includes(userBranch.toLowerCase()))
       );
       if (found) return found;
@@ -241,7 +241,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
     return invoices.filter(inv => {
       if (inv.status === 'cancelled') return false;
       const invDate = invoiceDateTime(inv.createdAt, dateRanges.todayStr).split('T')[0];
-      
+
       if (dateFilter === 'today') {
         return invDate === dateRanges.todayStr;
       }
@@ -320,7 +320,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
 
   // Real Appointments & Active Warranties (Handling all schema status codes)
   const myAppointments = leads.filter(l => l.status === 'appointment_scheduled');
-  const pendingWarranties = warrantyTickets.filter(w => 
+  const pendingWarranties = warrantyTickets.filter(w =>
     ['received', 'inspecting', 'waiting_parts', 'repairing', 'PENDING', 'IN_PROGRESS', 'WAITING_FOR_PARTS'].includes(w.status || '')
   );
   const totalActionCount = myAppointments.length + agingDevices.length + pendingWarranties.length;
@@ -554,7 +554,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
           Toàn hệ thống đang ở chế độ xem nhanh có phân trang: hóa đơn {systemDataCoverage.invoiceLoaded}/{systemDataCoverage.invoiceTotal}, còn {systemDataCoverage.partialDomainCount} nhóm dữ liệu chưa tải hết. Chọn một chi nhánh để xem realtime đầy đủ.
         </div>
       )}
-      
+
       {/* ========================================================================= */}
       {/* 🖥️ DESKTOP HUD EXECUTIVE VIEW (>= 1024px) - Bố cục Chuyên Nghiệp Máy Tính (Tràn viền) */}
       {/* ========================================================================= */}
@@ -566,7 +566,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
               <Smartphone className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-base font-black text-zinc-950 tracking-tight">
+              <h1 className="text-xl font-black tracking-tight text-zinc-950 sm:text-2xl">
                 Tổng Quan Điều Hành Showroom
               </h1>
               <div className="flex items-center space-x-2 text-xs text-zinc-500 font-medium">
@@ -987,7 +987,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
         {/* 1. Mobile Header (Tràn viền, không khung lồng) */}
         <div className="flex items-center justify-between py-1 border-b border-zinc-200/60">
           <div>
-            <h1 className="text-lg font-black tracking-tight text-zinc-950">
+            <h1 className="text-xl font-black tracking-tight text-zinc-950 sm:text-2xl">
               Tổng Quan Cửa Hàng
             </h1>
             <span className="text-[10px] font-bold text-zinc-400 font-mono">
@@ -996,7 +996,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
           </div>
 
           <div className="flex items-center space-x-3 text-zinc-700">
-            <button 
+            <button
               type="button"
               onClick={() => onNavigateTab('crm')}
               className="p-1 hover:text-[#ff4b16] cursor-pointer"
@@ -1004,8 +1004,8 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
               <Phone className="w-5 h-5 stroke-[2.2]" />
             </button>
 
-            <div 
-              className="relative cursor-pointer" 
+            <div
+              className="relative cursor-pointer"
               onClick={() => onNavigateTab('crm')}
             >
               <Bell className="w-5 h-5 stroke-[2.2]" />
@@ -1016,7 +1016,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
               )}
             </div>
 
-            <button 
+            <button
               type="button"
               onClick={() => onOpenAICopilot?.()}
               className="p-1 hover:text-[#ff4b16] cursor-pointer"
@@ -1076,7 +1076,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
 
         {/* 3. Mobile Swipable Carousel KPI Card (100% Real Numbers) */}
         <div>
-          <div 
+          <div
             onClick={() => setKpiCardIndex((prev) => (prev + 1) % kpiCards.length)}
             className={`${kpiCards[kpiCardIndex].bg} text-white rounded-2xl p-4 shadow-md shadow-zinc-950/10 relative overflow-hidden transition-all duration-200 cursor-pointer min-h-[135px] flex flex-col justify-between`}
           >
@@ -1266,7 +1266,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
               </div>
             ) : (
               realBestSellers.slice(0, 5).map((item, idx) => (
-                <div 
+                <div
                   key={idx}
                   onClick={() => onNavigateTab('pos')}
                   className="py-2 flex items-center justify-between gap-2 cursor-pointer"

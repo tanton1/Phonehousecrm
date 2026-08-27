@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Camera, 
-  ScanFace, 
-  Check, 
-  X, 
-  RefreshCw, 
-  ShieldCheck, 
-  Sparkles, 
+import {
+  Camera,
+  ScanFace,
+  Check,
+  X,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
   AlertCircle,
   CheckCircle2,
   Lock,
@@ -41,12 +41,12 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  
+
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null);
-  
+
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [extractedVector, setExtractedVector] = useState<number[] | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
@@ -115,7 +115,7 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
         const canvas = canvasRef.current;
         canvas.width = video.videoWidth || 640;
         canvas.height = video.videoHeight || 480;
-        
+
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -145,7 +145,7 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
 
   const handleConfirmSave = () => {
     if (!capturedPhoto) return;
-    
+
     const now = new Date().toISOString();
     onSaveFaceProfile({
       facePhotoUrl: capturedPhoto,
@@ -165,7 +165,7 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
       <div className="bg-white w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-orange-200/80">
-        
+
         {/* Header */}
         <div className="bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 text-white p-4 sm:p-5 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -189,7 +189,7 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
 
         {/* Body */}
         <div className="p-4 sm:p-5 space-y-4 max-h-[80vh] overflow-y-auto">
-          
+
           {saveSuccess ? (
             <div className="p-6 text-center space-y-3 bg-orange-50 rounded-2xl border border-orange-200">
               <div className="w-14 h-14 bg-orange-500 text-white rounded-full flex items-center justify-center mx-auto shadow-lg shadow-orange-500/30 animate-bounce">
@@ -204,7 +204,7 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
             <>
               {/* Camera Preview / Oval Face Frame */}
               <div className="relative rounded-2xl overflow-hidden bg-black aspect-4/3 flex items-center justify-center border-2 border-zinc-800 shadow-inner group">
-                
+
                 {/* Live Video Feed */}
                 <video
                   ref={videoRef}
@@ -292,10 +292,10 @@ export const FaceRegistrationModal: React.FC<FaceRegistrationModalProps> = ({
                 <div className="p-3 bg-orange-50/80 border border-orange-200 rounded-2xl space-y-1.5">
                   <div className="flex items-center justify-between text-xs font-bold text-orange-950">
                     <span className="flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-[#FF4B16]" />
+                      <Sparkles className="w-3.5 h-3.5 text-[#ff4b16]" />
                       <span>Ma Trận Sinh Trắc Học (64 Z-Score Landmarks)</span>
                     </span>
-                    <span className="text-[10px] bg-white text-[#FF4B16] font-extrabold px-2 py-0.5 rounded-full border border-orange-200">
+                    <span className="text-[10px] bg-white text-[#ff4b16] font-extrabold px-2 py-0.5 rounded-full border border-orange-200">
                       Đã Chuẩn Hóa
                     </span>
                   </div>

@@ -29,18 +29,18 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
   return (
     <div className="relative shrink-0 overflow-hidden rounded-none border-b border-zinc-800 bg-gradient-to-r from-zinc-950 via-zinc-900 to-black p-4 text-white sm:rounded-t-3xl sm:p-5">
       {/* Subtle orange glow */}
-      <div className="absolute top-0 left-1/3 w-80 h-10 bg-[#FF4B16]/15 blur-2xl pointer-events-none" />
-      
+      <div className="absolute top-0 left-1/3 w-80 h-10 bg-[#ff4b16]/15 blur-2xl pointer-events-none" />
+
       <div className="flex items-start justify-between gap-3 relative z-10">
         <div className="flex items-center space-x-3 min-w-0 flex-1">
           {Icon && (
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF4B16] to-orange-600 text-white flex items-center justify-center font-bold shrink-0 shadow-md shadow-[#FF4B16]/25">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#ff4b16] to-orange-600 text-white flex items-center justify-center font-bold shrink-0 shadow-md shadow-[#ff4b16]/25">
               <Icon className="w-5 h-5" />
             </div>
           )}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#FF4B16]">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#ff4b16]">
                 {typeLabel}
               </span>
               <span className="text-sm sm:text-base font-black font-mono text-white tracking-tight">

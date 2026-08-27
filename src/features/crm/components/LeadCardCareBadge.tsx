@@ -1,12 +1,12 @@
 import React from 'react';
 import { Lead, LeadCareActivity } from '../../../types';
-import { 
-  CheckCircle2, 
-  Clock, 
-  AlertTriangle, 
-  Calendar, 
-  ShieldCheck, 
-  Phone, 
+import {
+  CheckCircle2,
+  Clock,
+  AlertTriangle,
+  Calendar,
+  ShieldCheck,
+  Phone,
   MessageSquare,
   Sparkles,
   ArrowRight
@@ -49,15 +49,15 @@ export const LeadCardCareBadge: React.FC<LeadCardCareBadgeProps> = ({
       const diffMinutes = Math.floor((targetTime - Date.now()) / (1000 * 60));
 
       if (diffMinutes < 0) {
-        return { 
-          label: `🔴 Quá hạn ${Math.abs(diffMinutes)}p`, 
-          style: 'bg-rose-50 text-rose-700 border-rose-200 font-black animate-pulse' 
+        return {
+          label: `🔴 Quá hạn ${Math.abs(diffMinutes)}p`,
+          style: 'bg-rose-50 text-rose-700 border-rose-200 font-black animate-pulse'
         };
       }
       if (diffMinutes <= 60) {
-        return { 
-          label: `🟡 Sắp đến hạn (${diffMinutes}p)`, 
-          style: 'bg-amber-50 text-amber-800 border-amber-200 font-bold' 
+        return {
+          label: `🟡 Sắp đến hạn (${diffMinutes}p)`,
+          style: 'bg-amber-50 text-amber-800 border-amber-200 font-bold'
         };
       }
     }
@@ -104,7 +104,7 @@ export const LeadCardCareBadge: React.FC<LeadCardCareBadgeProps> = ({
               e.stopPropagation();
               onOpenCareModal(lead);
             }}
-            className="px-2 py-1 rounded-lg bg-orange-50 hover:bg-[#FF4B16] text-[#FF4B16] hover:text-white border border-orange-200 text-[10px] font-black transition-colors flex items-center space-x-1 cursor-pointer"
+            className="px-2 py-1 rounded-lg bg-orange-50 hover:bg-[#ff4b16] text-[#ff4b16] hover:text-white border border-orange-200 text-[10px] font-black transition-colors flex items-center space-x-1 cursor-pointer"
             title="Mở form ghi nhận chăm sóc có bằng chứng"
           >
             <span>+ Chăm sóc</span>

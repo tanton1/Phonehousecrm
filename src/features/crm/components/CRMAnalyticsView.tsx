@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
 import { Lead, LeadCareActivity } from '../../../types';
-import { 
-  DollarSign, 
-  TrendingUp, 
-  Sparkles, 
-  AlertTriangle, 
-  Users, 
-  CheckCircle2, 
-  Calendar, 
+import {
+  DollarSign,
+  TrendingUp,
+  Sparkles,
+  AlertTriangle,
+  Users,
+  CheckCircle2,
+  Calendar,
   PieChart,
   Layers,
   ArrowRight
@@ -61,7 +61,7 @@ export const CRMAnalyticsView: React.FC<CRMAnalyticsViewProps> = ({
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-xs font-black uppercase tracking-wider text-zinc-900 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-[#FF4B16]" />
+              <TrendingUp className="w-4 h-4 text-[#ff4b16]" />
               <span>Phễu Chuyển Đổi Quy Trình Chăm Sóc Khách Hàng</span>
             </h3>
             <p className="text-[11px] text-zinc-500">Hiệu quả qua từng bước tiếp cận L1, L2, L3 và chốt đơn</p>

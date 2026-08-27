@@ -195,10 +195,10 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
   return <div className="space-y-4 pb-14">
     <header className="rounded-3xl border border-zinc-200/80 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0"><div className="flex items-center gap-2"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-orange-100 text-orange-600"><Users className="h-5 w-5" /></div><div><h1 className="text-lg font-black text-zinc-950 sm:text-xl">Chăm sóc khách hàng</h1><p className="mt-0.5 text-xs font-semibold text-zinc-500">Tiếp nhận, tư vấn, hẹn lịch và chăm sóc sau bán tại một nơi.</p></div></div></div>
+        <div className="min-w-0"><div className="flex items-center gap-2"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-orange-100 text-orange-600"><Users className="h-5 w-5" /></div><div><h1 className="text-xl font-black tracking-tight text-zinc-950 sm:text-2xl">Chăm sóc khách hàng</h1><p className="mt-0.5 text-xs font-semibold text-zinc-500">Tiếp nhận, tư vấn, hẹn lịch và chăm sóc sau bán tại một nơi.</p></div></div></div>
         <div className="flex shrink-0 gap-2">
           {onNavigateToOmnichannelChat && <button onClick={onNavigateToOmnichannelChat} className="grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 text-zinc-600" title="Tin nhắn đa kênh"><MessageSquare className="h-4 w-4" /></button>}
-          <button onClick={() => setIsCreateOpen(true)} className="flex h-10 items-center gap-2 rounded-2xl bg-[#FF4B16] px-3 text-xs font-black text-white shadow-sm"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Thêm khách</span></button>
+          <button onClick={() => setIsCreateOpen(true)} className="flex h-10 items-center gap-2 rounded-2xl bg-[#ff4b16] px-3 text-xs font-black text-white shadow-sm"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Thêm khách</span></button>
         </div>
       </div>
       <div className="mt-4 flex gap-2 overflow-x-auto pb-1 scrollbar-none">

@@ -9,33 +9,33 @@ import { DateRangeFilter } from './shared/DateRangeFilter';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 import { DEFAULT_DATE_FILTER, matchesDateFilter } from '../utils/dateRangeFilter';
 import { resolveRecordBranch } from '../utils/branchScope';
-import { History,  
-  FileText, 
-  Search, 
-  ChevronRight, 
-  ChevronLeft, 
-  QrCode, 
-  Printer, 
-  CheckCircle2, 
-  Smartphone, 
-  Package, 
-  Calendar, 
-  User as UserIcon, 
-  Phone, 
-  DollarSign, 
-  Clock, 
-  Receipt, 
-  ShieldCheck, 
-  MoreVertical, 
-  Share2, 
-  Edit3, 
-  X, 
-  Trash2, 
-  Zap, 
-  CreditCard, 
-  Building2, 
-  Tag, 
-  Copy, 
+import { History,
+  FileText,
+  Search,
+  ChevronRight,
+  ChevronLeft,
+  QrCode,
+  Printer,
+  CheckCircle2,
+  Smartphone,
+  Package,
+  Calendar,
+  User as UserIcon,
+  Phone,
+  DollarSign,
+  Clock,
+  Receipt,
+  ShieldCheck,
+  MoreVertical,
+  Share2,
+  Edit3,
+  X,
+  Trash2,
+  Zap,
+  CreditCard,
+  Building2,
+  Tag,
+  Copy,
   Plus,
   Gift,
   BadgePercent,
@@ -262,7 +262,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
     filteredInvoices.forEach(inv => {
       const rawDate = invoiceDateTime(inv.createdDate || inv.createdAt, '2026-08-14').replace('T', ' ').split(' ')[0];
-      
+
       // Compute friendly date header matching screenshot uppercase format
       let header = rawDate;
       try {
@@ -274,7 +274,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           const diffDays = Math.round((today.getTime() - d.getTime()) / (1000 * 3600 * 24));
 
           const formattedDate = `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
-          
+
           if (diffDays === 0) {
             header = `HÔM NAY, ${formattedDate}`;
           } else if (diffDays === 1) {
@@ -312,7 +312,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         const label = `${String(it.name || 'Sản phẩm').toUpperCase()}${details ? ` - ${details}` : ''} x${qty}`;
         itemNames.push(label);
       });
-    } 
+    }
     // 2. If combined items exists (from POS flow)
     else if (inv.items && inv.items.length > 0) {
       inv.items.forEach((it: any) => {
@@ -323,7 +323,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         const label = `${name.toUpperCase()}${details ? ` - ${details}` : ''} x${qty}`;
         itemNames.push(label);
       });
-    } 
+    }
     // 3. Fallback to separate devices & accessories
     else {
       if (inv.devices && inv.devices.length > 0) {
@@ -442,9 +442,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         setShowMoreDropdown(false);
                         setIsQRModalOpen(true);
                       }}
-                      className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-[#FF4B16] flex items-center space-x-2 cursor-pointer"
+                      className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-[#ff4b16] flex items-center space-x-2 cursor-pointer"
                     >
-                      <QrCode className="w-4 h-4 text-[#FF4B16]" />
+                      <QrCode className="w-4 h-4 text-[#ff4b16]" />
                       <span>Tạo mã VietQR thu tiền</span>
                     </button>
                     <button
@@ -453,7 +453,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         setShowMoreDropdown(false);
                         handleCopy(`${window.location.origin}?invoice=${invoiceCode}`, 'link');
                       }}
-                      className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-[#FF4B16] flex items-center space-x-2 cursor-pointer"
+                      className="w-full px-3.5 py-2 text-left font-medium text-zinc-700 hover:bg-orange-50 hover:text-[#ff4b16] flex items-center space-x-2 cursor-pointer"
                     >
                       <Share2 className="w-4 h-4 text-zinc-400" />
                       <span>{copiedText === 'link' ? 'Đã sao chép link!' : 'Chia sẻ liên kết'}</span>
@@ -542,7 +542,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   <h4 className="font-semibold text-zinc-800 text-xs sm:text-sm leading-snug">
                     {item.name}
                   </h4>
-                  
+
                   <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
                     {item.imei && (
                       <span className="font-mono text-orange-700 bg-orange-50 border border-orange-200/80 px-1.5 py-0.2 rounded font-medium">
@@ -1227,8 +1227,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       {selectedInvoice && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-stretch sm:justify-end animate-in fade-in duration-200">
           {/* Backdrop overlay */}
-          <div 
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" 
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
             onClick={() => setSelectedInvoice(null)}
           />
           {/* Drawer / Sheet Panel */}

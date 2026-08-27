@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  StaffMember, 
-  AttendanceRecord, 
-  StoreBranch, 
-  UserAccount 
+import {
+  StaffMember,
+  AttendanceRecord,
+  StoreBranch,
+  UserAccount
 } from '../types';
 import { getVietnamDateString, getVietnamTimeString } from '../utils/dateTimeUtils';
 import { auth } from '../lib/firebase';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
-import { 
-  compareFaceVectors, 
-  extractFaceFeatureVectorFromCanvas, 
-  detectFacePresenceInCanvas 
+import {
+  compareFaceVectors,
+  extractFaceFeatureVectorFromCanvas,
+  detectFacePresenceInCanvas
 } from '../utils/faceMatchingEngine';
 import { requestNetworkCheck } from '../services/attendanceApiClient';
 import {
@@ -445,13 +445,13 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
       <div className="bg-white border-b border-zinc-200 sticky top-0 z-20 shadow-2xs">
         <div className="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#FF4B16] to-orange-500 text-white flex items-center justify-center font-black shadow-sm">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#ff4b16] to-orange-500 text-white flex items-center justify-center font-black shadow-sm">
               <ScanFace className="w-5 h-5" />
             </div>
             <div>
               <div className="font-extrabold text-sm text-zinc-900 flex items-center gap-2">
                 <span>PhoneHouse Fast Check-in</span>
-                <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-black px-2 py-0.5 rounded-full">
+                <span className="bg-orange-100 text-[#ff4b16] text-[10px] font-black px-2 py-0.5 rounded-full">
                   Sinh Trắc Học Độc Lập
                 </span>
               </div>
@@ -484,10 +484,10 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
       </div>
 
       <div className="max-w-3xl mx-auto px-4 pt-6 space-y-6">
-        
+
         {/* Live Digital Clock Banner */}
         <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 text-white rounded-3xl p-5 shadow-xl border border-zinc-800 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-[#FF4B16]/20 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute top-0 right-0 w-48 h-48 bg-[#ff4b16]/20 rounded-full blur-3xl pointer-events-none" />
           <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-orange-400 text-xs font-bold uppercase tracking-wider mb-1">
@@ -505,7 +505,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3.5 border border-white/10 min-w-[200px]">
               <div className="text-[11px] text-zinc-400 font-bold uppercase tracking-wider">Cửa Hàng Trực</div>
               <div className="font-extrabold text-sm text-white mt-0.5 flex items-center gap-1.5">
-                <Building2 className="w-4 h-4 text-[#FF4B16]" />
+                <Building2 className="w-4 h-4 text-[#ff4b16]" />
                 <span>{targetBranch?.name || 'Chưa chọn chi nhánh'}</span>
               </div>
               <div className="text-[11px] text-orange-200 mt-0.5">
@@ -560,12 +560,12 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div>
                 <h3 className="text-base font-extrabold text-zinc-900 flex items-center gap-2">
-                  <UserCheck className="w-5 h-5 text-[#FF4B16]" />
+                  <UserCheck className="w-5 h-5 text-[#ff4b16]" />
                   <span>Bước 1: Xác Nhận Hồ Sơ & Ca Làm Việc</span>
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">Chọn đúng tên của bạn và chi nhánh đang làm việc</p>
               </div>
-              <span className="text-xs font-black bg-orange-100 text-[#FF4B16] px-2.5 py-1 rounded-full">
+              <span className="text-xs font-black bg-orange-100 text-[#ff4b16] px-2.5 py-1 rounded-full">
                 Bước 1 / 4
               </span>
             </div>
@@ -576,7 +576,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 <select
                   value={selectedStaffId}
                   onChange={(e) => setSelectedStaffId(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl p-3 text-sm font-bold text-zinc-800 outline-none focus:border-[#FF4B16] focus:ring-2 focus:ring-orange-500/10 cursor-pointer"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl p-3 text-sm font-bold text-zinc-800 outline-none focus:border-[#ff4b16] focus:ring-2 focus:ring-orange-500/10 cursor-pointer"
                 >
                   {availableStaff.map((staff) => (
                     <option key={staff.id} value={staff.id}>
@@ -591,7 +591,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 <select
                   value={selectedBranchId}
                   onChange={(e) => setSelectedBranchId(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl p-3 text-sm font-bold text-zinc-800 outline-none focus:border-[#FF4B16] focus:ring-2 focus:ring-orange-500/10 cursor-pointer"
+                  className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl p-3 text-sm font-bold text-zinc-800 outline-none focus:border-[#ff4b16] focus:ring-2 focus:ring-orange-500/10 cursor-pointer"
                 >
                   {branches.map((b) => (
                     <option key={b.id} value={b.id}>
@@ -612,14 +612,14 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 />
                 <div>
                   <div className="font-extrabold text-sm text-zinc-900">{selectedStaff.name}</div>
-                  <div className="text-xs text-[#FF4B16] font-bold">{selectedStaff.roleTitle || 'Nhân viên bán hàng'}</div>
+                  <div className="text-xs text-[#ff4b16] font-bold">{selectedStaff.roleTitle || 'Nhân viên bán hàng'}</div>
                   <div className="text-[11px] text-zinc-500 mt-0.5">Mã NV: {selectedStaff.code || selectedStaff.id} • {selectedStaff.branchName}</div>
                 </div>
               </div>
 
               <button
                 onClick={() => setIsFaceRegistrationOpen(true)}
-                className="text-xs font-bold text-[#FF4B16] bg-white hover:bg-orange-100 px-3 py-2 rounded-xl border border-orange-200 transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
+                className="text-xs font-bold text-[#ff4b16] bg-white hover:bg-orange-100 px-3 py-2 rounded-xl border border-orange-200 transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 shadow-2xs"
               >
                 <Camera className="w-3.5 h-3.5" />
                 <span>Đổi Mẫu Face ID</span>
@@ -632,7 +632,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                   setCurrentStep(2);
                   runGPSCheck();
                 }}
-                className="bg-[#FF4B16] hover:bg-orange-600 text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-500/25 cursor-pointer active:scale-95"
+                className="bg-[#ff4b16] hover:bg-orange-600 text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-500/25 cursor-pointer active:scale-95"
               >
                 <span>Tiếp tục: Đo vị trí GPS</span>
                 <ArrowRight className="w-4 h-4" />
@@ -647,12 +647,12 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div>
                 <h3 className="text-base font-extrabold text-zinc-900 flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-[#FF4B16]" />
+                  <MapPin className="w-5 h-5 text-[#ff4b16]" />
                   <span>Bước 2: Định Vị Tọa Độ GPS Cửa Hàng</span>
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">Yêu cầu thiết bị nằm trong bán kính ≤ {allowedRadius}m của {targetBranch?.name || 'chi nhánh đã chọn'}</p>
               </div>
-              <span className="text-xs font-black bg-orange-100 text-[#FF4B16] px-2.5 py-1 rounded-full">
+              <span className="text-xs font-black bg-orange-100 text-[#ff4b16] px-2.5 py-1 rounded-full">
                 Bước 2 / 4
               </span>
             </div>
@@ -669,7 +669,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 <div className="flex items-center gap-2 font-extrabold text-sm">
                   {gpsStatus === 'SUCCESS' && <CheckCircle2 className="w-5 h-5 text-orange-600" />}
                   {gpsStatus === 'ERROR' && <AlertTriangle className="w-5 h-5 text-rose-600" />}
-                  {gpsStatus === 'SCANNING' && <Loader2 className="w-5 h-5 animate-spin text-[#FF4B16]" />}
+                  {gpsStatus === 'SCANNING' && <Loader2 className="w-5 h-5 animate-spin text-[#ff4b16]" />}
                   {gpsStatus === 'PENDING' && <MapPin className="w-5 h-5 text-zinc-400" />}
                   <span>
                     {gpsStatus === 'SUCCESS' ? '✅ Tọa Độ Hợp Lệ — Nằm Trong Cửa Hàng' :
@@ -693,7 +693,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                   onClick={runGPSCheck}
                   className="bg-white hover:bg-zinc-100 text-zinc-800 font-bold text-xs px-3.5 py-2 rounded-xl border border-zinc-200 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 text-[#FF4B16]" />
+                  <RefreshCw className="w-3.5 h-3.5 text-[#ff4b16]" />
                   <span>Đo Lại GPS Thực Tế</span>
                 </button>
 
@@ -720,7 +720,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                   setCurrentStep(3);
                   runWifiCheck();
                 }}
-                className="bg-[#FF4B16] hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-500/25 cursor-pointer active:scale-95"
+                className="bg-[#ff4b16] hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-500/25 cursor-pointer active:scale-95"
               >
                 <span>Tiếp tục: Kiểm tra Wi-Fi</span>
                 <ArrowRight className="w-4 h-4" />
@@ -735,12 +735,12 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div>
                 <h3 className="text-base font-extrabold text-zinc-900 flex items-center gap-2">
-                  <Wifi className="w-5 h-5 text-[#FF4B16]" />
+                  <Wifi className="w-5 h-5 text-[#ff4b16]" />
                   <span>Bước 3: Xác Thực Wi-Fi Nội Bộ Cửa Hàng</span>
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">Mạng được kiểm tra theo cấu hình chi nhánh trên server{targetWifiSSID ? `: ${targetWifiSSID}` : '.'}</p>
               </div>
-              <span className="text-xs font-black bg-orange-100 text-[#FF4B16] px-2.5 py-1 rounded-full">
+              <span className="text-xs font-black bg-orange-100 text-[#ff4b16] px-2.5 py-1 rounded-full">
                 Bước 3 / 4
               </span>
             </div>
@@ -756,7 +756,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 <div className="flex items-center gap-2 font-extrabold text-sm">
                   {wifiStatus === 'SUCCESS' && <CheckCircle2 className="w-5 h-5 text-orange-600" />}
                   {wifiStatus === 'ERROR' && <AlertTriangle className="w-5 h-5 text-rose-600" />}
-                  {wifiStatus === 'SCANNING' && <Loader2 className="w-5 h-5 animate-spin text-[#FF4B16]" />}
+                  {wifiStatus === 'SCANNING' && <Loader2 className="w-5 h-5 animate-spin text-[#ff4b16]" />}
                   {wifiStatus === 'PENDING' && <Wifi className="w-5 h-5 text-zinc-400" />}
                   <span>
                     {wifiStatus === 'SUCCESS' ? '✅ Đã Kết Nối Đúng Wi-Fi Cửa Hàng' :
@@ -815,7 +815,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                   setCurrentStep(4);
                   setTimeout(() => runFaceCheck(), 600);
                 }}
-                className="bg-[#FF4B16] hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-500/25 cursor-pointer active:scale-95"
+                className="bg-[#ff4b16] hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-500/25 cursor-pointer active:scale-95"
               >
                 <span>Tiếp tục: Quét Face ID</span>
                 <ArrowRight className="w-4 h-4" />
@@ -830,14 +830,14 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div>
                 <h3 className="text-base font-extrabold text-zinc-900 flex items-center gap-2">
-                  <ScanFace className="w-5 h-5 text-[#FF4B16]" />
+                  <ScanFace className="w-5 h-5 text-[#ff4b16]" />
                   <span>Bước 4: Quét Khuôn Mặt Face ID Trực Tiếp</span>
                 </h3>
                 <p className="text-xs text-zinc-500 mt-0.5">
                   Đối chiếu sinh trắc học với hồ sơ mẫu của <strong>{selectedStaff.name}</strong>
                 </p>
               </div>
-              <span className="text-xs font-black bg-orange-100 text-[#FF4B16] px-2.5 py-1 rounded-full">
+              <span className="text-xs font-black bg-orange-100 text-[#ff4b16] px-2.5 py-1 rounded-full">
                 Bước 4 / 4
               </span>
             </div>
@@ -862,7 +862,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
                 {isCameraStarting && (
                   <div className="absolute inset-0 bg-zinc-950 flex flex-col items-center justify-center p-4 text-center">
-                    <Loader2 className="w-8 h-8 text-[#FF4B16] animate-spin mb-2" />
+                    <Loader2 className="w-8 h-8 text-[#ff4b16] animate-spin mb-2" />
                     <span className="text-xs text-white font-bold">Đang kết nối camera HD...</span>
                   </div>
                 )}
@@ -873,7 +873,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                     <span className="text-xs text-zinc-400 font-bold">Camera chưa bật</span>
                     <button
                       onClick={() => startCamera()}
-                      className="mt-3 px-4 py-2 rounded-xl bg-[#FF4B16] text-white text-xs font-bold cursor-pointer"
+                      className="mt-3 px-4 py-2 rounded-xl bg-[#ff4b16] text-white text-xs font-bold cursor-pointer"
                     >
                       Bật Camera
                     </button>
@@ -907,7 +907,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
                 <button
                   onClick={runFaceCheck}
                   disabled={faceStatus === 'SCANNING'}
-                  className="flex items-center gap-1.5 bg-[#FF4B16] hover:bg-orange-600 px-4 py-1.5 rounded-xl font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+                  className="flex items-center gap-1.5 bg-[#ff4b16] hover:bg-orange-600 px-4 py-1.5 rounded-xl font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
                 >
                   {faceStatus === 'SCANNING' ? (
                     <>
@@ -961,7 +961,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               <button
                 disabled={gpsStatus !== 'SUCCESS' || wifiStatus !== 'SUCCESS' || isSubmittingCheckIn}
                 onClick={handleFinishCheckIn}
-                className="bg-[#FF4B16] hover:bg-[#E94312] disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-600/25 cursor-pointer active:scale-95"
+                className="bg-[#ff4b16] hover:bg-[#E94312] disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-sm px-6 py-3 rounded-2xl flex items-center gap-2 transition-all shadow-md shadow-orange-600/25 cursor-pointer active:scale-95"
               >
                 {isSubmittingCheckIn ? (
                   <>
@@ -1048,7 +1048,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               {onNavigateToHR && (
                 <button
                   onClick={onNavigateToHR}
-                  className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-[#FF4B16] hover:bg-orange-600 text-white text-xs font-extrabold transition-colors shadow-md cursor-pointer"
+                  className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-[#ff4b16] hover:bg-orange-600 text-white text-xs font-extrabold transition-colors shadow-md cursor-pointer"
                 >
                   Xem Bảng Chấm Công
                 </button>

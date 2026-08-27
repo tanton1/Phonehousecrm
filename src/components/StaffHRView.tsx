@@ -1,28 +1,28 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { 
-  Clock, 
-  Calendar, 
-  CheckCircle2, 
-  AlertCircle, 
-  ScanFace, 
-  MapPin, 
-  Wifi, 
-  Zap, 
-  TrendingUp, 
-  FileText, 
-  Send, 
-  UserCheck, 
-  DollarSign, 
-  ShieldCheck, 
-  Smartphone, 
-  Wrench, 
-  RefreshCw, 
-  ArrowUpRight, 
-  Plus, 
-  ArrowLeftRight, 
-  Building2, 
-  Phone, 
-  Mail, 
+import {
+  Clock,
+  Calendar,
+  CheckCircle2,
+  AlertCircle,
+  ScanFace,
+  MapPin,
+  Wifi,
+  Zap,
+  TrendingUp,
+  FileText,
+  Send,
+  UserCheck,
+  DollarSign,
+  ShieldCheck,
+  Smartphone,
+  Wrench,
+  RefreshCw,
+  ArrowUpRight,
+  Plus,
+  ArrowLeftRight,
+  Building2,
+  Phone,
+  Mail,
   CalendarDays,
   Coffee,
   Truck,
@@ -74,13 +74,13 @@ interface StaffHRViewProps {
   onCreateLeaveRequest?: (request: LeaveRequest) => Promise<void> | void;
 }
 
-export const StaffHRView: React.FC<StaffHRViewProps> = ({ 
-  currentUser, 
-  roleType, 
+export const StaffHRView: React.FC<StaffHRViewProps> = ({
+  currentUser,
+  roleType,
   branches = [],
-  onCheckIn, 
-  onCheckOut, 
-  checkedInState = false, 
+  onCheckIn,
+  onCheckOut,
+  checkedInState = false,
   initialCheckInTime = null,
   onOpenCheckInModal,
   attendanceRecord,
@@ -557,14 +557,14 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
       {/* 1. TOP PROFILE & LIVE STATUS CARD (Clean, Compact, Space-Optimized Header) */}
       <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-900 text-white rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-lg border border-zinc-800/80 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-72 h-full bg-gradient-to-l from-orange-500/10 to-transparent pointer-events-none" />
-        
+
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Avatar & Info */}
           <div className="flex items-center gap-3 sm:gap-3.5">
             <div className="relative shrink-0">
-              <img 
-                src={staffMember.avatar} 
-                alt={staffMember.name} 
+              <img
+                src={staffMember.avatar}
+                alt={staffMember.name}
                 className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover border-2 border-orange-500/80 shadow-md"
               />
               <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-zinc-900 ${
@@ -758,7 +758,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5">
               {weeklyDays.length === 0 && <div className="col-span-full rounded-2xl bg-zinc-50 p-6 text-center text-xs font-semibold text-zinc-500">Tuần này chưa có lịch đã đăng trên server.</div>}
               {weeklyDays.map((item, idx) => (
-                <div 
+                <div
                   key={idx}
                   className={`p-3 rounded-2xl border transition-all ${
                     item.status === 'IN_PROGRESS'
@@ -850,7 +850,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 {formatVND(roleCommissions.totalEarnings)}
               </div>
               <p className="text-xs text-orange-100 mt-1">
-                {roleType === 'SALES' 
+                {roleType === 'SALES'
                   ? 'Hoa hồng bán hàng chỉ hiển thị khi có sổ hoa hồng đã kết nối.'
                   : `Tích lũy từ ${(roleCommissions as any).kcsCount} máy KCS + ${(roleCommissions as any).repairCount} ca sửa chữa`}
               </p>
@@ -880,7 +880,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 <div className="text-[10px] text-zinc-400 mt-1">5% giá trị phụ kiện</div>
               </div>
 
-              <div className="min-w-[72%] snap-start bg-gradient-to-br from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
+              <div className="min-w-[72%] snap-start rounded-2xl bg-gradient-to-br from-zinc-900 to-[#e94112] p-4 text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">Thưởng Bảo Hành Mở Rộng</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).warrantyBonus)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">10% gói bảo hành rơi vỡ</div>
@@ -906,7 +906,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
                 <div className="text-[10px] text-zinc-400 mt-1">Ép kính, thay màn/pin, main</div>
               </div>
 
-              <div className="min-w-[72%] snap-start bg-gradient-to-br from-blue-600 to-indigo-600 p-4 rounded-2xl text-white shadow-md sm:min-w-52 [&_*]:text-white">
+              <div className="min-w-[72%] snap-start rounded-2xl bg-gradient-to-br from-zinc-900 to-[#e94112] p-4 text-white shadow-md sm:min-w-52 [&_*]:text-white">
                 <div className="text-[10px] font-bold text-orange-600 uppercase">Bảo Hành Tiêu Chuẩn</div>
                 <div className="text-xl font-black text-zinc-900 font-mono mt-1">+{formatVND((roleCommissions as any).warrantyAmount)}</div>
                 <div className="text-[10px] text-zinc-400 mt-1">50.000 đ / máy bảo hành</div>
@@ -1051,8 +1051,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             <form onSubmit={handleCreateLeaveRequest} className="bg-white rounded-3xl p-5 sm:p-6 border border-orange-200 shadow-md space-y-4 animate-scaleIn">
               <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
                 <h4 className="text-sm font-black text-zinc-900">Gửi Đề Xuất / Đơn Từ Mới</h4>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsNewRequestOpen(false)}
                   className="text-xs text-zinc-400 hover:text-zinc-700"
                 >

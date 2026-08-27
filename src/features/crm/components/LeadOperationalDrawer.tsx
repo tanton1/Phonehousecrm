@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Lead, 
-  LeadCareActivity, 
-  LeadAppointment, 
-  LeadQuote, 
-  SalesInvoice, 
+import {
+  Lead,
+  LeadCareActivity,
+  LeadAppointment,
+  LeadQuote,
+  SalesInvoice,
   WarrantyTicket,
   UserAccount,
   StoreBranch,
@@ -13,24 +13,24 @@ import {
 import { formatDisplayPhone } from '../../../utils/phoneUtils';
 import { getVietnamDateString, getVietnamTimeString, getVietnamDateTimeString } from '../../../utils/dateTimeUtils';
 import { calculateLeadTemperature, calculateLeadPriority } from '../utils/crmEngine';
-import { 
-  User, 
-  Phone, 
-  Clock, 
-  DollarSign, 
-  MessageSquare, 
-  Calendar, 
-  CheckCircle2, 
-  AlertTriangle, 
-  ShieldCheck, 
-  FileText, 
-  ShoppingBag, 
-  Building2, 
-  X, 
-  Plus, 
-  Send, 
-  Tag, 
-  Sparkles, 
+import {
+  User,
+  Phone,
+  Clock,
+  DollarSign,
+  MessageSquare,
+  Calendar,
+  CheckCircle2,
+  AlertTriangle,
+  ShieldCheck,
+  FileText,
+  ShoppingBag,
+  Building2,
+  X,
+  Plus,
+  Send,
+  Tag,
+  Sparkles,
   ArrowRight,
   Check,
   Smartphone,
@@ -193,18 +193,18 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-zinc-950/60 backdrop-blur-xs animate-fadeIn">
       <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col border-l border-zinc-200">
-        
+
         {/* 1. Command Center Header */}
         <div className="bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-900 text-white p-4 sm:p-5 flex flex-col gap-3 border-b border-zinc-700">
           <div className="flex items-start justify-between">
             <div className="flex items-center space-x-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#FF4B16] to-orange-500 flex items-center justify-center font-black text-xl shadow-md">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#ff4b16] to-orange-500 flex items-center justify-center font-black text-xl shadow-md">
                 {lead.name.charAt(0).toUpperCase()}
               </div>
               <div>
                 <div className="flex items-center space-x-2 flex-wrap">
                   <h2 className="text-base font-black tracking-tight text-white">{lead.name}</h2>
-                  
+
                   {/* Lead Temperature Badge */}
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
                     temp.temperature === 'HOT' ? 'bg-rose-500/20 text-rose-300 border border-rose-400/40' :
@@ -265,7 +265,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
 
             <button
               onClick={() => onOpenCareModal(lead)}
-              className="px-3 py-1.5 rounded-xl bg-[#FF4B16] hover:bg-[#E94312] text-white font-black flex items-center gap-1.5 shadow-sm cursor-pointer ml-auto"
+              className="px-3 py-1.5 rounded-xl bg-[#ff4b16] hover:bg-[#E94312] text-white font-black flex items-center gap-1.5 shadow-sm cursor-pointer ml-auto"
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>+ Chăm sóc</span>
@@ -311,8 +311,8 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`px-3 py-2 rounded-xl font-bold flex items-center space-x-1.5 transition-all cursor-pointer whitespace-nowrap ${
-                  isSelected 
-                    ? 'bg-white text-[#FF4B16] shadow-xs border border-zinc-200/80' 
+                  isSelected
+                    ? 'bg-white text-[#ff4b16] shadow-xs border border-zinc-200/80'
                     : 'text-zinc-600 hover:bg-white/60'
                 }`}
               >
@@ -325,14 +325,14 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
 
         {/* 3. Drawer Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-          
+
           {/* TAB 1: CARE TIMELINE */}
           {activeTab === 'CARE_TIMELINE' && (
             <div className="space-y-4 animate-fadeIn">
               <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-2xl p-4 border border-orange-200/80 flex items-center justify-between">
                 <div>
                   <h4 className="text-xs font-black uppercase tracking-wider text-orange-950 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#FF4B16]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[#ff4b16]" />
                     <span>Lịch Sử Chăm Sóc Có Kiểm Chứng (Audited Touch History)</span>
                   </h4>
                   <p className="text-xs text-orange-900/80 mt-0.5">
@@ -341,7 +341,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                 </div>
                 <button
                   onClick={() => onOpenCareModal(lead)}
-                  className="px-3 py-1.5 rounded-xl bg-[#FF4B16] text-white text-xs font-bold shadow-xs hover:bg-[#E94312] cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-[#ff4b16] text-white text-xs font-bold shadow-xs hover:bg-[#E94312] cursor-pointer"
                 >
                   + Thêm chăm sóc
                 </button>
@@ -358,7 +358,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                     <div key={act.id} className="relative bg-white rounded-2xl p-4 border border-zinc-200/80 shadow-2xs space-y-2 text-xs">
                       {/* Dot */}
                       <div className={`absolute -left-6 top-4 w-3.5 h-3.5 rounded-full border-2 border-white ${
-                        act.isMeaningfulContact ? 'bg-[#FF4B16] ring-2 ring-orange-200' : 'bg-zinc-400'
+                        act.isMeaningfulContact ? 'bg-[#ff4b16] ring-2 ring-orange-200' : 'bg-zinc-400'
                       }`} />
 
                       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -439,7 +439,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                   </div>
                   <div>
                     <span className="text-zinc-400 block text-[11px]">Sản phẩm quan tâm:</span>
-                    <span className="font-bold text-[#FF4B16]">{lead.interestedModel}</span>
+                    <span className="font-bold text-[#ff4b16]">{lead.interestedModel}</span>
                   </div>
                   <div>
                     <span className="text-zinc-400 block text-[11px]">Ngân sách dự kiến:</span>
@@ -470,7 +470,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                 </h4>
                 {canCreateQuote && <button
                   onClick={() => setIsCreatingQuote(!isCreatingQuote)}
-                  className="px-3 py-1.5 rounded-xl bg-[#FF4B16] text-white text-xs font-bold hover:bg-[#E94312] cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-[#ff4b16] text-white text-xs font-bold hover:bg-[#E94312] cursor-pointer"
                 >
                   {isCreatingQuote ? 'Đóng form' : '+ Tạo báo giá mới'}
                 </button>}
@@ -479,43 +479,43 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
               {canCreateQuote && isCreatingQuote && (
                 <form onSubmit={handleCreateQuoteSubmit} className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200 space-y-3 text-xs">
                   <div className="font-bold text-zinc-900 text-sm">Soạn bảng báo giá & Giữ tồn kho</div>
-                  
+
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[11px] font-bold text-zinc-600 block mb-1">Model sản phẩm</label>
-                      <input 
-                        type="text" 
-                        value={quoteModel} 
-                        onChange={e => setQuoteModel(e.target.value)} 
+                      <input
+                        type="text"
+                        value={quoteModel}
+                        onChange={e => setQuoteModel(e.target.value)}
                         className="w-full p-2 bg-white border border-zinc-200 rounded-xl"
                       />
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-zinc-600 block mb-1">Giá niêm yết (VNĐ)</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         required
                         min={1}
-                        value={quoteUnitPrice} 
-                        onChange={e => setQuoteUnitPrice(Number(e.target.value))} 
+                        value={quoteUnitPrice}
+                        onChange={e => setQuoteUnitPrice(Number(e.target.value))}
                         className="w-full p-2 bg-white border border-zinc-200 rounded-xl font-bold"
                       />
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-zinc-600 block mb-1">Trợ giá Thu Cũ (VNĐ)</label>
-                      <input 
-                        type="number" 
-                        value={quoteTradeInSubsidy} 
-                        onChange={e => setQuoteTradeInSubsidy(Number(e.target.value))} 
+                      <input
+                        type="number"
+                        value={quoteTradeInSubsidy}
+                        onChange={e => setQuoteTradeInSubsidy(Number(e.target.value))}
                         className="w-full p-2 bg-white border border-zinc-200 rounded-xl"
                       />
                     </div>
                     <div>
                       <label className="text-[11px] font-bold text-zinc-600 block mb-1">Giảm giá thêm / Voucher</label>
-                      <input 
-                        type="number" 
-                        value={quoteDiscount} 
-                        onChange={e => setQuoteDiscount(Number(e.target.value))} 
+                      <input
+                        type="number"
+                        value={quoteDiscount}
+                        onChange={e => setQuoteDiscount(Number(e.target.value))}
                         className="w-full p-2 bg-white border border-zinc-200 rounded-xl"
                       />
                     </div>
@@ -542,7 +542,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
 
                   <div className="bg-white p-3 rounded-xl border border-zinc-200 flex items-center justify-between font-bold text-sm">
                     <span>Giá thanh toán cuối:</span>
-                    <span className="text-[#FF4B16] text-base">{Number(quoteFinalPrice || 0).toLocaleString('vi-VN')} đ</span>
+                    <span className="text-[#ff4b16] text-base">{Number(quoteFinalPrice || 0).toLocaleString('vi-VN')} đ</span>
                   </div>
 
                   <button
@@ -563,7 +563,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                   {leadQuotes.map(q => (
                     <div key={q.id} className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs space-y-2 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-mono font-bold text-[#FF4B16] text-sm">{q.quoteCode}</span>
+                        <span className="font-mono font-bold text-[#ff4b16] text-sm">{q.quoteCode}</span>
                         <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold text-[10px]">
                           {q.status}
                         </span>
@@ -594,7 +594,7 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                 </h4>
                 <button
                   onClick={() => setIsCreatingAppt(!isCreatingAppt)}
-                  className="px-3 py-1.5 rounded-xl bg-[#FF4B16] text-white text-xs font-bold hover:bg-[#E94312] cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-[#ff4b16] text-white text-xs font-bold hover:bg-[#E94312] cursor-pointer"
                 >
                   {isCreatingAppt ? 'Đóng form' : '+ Tạo lịch hẹn mới'}
                 </button>
@@ -603,13 +603,13 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
               {isCreatingAppt && (
                 <form onSubmit={handleCreateAppointmentSubmit} className="bg-zinc-50 rounded-2xl p-4 border border-zinc-200 space-y-3 text-xs">
                   <div className="font-bold text-zinc-900 text-sm">Đặt lịch hẹn Showroom</div>
-                  
+
                   <div>
                     <label className="text-[11px] font-bold text-zinc-600 block mb-1">Thời gian hẹn</label>
-                    <input 
+                    <input
                       type="datetime-local"
-                      value={apptDate} 
-                      onChange={e => setApptDate(e.target.value)} 
+                      value={apptDate}
+                      onChange={e => setApptDate(e.target.value)}
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl font-mono font-bold"
                     />
                   </div>
@@ -629,10 +629,10 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
 
                   <div>
                     <label className="text-[11px] font-bold text-zinc-600 block mb-1">Ghi chú chuẩn bị máy</label>
-                    <input 
-                      type="text" 
-                      value={apptNotes} 
-                      onChange={e => setApptNotes(e.target.value)} 
+                    <input
+                      type="text"
+                      value={apptNotes}
+                      onChange={e => setApptNotes(e.target.value)}
                       className="w-full p-2 bg-white border border-zinc-200 rounded-xl"
                     />
                   </div>

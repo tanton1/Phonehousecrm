@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  StaffMember, 
-  AttendanceRecord, 
-  WeeklyShiftSchedule, 
-  LeaveRequest, 
-  CommissionTransaction, 
+import {
+  StaffMember,
+  AttendanceRecord,
+  WeeklyShiftSchedule,
+  LeaveRequest,
+  CommissionTransaction,
   MonthlyPayrollSlip,
   SalaryPolicy,
   PayrollLedgerItem,
@@ -14,29 +14,29 @@ import {
   StoreBranch
 } from '../types';
 import { getVietnamWeekRange, getVietnamDateString } from '../utils/dateTimeUtils';
-import { 
-  Users, 
-  Clock, 
-  Calendar, 
-  FileText, 
-  CheckCircle2, 
-  AlertTriangle, 
-  DollarSign, 
-  Filter, 
-  Plus, 
-  Search, 
-  Download, 
-  Copy, 
-  Sparkles, 
-  ChevronRight, 
-  Check, 
-  X, 
-  ShieldCheck, 
-  Eye, 
-  Printer, 
-  Wrench, 
-  TrendingUp, 
-  Building2, 
+import {
+  Users,
+  Clock,
+  Calendar,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  DollarSign,
+  Filter,
+  Plus,
+  Search,
+  Download,
+  Copy,
+  Sparkles,
+  ChevronRight,
+  Check,
+  X,
+  ShieldCheck,
+  Eye,
+  Printer,
+  Wrench,
+  TrendingUp,
+  Building2,
   ChevronDown,
   Layers,
   Settings,
@@ -53,11 +53,11 @@ import {
   Wifi,
   Loader2
 } from 'lucide-react';
-import { 
-  calculateStaffDualWallet, 
-  syncCommissionsFromAllSources, 
-  calculateInvoiceCommissions, 
-  calculateWarrantyTicketCommissions 
+import {
+  calculateStaffDualWallet,
+  syncCommissionsFromAllSources,
+  calculateInvoiceCommissions,
+  calculateWarrantyTicketCommissions
 } from '../utils/commissionEngine';
 
 interface AttendanceAdminViewProps {
@@ -99,7 +99,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   warrantyTickets = [],
   hideHeaderAndTabs = false
 }) => {
-  
+
   // Real-time synced commissions across all tickets and invoices
   const allSyncedCommissions = useMemo(() => {
     return syncCommissionsFromAllSources(invoices || [], warrantyTickets || [], staffList || [], policies || [], commissions || []);
@@ -123,7 +123,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
       .map(staff => {
         const dual = calculateStaffDualWallet(staff.id, allSyncedCommissions, staffList || []);
         const policy = (policies || []).find(p => p && p.role === staff.role);
-        
+
         // Fail-safe calculation: never inject fake 5M policy when unconfigured
         const baseSalary = policy?.baseSalary ?? staff.baseSalary ?? 0;
         const allowance = (policy?.lunchAllowance || 0) + (policy?.phoneAllowance || 0);
@@ -187,7 +187,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
           const totalCommission = dual?.totalGrossCommission || 0;
           const kpiBonus = (dual?.salesWallet?.totalRevenue || 0) >= 100000000 ? 2000000 : 0;
           const branchObj = (branches || []).find(b => b && b.id === staff.branchId);
-          
+
           return {
             id: `SLIP-${Date.now()}-${staff.id}`,
             employeeId: staff.id,
@@ -228,7 +228,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
   const [internalAdminTab, setInternalAdminTab] = useState<'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL' | 'TECH_COMMISSION' | 'APPROVAL' | 'POLICIES'>('OVERVIEW');
   const adminTab = controlledTab || internalAdminTab;
   const setAdminTab = setControlledTab || setInternalAdminTab;
-  
+
   // Selected Branch Filter
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
   const [selectedMonth, setSelectedMonth] = useState<string>('2026-08');
@@ -269,14 +269,14 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
   return (
     <div className="space-y-6">
-      
+
       {/* TOP HEADER & ADMIN SUB-NAV (Renderose only when standalone) */}
       {!hideHeaderAndTabs && (
         <>
           <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <div className="flex items-center space-x-2 text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                <Building2 className="w-3.5 h-3.5 text-[#FF4B16]" />
+                <Building2 className="w-3.5 h-3.5 text-[#ff4b16]" />
                 <span>Quản trị Nhân sự & Tiền lương PhoneHouse</span>
               </div>
               <h1 className="text-xl sm:text-2xl font-black text-zinc-900 mt-0.5">
@@ -286,7 +286,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
             {/* Global Branch & Month Selectors */}
             <div className="flex items-center space-x-2">
-              <select 
+              <select
                 value={selectedBranch}
                 onChange={(e) => setSelectedBranch(e.target.value)}
                 className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800"
@@ -297,7 +297,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 ))}
               </select>
 
-              <select 
+              <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
                 className="bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs font-bold text-zinc-800"
@@ -326,8 +326,8 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   key={tab.id}
                   onClick={() => setAdminTab(tab.id as any)}
                   className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap ${
-                    isActive 
-                      ? 'bg-[#FF4B16] text-white shadow-xs font-extrabold' 
+                    isActive
+                      ? 'bg-[#ff4b16] text-white shadow-xs font-extrabold'
                       : 'bg-white text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 border border-zinc-200/60'
                   }`}
                 >
@@ -360,7 +360,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
             <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
               <div className="text-xs font-bold text-zinc-400 uppercase">Đi trễ</div>
-              <div className="text-2xl sm:text-3xl font-black text-[#FF4B16] mt-1">
+              <div className="text-2xl sm:text-3xl font-black text-[#ff4b16] mt-1">
                 {lateCount}
               </div>
               <div className="text-[11px] text-zinc-500 mt-1 flex items-center space-x-1">
@@ -450,7 +450,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                               const s = staffList.find(st => st.id === rec.staffId);
                               if (s) setSelectedStaffTimesheet(s);
                             }}
-                            className="text-[11px] font-bold text-[#FF4B16] hover:underline"
+                            className="text-[11px] font-bold text-[#ff4b16] hover:underline"
                           >
                             Chi tiết
                           </button>
@@ -492,12 +492,12 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="bg-zinc-50 p-2.5 rounded-xl">
-                    <div className="text-base font-black text-[#FF4B16]">62%</div>
+                    <div className="text-base font-black text-[#ff4b16]">62%</div>
                     <div className="text-[10px] text-zinc-400 font-bold mt-0.5">Doanh số</div>
                     <div className="text-[10px] text-zinc-700 mt-1 font-bold">12.5M/20M</div>
                   </div>
                   <div className="bg-zinc-50 p-2.5 rounded-xl">
-                    <div className="text-base font-black text-[#FF4B16]">60%</div>
+                    <div className="text-base font-black text-[#ff4b16]">60%</div>
                     <div className="text-[10px] text-zinc-400 font-bold mt-0.5">Số đơn</div>
                     <div className="text-[10px] text-zinc-700 mt-1 font-bold">6 / 10</div>
                   </div>
@@ -533,7 +533,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
             </div>
 
             <div className="flex items-center space-x-2">
-              <button 
+              <button
                 onClick={() => alert('Đã sao chép lịch tuần trước thành công!')}
                 className="px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
               >
@@ -541,7 +541,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 <span>Sao chép tuần trước</span>
               </button>
 
-              <button 
+              <button
                 onClick={() => alert('AI Auto-scheduler: Đã tối ưu hóa chia ca cân bằng 26 công/người!')}
                 className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
               >
@@ -549,9 +549,9 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 <span>Xếp tự động AI</span>
               </button>
 
-              <button 
+              <button
                 onClick={() => alert('Đang xuất bảng ca Excel...')}
-                className="px-3 py-2 rounded-xl bg-[#FF4B16] hover:bg-[#E94312] text-white text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
+                className="px-3 py-2 rounded-xl bg-[#ff4b16] hover:bg-[#E94312] text-white text-xs font-bold flex items-center space-x-1.5 cursor-pointer shadow-xs"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>Xuất Excel</span>
@@ -566,11 +566,11 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 <tr className="bg-zinc-100 text-zinc-700 font-bold uppercase text-[11px]">
                   <th className="py-3 px-4 text-left border border-zinc-200">Nhân viên</th>
                   {currentWeek.days.map((d) => (
-                    <th 
-                      key={d.dateStr} 
+                    <th
+                      key={d.dateStr}
                       className={`py-3 px-2 border border-zinc-200 ${
-                        d.isToday 
-                          ? 'bg-orange-100/70 text-[#FF4B16] font-black' 
+                        d.isToday
+                          ? 'bg-orange-100/70 text-[#ff4b16] font-black'
                           : d.dayOfWeek === 'Chủ Nhật'
                             ? 'bg-zinc-50 text-rose-600'
                             : ''
@@ -593,7 +593,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       const dKey = d.dateStr;
                       const day = sch.days?.[dKey];
                       const shiftName = day ? day.shiftName : 'Nghỉ';
-                      
+
                       let badgeStyle = 'bg-zinc-100 text-zinc-500';
                       if (shiftName === 'Ca sáng') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
                       if (shiftName === 'Ca chiều') badgeStyle = 'bg-orange-100 text-orange-900 border border-orange-200 font-bold';
@@ -636,7 +636,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               <p className="text-xs text-zinc-500">Chốt công thực tế, tính số phút đi muộn & giờ tăng ca OT</p>
             </div>
 
-            <button 
+            <button
               onClick={() => alert('Đang xuất bảng công tháng sang Excel...')}
               className="px-3 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-bold flex items-center space-x-1.5 cursor-pointer"
             >
@@ -688,7 +688,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                           const s = staffList.find(st => st.id === slip.employeeId);
                           if (s) setSelectedStaffTimesheet(s);
                         }}
-                        className="text-[11px] font-bold text-[#FF4B16] hover:underline"
+                        className="text-[11px] font-bold text-[#ff4b16] hover:underline"
                       >
                         Lịch sử ngày &rarr;
                       </button>
@@ -751,7 +751,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 </div>
                 <div className="bg-zinc-900 text-white p-4 rounded-2xl shadow-md">
                   <div className="text-[10px] font-bold text-zinc-400 uppercase">Tổng Thực Chi Chuyển Khoản</div>
-                  <div className="text-lg sm:text-xl font-black text-[#FF4B16] mt-1 font-mono">
+                  <div className="text-lg sm:text-xl font-black text-[#ff4b16] mt-1 font-mono">
                     {totalNet.toLocaleString()} đ
                   </div>
                 </div>
@@ -761,7 +761,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
           {/* MAIN PAYROLL TABLE */}
           <div className="bg-white rounded-3xl p-4 sm:p-5 border border-zinc-200/80 shadow-2xs space-y-4">
-            
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
@@ -779,7 +779,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 <button
                   onClick={handleCalculatePayroll}
                   disabled={isCalculating}
-                  className="px-4 py-2 bg-[#FF4B16] hover:bg-[#E03D0D] text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                  className="px-4 py-2 bg-[#ff4b16] hover:bg-[#E03D0D] text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isCalculating ? 'animate-spin' : ''}`} />
                   <span>{isCalculating ? 'Đang tự động gom...' : '⚡ Tính Lương & Quét Ví Toàn Hệ Thống'}</span>
@@ -828,7 +828,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                         <td className="py-3 px-3 text-right font-black text-rose-600 font-mono">
                           +{slip.totalCommission.toLocaleString()} đ
                         </td>
-                        <td className="py-3 px-3 text-right font-black text-[#FF4B16] text-sm font-mono">
+                        <td className="py-3 px-3 text-right font-black text-[#ff4b16] text-sm font-mono">
                           {slip.netPay.toLocaleString()} đ
                         </td>
                         <td className="py-3 px-3 text-center">
@@ -1122,7 +1122,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 </div>
                 <div>
                   <span className="text-zinc-400">Thực Lĩnh:</span>
-                  <div className="font-black font-mono text-[#FF4B16] text-sm">{selectedSlipDetail.slip.netPay.toLocaleString()} đ</div>
+                  <div className="font-black font-mono text-[#ff4b16] text-sm">{selectedSlipDetail.slip.netPay.toLocaleString()} đ</div>
                 </div>
               </div>
             </div>
@@ -1189,18 +1189,18 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               { step: 4, title: '4. Khóa kỳ lương', desc: 'Đóng sổ kế toán tháng', status: 'PENDING', approver: 'Hệ thống tự động', time: '--' },
               { step: 5, title: '5. Thanh toán & Phiếu', desc: 'Chuyển khoản & gửi e-Slip', status: 'PENDING', approver: 'Ngân hàng Techcombank', time: '--' },
             ].map(s => (
-              <div 
-                key={s.step} 
+              <div
+                key={s.step}
                 className={`p-4 rounded-2xl border transition-all ${
                   s.status === 'COMPLETED' ? 'bg-orange-50/70 border-orange-200 text-orange-950' :
-                  s.status === 'IN_PROGRESS' ? 'bg-orange-50/70 border-orange-200 text-orange-950 shadow-xs ring-2 ring-[#FF4B16]/20' :
+                  s.status === 'IN_PROGRESS' ? 'bg-orange-50/70 border-orange-200 text-orange-950 shadow-xs ring-2 ring-[#ff4b16]/20' :
                   'bg-zinc-50 border-zinc-200 text-zinc-400'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
                     s.status === 'COMPLETED' ? 'bg-orange-600 text-white' :
-                    s.status === 'IN_PROGRESS' ? 'bg-[#FF4B16] text-white' :
+                    s.status === 'IN_PROGRESS' ? 'bg-[#ff4b16] text-white' :
                     'bg-zinc-200 text-zinc-600'
                   }`}>
                     {s.status === 'COMPLETED' ? '✓' : s.step}
@@ -1232,7 +1232,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               </button>
               <button
                 onClick={() => alert('Đã phê duyệt kỳ lương cấp Kế toán! Chuyển lên Giám đốc duyệt.')}
-                className="px-4 py-2 bg-[#FF4B16] hover:bg-[#E94312] text-white text-xs font-black rounded-xl cursor-pointer shadow-xs"
+                className="px-4 py-2 bg-[#ff4b16] hover:bg-[#E94312] text-white text-xs font-black rounded-xl cursor-pointer shadow-xs"
               >
                 PHÊ DUYỆT CẤP KẾ TOÁN &rarr;
               </button>
@@ -1269,7 +1269,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   </div>
                   <div className="flex justify-between py-1 border-b border-zinc-100">
                     <span className="text-zinc-500">Hoa hồng bán máy:</span>
-                    <span className="font-bold text-[#FF4B16]">{pol.deviceProfitPercent}% lợi nhuận</span>
+                    <span className="font-bold text-[#ff4b16]">{pol.deviceProfitPercent}% lợi nhuận</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-zinc-100">
                     <span className="text-zinc-500">Hoa hồng phụ kiện:</span>
@@ -1289,9 +1289,9 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   )}
                 </div>
 
-                <button 
+                <button
                   onClick={() => handleOpenEditPolicy(pol)}
-                  className="w-full py-2 bg-zinc-100 hover:bg-orange-50 hover:text-[#FF4B16] text-zinc-800 font-bold text-xs rounded-xl transition-all border border-zinc-200/80 hover:border-orange-300 flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
+                  className="w-full py-2 bg-zinc-100 hover:bg-orange-50 hover:text-[#ff4b16] text-zinc-800 font-bold text-xs rounded-xl transition-all border border-zinc-200/80 hover:border-orange-300 flex items-center justify-center space-x-1.5 cursor-pointer shadow-2xs"
                 >
                   <Sliders className="w-3.5 h-3.5" />
                   <span>Chỉnh sửa công thức lương</span>
@@ -1311,9 +1311,9 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
                 <div className="flex items-center space-x-3">
-                  <img 
-                    src={selectedStaffTimesheet.avatar} 
-                    alt={selectedStaffTimesheet.name} 
+                  <img
+                    src={selectedStaffTimesheet.avatar}
+                    alt={selectedStaffTimesheet.name}
                     className="w-10 h-10 rounded-full object-cover border"
                   />
                   <div>
@@ -1321,7 +1321,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     <div className="text-xs text-zinc-400">{selectedStaffTimesheet.roleTitle}</div>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setSelectedStaffTimesheet(null)}
                   className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200"
                 >
@@ -1377,7 +1377,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   <h3 className="font-black text-base text-zinc-900">{selectedPayrollSlip.employeeName}</h3>
                   <div className="text-xs text-zinc-500">{selectedPayrollSlip.roleTitle} • {selectedPayrollSlip.branchName}</div>
                 </div>
-                <button 
+                <button
                   onClick={() => setSelectedPayrollSlip(null)}
                   className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-500 hover:bg-zinc-200"
                 >
@@ -1388,7 +1388,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
               {/* HERO SALARY */}
               <div className="my-4 p-4 rounded-2xl bg-zinc-900 text-white">
                 <span className="text-[10px] font-bold text-zinc-400 uppercase">Thực lĩnh chuyển khoản</span>
-                <div className="text-2xl font-black font-mono text-[#FF4B16] mt-0.5">
+                <div className="text-2xl font-black font-mono text-[#ff4b16] mt-0.5">
                   {selectedPayrollSlip.netReceivable.toLocaleString()} đ
                 </div>
                 <div className="text-xs text-zinc-400 mt-1">
@@ -1458,11 +1458,11 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
       {editingPolicy && policyForm && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-3xl rounded-3xl p-6 shadow-2xl border border-zinc-200 space-y-5 my-8 max-h-[90vh] flex flex-col justify-between overflow-y-auto">
-            
+
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-2xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#FF4B16]">
+                <div className="w-10 h-10 rounded-2xl bg-orange-50 border border-orange-200 flex items-center justify-center text-[#ff4b16]">
                   <Sliders className="w-5 h-5" />
                 </div>
                 <div>
@@ -1470,7 +1470,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     <h2 className="text-base font-black text-zinc-900">
                       Biên Tập Công Thức Lương & Thưởng
                     </h2>
-                    <span className="bg-orange-100 text-[#FF4B16] text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                    <span className="bg-orange-100 text-[#ff4b16] text-[10px] font-extrabold px-2 py-0.5 rounded-full">
                       {policyForm.version}
                     </span>
                   </div>
@@ -1493,21 +1493,21 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
             {/* Body: 2 Columns (Form Inputs + Live Simulator) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
-              
+
               {/* Left Column: Form Fields (7 cols) */}
               <div className="lg:col-span-7 space-y-3.5">
-                
+
                 {/* 1. Policy Name & Status */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-zinc-700 mb-1">
                       Tên chính sách lương
                     </label>
-                    <input 
+                    <input
                       type="text"
                       value={policyForm.name}
                       onChange={(e) => setPolicyForm({ ...policyForm, name: e.target.value })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                     />
                   </div>
                   <div>
@@ -1517,7 +1517,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     <select
                       value={policyForm.status}
                       onChange={(e) => setPolicyForm({ ...policyForm, status: e.target.value as any })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                     >
                       <option value="ACTIVE">ACTIVE (Đang kích hoạt)</option>
                       <option value="DRAFT">DRAFT (Bản nháp thử nghiệm)</option>
@@ -1531,22 +1531,22 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     <label className="block text-[11px] font-bold text-zinc-700 mb-1">
                       Lương cơ bản (đ/tháng)
                     </label>
-                    <input 
+                    <input
                       type="number"
                       value={policyForm.baseSalary}
                       onChange={(e) => setPolicyForm({ ...policyForm, baseSalary: Number(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                     />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-zinc-700 mb-1">
                       Thưởng chuyên cần (đ/tháng)
                     </label>
-                    <input 
+                    <input
                       type="number"
                       value={policyForm.attendanceBonus}
                       onChange={(e) => setPolicyForm({ ...policyForm, attendanceBonus: Number(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-orange-700 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-orange-700 focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                     />
                   </div>
                 </div>
@@ -1558,12 +1558,12 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       Hoa hồng bán máy (% Lợi nhuận)
                     </label>
                     <div className="relative">
-                      <input 
+                      <input
                         type="number"
                         step="0.1"
                         value={policyForm.deviceProfitPercent}
                         onChange={(e) => setPolicyForm({ ...policyForm, deviceProfitPercent: Number(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-[#FF4B16] focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                        className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-[#ff4b16] focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                       />
                       <span className="absolute right-3 top-2 text-zinc-400 font-bold">%</span>
                     </div>
@@ -1573,12 +1573,12 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                       Hoa hồng phụ kiện (% Doanh thu)
                     </label>
                     <div className="relative">
-                      <input 
+                      <input
                         type="number"
                         step="0.1"
                         value={policyForm.accessoryProfitPercent}
                         onChange={(e) => setPolicyForm({ ...policyForm, accessoryProfitPercent: Number(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-orange-600 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                        className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-orange-600 focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                       />
                       <span className="absolute right-3 top-2 text-zinc-400 font-bold">%</span>
                     </div>
@@ -1591,22 +1591,22 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     <label className="block text-[11px] font-bold text-zinc-700 mb-1">
                       Giá trị Point Kỹ thuật (đ/điểm)
                     </label>
-                    <input 
+                    <input
                       type="number"
                       value={policyForm.techPointRateVnd}
                       onChange={(e) => setPolicyForm({ ...policyForm, techPointRateVnd: Number(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-rose-700 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-rose-700 focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                     />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-zinc-700 mb-1">
                       Lương tăng ca OT (đ/giờ)
                     </label>
-                    <input 
+                    <input
                       type="number"
                       value={policyForm.overtimeHourlyRate}
                       onChange={(e) => setPolicyForm({ ...policyForm, overtimeHourlyRate: Number(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#FF4B16] focus:bg-white"
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-bold text-zinc-900 focus:outline-hidden focus:border-[#ff4b16] focus:bg-white"
                     />
                   </div>
                 </div>
@@ -1615,22 +1615,22 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                 <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-2">
                   <div className="flex justify-between items-center text-[11px] font-bold">
                     <span className="text-zinc-700">Tỷ lệ phân chia đơn Online &rarr; Showroom:</span>
-                    <span className="text-[#FF4B16]">
+                    <span className="text-[#ff4b16]">
                       {policyForm.onlineSaleSplitPercent}% Online • {100 - policyForm.onlineSaleSplitPercent}% Showroom
                     </span>
                   </div>
-                  <input 
+                  <input
                     type="range"
                     min="0"
                     max="100"
                     step="5"
                     value={policyForm.onlineSaleSplitPercent}
-                    onChange={(e) => setPolicyForm({ 
-                      ...policyForm, 
+                    onChange={(e) => setPolicyForm({
+                      ...policyForm,
                       onlineSaleSplitPercent: Number(e.target.value),
                       storeCloserSplitPercent: 100 - Number(e.target.value)
                     })}
-                    className="w-full accent-[#FF4B16] cursor-pointer"
+                    className="w-full accent-[#ff4b16] cursor-pointer"
                   />
                   <div className="flex justify-between text-[10px] text-zinc-400">
                     <span>0% (100% về Showroom)</span>
@@ -1668,7 +1668,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                     </div>
                     <div className="flex justify-between py-1 border-b border-zinc-800 text-zinc-300">
                       <span>HH Bán máy ({policyForm.deviceProfitPercent}% của 18M):</span>
-                      <span className="font-bold text-[#FF4B16] font-mono">
+                      <span className="font-bold text-[#ff4b16] font-mono">
                         +{Math.round(18000000 * (policyForm.deviceProfitPercent / 100)).toLocaleString()} đ
                       </span>
                     </div>
@@ -1697,7 +1697,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
                   {/* Total Estimated Calculation Box */}
                   <div className="p-3 bg-zinc-800/80 rounded-xl border border-zinc-700 mt-3">
                     <div className="text-[10px] text-zinc-400 font-bold uppercase">Ước tính thu nhập nhân viên</div>
-                    <div className="text-xl font-black font-mono text-[#FF4B16] mt-0.5">
+                    <div className="text-xl font-black font-mono text-[#ff4b16] mt-0.5">
                       {(
                         policyForm.baseSalary +
                         policyForm.attendanceBonus +
@@ -1730,7 +1730,7 @@ export const AttendanceAdminView: React.FC<AttendanceAdminViewProps> = ({
 
               <button
                 onClick={handleSavePolicy}
-                className="px-6 py-2.5 bg-[#FF4B16] hover:bg-[#E94312] text-white font-black text-xs rounded-xl shadow-lg shadow-orange-500/25 transition-all flex items-center space-x-2 cursor-pointer"
+                className="px-6 py-2.5 bg-[#ff4b16] hover:bg-[#E94312] text-white font-black text-xs rounded-xl shadow-lg shadow-orange-500/25 transition-all flex items-center space-x-2 cursor-pointer"
               >
                 {policySaveSuccess ? (
                   <>

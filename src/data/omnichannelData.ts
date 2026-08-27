@@ -55,7 +55,7 @@ export const INITIAL_CHANNEL_CONNECTIONS: ChannelConnectionConfig[] = [
     webhookUrl: 'wss://socket.phonehouse.vn/livechat',
     autoAiReply: true,
     assignRule: 'ROUND_ROBIN',
-    color: '#FF4B16'
+    color: '#ff4b16'
   },
   {
     id: 'CHAN_SHOPEE_01',

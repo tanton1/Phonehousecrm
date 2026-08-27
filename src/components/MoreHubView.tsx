@@ -64,7 +64,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
         <header className="flex items-start justify-between gap-4 border-b border-zinc-200 pb-5">
           <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#ff4b16]">PhoneHouse</p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Xem thêm</h1>
+            <h1 className="mt-1 text-xl font-black tracking-tight sm:text-2xl">Xem thêm</h1>
             <p className="mt-1 truncate text-xs font-semibold text-zinc-500 sm:text-sm">
               {currentUser?.displayName || 'Tài khoản'} · {ROLE_LABELS[role] || role}
             </p>

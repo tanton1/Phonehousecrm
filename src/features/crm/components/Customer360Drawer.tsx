@@ -2,17 +2,17 @@ import React, { useState, useMemo } from 'react';
 import { Lead, Customer, CustomerTierConfig, SalesInvoice, WarrantyTicket } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
 import { normalizeVietnamPhone, formatDisplayPhone } from '../../../utils/phoneUtils';
-import { 
-  User, 
-  Phone, 
-  Award, 
-  ShoppingBag, 
-  Wrench, 
-  Clock, 
-  DollarSign, 
-  MessageSquare, 
-  X, 
-  Plus, 
+import {
+  User,
+  Phone,
+  Award,
+  ShoppingBag,
+  Wrench,
+  Clock,
+  DollarSign,
+  MessageSquare,
+  X,
+  Plus,
   CheckCircle2,
   Smartphone,
   Sparkles,
@@ -134,7 +134,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
           const imei = item.imei || '';
           const imeiMasked = imei.length >= 4 ? `••••••••${imei.slice(-4)}` : 'Chưa kích hoạt IMEI';
           const pDate = inv.createdAt || inv.createdDate || '';
-          
+
           // Determine accurate warranty expiry
           let warrantyExpiry = 'Theo chính sách hóa đơn';
           if (item.warrantyExpiryDate) {
@@ -190,10 +190,10 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
       if (matched) {
         return {
           name: matched.name,
-          badge: matched.tier === 'DIAMOND' 
-            ? 'bg-purple-100 text-purple-700 border-purple-200' 
-            : matched.tier === 'GOLD' 
-            ? 'bg-amber-100 text-amber-800 border-amber-200' 
+          badge: matched.tier === 'DIAMOND'
+            ? 'bg-purple-100 text-purple-700 border-purple-200'
+            : matched.tier === 'GOLD'
+            ? 'bg-amber-100 text-amber-800 border-amber-200'
             : 'bg-blue-100 text-blue-700 border-blue-200'
         };
       }
@@ -459,7 +459,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
 
         {/* 5. Tab Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
-          
+
           {/* TAB: OPPORTUNITIES (Multi-lead 360 view) */}
           {activeTab === 'OPPORTUNITIES' && (
             <div className="space-y-3 animate-fadeIn">
@@ -473,8 +473,8 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
               ) : (
                 <div className="space-y-2.5">
                   {customerLeads.map(cl => (
-                    <div 
-                      key={cl.id} 
+                    <div
+                      key={cl.id}
                       className="bg-zinc-50 rounded-2xl p-3.5 border border-zinc-200 hover:border-zinc-300 transition-colors space-y-2"
                     >
                       <div className="flex items-center justify-between">
@@ -483,7 +483,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
                           cl.status === 'won' ? 'bg-emerald-100 text-emerald-800' :
                           cl.status === 'lost' ? 'bg-rose-100 text-rose-800' :
                           cl.status === 'appointment_scheduled' ? 'bg-purple-100 text-purple-800' :
-                          'bg-orange-100 text-[#FF4B16]'
+                          'bg-orange-100 text-[#ff4b16]'
                         }`}>
                           {cl.status === 'won' ? '✓ Đã Mua (Won)' :
                            cl.status === 'lost' ? '❌ Thất Bại (Lost)' :
@@ -511,7 +511,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
                               onSelectLead(cl);
                               onClose();
                             }}
-                            className="text-[#FF4B16] font-bold text-[11px] hover:underline"
+                            className="text-[#ff4b16] font-bold text-[11px] hover:underline"
                           >
                             Mở chi tiết Lead →
                           </button>
@@ -646,8 +646,8 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
                     <div className="flex items-center justify-between text-[11px] text-zinc-500">
                       <span>{inv.createdAt || inv.createdDate || ''}</span>
                       <span className={`px-2 py-0.5 rounded font-semibold text-[10px] ${
-                        inv.status === 'completed' 
-                          ? 'bg-emerald-100 text-emerald-800' 
+                        inv.status === 'completed'
+                          ? 'bg-emerald-100 text-emerald-800'
                           : inv.status === 'cancelled'
                           ? 'bg-rose-100 text-rose-800'
                           : 'bg-amber-100 text-amber-800'

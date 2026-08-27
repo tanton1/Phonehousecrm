@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { 
-  Wrench, Package, Search, Bell, CheckCircle2, 
+import {
+  Wrench, Package, Search, Bell, CheckCircle2,
   Activity, Zap, Clock, Smartphone, ShieldCheck, RefreshCw,
   ArrowUpRight, FileText, Check, Filter, Layers, DollarSign, ScanFace
 } from 'lucide-react';
@@ -27,14 +27,14 @@ interface TechWorkspaceViewProps {
   onSyncCommissions?: () => void;
 }
 
-export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({ 
-  devices, 
+export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
+  devices,
   branches = [],
   warehouses = [],
   funds = [],
-  currentUser, 
-  onCheckIn, 
-  onCheckOut, 
+  currentUser,
+  onCheckIn,
+  onCheckOut,
   onOpenCheckIn,
   attendanceRecord,
   onSyncCommissions
@@ -138,7 +138,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
 
   // Active tech staff identification
   const currentStaffId = currentUser?.id || '';
-  const staffMember = (INITIAL_STAFF_MEMBERS || []).find(s => s?.id === currentStaffId || s?.name === currentUser?.displayName) 
+  const staffMember = (INITIAL_STAFF_MEMBERS || []).find(s => s?.id === currentStaffId || s?.name === currentUser?.displayName)
     || { id: currentStaffId, name: currentUser?.displayName || 'Kỹ thuật viên', role: 'TECHNICIAN', branchId: currentUser?.branchId || '' } as any;
 
   // Automated Tech Wallet Calculation using Phase 3 Engine
@@ -281,7 +281,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
             <Wrench className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-sm font-black uppercase tracking-wider">Tech Desk</h1>
+            <h1 className="text-base font-black uppercase tracking-wider sm:text-lg">Tech Desk</h1>
             <div className="text-[10px] text-orange-200 flex items-center gap-1 mt-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span>
               <span>KTV: {staffMember.name}</span>
@@ -293,19 +293,19 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
         <div className="hidden md:flex flex-1 max-w-xl mx-8 justify-center">
           <div className="flex items-center gap-3 bg-black/10 border border-white/20 px-4 py-1.5 rounded-full text-xs font-medium">
             <div className="flex items-center gap-1.5 text-white/90">
-              <Activity className="w-4 h-4 text-orange-300"/> 
+              <Activity className="w-4 h-4 text-orange-300"/>
               <span>Hoàn thành: <strong className="text-white">{todayCompletedCount} máy</strong></span>
             </div>
             <span className="text-white/40">|</span>
             <div className="flex items-center gap-1.5 text-white/90">
-              <Zap className="w-4 h-4 text-orange-300"/> 
+              <Zap className="w-4 h-4 text-orange-300"/>
               <span>Ví Kỹ Thuật: <strong className="text-white font-mono">{formatVND(techWallet.totalCommission)}</strong></span>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <button 
+          <button
             onClick={() => {
               if (onOpenCheckIn) {
                 onOpenCheckIn();
@@ -320,7 +320,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
             <span className="hidden sm:inline">Điểm Danh</span>
           </button>
 
-          <button 
+          <button
             onClick={handleManualSync}
             disabled={isSyncing}
             className="p-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all cursor-pointer disabled:opacity-50"
@@ -331,10 +331,10 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
 
           <button className="relative p-1.5 bg-white/10 hover:bg-white/20 rounded-lg flex items-center justify-center transition-colors cursor-pointer">
             <Bell className="w-4 h-4 text-white" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full border border-[#FF4B16]"></span>
+            <span className="absolute top-1 right-1 w-2 h-2 bg-orange-500 rounded-full border border-[#ff4b16]"></span>
           </button>
-          
-          <div className="w-9 h-9 rounded-xl bg-white text-[#FF4B16] flex items-center justify-center font-black text-xs shadow-md ml-1 border border-orange-200">
+
+          <div className="w-9 h-9 rounded-xl bg-white text-[#ff4b16] flex items-center justify-center font-black text-xs shadow-md ml-1 border border-orange-200">
             {staffMember.name.slice(0, 2).toUpperCase()}
           </div>
         </div>
@@ -365,7 +365,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
               {pendingHandoffs.length > 0 && <div className="mb-3 rounded-2xl border border-blue-200 bg-blue-50 p-3"><p className="text-xs font-black uppercase tracking-wide text-blue-900">Có {pendingHandoffs.length} máy đang chờ bạn nhận trách nhiệm</p><div className="mt-2 flex flex-wrap gap-2">{pendingHandoffs.map(handoff => <button key={handoff.id} onClick={() => { setSelectedHandoff(handoff); setHandoffScan(''); setHandoffNotes(''); setHandoffFiles([]); }} className="rounded-xl bg-white px-3 py-2 text-left text-xs shadow-sm"><strong className="block text-blue-800">{handoff.imei} · {handoff.targetTechnicianName || 'KTV nhận'}</strong><span className="text-zinc-500">Từ {handoff.fromTechnicianName || 'KTV trước'} · {handoff.reason}</span></button>)}</div></div>}
               {(assignedWorkLines.length > 0 || assignedWorkError) && <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-3"><div className="flex items-center gap-2"><p className="text-xs font-black uppercase tracking-wide text-orange-900">Máy kho đã chuyển cho tôi: {assignedWorkLines.length} hạng mục</p><HelpHint title="Máy kho đã chuyển">Máy từ kho được đưa vào Kanban theo trạng thái thực tế. Mỗi task vẫn thuộc đúng KTV đã được giao.</HelpHint>{assignedWorkError && <p className="mt-1 text-xs font-semibold text-rose-600">{assignedWorkError}</p>}</div><button onClick={handleManualSync} className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} /></button></div>}
               <div className="flex-1 min-h-0 bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden">
-                <TechKanbanBoard 
+                <TechKanbanBoard
                   tasks={kanbanTasks}
                   onTaskClick={setSelectedTechnicalTask}
                   onRefresh={handleManualSync}
@@ -571,12 +571,12 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
               <section className="overflow-hidden rounded-3xl border bg-white"><div className="border-b p-4"><h3 className="font-black">Chi tiết từng phiếu</h3><p className="mt-1 text-xs text-zinc-500">{repairReport?.summary.warrantyCount || 0} phiếu bảo hành trong khoảng thời gian này.</p></div><div className="divide-y">{repairReport?.items.map(item => <article key={item.workOrderId} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto]"><div><p className="font-black text-zinc-900">{item.model} <span className="font-mono text-xs text-zinc-500">· {item.imei || 'Không có IMEI'}</span></p><p className="mt-1 text-sm font-semibold text-zinc-700">{item.customerName} {item.customerPhone ? `· ${item.customerPhone}` : ''}</p><p className="mt-1 text-xs text-zinc-500">{item.code} · {item.deliveredAt ? new Date(item.deliveredAt).toLocaleString('vi-VN') : 'Chưa có thời gian'} · {item.type === 'WARRANTY' ? 'Bảo hành' : 'Sửa dịch vụ'}</p>{item.deliveryNotes && <p className="mt-2 text-xs text-zinc-600">{item.deliveryNotes}</p>}</div><div className="grid grid-cols-3 gap-3 text-right text-xs sm:block sm:space-y-1"><p><span className="block text-zinc-500">Tổng</span><strong>{formatVND(item.finalAmount)}</strong></p><p><span className="block text-zinc-500">Đã thu</span><strong className="text-emerald-700">{formatVND(item.paidAmount)}</strong></p><p><span className="block text-zinc-500">Còn nợ</span><strong className="text-rose-700">{formatVND(item.balanceDue)}</strong></p></div></article>)}{!repairReportLoading && !repairReport?.items.length && <p className="p-10 text-center text-sm text-zinc-500">Chưa có máy nào được bàn giao trong khoảng thời gian đã chọn.</p>}</div></section>
             </div>
           )}
-          
+
           {activeTab === 'HR' && (
             <div className="h-full bg-white rounded-3xl shadow-2xs border border-zinc-200/80 overflow-hidden p-3 sm:p-5">
-              <StaffHRView 
-                currentUser={currentUser} 
-                roleType='TECH' 
+              <StaffHRView
+                currentUser={currentUser}
+                roleType='TECH'
                 branches={branches}
                 onCheckIn={onCheckIn}
                 onCheckOut={onCheckOut}
@@ -588,24 +588,24 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
           )}
         </div>
       </div>
-      
+
       {/* BOTTOM TAB BAR */}
       <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-zinc-200 flex items-center justify-around z-40 px-2 pb-safe">
-        <button 
+        <button
           onClick={() => setActiveTab('KANBAN')}
           className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KANBAN' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
           <CheckCircle2 className={`w-5 h-5 ${activeTab === 'KANBAN' ? 'scale-110' : ''}`} />
           <span className="text-[10px]">Điều phối</span>
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('INVENTORY')}
           className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'INVENTORY' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
           <Package className={`w-5 h-5 ${activeTab === 'INVENTORY' ? 'scale-110' : ''}`} />
           <span className="text-[10px]">Kho Linh Kiện</span>
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('KPI')}
           className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'KPI' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >
@@ -613,7 +613,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
           <span className="text-[10px]">Ví Kỹ Thuật</span>
         </button>
         {canViewRepairReport && <button onClick={() => setActiveTab('REPORT')} className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'REPORT' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}><DollarSign className={`w-5 h-5 ${activeTab === 'REPORT' ? 'scale-110' : ''}`} /><span className="text-[10px]">Doanh thu</span></button>}
-        <button 
+        <button
           onClick={() => setActiveTab('HR')}
           className={`flex flex-col items-center justify-center w-20 h-full gap-1 transition-all cursor-pointer ${activeTab === 'HR' ? 'text-orange-600 font-bold' : 'text-zinc-400'}`}
         >

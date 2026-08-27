@@ -1,24 +1,24 @@
 import React, { useState } from 'react';
-import { 
-  Building2, 
-  Store, 
-  Warehouse, 
-  Plus, 
-  Edit3, 
-  Trash2, 
-  CheckCircle2, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Clock, 
-  ShieldCheck, 
-  Printer, 
-  Save, 
-  RefreshCw, 
-  CreditCard, 
-  FileText, 
-  Sparkles, 
-  X, 
+import {
+  Building2,
+  Store,
+  Warehouse,
+  Plus,
+  Edit3,
+  Trash2,
+  CheckCircle2,
+  Phone,
+  Mail,
+  MapPin,
+  Clock,
+  ShieldCheck,
+  Printer,
+  Save,
+  RefreshCw,
+  CreditCard,
+  FileText,
+  Sparkles,
+  X,
   AlertCircle,
   ExternalLink,
   ChevronRight,
@@ -33,11 +33,11 @@ import {
   Archive,
   RotateCcw
 } from 'lucide-react';
-import { 
-  StoreBranch, 
-  WarehouseInfo, 
-  StoreSettings, 
-  WarehouseId, 
+import {
+  StoreBranch,
+  WarehouseInfo,
+  StoreSettings,
+  WarehouseId,
   FundAccount,
   SalesInvoice,
   DeviceItem,
@@ -99,7 +99,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [warehouseBranchFilter, setWarehouseBranchFilter] = useState<string>('ALL');
   // Kho chưa phát sinh được xóa vĩnh viễn; dữ liệu lưu trữ cũ không còn hiển thị trong luồng thiết lập.
   const showArchivedWarehouses = false;
-  
+
   // Executive AI Modal state
   const [isExecutiveModalOpen, setIsExecutiveModalOpen] = useState(false);
 
@@ -113,9 +113,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     setToastMsg({text, type});
     setTimeout(() => setToastMsg(null), 3000);
   };
-  
+
   const [teleGroups, setTeleGroups] = useState<Array<{ id: string; name: string; chatIds: string }>>([]);
-  
+
   const [teleTemplates, setTeleTemplates] = useState<Array<{ id: string; title: string; content: string }>>([]);
   const [isBranchModalOpen, setIsBranchModalOpen] = useState(false);
   const [isSavingBranch, setIsSavingBranch] = useState(false);
@@ -538,7 +538,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
           <Printer className="w-4 h-4" />
           <span>Xem Trước Mẫu In Hóa Đơn</span>
         </button>
-      
+
         <button
           onClick={() => setActiveTab('notifications')}
           className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all cursor-pointer ${
@@ -573,8 +573,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             {branches.map((branch) => {
               const branchWarehouses = warehouses.filter(w => w.branchId === branch.id && isWarehouseActive(w));
               return (
-                <div 
-                  key={branch.id} 
+                <div
+                  key={branch.id}
                   className={`bg-white rounded-3xl p-5 border transition-all hover:shadow-lg flex flex-col justify-between ${
                     branch.isHeadquarter ? 'border-orange-300 ring-2 ring-orange-500/10' : 'border-zinc-200'
                   }`}
@@ -665,7 +665,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       const cashBalance = cashFunds.reduce((sum, fund) => sum + (fund.currentBalance || 0), 0);
                       const bankBalance = bankFunds.reduce((sum, fund) => sum + (fund.currentBalance || 0), 0);
                       const formatCurrency = (amt: number) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amt);
-                      
+
                       return (
                         <div className="space-y-2 bg-gradient-to-br from-orange-50/80 to-amber-50/50 border border-orange-200/80 rounded-2xl p-3 text-xs text-orange-950 mt-2">
                           <div className="flex items-center justify-between pb-1.5 border-b border-orange-200/60">
@@ -708,10 +708,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     <div className="space-y-1.5 bg-orange-50/70 border border-orange-200/80 rounded-xl p-3 text-orange-950 mt-2 text-xs">
                       <div className="flex items-center justify-between flex-wrap gap-1">
                         <div className="flex items-center space-x-2">
-                          <MapPin className="w-4 h-4 text-[#FF4B16]" />
+                          <MapPin className="w-4 h-4 text-[#ff4b16]" />
                           <span>GPS: <strong className="font-mono">{branch.gpsLatitude ?? 'Chưa cài'}, {branch.gpsLongitude ?? 'Chưa cài'}</strong> ({branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50}m)</span>
                         </div>
-                        <span className="text-[10px] bg-white border border-orange-200 text-[#FF4B16] font-extrabold px-2 py-0.5 rounded-md">
+                        <span className="text-[10px] bg-white border border-orange-200 text-[#ff4b16] font-extrabold px-2 py-0.5 rounded-md">
                           SSID: {branch.allowedWifiSSID || 'Chưa cài'}
                         </span>
                       </div>
@@ -796,7 +796,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               const parentWarehouse = warehouses.find(item => item.id === wh.parentWarehouseId);
 
               return (
-                <div 
+                <div
                   key={wh.id}
                   className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
                     isTechSub || wh.isMain
@@ -1094,7 +1094,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             {/* Print Header & Footer notes */}
             <div className="pt-4 border-t border-zinc-100 space-y-4">
               <h4 className="font-bold text-zinc-900 text-sm">Cấu Hình Lời Nhắn Trên Mẫu In Hóa Đơn K80</h4>
-              
+
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1.5">Lời cảm ơn & Lưu ý đầu trang (Header Note)</label>
                 <textarea
@@ -1199,7 +1199,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         </div>
       )}
 
-      
+
       {/* ================= TAB 5: THÔNG BÁO TELEGRAM ================= */}
       {activeTab === 'notifications' && (
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-200 shadow-sm animate-in fade-in duration-200">
@@ -1271,7 +1271,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               <div className="flex-1">
                 <h3 className="text-sm font-bold text-green-800">Trạng thái Bot: Đã kết nối</h3>
                 <p className="text-xs text-green-700 mt-1">Hệ thống đang liên kết với Bot. API Token và Chat ID đã được cấu hình trong biến môi trường bảo mật.</p>
-                <button 
+                <button
                   onClick={(e) => {
                     e.preventDefault();
                     showToast('Đã gửi tin nhắn kiểm tra thành công tới Bot Telegram!');
@@ -1290,7 +1290,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
 
             <div className="space-y-4">
               <h3 className="text-base font-bold text-zinc-900 border-b border-zinc-100 pb-2">Kênh Thông báo</h3>
-              
+
               <div className="flex items-center justify-between p-4 rounded-2xl border border-zinc-100 hover:border-orange-200 transition-colors bg-zinc-50/50">
                 <div>
                   <div className="font-bold text-zinc-800 text-sm">Cảnh báo rời chi nhánh (Geofencing)</div>
@@ -1335,9 +1335,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </label>
               </div>
             </div>
-            
+
             <div className="pt-4 flex justify-end">
-              <button 
+              <button
                 onClick={(e) => {
                   e.preventDefault();
                   showToast('Đã lưu cấu hình thông báo thành công!');
@@ -1347,11 +1347,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 Lưu cấu hình
               </button>
             </div>
-          
+
             {/* Telegram Groups & Templates */}
             <div className="mt-8 pt-6 border-t border-zinc-200">
               <h3 className="text-lg font-extrabold text-zinc-900 mb-4">Quản lý Nhóm & Mẫu tin nhắn</h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Groups */}
                 <div className="bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm">
@@ -1538,13 +1538,13 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               <div className="p-3.5 bg-orange-50/80 rounded-2xl border border-orange-200 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-black text-orange-950 flex items-center gap-1.5 uppercase tracking-wider">
-                    <MapPin className="w-4 h-4 text-[#FF4B16]" />
+                    <MapPin className="w-4 h-4 text-[#ff4b16]" />
                     <span>Tọa Độ GPS & Wi-Fi Chấm Công Hợp Lệ</span>
                   </div>
                   <button
                     type="button"
                     onClick={handleGetDeviceGPS}
-                    className="text-[10px] font-bold text-[#FF4B16] bg-white px-2 py-1 rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors flex items-center gap-1 cursor-pointer"
+                    className="text-[10px] font-bold text-[#ff4b16] bg-white px-2 py-1 rounded-lg border border-orange-200 hover:bg-orange-100 transition-colors flex items-center gap-1 cursor-pointer"
                   >
                     <Sparkles className="w-3 h-3 text-orange-500" /> Lấy GPS hiện tại
                   </button>

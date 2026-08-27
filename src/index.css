@@ -14,6 +14,13 @@
   --ph-warning: #f59e0b;
   --ph-danger: #e53935;
   --ph-info: #2563eb;
+  --ph-surface: #ffffff;
+  --ph-surface-muted: #fafafa;
+  --ph-border: #e7e7e7;
+  --ph-text: #18181b;
+  --ph-text-muted: #71717a;
+  --ph-radius-control: 0.75rem;
+  --ph-radius-card: 1rem;
 }
 
 /*
@@ -30,6 +37,89 @@
   ::backdrop,
   ::file-selector-button {
     border-color: var(--ph-gray-200);
+  }
+}
+
+/*
+ * Shared PhoneHouse building blocks. New screens should use these classes
+ * instead of introducing another orange, title scale or card treatment.
+ * Existing screens can migrate incrementally without a large rewrite.
+ */
+@layer components {
+  .ph-page {
+    width: 100%;
+    min-width: 0;
+    color: var(--ph-text);
+  }
+
+  .ph-page-header {
+    border: 1px solid var(--ph-border);
+    border-radius: var(--ph-radius-card);
+    background: var(--ph-surface);
+    padding: 1rem;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  }
+
+  .ph-page-title {
+    color: var(--ph-text);
+    font-size: 1.25rem;
+    font-weight: 900;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+  }
+
+  .ph-page-subtitle {
+    margin-top: 0.25rem;
+    color: var(--ph-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+  }
+
+  .ph-card {
+    min-width: 0;
+    border: 1px solid var(--ph-border);
+    border-radius: var(--ph-radius-card);
+    background: var(--ph-surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  }
+
+  .ph-control {
+    min-height: 2.5rem;
+    border: 1px solid var(--ph-border);
+    border-radius: var(--ph-radius-control);
+    background: var(--ph-surface);
+    color: var(--ph-text);
+  }
+
+  .ph-control:focus {
+    border-color: var(--ph-orange-500);
+    outline: 2px solid rgb(255 75 22 / 0.16);
+    outline-offset: 1px;
+  }
+
+  .ph-primary-button {
+    display: inline-flex;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--ph-radius-control);
+    background: linear-gradient(135deg, var(--ph-orange-500), var(--ph-orange-600));
+    padding: 0.625rem 1rem;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 800;
+    box-shadow: 0 6px 18px rgb(255 75 22 / 0.18);
+    transition: filter 150ms ease, transform 150ms ease;
+  }
+
+  .ph-primary-button:hover {
+    filter: brightness(0.96);
+  }
+
+  .ph-primary-button:active {
+    transform: scale(0.98);
   }
 }
 
@@ -78,6 +168,31 @@
 @media screen and (max-width: 768px) {
   input, select, textarea, [contenteditable="true"] {
     font-size: 16px !important;
+  }
+
+  /* 8–10px labels were difficult to read on phones. Keep dense metadata at
+     a legible 11px while leaving normal body text and status colours intact. */
+  [class~="text-[8px]"],
+  [class~="text-[8.5px]"],
+  [class~="text-[9px]"],
+  [class~="text-[9.5px]"],
+  [class~="text-[10px]"] {
+    font-size: 11px !important;
+    line-height: 1rem !important;
+  }
+}
+
+@media screen and (min-width: 640px) {
+  .ph-page-header {
+    padding: 1.25rem;
+  }
+
+  .ph-page-title {
+    font-size: 1.5rem;
+  }
+
+  .ph-page-subtitle {
+    font-size: 0.875rem;
   }
 }
 

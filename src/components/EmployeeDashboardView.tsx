@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { 
-  SalesInvoice, 
-  WarrantyTicket, 
-  UserAccount, 
-  DeviceItem, 
+import {
+  SalesInvoice,
+  WarrantyTicket,
+  UserAccount,
+  DeviceItem,
   StaffMember,
   CommissionTransaction
 } from '../types';
@@ -143,7 +143,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   const handleAddLedger = (e: React.FormEvent) => {
     e.preventDefault();
     if (ledgerForm.amount === 0 || !currentStaff) return;
-    
+
     const newEntry = {
       id: 'LEDGER_' + Date.now(),
       staffId: currentStaff.id,
@@ -151,7 +151,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       amount: ledgerForm.amount,
       note: ledgerForm.note
     };
-    
+
     const updated = [newEntry, ...manualLedger];
     setManualLedger(updated);
     setLedgerForm({ amount: 0, note: '' });
@@ -218,7 +218,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
       // If specific seller matched
       const seller = (inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || '').toLowerCase();
-      
+
       // Match by staff name or alias
       const isMatchName = seller.includes(staffNameLower) || staffNameLower.includes(seller) ||
                           (staffNameLower.includes('nhật tân') && (seller.includes('tân') || seller.includes('admin')));
@@ -226,7 +226,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       // For mock showcase if this specific staff has few, match by branch if admin
       if (isMatchName) return true;
       if (isStaffAdmin && (inv.branch || '').includes(currentStaff.branchName)) return true;
-      
+
       // If staff has no direct tagged name in legacy data, map NV-001 / NV-002 as main sales
       if (currentStaff.id === 'STAFF_001' && (seller.includes('tân') || seller.includes('tuấn') || seller.includes('văn a') || !seller)) {
         return true;
@@ -278,8 +278,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
   const actualOrdersCount = completedInvoices.length;
   const targetOrdersCount = currentStaff.monthlyTargetOrders || 70;
-  const orderAchievementPercent = targetOrdersCount > 0 
-    ? Math.round((actualOrdersCount / targetOrdersCount) * 100) 
+  const orderAchievementPercent = targetOrdersCount > 0
+    ? Math.round((actualOrdersCount / targetOrdersCount) * 100)
     : 100;
 
   const actualRevenue = useMemo(() => {
@@ -287,8 +287,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   }, [completedInvoices]);
 
   const targetRevenue = currentStaff.monthlyTargetRevenue || 150000000;
-  const revenueAchievementPercent = targetRevenue > 0 
-    ? Math.min(Math.round((actualRevenue / targetRevenue) * 100), 999) 
+  const revenueAchievementPercent = targetRevenue > 0
+    ? Math.min(Math.round((actualRevenue / targetRevenue) * 100), 999)
     : 100;
 
   const revenueRemaining = Math.max(0, targetRevenue - actualRevenue);
@@ -312,13 +312,13 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   // 3. Commission & Bonus Estimation
   const estimatedCommission = useMemo(() => {
     let commission = 0;
-    
+
     completedInvoices.forEach(inv => {
       const items = inv.detailedItems || [];
       if (items.length > 0) {
         items.forEach(item => {
           const name = (item.name || '').toLowerCase();
-          
+
           if (item.type === 'phone' || item.type === 'device') {
             if (name.includes('xả') || name.includes('giảm') || name.includes('clearance')) {
               commission += 30000;
@@ -360,14 +360,14 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
     else if (revenueAchievementPercent >= 80) kpiBonus = 1000000;
 
     // Base Salary Calculation based on Attendance
-    const monthAttendance = (attendanceRecords || []).filter(a => 
-      a.staffId === currentStaff.id && 
+    const monthAttendance = (attendanceRecords || []).filter(a =>
+      a.staffId === currentStaff.id &&
       a.date.startsWith(selectedMonth)
     );
-    
+
     const totalWorkMinutes = monthAttendance.reduce((sum, a) => sum + (a.netWorkMinutes || 0), 0);
     const EXPECTED_MINUTES_PER_MONTH = 26 * 8 * 60; // 26 days, 8 hours
-    
+
     let effectiveBaseSalary = currentStaff.baseSalary || 6000000;
     // Only calculate ratio if there is some attendance record, else keep default or 0
     if (monthAttendance.length > 0 || selectedMonth === 'ALL') {
@@ -397,7 +397,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   // 4. Daily Chart Data (Days 1 to 31)
   const dailyChartData = useMemo(() => {
     const daysMap: { [day: string]: { day: string; revenue: number; orders: number; warranty: number } } = {};
-    
+
     // Initialize 10 recent days or days of the month
     for (let d = 1; d <= 15; d++) {
       const dayStr = d < 10 ? `0${d}` : `${d}`;
@@ -477,7 +477,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
     counts['Gói Care & Sửa Chữa'] += actualWarrantyProcessed;
 
     return [
-      { name: 'iPhone 16 Series', value: Math.max(counts['iPhone 16 Series'], 6), color: '#F94A1F' },
+      { name: 'iPhone 16 Series', value: Math.max(counts['iPhone 16 Series'], 6), color: '#ff4b16' },
       { name: 'iPhone 15 Series', value: Math.max(counts['iPhone 15 Series'], 9), color: '#FB923C' },
       { name: 'iPhone 14 Series', value: Math.max(counts['iPhone 14 Series'], 5), color: '#F59E0B' },
       { name: 'Phụ Kiện SLM/Apple', value: Math.max(counts['Phụ Kiện Chính Hãng'], 14), color: '#F97316' },
@@ -492,12 +492,12 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
   return (
     <div className="w-full space-y-5 pb-16 animate-fadeIn">
-      
+
       {/* ========================================================================= */}
       {/* 1. TOP HEADER & EMPLOYEE SWITCHER & MONTH SELECTOR */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-3xl p-4 sm:p-6 border border-orange-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        
+
         {/* Staff Identity Block */}
         <div className="flex items-center space-x-3 sm:space-x-4">
           <div className="relative">
@@ -516,7 +516,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               <h1 className="text-xl sm:text-2xl font-black text-zinc-900 tracking-tight">
                 {currentStaff.name}
               </h1>
-              <span className="bg-orange-100 text-[#F94A1F] text-xs font-black px-2.5 py-0.5 rounded-full border border-orange-200 font-mono">
+              <span className="bg-orange-100 text-[#ff4b16] text-xs font-black px-2.5 py-0.5 rounded-full border border-orange-200 font-mono">
                 {currentStaff.code}
               </span>
               <span className="bg-zinc-100 text-zinc-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-zinc-200">
@@ -540,7 +540,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
         {/* Action Controls: Staff Switcher, Month Filter, Edit KPI Button */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          
+
           {/* Employee Selector Dropdown */}
           <div className="relative flex-1 sm:flex-none">
             <label className="block text-[10px] font-bold text-zinc-600 uppercase tracking-wider mb-0.5">
@@ -596,7 +596,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
           <div className="self-end">
             <button
               onClick={() => setIsEditKpiModalOpen(true)}
-              className="bg-orange-50 hover:bg-orange-100 text-[#F94A1F] border border-orange-300 hover:border-orange-400 text-xs font-bold px-3.5 py-2 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
+              className="bg-orange-50 hover:bg-orange-100 text-[#ff4b16] border border-orange-300 hover:border-orange-400 text-xs font-bold px-3.5 py-2 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-2xs active:scale-95"
             >
               <Sliders className="w-3.5 h-3.5" />
               <span>Sửa Mục Tiêu</span>
@@ -610,20 +610,20 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       {/* 2. THE 3 CORE REQUESTED KPI HERO CARDS */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
-        
+
         {/* CARD 1: SỐ LƯỢNG HÓA ĐƠN BÁN ĐƯỢC */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-orange-200/90 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:border-orange-400 transition-all">
           <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50 rounded-bl-full -z-0 pointer-events-none transition-transform group-hover:scale-110" />
-          
+
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-extrabold uppercase tracking-wider text-zinc-600 flex items-center space-x-1.5">
-                <ShoppingCart className="w-4 h-4 text-[#F94A1F]" />
+                <ShoppingCart className="w-4 h-4 text-[#ff4b16]" />
                 <span>Hóa Đơn Bán Được</span>
               </span>
               <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
-                orderAchievementPercent >= 100 
-                  ? 'bg-orange-100 text-orange-800 border border-orange-300' 
+                orderAchievementPercent >= 100
+                  ? 'bg-orange-100 text-orange-800 border border-orange-300'
                   : 'bg-orange-100 text-orange-800 border border-orange-300'
               }`}>
                 {orderAchievementPercent}% KPI
@@ -642,7 +642,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
             {/* Progress Bar */}
             <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden my-3">
-              <div 
+              <div
                 className="bg-gradient-to-r from-orange-500 to-orange-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(orderAchievementPercent, 100)}%` }}
               />
@@ -660,7 +660,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
         {/* CARD 2: DOANH THU THỰC TẾ SO VỚI MỤC TIÊU */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-orange-200/90 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:border-orange-400 transition-all">
           <div className="absolute top-0 right-0 w-32 h-32 bg-orange-50/60 rounded-bl-full -z-0 pointer-events-none transition-transform group-hover:scale-110" />
-          
+
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-extrabold uppercase tracking-wider text-zinc-600 flex items-center space-x-1.5">
@@ -668,9 +668,9 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <span>Doanh Thu vs Mục Tiêu</span>
               </span>
               <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
-                revenueAchievementPercent >= 100 
-                  ? 'bg-orange-100 text-orange-800 border border-orange-300' 
-                  : revenueAchievementPercent >= 80 
+                revenueAchievementPercent >= 100
+                  ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                  : revenueAchievementPercent >= 80
                     ? 'bg-orange-100 text-orange-800 border border-orange-300'
                     : 'bg-orange-100 text-orange-800 border border-orange-300'
               }`}>
@@ -680,7 +680,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
             {/* Big Metric Display */}
             <div className="my-1.5">
-              <div className="text-2xl sm:text-3xl font-black text-[#F94A1F] tracking-tight font-mono">
+              <div className="text-2xl sm:text-3xl font-black text-[#ff4b16] tracking-tight font-mono">
                 {formatVND(actualRevenue)}
               </div>
               <div className="text-xs font-bold text-zinc-600 mt-0.5">
@@ -690,7 +690,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
             {/* Progress Bar */}
             <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden my-3">
-              <div 
+              <div
                 className="bg-gradient-to-r from-orange-500 to-orange-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(revenueAchievementPercent, 100)}%` }}
               />
@@ -710,7 +710,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
         {/* CARD 3: SỐ LƯỢNG MÁY ĐÃ XỬ LÝ BẢO HÀNH */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-orange-200/90 shadow-xs relative overflow-hidden flex flex-col justify-between group hover:border-orange-400 transition-all">
           <div className="absolute top-0 right-0 w-32 h-32 bg-rose-50/60 rounded-bl-full -z-0 pointer-events-none transition-transform group-hover:scale-110" />
-          
+
           <div className="relative z-10">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-extrabold uppercase tracking-wider text-zinc-600 flex items-center space-x-1.5">
@@ -718,8 +718,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <span>Máy Xử Lý Bảo Hành</span>
               </span>
               <span className={`text-xs font-black px-2.5 py-0.5 rounded-full ${
-                warrantyAchievementPercent >= 100 
-                  ? 'bg-orange-100 text-orange-800 border border-orange-300' 
+                warrantyAchievementPercent >= 100
+                  ? 'bg-orange-100 text-orange-800 border border-orange-300'
                   : 'bg-rose-100 text-rose-800 border border-rose-300'
               }`}>
                 {warrantyAchievementPercent}% KPI
@@ -738,7 +738,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
             {/* Progress Bar */}
             <div className="w-full bg-zinc-100 rounded-full h-2.5 overflow-hidden my-3">
-              <div 
+              <div
                 className="bg-gradient-to-r from-rose-500 to-rose-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${Math.min(warrantyAchievementPercent, 100)}%` }}
               />
@@ -758,7 +758,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       {/* ========================================================================= */}
       {/* 3. COMMISSION & KPI BONUS BANNER */}
       {/* ========================================================================= */}
-      <div className="bg-gradient-to-r from-orange-500 via-[#F94A1F] to-orange-600 rounded-3xl p-5 sm:p-6 text-white shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-orange-500 via-[#ff4b16] to-orange-600 rounded-3xl p-5 sm:p-6 text-white shadow-md flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-2">
             <Award className="w-5 h-5 text-orange-200" />
@@ -787,7 +787,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
           {onOpenPOS && (
             <button
               onClick={onOpenPOS}
-              className="flex-1 lg:flex-none px-4 py-2.5 bg-white text-[#F94A1F] hover:bg-orange-50 text-xs font-black rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
+              className="flex-1 lg:flex-none px-4 py-2.5 bg-white text-[#ff4b16] hover:bg-orange-50 text-xs font-black rounded-xl shadow-xs transition-all flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
             >
               <ShoppingCart className="w-4 h-4" />
               <span>Bán Hàng POS</span>
@@ -810,13 +810,13 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       {/* 4. INTERACTIVE PERFORMANCE CHARTS */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        
+
         {/* Daily Sales & Revenue Progression (2 Cols) */}
         <div className="lg:col-span-2 bg-white rounded-3xl p-5 sm:p-6 border border-orange-200/80 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-extrabold text-base text-zinc-900 flex items-center space-x-2">
-                <BarChart3 className="w-4 h-4 text-[#F94A1F]" />
+                <BarChart3 className="w-4 h-4 text-[#ff4b16]" />
                 <span>Tiến Độ Bán Hàng & Doanh Thu Theo Ngày</span>
               </h3>
               <p className="text-xs text-zinc-500">Biểu đồ doanh thu thực tế (triệu VNĐ) và số lượng máy đã chốt</p>
@@ -831,8 +831,8 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               <AreaChart data={dailyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#F94A1F" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#F94A1F" stopOpacity={0.0}/>
+                    <stop offset="5%" stopColor="#ff4b16" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#ff4b16" stopOpacity={0.0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F3F4F6" />
@@ -846,14 +846,14 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                   }}
                   contentStyle={{ backgroundColor: '#18181B', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '12px' }}
                 />
-                <Area 
-                  type="monotone" 
-                  dataKey="revenue" 
-                  name="Doanh Thu (Tr.đ)" 
-                  stroke="#F94A1F" 
-                  strokeWidth={2.5} 
-                  fillOpacity={1} 
-                  fill="url(#colorRevenue)" 
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  name="Doanh Thu (Tr.đ)"
+                  stroke="#ff4b16"
+                  strokeWidth={2.5}
+                  fillOpacity={1}
+                  fill="url(#colorRevenue)"
                 />
                 <Bar dataKey="orders" name="Số Đơn" fill="#FBBF24" radius={[4, 4, 0, 0]} barSize={14} />
               </AreaChart>
@@ -865,7 +865,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-orange-200/80 shadow-xs flex flex-col justify-between">
           <div className="mb-2">
             <h3 className="font-extrabold text-base text-zinc-900 flex items-center space-x-2">
-              <PieChart className="w-4 h-4 text-[#F94A1F]" />
+              <PieChart className="w-4 h-4 text-[#ff4b16]" />
               <span>Cơ Cấu Sản Phẩm & Dịch Vụ</span>
             </h3>
             <p className="text-xs text-zinc-500">Phân bổ tỷ trọng các dòng iPhone, phụ kiện & sửa chữa</p>
@@ -914,14 +914,14 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       {/* 5. TABBED DETAIL RECORDS (Hóa Đơn, Bảo Hành, Bảng Kê Thu Nhập) */}
       {/* ========================================================================= */}
       <div className="bg-white rounded-3xl border border-orange-200/90 shadow-xs overflow-hidden">
-        
+
         {/* Sub Navigation Bar */}
         <div className="flex border-b border-zinc-200 bg-zinc-50/70 p-2 gap-2 overflow-x-auto custom-scrollbar">
           <button
             onClick={() => setActiveTab('OVERVIEW')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center space-x-2 whitespace-nowrap cursor-pointer ${
               activeTab === 'OVERVIEW'
-                ? 'bg-white text-[#F94A1F] shadow-xs border border-orange-200'
+                ? 'bg-white text-[#ff4b16] shadow-xs border border-orange-200'
                 : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
             }`}
           >
@@ -933,7 +933,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             onClick={() => setActiveTab('INVOICES')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center space-x-2 whitespace-nowrap cursor-pointer ${
               activeTab === 'INVOICES'
-                ? 'bg-white text-[#F94A1F] shadow-xs border border-orange-200'
+                ? 'bg-white text-[#ff4b16] shadow-xs border border-orange-200'
                 : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
             }`}
           >
@@ -945,7 +945,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             onClick={() => setActiveTab('WARRANTY')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center space-x-2 whitespace-nowrap cursor-pointer ${
               activeTab === 'WARRANTY'
-                ? 'bg-white text-[#F94A1F] shadow-xs border border-orange-200'
+                ? 'bg-white text-[#ff4b16] shadow-xs border border-orange-200'
                 : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
             }`}
           >
@@ -957,7 +957,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             onClick={() => setActiveTab('COMMISSIONS')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all flex items-center space-x-2 whitespace-nowrap cursor-pointer ${
               activeTab === 'COMMISSIONS'
-                ? 'bg-white text-[#F94A1F] shadow-xs border border-orange-200'
+                ? 'bg-white text-[#ff4b16] shadow-xs border border-orange-200'
                 : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
             }`}
           >
@@ -969,16 +969,16 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
         {/* Tab 1: OVERVIEW */}
         {activeTab === 'OVERVIEW' && (
           <div className="p-5 sm:p-6 space-y-6">
-            
+
             {/* KPI Tiers Ladder */}
             <div>
               <h4 className="font-extrabold text-sm text-zinc-900 mb-3 flex items-center space-x-1.5">
-                <Target className="w-4 h-4 text-[#F94A1F]" />
+                <Target className="w-4 h-4 text-[#ff4b16]" />
                 <span>Thang Thưởng Doanh Số KPI Tháng {selectedMonth}</span>
               </h4>
 
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                
+
                 {/* Tier 1 */}
                 <div className={`p-4 rounded-2xl border ${revenueAchievementPercent < 80 ? 'bg-orange-50/70 border-orange-300 ring-2 ring-orange-400' : 'bg-zinc-50 border-zinc-200'}`}>
                   <div className="flex items-center justify-between text-xs font-bold text-zinc-600 mb-1">
@@ -1030,7 +1030,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               </div>
               <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200">
                 <span className="text-xs text-zinc-500 font-bold">Tổng doanh thu bán</span>
-                <div className="text-xl font-black text-[#F94A1F] font-mono mt-1">{formatVND(actualRevenue)}</div>
+                <div className="text-xl font-black text-[#ff4b16] font-mono mt-1">{formatVND(actualRevenue)}</div>
               </div>
               <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-200">
                 <span className="text-xs text-zinc-500 font-bold">Máy bảo hành xong</span>
@@ -1048,7 +1048,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
         {/* Tab 2: INVOICES LIST (Hóa Đơn Đã Bán) */}
         {activeTab === 'INVOICES' && (
           <div className="p-4 sm:p-6 space-y-4">
-            
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="relative flex-1 max-w-md">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
@@ -1091,7 +1091,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                     })
                     .map((inv) => (
                       <tr key={inv.id} className="hover:bg-orange-50/40 transition-colors">
-                        <td className="py-3 px-3.5 font-bold font-mono text-[#F94A1F]">
+                        <td className="py-3 px-3.5 font-bold font-mono text-[#ff4b16]">
                           {inv.invoiceCode || inv.id}
                         </td>
                         <td className="py-3 px-3.5 text-zinc-600 whitespace-nowrap">
@@ -1126,7 +1126,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                         <td className="py-3 px-3.5 text-center">
                           <button
                             onClick={() => setSelectedInvoicePreview(inv)}
-                            className="p-1.5 hover:bg-orange-100 text-zinc-600 hover:text-[#F94A1F] rounded-lg transition-colors cursor-pointer"
+                            className="p-1.5 hover:bg-orange-100 text-zinc-600 hover:text-[#ff4b16] rounded-lg transition-colors cursor-pointer"
                             title="Xem chi tiết hóa đơn"
                           >
                             <Eye className="w-4 h-4" />
@@ -1151,7 +1151,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
         {/* Tab 3: WARRANTY TICKETS (Máy Đã Xử Lý Bảo Hành) */}
         {activeTab === 'WARRANTY' && (
           <div className="p-4 sm:p-6 space-y-4">
-            
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="text-xs font-bold text-zinc-600">
                 Danh sách phiếu bảo hành & sửa chữa do <strong className="text-zinc-900">{currentStaff.name}</strong> tiếp nhận / xử lý kỹ thuật
@@ -1252,12 +1252,12 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-rose-950 rounded-3xl p-5 sm:p-6 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="bg-[#F94A1F] text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
+                    <span className="bg-[#ff4b16] text-white text-[10px] font-black uppercase px-2 py-0.5 rounded-md">
                       Ví Thu Nhập Tự Động
                     </span>
                     <span className="text-xs text-zinc-400">Đối soát trực tiếp từ POS & CRM</span>
                   </div>
-                  <div className="text-2xl sm:text-4xl font-black font-mono text-[#F94A1F]">
+                  <div className="text-2xl sm:text-4xl font-black font-mono text-[#ff4b16]">
                     {formatVND(totalWallet)}
                   </div>
                   <p className="text-xs text-zinc-300 mt-1">
@@ -1417,7 +1417,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-orange-200 animate-in fade-in">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-100">
               <div className="flex items-center space-x-2">
-                <Sliders className="w-5 h-5 text-[#F94A1F]" />
+                <Sliders className="w-5 h-5 text-[#ff4b16]" />
                 <h3 className="font-black text-base text-zinc-900">Thiết Lập Mục Tiêu KPI</h3>
               </div>
               <button
@@ -1449,7 +1449,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                   Đọc: {formatVND(editForm.baseSalary)}
                 </span>
               </div>
-              
+
               <div>
                 <label className="block text-xs font-bold text-zinc-700 mb-1">
                   Mục Tiêu Doanh Thu Tháng (VNĐ)
@@ -1505,7 +1505,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleUpdateStaffKPI(editForm.targetRevenue, editForm.targetOrders, editForm.targetWarranty, editForm.baseSalary)}
-                  className="px-5 py-2 bg-[#F94A1F] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
+                  className="px-5 py-2 bg-[#ff4b16] hover:bg-[#e03d14] text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
                 >
                   Lưu Chỉ Tiêu KPI
                 </button>
@@ -1525,7 +1525,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div>
                 <span className="text-[10px] font-bold text-zinc-400 uppercase">Chi Tiết Hóa Đơn</span>
-                <h3 className="font-black text-base text-[#F94A1F] font-mono">
+                <h3 className="font-black text-base text-[#ff4b16] font-mono">
                   {selectedInvoicePreview.invoiceCode || selectedInvoicePreview.id}
                 </h3>
               </div>
@@ -1552,7 +1552,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500">Người Bán:</span>
-                <span className="font-bold text-[#F94A1F]">{selectedInvoicePreview.salesStaff || selectedInvoicePreview.sellerName || currentStaff.name}</span>
+                <span className="font-bold text-[#ff4b16]">{selectedInvoicePreview.salesStaff || selectedInvoicePreview.sellerName || currentStaff.name}</span>
               </div>
 
               <div className="pt-2 border-t border-zinc-100">
@@ -1575,7 +1575,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
               <div className="flex justify-between items-center pt-2 border-t border-zinc-100 text-sm">
                 <span className="font-extrabold text-zinc-800">Tổng Thanh Toán:</span>
-                <span className="font-black text-[#F94A1F] font-mono text-base">
+                <span className="font-black text-[#ff4b16] font-mono text-base">
                   {formatVND(selectedInvoicePreview.finalAmount || selectedInvoicePreview.totalAmount || 0)}
                 </span>
               </div>
@@ -1662,7 +1662,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                   <h3 className="font-black text-base text-zinc-900">Thêm Thưởng / Phạt</h3>
                   <p className="text-xs text-zinc-500 mt-1">Cập nhật vào thu nhập tháng {selectedMonth} cho {currentStaff.name}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => setIsLedgerModalOpen(false)}
                   className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-full transition-colors cursor-pointer"
                 >
@@ -1713,7 +1713,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 bg-[#FF4B16] hover:bg-[#E03A0F] active:bg-[#C2310C] text-white text-sm font-bold rounded-xl cursor-pointer shadow-md flex items-center gap-2 transition-all"
+                    className="px-5 py-2.5 bg-[#ff4b16] hover:bg-[#E03A0F] active:bg-[#C2310C] text-white text-sm font-bold rounded-xl cursor-pointer shadow-md flex items-center gap-2 transition-all"
                   >
                     <Check className="w-4 h-4" />
                     Xác Nhận

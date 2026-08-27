@@ -106,7 +106,7 @@ export const MyWorkFollowUpView: React.FC<MyWorkFollowUpViewProps> = ({
         {task.description && <p className="mt-3 line-clamp-2 rounded-2xl bg-zinc-50 px-3 py-2 text-xs font-medium text-zinc-600">{task.description}</p>}
         <div className="mt-4 flex gap-2 border-t border-zinc-100 pt-3">
           {lead && <button onClick={() => onSelectLead(lead)} className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-zinc-100 px-3 py-2.5 text-xs font-black text-zinc-700">Chi tiết <ArrowRight className="h-3.5 w-3.5" /></button>}
-          {lead && <button onClick={() => onOpenCareModal(lead, task.id)} className="flex flex-[1.25] items-center justify-center gap-1.5 rounded-2xl bg-[#FF4B16] px-3 py-2.5 text-xs font-black text-white shadow-sm"><PhoneCall className="h-3.5 w-3.5" /> Ghi nhận chăm sóc</button>}
+          {lead && <button onClick={() => onOpenCareModal(lead, task.id)} className="flex flex-[1.25] items-center justify-center gap-1.5 rounded-2xl bg-[#ff4b16] px-3 py-2.5 text-xs font-black text-white shadow-sm"><PhoneCall className="h-3.5 w-3.5" /> Ghi nhận chăm sóc</button>}
         </div>
       </article>)}
     </section>

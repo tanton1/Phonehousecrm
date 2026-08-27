@@ -160,7 +160,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-[#ff4b16]"><Building2 className="h-4 w-4" /> PhoneHouse</div>
-            <h1 className="mt-1 text-2xl font-black text-zinc-950">Nhân sự & Lương</h1>
+            <h1 className="mt-1 text-xl font-black tracking-tight text-zinc-950 sm:text-2xl">Nhân sự & Lương</h1>
           </div>
           <button title="Chỉ hiển thị dữ liệu đã đồng bộ từ server. Kỳ lương chưa duyệt luôn được ghi rõ là bản nháp." className="p-2 text-zinc-400 hover:text-[#ff4b16]"><HelpCircle className="h-5 w-5" /></button>
         </div>

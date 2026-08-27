@@ -2,17 +2,17 @@ import React, { useState, useMemo } from 'react';
 import { Lead, LeadCareActivity, UserAccount, StoreBranch, EvidenceVerificationStatus } from '../../../types';
 import { formatDisplayPhone } from '../../../utils/phoneUtils';
 import { getVietnamDateTimeString } from '../../../utils/dateTimeUtils';
-import { 
-  ShieldCheck, 
-  AlertTriangle, 
-  CheckCircle2, 
-  Clock, 
-  Search, 
-  Filter, 
-  User, 
-  Building2, 
-  Phone, 
-  MessageSquare, 
+import {
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Search,
+  Filter,
+  User,
+  Building2,
+  Phone,
+  MessageSquare,
   Sparkles,
   Check,
   X,
@@ -30,8 +30,8 @@ export interface CareQAManagerViewProps {
   branches?: StoreBranch[];
   currentUser?: UserAccount | null;
   onUpdateActivityVerification?: (
-    activityId: string, 
-    status: EvidenceVerificationStatus, 
+    activityId: string,
+    status: EvidenceVerificationStatus,
     note?: string,
     reviewer?: { id: string; name: string }
   ) => Promise<void> | void;
@@ -180,7 +180,7 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
 
   return (
     <div className="space-y-4 animate-fadeIn">
-      
+
       {/* 1. QA KPI Overview Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="bg-white rounded-2xl p-4 border border-zinc-200 shadow-2xs">
@@ -218,7 +218,7 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
       <div className="bg-white rounded-2xl p-4 sm:p-5 border border-zinc-200 shadow-2xs space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-[#FF4B16]" />
+            <ShieldCheck className="w-4 h-4 text-[#ff4b16]" />
             <span>Ma Trận Tuân Thủ Chăm Sóc Theo Nhân Sự (Staff Compliance Matrix)</span>
           </h3>
           <span className="text-xs text-zinc-500 font-medium">{staffMatrix.length} Nhân sự phụ trách</span>
@@ -263,7 +263,7 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
                         {sRate}%
                       </span>
                     </td>
-                    <td className="py-2.5 px-2 text-center font-extrabold text-[#FF4B16]">
+                    <td className="py-2.5 px-2 text-center font-extrabold text-[#ff4b16]">
                       {s.wonCount}
                     </td>
                   </tr>
@@ -293,7 +293,7 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 placeholder="Tìm khách hàng / Sale..."
-                className="pl-8 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs focus:outline-none focus:border-[#FF4B16]"
+                className="pl-8 pr-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs focus:outline-none focus:border-[#ff4b16]"
               />
             </div>
 
@@ -333,7 +333,7 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
                       <span className="px-2 py-0.5 rounded-md bg-zinc-100 text-zinc-600 font-bold text-[10px]">
                         Lượt chạm #{act.attemptNo || act.sequence} {act.meaningfulCareNo ? `(L${act.meaningfulCareNo})` : ''}
                       </span>
-                      <span className="px-2 py-0.5 rounded-md bg-orange-50 text-[#FF4B16] font-bold text-[10px]">
+                      <span className="px-2 py-0.5 rounded-md bg-orange-50 text-[#ff4b16] font-bold text-[10px]">
                         {act.channel} • {act.action}
                       </span>
                       {act.qualityScoreBreakdown && (
@@ -368,7 +368,7 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`px-2.5 py-1 rounded-xl text-xs font-bold ${
                       act.verificationStatus === 'MANAGER_VERIFIED' || act.verificationStatus === 'SYSTEM_CAPTURED'
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         : act.verificationStatus === 'NEEDS_EVIDENCE'
                         ? 'bg-blue-50 text-blue-700 border border-blue-200'
                         : act.verificationStatus === 'FLAGGED'
@@ -407,10 +407,10 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
           <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-zinc-200 space-y-4 animate-scaleUp">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-[#FF4B16]" />
+                <ShieldCheck className="w-5 h-5 text-[#ff4b16]" />
                 <h3 className="text-base font-black text-zinc-900">Thẩm Định Bằng Chứng Chăm Sóc</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setSelectedActivityForAudit(null)}
                 className="w-7 h-7 rounded-full bg-zinc-100 hover:bg-zinc-200 flex items-center justify-center text-zinc-500 cursor-pointer"
               >
@@ -430,9 +430,9 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
               {selectedActivityForAudit.evidenceData?.screenshotUrl && (
                 <div className="pt-2">
                   <span className="font-bold block mb-1">Ảnh bằng chứng đính kèm:</span>
-                  <img 
-                    src={selectedActivityForAudit.evidenceData.screenshotUrl} 
-                    alt="Bằng chứng chat" 
+                  <img
+                    src={selectedActivityForAudit.evidenceData.screenshotUrl}
+                    alt="Bằng chứng chat"
                     className="max-h-48 rounded-xl border border-zinc-200 object-contain mx-auto"
                   />
                 </div>
@@ -448,7 +448,7 @@ export const CareQAManagerView: React.FC<CareQAManagerViewProps> = ({
                 value={auditNote}
                 onChange={e => setAuditNote(e.target.value)}
                 placeholder="Ví dụ: Đã đối chiếu số điện thoại trên tổng đài, cuộc gọi hợp lệ..."
-                className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs focus:outline-none focus:border-[#FF4B16]"
+                className="w-full p-2.5 bg-zinc-50 border border-zinc-200 rounded-xl text-xs focus:outline-none focus:border-[#ff4b16]"
               />
             </div>
 

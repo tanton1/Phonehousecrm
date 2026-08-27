@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
-import { 
-  Users, 
-  UserPlus, 
-  ShieldCheck, 
-  Key, 
-  Lock, 
-  Mail, 
-  Phone, 
-  CheckCircle2, 
-  XCircle, 
-  Copy, 
-  Check, 
-  Edit3, 
-  Trash2, 
-  ShieldAlert, 
+import {
+  Users,
+  UserPlus,
+  ShieldCheck,
+  Key,
+  Lock,
+  Mail,
+  Phone,
+  CheckCircle2,
+  XCircle,
+  Copy,
+  Check,
+  Edit3,
+  Trash2,
+  ShieldAlert,
   Sparkles,
   Search,
   Filter,
@@ -27,7 +27,7 @@ import {
   Building2,
   MapPin,
   ScanFace,
-  X 
+  X
 } from 'lucide-react';
 import { UserAccount, UserRole, RolePermissionInfo, StoreBranch } from '../types';
 import { auth, loginWithEmail } from '../lib/firebase';
@@ -287,7 +287,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   };
 
   const filteredUsers = users.filter((u) => {
-    const matchSearch = 
+    const matchSearch =
       u.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (u.phone && u.phone.includes(searchTerm));
@@ -317,19 +317,19 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Professional Header */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="ph-page-header flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-700 flex items-center justify-center text-white shadow-sm shadow-indigo-500/25">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[#ff4b16] to-[#e94112] text-white shadow-sm shadow-orange-500/25">
             <Users className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h1 className="text-lg font-bold text-slate-900 tracking-tight">Quản Lý Người Dùng & Phân Quyền</h1>
+              <h1 className="ph-page-title">Người dùng & Phân quyền</h1>
               <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-full">
                 RBAC Matrix V1
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium">
+            <p className="ph-page-subtitle">
               Quản lý tài khoản nhân viên, gán vai trò và cấu hình ma trận phân quyền chi nhánh.
             </p>
           </div>
@@ -337,7 +337,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
 
         <button
           onClick={handleOpenAdd}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+          className="ph-primary-button cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
           <span>Tạo Tài Khoản Mới</span>
@@ -345,13 +345,13 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       </div>
 
       {/* Tabs Bar */}
-      <div className="flex items-center space-x-2 bg-white p-2 rounded-2xl border border-slate-200/80 shadow-xs">
+      <div className="flex items-center space-x-2 overflow-x-auto rounded-2xl border border-zinc-200/80 bg-white p-2 shadow-xs">
         <button
           onClick={() => setActiveTab('users')}
           className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer ${
-            activeTab === 'users' 
-              ? 'bg-indigo-600 text-white shadow-sm' 
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            activeTab === 'users'
+              ? 'bg-[#ff4b16] text-white shadow-sm'
+              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
           }`}
         >
           <Users className="w-3.5 h-3.5" />
@@ -361,9 +361,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         <button
           onClick={() => setActiveTab('matrix')}
           className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center space-x-1.5 cursor-pointer ${
-            activeTab === 'matrix' 
-              ? 'bg-indigo-600 text-white shadow-sm' 
-              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            activeTab === 'matrix'
+              ? 'bg-[#ff4b16] text-white shadow-sm'
+              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
           }`}
         >
           <ShieldCheck className="w-3.5 h-3.5" />
@@ -406,8 +406,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           {/* User Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredUsers.map((user) => (
-              <div 
-                key={user.id} 
+              <div
+                key={user.id}
                 className={`bg-white rounded-2xl p-4 border transition-all hover:shadow-md flex flex-col justify-between ${
                   user.email === currentUserEmail
                     ? 'border-orange-300 ring-2 ring-orange-100'
@@ -418,9 +418,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div className="flex items-center space-x-3">
                       {user.avatarUrl ? (
-                        <img 
-                          src={user.avatarUrl} 
-                          alt={user.displayName} 
+                        <img
+                          src={user.avatarUrl}
+                          alt={user.displayName}
                           referrerPolicy="no-referrer"
                           className="w-10 h-10 rounded-full object-cover border border-orange-200"
                         />
@@ -478,13 +478,13 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                     return (
                       <div className="mb-3">
                         <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1 flex items-center gap-1">
-                          <Building2 className="w-3 h-3 text-[#FF4B16]" />
+                          <Building2 className="w-3 h-3 text-[#ff4b16]" />
                           <span>Địa chỉ làm việc ({matchedBranches.length}):</span>
                         </div>
                         <div className="flex flex-wrap gap-1">
                           {matchedBranches.length > 0 ? (
                             matchedBranches.map(b => (
-                              <span key={b.id} className="text-[10px] font-bold bg-orange-50 text-[#FF4B16] border border-orange-200/80 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                              <span key={b.id} className="text-[10px] font-bold bg-orange-50 text-[#ff4b16] border border-orange-200/80 px-2 py-0.5 rounded-lg flex items-center gap-1">
                                 <MapPin className="w-2.5 h-2.5 shrink-0" />
                                 <span>{b.name}</span>
                               </span>
@@ -509,7 +509,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       className={`text-[10px] font-extrabold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
                         user.assignedFaceEmbedding
                           ? 'bg-orange-50 text-orange-700 border-orange-300 hover:bg-orange-100'
-                          : 'bg-orange-50 text-[#FF4B16] border-orange-300 hover:bg-orange-100'
+                          : 'bg-orange-50 text-[#ff4b16] border-orange-300 hover:bg-orange-100'
                       }`}
                       title="Đăng ký hoặc cập nhật dữ liệu gương mặt sinh trắc học"
                     >
@@ -730,10 +730,10 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
               <div className="p-3.5 bg-orange-50/80 border border-orange-200/80 rounded-2xl space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="font-bold text-xs text-orange-950 flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4 text-[#FF4B16]" />
+                    <Building2 className="w-4 h-4 text-[#ff4b16]" />
                     <span>Gắn Địa Chỉ / Chi Nhánh Làm Việc Cụ Thể</span>
                   </label>
-                  <span className="text-[10px] bg-white text-[#FF4B16] font-extrabold px-2 py-0.5 rounded-full border border-orange-200 shadow-2xs">
+                  <span className="text-[10px] bg-white text-[#ff4b16] font-extrabold px-2 py-0.5 rounded-full border border-orange-200 shadow-2xs">
                     Đã chọn {formData.assignedBranchIds.length} địa điểm
                   </span>
                 </div>
@@ -750,7 +750,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                         onClick={() => handleToggleBranch(branch.id)}
                         className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
                           isChecked
-                            ? 'bg-white border-[#FF4B16] ring-1 ring-[#FF4B16]/20 shadow-xs'
+                            ? 'bg-white border-[#ff4b16] ring-1 ring-[#ff4b16]/20 shadow-xs'
                             : 'bg-zinc-50/70 border-zinc-200/80 hover:bg-white hover:border-orange-200'
                         }`}
                       >
@@ -758,7 +758,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                           type="checkbox"
                           checked={isChecked}
                           onChange={() => {}} // Handled by container onClick
-                          className="w-4 h-4 text-[#FF4B16] rounded border-zinc-300 focus:ring-orange-400 mt-0.5 cursor-pointer"
+                          className="w-4 h-4 text-[#ff4b16] rounded border-zinc-300 focus:ring-orange-400 mt-0.5 cursor-pointer"
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-1">
@@ -770,7 +770,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                             </span>
                           </div>
                           <div className="text-[11px] text-zinc-500 flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3 h-3 text-[#FF4B16] shrink-0" />
+                            <MapPin className="w-3 h-3 text-[#ff4b16] shrink-0" />
                             <span className="truncate">{branch.address}</span>
                           </div>
                           {branch.gpsLatitude && branch.gpsLongitude && (

@@ -1,40 +1,40 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Lead, 
-  LeadCareActivity, 
-  CareChannel, 
-  CareAction, 
-  CareOutcome, 
-  CustomerResponseCode, 
+import {
+  Lead,
+  LeadCareActivity,
+  CareChannel,
+  CareAction,
+  CareOutcome,
+  CustomerResponseCode,
   ObjectionCategory,
-  ObjectionCode, 
-  EvidenceType, 
+  ObjectionCode,
+  EvidenceType,
   EvidenceVerificationStatus,
   UserAccount,
   StoreBranch
 } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
 import { getVietnamDateString, getVietnamTimeString, getVietnamDateTimeString } from '../../../utils/dateTimeUtils';
-import { 
-  suggestNextAction, 
-  calculateLeadTemperature, 
-  calculateCareQualityBreakdown, 
-  OBJECTION_TAXONOMY 
+import {
+  suggestNextAction,
+  calculateLeadTemperature,
+  calculateCareQualityBreakdown,
+  OBJECTION_TAXONOMY
 } from '../utils/crmEngine';
 import { uploadCrmEvidence } from '../../../services/crmEvidenceService';
-import { 
-  Phone, 
-  MessageSquare, 
-  Send, 
-  Calendar, 
-  CheckCircle2, 
-  AlertTriangle, 
-  DollarSign, 
-  Upload, 
-  FileCheck, 
-  Clock, 
-  Sparkles, 
-  UserCheck, 
+import {
+  Phone,
+  MessageSquare,
+  Send,
+  Calendar,
+  CheckCircle2,
+  AlertTriangle,
+  DollarSign,
+  Upload,
+  FileCheck,
+  Clock,
+  Sparkles,
+  UserCheck,
   ShieldCheck,
   ChevronRight,
   ArrowRight,
@@ -195,9 +195,9 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
       const meaningfulCareNo = isMeaningful ? nextMeaningfulNo : undefined;
 
       // Evidence Verification Status: Default to SELF_REPORTED unless automated system log
-      const verificationStatus: EvidenceVerificationStatus = 
-        evidenceType === 'SELF_REPORTED' 
-          ? 'SELF_REPORTED' 
+      const verificationStatus: EvidenceVerificationStatus =
+        evidenceType === 'SELF_REPORTED'
+          ? 'SELF_REPORTED'
           : evidenceType === 'SCREENSHOT_UPLOAD'
           ? 'SELF_REPORTED'
           : 'PENDING_EVIDENCE';
@@ -215,7 +215,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
       });
 
       const activityId = `CARE_${lead.id}_ATT${attemptNo}_${Date.now()}`;
-      
+
       const newActivity: LeadCareActivity = {
         id: activityId,
         leadId: lead.id,
@@ -301,8 +301,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
         lastContactedAt: getVietnamDateTimeString(),
         nextActionAt: nextActionAt || lead.nextActionAt,
         nextActionNotes: nextActionNotes || lead.nextActionNotes,
-        notes: lead.notes 
-          ? `${lead.notes}\n[Lần ${attemptNo}${isMeaningful ? ` - L${nextMeaningfulNo}` : ' (Chưa đàm thoại)'} ${getVietnamTimeString()}]: ${customerResponseText || responseCode}` 
+        notes: lead.notes
+          ? `${lead.notes}\n[Lần ${attemptNo}${isMeaningful ? ` - L${nextMeaningfulNo}` : ' (Chưa đàm thoại)'} ${getVietnamTimeString()}]: ${customerResponseText || responseCode}`
           : `[Lần ${attemptNo}${isMeaningful ? ` - L${nextMeaningfulNo}` : ' (Chưa đàm thoại)'} ${getVietnamTimeString()}]: ${customerResponseText || responseCode}`
       };
 
@@ -327,21 +327,21 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/80 backdrop-blur-sm animate-fadeIn sm:items-center sm:p-4">
       <div className="relative flex h-[100dvh] w-full max-w-2xl flex-col overflow-hidden bg-white shadow-2xl animate-scaleUp sm:h-auto sm:max-h-[94vh] sm:rounded-3xl sm:border sm:border-zinc-200">
-        
+
         {/* Header */}
-        <div className="bg-gradient-to-r from-orange-500 to-[#FF4B16] p-5 sm:p-6 text-white relative">
-          <button 
+        <div className="bg-gradient-to-r from-orange-500 to-[#ff4b16] p-5 sm:p-6 text-white relative">
+          <button
             onClick={onClose}
             className="absolute top-5 right-5 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
-          
+
           <div className="flex items-center space-x-2 text-xs font-bold text-orange-100 uppercase tracking-wider mb-1">
             <Sparkles className="w-3.5 h-3.5" />
             <span>Ghi Nhận Chăm Sóc Có Kiểm Chứng (Evidence-Based CRM)</span>
           </div>
-          
+
           <div className="flex items-baseline space-x-2">
             <h2 className="text-xl font-black text-white">{lead.name}</h2>
             <span className="text-xs text-orange-200 font-mono">({lead.phone})</span>
@@ -373,10 +373,10 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
             ].map(s => (
               <div key={s.num} className="flex-1 flex flex-col items-center">
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black transition-all ${
-                  step === s.num 
-                    ? 'bg-white text-[#FF4B16] ring-2 ring-white/50 scale-110 shadow-md' 
-                    : step > s.num 
-                    ? 'bg-emerald-400 text-zinc-900 font-bold' 
+                  step === s.num
+                    ? 'bg-white text-[#ff4b16] ring-2 ring-white/50 scale-110 shadow-md'
+                    : step > s.num
+                    ? 'bg-emerald-400 text-zinc-900 font-bold'
                     : 'bg-white/20 text-white/70'
                 }`}>
                   {step > s.num ? '✓' : s.num}
@@ -399,7 +399,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
-          
+
           {/* STEP 1: Channel & Action */}
           {step === 1 && (
             <div className="space-y-4 animate-fadeIn">
@@ -423,8 +423,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                         type="button"
                         onClick={() => setChannel(ch.id as CareChannel)}
                         className={`p-3 rounded-2xl border flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                          channel === ch.id 
-                            ? 'border-[#FF4B16] bg-orange-50/60 text-[#FF4B16] font-bold shadow-xs' 
+                          channel === ch.id
+                            ? 'border-[#ff4b16] bg-orange-50/60 text-[#ff4b16] font-bold shadow-xs'
                             : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
                         }`}
                       >
@@ -454,8 +454,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                       type="button"
                       onClick={() => setAction(act.id as CareAction)}
                       className={`p-2.5 rounded-xl border text-left font-medium transition-all cursor-pointer ${
-                        action === act.id 
-                          ? 'border-[#FF4B16] bg-orange-50/50 text-[#FF4B16] font-bold' 
+                        action === act.id
+                          ? 'border-[#ff4b16] bg-orange-50/50 text-[#ff4b16] font-bold'
                           : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
                       }`}
                     >
@@ -490,8 +490,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                       type="button"
                       onClick={() => setOutcome(out.id as CareOutcome)}
                       className={`p-2.5 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
-                        outcome === out.id 
-                          ? `${out.badge} ring-2 ring-[#FF4B16]` 
+                        outcome === out.id
+                          ? `${out.badge} ring-2 ring-[#ff4b16]`
                           : 'bg-white border-zinc-200 hover:bg-zinc-50 text-zinc-700'
                       }`}
                     >
@@ -529,8 +529,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                       type="button"
                       onClick={() => handleSelectResponseCode(resp.id as CustomerResponseCode)}
                       className={`p-2.5 rounded-xl border text-left font-semibold transition-all cursor-pointer ${
-                        responseCode === resp.id 
-                          ? 'border-[#FF4B16] bg-orange-50 text-[#FF4B16] font-bold ring-1 ring-[#FF4B16]' 
+                        responseCode === resp.id
+                          ? 'border-[#ff4b16] bg-orange-50 text-[#ff4b16] font-bold ring-1 ring-[#ff4b16]'
                           : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
                       }`}
                     >
@@ -554,7 +554,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                   value={customerResponseText}
                   onChange={e => setCustomerResponseText(e.target.value)}
                   placeholder="Ví dụ: Khách nói đang phân vân bản 256GB vs 512GB màu Desert, hỏi thêm gói bảo hành VIP 1 đổi 1 trong 12 tháng..."
-                  className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-2xl text-xs text-zinc-900 focus:outline-none focus:border-[#FF4B16]"
+                  className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-2xl text-xs text-zinc-900 focus:outline-none focus:border-[#ff4b16]"
                 />
               </div>
 
@@ -599,8 +599,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                           type="button"
                           onClick={() => setObjectionCode(c.code)}
                           className={`p-2 rounded-xl border text-left text-xs transition-all cursor-pointer ${
-                            objectionCode === c.code 
-                              ? 'bg-orange-50 border-[#FF4B16] text-[#FF4B16] font-bold' 
+                            objectionCode === c.code
+                              ? 'bg-orange-50 border-[#ff4b16] text-[#ff4b16] font-bold'
                               : 'bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-100'
                           }`}
                         >
@@ -615,14 +615,14 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
               {(objectionCategory === 'PRICE' || responseCode === 'COMPARING_PRICE') && (
                 <div className="bg-orange-50/70 border border-orange-200 rounded-2xl p-3.5 space-y-3">
                   <div className="flex items-center space-x-2 text-xs font-bold text-orange-900">
-                    <DollarSign className="w-4 h-4 text-[#FF4B16]" />
+                    <DollarSign className="w-4 h-4 text-[#ff4b16]" />
                     <span>Phân tích chênh lệch giá đối thủ (Price Gap)</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                     <div>
                       <span className="text-[11px] text-zinc-500 font-medium">Tên đối thủ so sánh</span>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={competitorName}
                         onChange={e => setCompetitorName(e.target.value)}
                         placeholder="VD: ShopDunk, HoangHa..."
@@ -631,8 +631,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                     </div>
                     <div>
                       <span className="text-[11px] text-zinc-500 font-medium">Giá PhoneHouse (VNĐ)</span>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         value={storePrice}
                         onChange={e => setStorePrice(Number(e.target.value))}
                         className="w-full mt-1 p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-800"
@@ -640,8 +640,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                     </div>
                     <div>
                       <span className="text-[11px] text-zinc-500 font-medium">Giá đối thủ (VNĐ)</span>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         value={competitorPrice}
                         onChange={e => setCompetitorPrice(Number(e.target.value))}
                         className="w-full mt-1 p-2 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-rose-600"
@@ -678,8 +678,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                       type="button"
                       onClick={() => setEvidenceType(ev.id as EvidenceType)}
                       className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
-                        evidenceType === ev.id 
-                          ? 'border-[#FF4B16] bg-orange-50/50 text-[#FF4B16] ring-1 ring-[#FF4B16] font-bold' 
+                        evidenceType === ev.id
+                          ? 'border-[#ff4b16] bg-orange-50/50 text-[#ff4b16] ring-1 ring-[#ff4b16] font-bold'
                           : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
                       }`}
                     >
@@ -696,10 +696,10 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                       <span className="font-black text-emerald-700">{callDurationSeconds} giây ({Math.floor(callDurationSeconds/60)}p {callDurationSeconds%60}s)</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <input 
-                        type="range" 
-                        min="10" 
-                        max="300" 
+                      <input
+                        type="range"
+                        min="10"
+                        max="300"
                         value={callDurationSeconds}
                         onChange={e => setCallDurationSeconds(Number(e.target.value))}
                         className="w-full accent-emerald-600 cursor-pointer"
@@ -710,12 +710,12 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                 )}
 
                 {evidenceType === 'SCREENSHOT_UPLOAD' && (
-                  <div className="p-4 border-2 border-dashed border-zinc-300 hover:border-[#FF4B16] rounded-2xl text-center space-y-2 bg-zinc-50 transition-colors">
+                  <div className="p-4 border-2 border-dashed border-zinc-300 hover:border-[#ff4b16] rounded-2xl text-center space-y-2 bg-zinc-50 transition-colors">
                     <Upload className="w-6 h-6 text-zinc-400 mx-auto" />
                     <div className="text-xs font-bold text-zinc-700">
                       {screenshotFileName ? `Đã chọn: ${screenshotFileName}` : 'Chọn ảnh chụp màn hình chat Zalo/Tin nhắn'}
                     </div>
-                    <label className="inline-block px-3 py-1.5 bg-[#FF4B16] text-white rounded-xl text-xs font-bold cursor-pointer hover:bg-[#E94312]">
+                    <label className="inline-block px-3 py-1.5 bg-[#ff4b16] text-white rounded-xl text-xs font-bold cursor-pointer hover:bg-[#E94312]">
                       Duyệt ảnh từ máy
                       <input type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
                     </label>
@@ -753,8 +753,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                       type="button"
                       onClick={() => setNextActionType(nAct.id as any)}
                       className={`p-2.5 rounded-xl border text-center font-bold transition-all cursor-pointer ${
-                        nextActionType === nAct.id 
-                          ? 'border-[#FF4B16] bg-orange-50 text-[#FF4B16]' 
+                        nextActionType === nAct.id
+                          ? 'border-[#ff4b16] bg-orange-50 text-[#ff4b16]'
                           : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
                       }`}
                     >
@@ -786,8 +786,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                     </button>
                   ))}
                 </div>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={nextActionAt}
                   onChange={e => setNextActionAt(e.target.value)}
                   placeholder="YYYY-MM-DD HH:mm"
@@ -799,8 +799,8 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                 <label className="text-xs font-bold text-zinc-700 uppercase tracking-wider block mb-1">
                   3. Ghi chú hành động tiếp theo
                 </label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={nextActionNotes}
                   onChange={e => setNextActionNotes(e.target.value)}
                   placeholder="Ví dụ: Gọi lại nhắc khách về chương trình tặng củ sạc nhanh 20W..."
@@ -828,7 +828,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
                         <ShieldCheck className="w-4 h-4 text-emerald-600" />
                         <span>Điểm chất lượng chăm sóc (Care Quality):</span>
                       </span>
-                      <span className="text-[#FF4B16] text-sm">{breakdown.totalScore}/100</span>
+                      <span className="text-[#ff4b16] text-sm">{breakdown.totalScore}/100</span>
                     </div>
                     <div className="grid grid-cols-3 gap-2 pt-1 border-t border-zinc-200/80 text-[11px] text-zinc-600">
                       <div>Quy trình: <strong>{breakdown.processScore}/40</strong></div>
@@ -869,7 +869,7 @@ export const CompleteCareActivityModal: React.FC<CompleteCareActivityModalProps>
               type="button"
               disabled={isSubmitting}
               onClick={handleSubmit}
-              className="px-6 py-2.5 rounded-xl bg-[#FF4B16] hover:bg-[#E94312] text-white text-xs font-black flex items-center space-x-2 cursor-pointer shadow-md shadow-orange-500/25 disabled:opacity-50 active:scale-95 transition-all"
+              className="px-6 py-2.5 rounded-xl bg-[#ff4b16] hover:bg-[#E94312] text-white text-xs font-black flex items-center space-x-2 cursor-pointer shadow-md shadow-orange-500/25 disabled:opacity-50 active:scale-95 transition-all"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{isSubmitting ? 'Đang lưu...' : 'Hoàn Tất & Ghi Nhận Chăm Sóc'}</span>

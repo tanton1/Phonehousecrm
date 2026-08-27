@@ -21,7 +21,7 @@ export const INITIAL_SHIFTS: ShiftDefinition[] = [
     startTime: '08:00',
     endTime: '17:00',
     breakDurationMinutes: 60,
-    color: '#FF4B16',
+    color: '#ff4b16',
     badgeBg: 'bg-orange-100',
     badgeText: 'text-orange-800'
   },

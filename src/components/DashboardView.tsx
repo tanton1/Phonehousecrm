@@ -1,35 +1,35 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  DeviceItem, 
-  Lead, 
-  TradeInAppraisal, 
-  WarrantyTicket, 
-  SalesInvoice 
+import {
+  DeviceItem,
+  Lead,
+  TradeInAppraisal,
+  WarrantyTicket,
+  SalesInvoice
 } from '../types';
-import { Wallet, ArrowLeftRight, 
-  PhoneCall, 
-  Bell, 
-  Mail, 
-  Calendar, 
-  Eye, 
-  EyeOff, 
-  Package, 
-  Maximize2, 
-  CreditCard, 
-  Truck, 
-  Receipt, 
-  User, 
-  PieChart, 
-  ChevronDown, 
-  X, 
-  CheckCircle2, 
-  ArrowUpRight, 
-  Smartphone, 
-  Building2, 
-  Clock, 
-  FileText, 
-  Sparkles, 
-  TrendingUp, 
+import { Wallet, ArrowLeftRight,
+  PhoneCall,
+  Bell,
+  Mail,
+  Calendar,
+  Eye,
+  EyeOff,
+  Package,
+  Maximize2,
+  CreditCard,
+  Truck,
+  Receipt,
+  User,
+  PieChart,
+  ChevronDown,
+  X,
+  CheckCircle2,
+  ArrowUpRight,
+  Smartphone,
+  Building2,
+  Clock,
+  FileText,
+  Sparkles,
+  TrendingUp,
   RotateCcw,
   Search,
   ExternalLink,
@@ -96,7 +96,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Calculated metrics
   const inStockDevices = useMemo(() => devices.filter(d => d.status === 'in_stock'), [devices]);
   const soldDevices = useMemo(() => devices.filter(d => d.status === 'sold'), [devices]);
-  
+
   // Real data calculations - no hardcoded defaults
   const actualTotalRevenue = useMemo(() => {
     return invoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
@@ -221,10 +221,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const splinePath = useMemo(() => {
     const pts = sparklineData;
     if (pts.length < 2) {
-      return { 
-        line: 'M 5 55 L 195 9', 
-        area: 'M 5 55 L 195 9 L 195 60 L 5 60 Z', 
-        lastPoint: { x: 195, y: 9 } 
+      return {
+        line: 'M 5 55 L 195 9',
+        area: 'M 5 55 L 195 9 L 195 60 L 5 60 Z',
+        lastPoint: { x: 195, y: 9 }
       };
     }
     let line = `M ${pts[0].x} ${pts[0].y}`;
@@ -341,7 +341,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-3.5 sm:space-y-4 pb-24 text-zinc-900 font-sans animate-fadeIn select-none">
-      
+
       {/* ================= 1. TOP HEADER ================= */}
       <div className="flex items-center justify-between pt-1 pb-0.5 px-1">
         {/* Left: Title without duplicate PhoneHouse logo */}
@@ -352,30 +352,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {/* Right: Quick Action Buttons (Hotline, Notifications with 56 badge, Messages) */}
         <div className="flex items-center space-x-3.5 sm:space-x-4">
           {/* Phone Call Icon */}
-          <button 
+          <button
             onClick={() => setActiveModal('hotline')}
-            className="text-zinc-800 hover:text-[#F94A1F] transition-colors p-1 cursor-pointer"
+            className="text-zinc-800 hover:text-[#ff4b16] transition-colors p-1 cursor-pointer"
             title="Hotline tư vấn CSKH"
           >
             <PhoneCall className="w-5 h-5 sm:w-6 sm:h-6 stroke-[1.8]" />
           </button>
 
           {/* Bell Notification with "56" Badge */}
-          <button 
+          <button
             onClick={() => setActiveModal('notifications')}
-            className="relative text-zinc-800 hover:text-[#F94A1F] transition-colors p-1 cursor-pointer"
+            className="relative text-zinc-800 hover:text-[#ff4b16] transition-colors p-1 cursor-pointer"
             title="Thông báo hệ thống"
           >
             <Bell className="w-5 h-5 sm:w-6 sm:h-6 stroke-[1.8]" />
-            <span className="absolute -top-1.5 -right-2 bg-[#F94A1F] text-white text-[10px] sm:text-[11px] font-bold px-1.5 py-0.2 rounded-full min-w-[18px] text-center shadow-xs">
+            <span className="absolute -top-1.5 -right-2 bg-[#ff4b16] text-white text-[10px] sm:text-[11px] font-bold px-1.5 py-0.2 rounded-full min-w-[18px] text-center shadow-xs">
               56
             </span>
           </button>
 
           {/* Mail / Message Icon */}
-          <button 
+          <button
             onClick={() => setActiveModal('messages')}
-            className="text-zinc-800 hover:text-[#F94A1F] transition-colors p-1 cursor-pointer"
+            className="text-zinc-800 hover:text-[#ff4b16] transition-colors p-1 cursor-pointer"
             title="Tin nhắn & Hội thoại"
           >
             <Mail className="w-5 h-5 sm:w-6 sm:h-6 stroke-[1.8]" />
@@ -389,7 +389,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onClick={() => setIsPeriodDropdownOpen(!isPeriodDropdownOpen)}
           className="flex items-center space-x-2 bg-white/90 hover:bg-white text-zinc-800 text-xs sm:text-sm font-semibold px-3.5 py-2 rounded-2xl border border-zinc-200/80 shadow-2xs transition-all cursor-pointer"
         >
-          <Calendar className="w-4 h-4 text-[#F94A1F]" />
+          <Calendar className="w-4 h-4 text-[#ff4b16]" />
           <span>{selectedPeriod}</span>
           <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
         </button>
@@ -404,13 +404,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   setIsPeriodDropdownOpen(false);
                 }}
                 className={`w-full text-left px-3.5 py-2 text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
-                  selectedPeriod === period 
-                    ? 'text-[#F94A1F] bg-orange-50/70 font-bold' 
+                  selectedPeriod === period
+                    ? 'text-[#ff4b16] bg-orange-50/70 font-bold'
                     : 'text-zinc-700 hover:bg-zinc-50'
                 }`}
               >
                 <span>{period}</span>
-                {selectedPeriod === period && <Check className="w-3.5 h-3.5 text-[#F94A1F]" />}
+                {selectedPeriod === period && <Check className="w-3.5 h-3.5 text-[#ff4b16]" />}
               </button>
             ))}
           </div>
@@ -419,7 +419,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* ================= 3. HERO KPI SLIDE SECTION (Mobile Slide, Desktop 3-Col) ================= */}
       <div className="relative space-y-1.5">
-        <div 
+        <div
           onScroll={(e) => {
             const el = e.currentTarget;
             const scrollPercent = el.scrollLeft / (el.scrollWidth - el.clientWidth || 1);
@@ -430,7 +430,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           className="flex sm:grid sm:grid-cols-3 gap-3 sm:gap-3.5 overflow-x-auto snap-x snap-mandatory scrollbar-none -mx-1 px-1 py-0.5"
         >
           {/* Card 1: Dark Charcoal Slate - Real Invoices & Real Total Revenue */}
-          <div 
+          <div
             onClick={() => onNavigate('invoices')}
             className="min-w-[85vw] sm:min-w-0 snap-center flex-1 shrink-0 sm:shrink bg-[#15161A] text-white rounded-3xl p-4 sm:p-5 flex flex-col justify-between shadow-sm relative overflow-hidden border border-zinc-800/80 hover:border-zinc-700 transition-all cursor-pointer group min-h-[170px]"
           >
@@ -445,7 +445,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             {/* Big Number & Unit: Real Aggregated Revenue */}
             <div className="my-1.5">
-              <div className="text-3xl sm:text-4xl font-extrabold text-[#F94A1F] tracking-tight">
+              <div className="text-3xl sm:text-4xl font-extrabold text-[#ff4b16] tracking-tight">
                 {totalRevenueDisplay}
               </div>
               <div className="text-zinc-400 text-xs sm:text-sm font-normal mt-0.5">
@@ -467,7 +467,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* Top Row: Lợi Nhuận + Eye Toggle */}
             <div className="flex items-center justify-between">
               <span className="text-zinc-800 text-xs sm:text-sm font-semibold">Lợi nhuận</span>
-              <button 
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setShowProfit(!showProfit);
@@ -486,11 +486,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* Value Display */}
             <div className="my-1">
               {showProfit ? (
-                <div className="text-2xl sm:text-3xl font-extrabold text-[#F94A1F] tracking-tight">
+                <div className="text-2xl sm:text-3xl font-extrabold text-[#ff4b16] tracking-tight">
                   {profitDisplay} <span className="text-xs font-medium text-zinc-500">triệu đ</span>
                 </div>
               ) : (
-                <div className="text-xl sm:text-2xl font-black text-[#F94A1F] tracking-widest">
+                <div className="text-xl sm:text-2xl font-black text-[#ff4b16] tracking-widest">
                   *** ***
                 </div>
               )}
@@ -498,66 +498,66 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             {/* Smooth Spline Sparkline Chart with Real Timeline Data */}
             <div className="relative w-full h-12 mt-auto">
-              <svg 
-                className="w-full h-full overflow-visible" 
-                viewBox="0 0 200 60" 
+              <svg
+                className="w-full h-full overflow-visible"
+                viewBox="0 0 200 60"
                 preserveAspectRatio="none"
               >
                 <defs>
                   <linearGradient id="waveGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#F94A1F" stopOpacity="0.28" />
-                    <stop offset="100%" stopColor="#F94A1F" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor="#ff4b16" stopOpacity="0.28" />
+                    <stop offset="100%" stopColor="#ff4b16" stopOpacity="0.0" />
                   </linearGradient>
                 </defs>
 
                 {/* Area fill under curve */}
-                <path 
-                  d={splinePath.area} 
-                  fill="url(#waveGradient)" 
+                <path
+                  d={splinePath.area}
+                  fill="url(#waveGradient)"
                 />
 
                 {/* Smooth curved line */}
-                <path 
-                  d={splinePath.line} 
-                  fill="none" 
-                  stroke="#F94A1F" 
-                  strokeWidth="2.5" 
-                  strokeLinecap="round" 
+                <path
+                  d={splinePath.line}
+                  fill="none"
+                  stroke="#ff4b16"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
                 />
 
                 {/* Glowing Peak Dot on last point */}
-                <circle cx={splinePath.lastPoint.x} cy={splinePath.lastPoint.y} r="4.5" fill="#F94A1F" />
+                <circle cx={splinePath.lastPoint.x} cy={splinePath.lastPoint.y} r="4.5" fill="#ff4b16" />
                 <circle cx={splinePath.lastPoint.x} cy={splinePath.lastPoint.y} r="2" fill="#FFFFFF" />
               </svg>
             </div>
 
             {/* Bottom Row: Giá trị tổng hàng tồn kho trực tiếp sau biểu đồ lợi nhuận */}
-            <div 
+            <div
               onClick={(e) => {
                 e.stopPropagation();
                 onNavigate('inventory');
               }}
-              className="flex items-center justify-between text-[11px] sm:text-xs text-zinc-600 pt-2 mt-1.5 border-t border-zinc-100 hover:text-[#F94A1F] transition-colors cursor-pointer group/inv"
+              className="flex items-center justify-between text-[11px] sm:text-xs text-zinc-600 pt-2 mt-1.5 border-t border-zinc-100 hover:text-[#ff4b16] transition-colors cursor-pointer group/inv"
             >
               <div className="flex items-center space-x-1.5">
-                <Boxes className="w-3.5 h-3.5 text-[#F94A1F] shrink-0" />
-                <span className="font-semibold text-zinc-700 group-hover/inv:text-[#F94A1F]">Tổng tồn kho ({inStockDevices.length} máy):</span>
+                <Boxes className="w-3.5 h-3.5 text-[#ff4b16] shrink-0" />
+                <span className="font-semibold text-zinc-700 group-hover/inv:text-[#ff4b16]">Tổng tồn kho ({inStockDevices.length} máy):</span>
               </div>
-              <span className="font-extrabold text-zinc-900 font-mono group-hover/inv:text-[#F94A1F]">
+              <span className="font-extrabold text-zinc-900 font-mono group-hover/inv:text-[#ff4b16]">
                 {totalStockSellValueDisplay} Tr
               </span>
             </div>
           </div>
 
           {/* Card 3: Thẻ Thống Kê Tổng Giá Trị Hàng Tồn Kho */}
-          <div 
+          <div
             onClick={() => onNavigate('inventory')}
             className="min-w-[85vw] sm:min-w-0 snap-center flex-1 shrink-0 sm:shrink bg-white rounded-3xl p-4 sm:p-5 flex flex-col justify-between shadow-2xs border border-zinc-100/90 relative overflow-hidden min-h-[170px] cursor-pointer group hover:border-orange-200 transition-all"
           >
             {/* Top Row */}
             <div className="flex items-center justify-between">
               <span className="text-zinc-800 text-xs sm:text-sm font-semibold flex items-center space-x-1.5">
-                <Boxes className="w-4 h-4 text-[#F94A1F]" />
+                <Boxes className="w-4 h-4 text-[#ff4b16]" />
                 <span>Hàng tồn kho</span>
               </span>
               <span className="text-[10px] font-bold text-orange-700 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
@@ -567,7 +567,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             {/* Value Display */}
             <div className="my-1">
-              <div className="text-2xl sm:text-3xl font-extrabold text-[#F94A1F] tracking-tight group-hover:scale-102 transition-transform origin-left font-mono">
+              <div className="text-2xl sm:text-3xl font-extrabold text-[#ff4b16] tracking-tight group-hover:scale-102 transition-transform origin-left font-mono">
                 {totalStockSellValueDisplay} <span className="text-xs font-medium text-zinc-500">triệu đ</span>
               </div>
               <div className="text-zinc-400 text-xs font-normal mt-0.5">
@@ -578,7 +578,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {/* Bottom Row */}
             <div className="flex items-center justify-between text-[11px] sm:text-xs text-zinc-500 pt-1.5 border-t border-zinc-100">
               <span className="font-medium text-zinc-600">Kho máy IMEI sẵn sàng bán</span>
-              <span className="text-[#F94A1F] font-bold group-hover:translate-x-0.5 transition-transform">Kho IMEI →</span>
+              <span className="text-[#ff4b16] font-bold group-hover:translate-x-0.5 transition-transform">Kho IMEI →</span>
             </div>
           </div>
 
@@ -586,25 +586,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Slide Indicator Dots on Mobile */}
         <div className="sm:hidden flex items-center justify-center space-x-1.5 pt-0.5">
-          <span className={`w-2 h-2 rounded-full transition-all ${activeKpiIndex === 0 ? 'bg-[#F94A1F] w-4' : 'bg-zinc-300'}`} />
-          <span className={`w-2 h-2 rounded-full transition-all ${activeKpiIndex === 1 ? 'bg-[#F94A1F] w-4' : 'bg-zinc-300'}`} />
-          <span className={`w-2 h-2 rounded-full transition-all ${activeKpiIndex === 2 ? 'bg-[#F94A1F] w-4' : 'bg-zinc-300'}`} />
+          <span className={`w-2 h-2 rounded-full transition-all ${activeKpiIndex === 0 ? 'bg-[#ff4b16] w-4' : 'bg-zinc-300'}`} />
+          <span className={`w-2 h-2 rounded-full transition-all ${activeKpiIndex === 1 ? 'bg-[#ff4b16] w-4' : 'bg-zinc-300'}`} />
+          <span className={`w-2 h-2 rounded-full transition-all ${activeKpiIndex === 2 ? 'bg-[#ff4b16] w-4' : 'bg-zinc-300'}`} />
         </div>
       </div>
 
       {/* ================= 4. QUICK ACTION BAR (Clean Icons without box border) ================= */}
       <div className="bg-white rounded-3xl p-3.5 sm:p-4 shadow-2xs border border-zinc-100/90">
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-1.5 text-center">
-          
+
           {/* 1. Khách hàng CRM */}
           <button
             onClick={() => onNavigate('crm')}
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <Users className="w-6 h-6 sm:w-7 sm:h-7 text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <Users className="w-6 h-6 sm:w-7 sm:h-7 text-[#ff4b16] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
-            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
+            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors mt-1 block truncate w-full">
               Khách hàng CRM
             </span>
           </button>
@@ -615,9 +615,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <Wrench className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <Wrench className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#ff4b16] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
-            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
+            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors mt-1 block truncate w-full">
               Sửa chữa
             </span>
           </button>
@@ -628,9 +628,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <Wallet className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <Wallet className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#ff4b16] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
-            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
+            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors mt-1 block truncate w-full">
               Sổ quỹ
             </span>
           </button>
@@ -644,9 +644,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <Receipt className="w-6 h-6 sm:w-7 sm:h-7 text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <Receipt className="w-6 h-6 sm:w-7 sm:h-7 text-[#ff4b16] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
-            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
+            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors mt-1 block truncate w-full">
               Thanh toán
             </span>
           </button>
@@ -657,9 +657,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <Users className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <Users className="w-6 h-6 sm:w-7 sm:h-7 text-zinc-800 group-hover:text-[#ff4b16] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
-            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
+            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors mt-1 block truncate w-full">
               Nhân sự
             </span>
           </button>
@@ -670,9 +670,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="flex flex-col items-center justify-center p-2 rounded-2xl hover:bg-orange-50/50 transition-all cursor-pointer group relative"
           >
             <div className="h-9 sm:h-10 flex items-center justify-center">
-              <ArrowLeftRight className="w-6 h-6 sm:w-7 sm:h-7 text-[#F94A1F] group-hover:scale-110 transition-transform stroke-[1.8]" />
+              <ArrowLeftRight className="w-6 h-6 sm:w-7 sm:h-7 text-[#ff4b16] group-hover:scale-110 transition-transform stroke-[1.8]" />
             </div>
-            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#F94A1F] transition-colors mt-1 block truncate w-full">
+            <span className="text-[11px] sm:text-xs font-semibold text-zinc-800 group-hover:text-[#ff4b16] transition-colors mt-1 block truncate w-full">
               Chuyển kho
             </span>
           </button>
@@ -687,7 +687,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h2 className="text-base sm:text-lg font-bold text-zinc-900">
               Doanh thu
             </h2>
-            <button 
+            <button
               onClick={() => setActiveModal('chart_expand')}
               className="text-zinc-400 hover:text-zinc-700 transition-colors p-0.5 cursor-pointer"
               title="Phóng to biểu đồ"
@@ -715,7 +715,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       setSelectedPeriod(period);
                       setIsChartPeriodDropdownOpen(false);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 hover:bg-orange-50 hover:text-[#F94A1F] transition-colors cursor-pointer"
+                    className="w-full text-left px-3 py-1.5 text-xs text-zinc-700 hover:bg-orange-50 hover:text-[#ff4b16] transition-colors cursor-pointer"
                   >
                     {period}
                   </button>
@@ -773,8 +773,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       style={{ height: `${heightPercent}%` }}
                       className={`w-full max-w-[14px] rounded-t-xs transition-all duration-300 ${
                         item.isPeak
-                          ? 'bg-[#F94A1F] shadow-xs'
-                          : 'bg-gradient-to-t from-orange-300 to-[#F94A1F]/80 group-hover:from-orange-400 group-hover:to-[#F94A1F]'
+                          ? 'bg-[#ff4b16] shadow-xs'
+                          : 'bg-gradient-to-t from-orange-300 to-[#ff4b16]/80 group-hover:from-orange-400 group-hover:to-[#ff4b16]'
                       }`}
                     />
                   </div>
@@ -788,17 +788,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span>01</span>
             <span>07</span>
             <span>10</span>
-            <span className="font-bold text-[#F94A1F]">16</span>
+            <span className="font-bold text-[#ff4b16]">16</span>
             <span>21</span>
             <span>24</span>
-            <span className="font-bold text-[#F94A1F]">28</span>
+            <span className="font-bold text-[#ff4b16]">28</span>
           </div>
         </div>
       </div>
 
       {/* ================= 6. HÀNG BÁN CHẠY CARD (Best Selling Items) ================= */}
       <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-2xs border border-zinc-100/90 space-y-4">
-        
+
         {/* Header: Title + Limit Dropdown */}
         <div className="flex items-center justify-between">
           <h2 className="text-base sm:text-lg font-bold text-zinc-900">
@@ -824,8 +824,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       setRankingLimit(lim);
                       setIsLimitDropdownOpen(false);
                     }}
-                    className={`w-full text-center py-1 text-xs font-medium hover:bg-orange-50 hover:text-[#F94A1F] cursor-pointer ${
-                      rankingLimit === lim ? 'text-[#F94A1F] font-bold' : 'text-zinc-700'
+                    className={`w-full text-center py-1 text-xs font-medium hover:bg-orange-50 hover:text-[#ff4b16] cursor-pointer ${
+                      rankingLimit === lim ? 'text-[#ff4b16] font-bold' : 'text-zinc-700'
                     }`}
                   >
                     {lim}
@@ -842,7 +842,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             onClick={() => setRankingFilter('revenue')}
             className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               rankingFilter === 'revenue'
-                ? 'bg-[#F94A1F] text-white shadow-2xs'
+                ? 'bg-[#ff4b16] text-white shadow-2xs'
                 : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/80'
             }`}
           >
@@ -853,7 +853,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             onClick={() => setRankingFilter('quantity')}
             className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               rankingFilter === 'quantity'
-                ? 'bg-[#F94A1F] text-white shadow-2xs'
+                ? 'bg-[#ff4b16] text-white shadow-2xs'
                 : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/80'
             }`}
           >
@@ -885,7 +885,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 {/* Title & Stock */}
                 <div className="min-w-0">
-                  <h3 className="text-xs sm:text-sm font-bold text-zinc-900 truncate leading-snug group-hover:text-[#F94A1F] transition-colors">
+                  <h3 className="text-xs sm:text-sm font-bold text-zinc-900 truncate leading-snug group-hover:text-[#ff4b16] transition-colors">
                     {item.name}
                   </h3>
                   <p className="text-[11px] sm:text-xs text-zinc-500 font-normal mt-0.5">
@@ -896,7 +896,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               {/* Right: Revenue / Price */}
               <div className="text-right shrink-0">
-                <div className="text-xs sm:text-sm font-bold text-[#F94A1F]">
+                <div className="text-xs sm:text-sm font-bold text-[#ff4b16]">
                   {item.revenue.toLocaleString('vi-VN')}
                 </div>
                 <div className="text-[10px] sm:text-[11px] text-zinc-500 font-normal">
@@ -910,17 +910,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* ================= MODALS & SUB-VIEWS ================= */}
-      
+
       {/* 1. Notifications Modal (56 Unread) */}
       {activeModal === 'notifications' && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-zinc-100 overflow-hidden animate-scaleIn max-h-[85vh] flex flex-col">
-            <div className="p-4 bg-gradient-to-r from-[#F94A1F] to-orange-500 text-white flex items-center justify-between shrink-0">
+            <div className="p-4 bg-gradient-to-r from-[#ff4b16] to-orange-500 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
                 <Bell className="w-5 h-5 text-white" />
                 <h3 className="text-base font-bold">Thông Báo Hoạt Động (56 Mới)</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setActiveModal(null)}
                 className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center text-white cursor-pointer"
               >
@@ -930,7 +930,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="p-4 overflow-y-auto space-y-2.5 divide-y divide-zinc-100 flex-1 text-xs">
               <div className="pt-2 flex items-start space-x-3">
-                <span className="w-2 h-2 rounded-full bg-[#F94A1F] mt-1.5 shrink-0 animate-ping"></span>
+                <span className="w-2 h-2 rounded-full bg-[#ff4b16] mt-1.5 shrink-0 animate-ping"></span>
                 <div>
                   <p className="font-bold text-zinc-900">Đơn hàng mới qua POS vừa hoàn tất</p>
                   <p className="text-zinc-500 text-[11px]">iPhone 16 Pro Max 256GB - Khách: Nguyễn Văn An - 34.500.000đ</p>
@@ -967,15 +967,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="p-3 bg-zinc-50 border-t border-zinc-100 flex items-center justify-between text-xs shrink-0">
-              <button 
+              <button
                 onClick={() => setActiveModal(null)}
-                className="text-[#F94A1F] font-bold hover:underline cursor-pointer"
+                className="text-[#ff4b16] font-bold hover:underline cursor-pointer"
               >
                 Đánh dấu đã đọc tất cả
               </button>
-              <button 
+              <button
                 onClick={() => setActiveModal(null)}
-                className="px-4 py-1.5 bg-[#F94A1F] text-white font-bold rounded-xl cursor-pointer"
+                className="px-4 py-1.5 bg-[#ff4b16] text-white font-bold rounded-xl cursor-pointer"
               >
                 Đóng
               </button>
@@ -988,7 +988,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {activeModal === 'hotline' && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 animate-fadeIn">
           <div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-5 border border-zinc-100 text-center space-y-4 animate-scaleIn">
-            <div className="w-14 h-14 rounded-2xl bg-orange-50 text-[#F94A1F] flex items-center justify-center mx-auto shadow-2xs">
+            <div className="w-14 h-14 rounded-2xl bg-orange-50 text-[#ff4b16] flex items-center justify-center mx-auto shadow-2xs">
               <PhoneCall className="w-7 h-7" />
             </div>
             <div>
@@ -997,14 +997,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="space-y-2">
-              <a 
+              <a
                 href="tel:19006522"
-                className="flex items-center justify-between p-3 bg-orange-50 hover:bg-orange-100 text-[#F94A1F] rounded-2xl font-bold text-sm transition-colors"
+                className="flex items-center justify-between p-3 bg-orange-50 hover:bg-orange-100 text-[#ff4b16] rounded-2xl font-bold text-sm transition-colors"
               >
                 <span>Tổng đài CSKH:</span>
                 <span className="text-base">1900 6522</span>
               </a>
-              <a 
+              <a
                 href="tel:0909123456"
                 className="flex items-center justify-between p-3 bg-zinc-50 hover:bg-zinc-100 text-zinc-800 rounded-2xl font-bold text-sm transition-colors"
               >
@@ -1013,7 +1013,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </a>
             </div>
 
-            <button 
+            <button
               onClick={() => setActiveModal(null)}
               className="w-full py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold rounded-xl text-xs cursor-pointer"
             >
@@ -1029,10 +1029,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-zinc-100 overflow-hidden animate-scaleIn max-h-[85vh] flex flex-col">
             <div className="p-4 bg-zinc-900 text-white flex items-center justify-between shrink-0">
               <div className="flex items-center space-x-2">
-                <Mail className="w-5 h-5 text-[#F94A1F]" />
+                <Mail className="w-5 h-5 text-[#ff4b16]" />
                 <h3 className="text-base font-bold">Hội Thoại Khách Hàng (Đa Kênh)</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setActiveModal(null)}
                 className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
               >
@@ -1041,7 +1041,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="p-4 space-y-3 overflow-y-auto flex-1 text-xs">
-              <div 
+              <div
                 onClick={() => {
                   setActiveModal(null);
                   onNavigate('crm');
@@ -1050,12 +1050,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               >
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-zinc-900">Zalo OA: Hoàng Minh Khôi</span>
-                  <span className="text-[10px] text-[#F94A1F] font-semibold">Vừa gửi</span>
+                  <span className="text-[10px] text-[#ff4b16] font-semibold">Vừa gửi</span>
                 </div>
                 <p className="text-zinc-600 line-clamp-1">"Shop còn cây 16 Pro Max Desert nào sẵn giao liền quận Cầu Giấy ko ạ?"</p>
               </div>
 
-              <div 
+              <div
                 onClick={() => {
                   setActiveModal(null);
                   onNavigate('crm');
@@ -1071,12 +1071,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="p-3 bg-zinc-50 border-t border-zinc-100 flex justify-end shrink-0">
-              <button 
+              <button
                 onClick={() => {
                   setActiveModal(null);
                   onNavigate('crm');
                 }}
-                className="px-4 py-2 bg-[#F94A1F] text-white font-bold rounded-xl text-xs cursor-pointer"
+                className="px-4 py-2 bg-[#ff4b16] text-white font-bold rounded-xl text-xs cursor-pointer"
               >
                 Mở Phễu Chăm Sóc CRM
               </button>
@@ -1086,14 +1086,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* 4. Vay Vốn Modal */}
-      
+
 
       {/* 5. Giao Hàng Modal */}
-      
 
-      
 
-      
+
+
+
 
       {/* 8. Fullscreen Chart Modal */}
       {activeModal === 'chart_expand' && (
@@ -1101,10 +1101,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl p-5 border border-zinc-100 space-y-4 animate-scaleIn max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-2 border-b border-zinc-100">
               <div className="flex items-center space-x-2">
-                <TrendingUp className="w-5 h-5 text-[#F94A1F]" />
+                <TrendingUp className="w-5 h-5 text-[#ff4b16]" />
                 <h3 className="text-base font-bold text-zinc-900">Chi Tiết Biểu Đồ Doanh Thu Tháng ({totalRevenueDisplay} Tr)</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setActiveModal(null)}
                 className="p-1 text-zinc-400 hover:text-zinc-600 rounded-lg cursor-pointer"
               >
@@ -1118,10 +1118,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <span className="text-[9px] text-zinc-500 font-bold mb-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     {item.value}Tr
                   </span>
-                  <div 
+                  <div
                     style={{ height: `${(item.value / 220) * 100}%` }}
                     className={`w-full rounded-t-sm transition-all ${
-                      item.isPeak ? 'bg-[#F94A1F]' : 'bg-orange-400/80 group-hover:bg-[#F94A1F]'
+                      item.isPeak ? 'bg-[#ff4b16]' : 'bg-orange-400/80 group-hover:bg-[#ff4b16]'
                     }`}
                   />
                   <span className="text-[10px] text-zinc-600 font-semibold mt-1.5">{item.day}</span>
@@ -1132,7 +1132,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
               <div className="p-3 bg-zinc-50 rounded-2xl">
                 <span className="text-zinc-500 block">Ngày cao nhất:</span>
-                <strong className="text-sm text-[#F94A1F]">Ngày 28 (215.8 Tr)</strong>
+                <strong className="text-sm text-[#ff4b16]">Ngày 28 (215.8 Tr)</strong>
               </div>
               <div className="p-3 bg-zinc-50 rounded-2xl">
                 <span className="text-zinc-500 block">Trung bình / ngày:</span>
@@ -1144,7 +1144,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
-            <button 
+            <button
               onClick={() => setActiveModal(null)}
               className="w-full py-2.5 bg-zinc-900 text-white font-bold rounded-xl text-xs cursor-pointer"
             >

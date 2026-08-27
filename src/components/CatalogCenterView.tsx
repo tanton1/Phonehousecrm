@@ -964,7 +964,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
               <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-orange-300/30 bg-orange-400/10 px-3 py-1 text-[10px] font-black tracking-[0.16em] text-orange-200">
                 <Database className="h-3.5 w-3.5" /> DANH MỤC HÀNG HÓA · KHÔNG PHẢI TỒN KHO
               </div>
-              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Danh mục hàng hóa</h1>
+              <h1 className="text-xl font-black tracking-tight sm:text-2xl">Danh mục hàng hóa</h1>
               <p className="mt-0.5 max-w-2xl text-[11px] leading-4 text-zinc-300 sm:text-sm sm:leading-5">
                 Chọn nhóm hàng, thương hiệu, model và thuộc tính. Hệ thống tự sinh mã hàng, còn tồn kho và IMEI được quản lý riêng.
               </p>
@@ -1000,7 +1000,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
         </section>
       )}
 
-      <section className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-indigo-50 p-4 shadow-sm">
+      <section className="rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50/60 p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm"><Smartphone className="h-5 w-5" /></div>
@@ -1010,13 +1010,13 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
             </div>
           </div>
           {!iphoneSeedPreview ? (
-            <button type="button" disabled={iphoneSeedLoading || Boolean(apiError)} onClick={() => void handleIphoneSeedPreview()} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2.5 text-xs font-black text-white hover:bg-sky-800 disabled:opacity-50">
+            <button type="button" disabled={iphoneSeedLoading || Boolean(apiError)} onClick={() => void handleIphoneSeedPreview()} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#ff4b16] px-3.5 py-2.5 text-xs font-black text-white hover:bg-[#e94112] disabled:opacity-50">
               {iphoneSeedLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />} Xem dữ liệu sẽ tạo
             </button>
           ) : (
             <div className="flex shrink-0 flex-wrap gap-2">
               <button type="button" onClick={() => setIphoneSeedPreview(null)} className="rounded-xl border border-sky-200 bg-white px-3 py-2 text-xs font-bold text-sky-800 hover:bg-sky-100">Đóng</button>
-              <button type="button" disabled={iphoneSeedCreating || iphoneSeedPreview.ready === false} onClick={() => void handleIphoneSeedConfirm()} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-sky-700 px-3.5 py-2 text-xs font-black text-white hover:bg-sky-800 disabled:opacity-50">
+              <button type="button" disabled={iphoneSeedCreating || iphoneSeedPreview.ready === false} onClick={() => void handleIphoneSeedConfirm()} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#ff4b16] px-3.5 py-2 text-xs font-black text-white hover:bg-[#e94112] disabled:opacity-50">
                 {iphoneSeedCreating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} {iphoneSeedPreview.alreadySeeded ? 'Kiểm tra và bổ sung phần thiếu' : 'Khởi tạo danh mục iPhone'}
               </button>
             </div>
