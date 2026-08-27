@@ -916,7 +916,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
           <div className="space-y-1 shrink-0">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-semibold text-zinc-700">Nhà Cung Cấp</label>
+              <div><label className="block text-xs font-semibold text-zinc-700">Nhà Cung Cấp</label><p className="text-[10px] text-zinc-500">Chỉ dùng tài khoản NCC của {branches.find(branch => branch.id === watchBranchId)?.name || watchBranchId || 'chi nhánh đang chọn'}</p></div>
               <button
                 type="button"
                 onClick={() => setIsCreateSupplierModalOpen(true)}
@@ -1075,6 +1075,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         isOpen={isCreateSupplierModalOpen}
         onClose={() => setIsCreateSupplierModalOpen(false)}
         branchId={watchBranchId}
+        branches={branches}
+        branchLocked
+        lockType
         onSavePartner={async (newPartner) => {
           const savedPartner = onAddPartner
             ? await onAddPartner({ ...newPartner, type: 'SUPPLIER', branchId: watchBranchId })

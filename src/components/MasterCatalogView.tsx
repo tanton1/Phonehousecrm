@@ -11,6 +11,7 @@ interface MasterCatalogViewProps {
   warehouses?: WarehouseInfo[];
   funds?: FundAccount[];
   onAddPurchaseOrder?: (order: PurchaseOrder, autoCreateDevices: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
 }
 
 export const MasterCatalogView: React.FC<MasterCatalogViewProps> = ({

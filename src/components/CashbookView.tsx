@@ -31,7 +31,7 @@ interface CashbookViewProps {
   onSaveFund?: (fund: FundAccount, isNew: boolean) => Promise<void> | void;
   onDeleteFund?: (fundId: string) => Promise<void> | void;
   onTransferFunds?: (fromFundId: string, toFundId: string, amount: number, notes: string, creator?: string) => Promise<void> | void;
-  onAddPartner?: (partner: Partner) => void | Promise<void>;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
 }
 
 export const CashbookView: React.FC<CashbookViewProps> = ({
@@ -1993,17 +1993,21 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         onClose={() => setIsCreatePartnerModalOpen(false)}
         defaultType={modalType === 'RECEIPT' ? 'CUSTOMER' : 'SUPPLIER'}
         branchId={selectedBranchId !== 'ALL' ? selectedBranchId : currentUser?.branchId || ''}
+        branches={branches}
+        branchLocked={currentUser?.role !== 'ADMIN' || Boolean(selectedBranchId && selectedBranchId !== 'ALL')}
+        lockType
         onSavePartner={async (newPartner) => {
+          let savedPartner = newPartner;
           if (onAddPartner) {
-            await onAddPartner(newPartner);
+            savedPartner = await onAddPartner(newPartner) || newPartner;
           }
           // Auto-select into current form
           setFormData(prev => ({
             ...prev,
-            partnerId: newPartner.id,
-            partnerName: newPartner.name,
-            partnerPhone: newPartner.phone || '',
-            partnerType: newPartner.type
+            partnerId: savedPartner.id,
+            partnerName: savedPartner.name,
+            partnerPhone: savedPartner.phone || '',
+            partnerType: savedPartner.type
           }));
         }}
       />

@@ -53,6 +53,7 @@ interface CatalogCenterViewProps {
   warehouses?: WarehouseInfo[];
   funds?: FundAccount[];
   onAddPurchaseOrder?: (order: PurchaseOrder, postToInventory: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
 }
 
 type CenterTab = 'CATALOG' | 'MODELS' | 'BULK' | 'TOOLS';
@@ -206,7 +207,8 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
   branches = [],
   warehouses = [],
   funds = [],
-  onAddPurchaseOrder
+  onAddPurchaseOrder,
+  onAddPartner
 }) => {
   const [activeTab, setActiveTab] = useState<CenterTab>('CATALOG');
   const [bootstrap, setBootstrap] = useState<CatalogBootstrap | null>(null);
@@ -1370,6 +1372,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
           warehouses={warehouses}
           funds={funds}
           onAddPurchaseOrder={onAddPurchaseOrder}
+          onAddPartner={onAddPartner}
         />
       )}
     </div>

@@ -44,6 +44,7 @@ import {
   StoreBranch
 } from '../types';
 import { createPartnerDebtIdempotencyKey, type PartnerDebtSettlementDirection } from '../services/financeApiClient';
+import { CreatePartnerModal } from './CreatePartnerModal';
 
 interface PartnersViewProps {
   partners: Partner[];
@@ -720,6 +721,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                   </div>
                   <div className="text-[11px] text-zinc-500 flex items-center space-x-2 truncate">
                     <span>{partner.phone}</span>
+                    <span>•</span>
+                    <span className="font-bold text-orange-700">{branches.find(branch => branch.id === partner.branchId)?.name || partner.branchId || 'Chưa gắn chi nhánh'}</span>
                     {partner.address && (
                       <>
                         <span>•</span>
@@ -760,6 +763,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                     <td className="px-4 py-3">
                       <div className="font-bold text-zinc-900">{partner.name}</div>
                       <div className="text-[11px] text-zinc-400">{partner.id}</div>
+                      <div className="mt-0.5 text-[10px] font-bold text-orange-700">{branches.find(branch => branch.id === partner.branchId)?.name || partner.branchId || 'Chưa gắn chi nhánh'}</div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-semibold text-zinc-800">{partner.phone}</div>
@@ -826,7 +830,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-zinc-900">{selectedPartner.name}</h3>
-                  <p className="text-xs text-zinc-500">Mã: {selectedPartner.id} • {selectedPartner.phone}</p>
+                  <p className="text-xs text-zinc-500">Mã: {selectedPartner.id} • {selectedPartner.phone} • {branches.find(branch => branch.id === selectedPartner.branchId)?.name || selectedPartner.branchId || 'Chưa gắn chi nhánh'}</p>
                 </div>
               </div>
               <button
@@ -1016,8 +1020,23 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         </div>
       )}
 
-      {/* 8. MODAL: THÊM / SỬA ĐỐI TÁC */}
-      {isFormModalOpen && (
+      {/* 8. MODAL: THÊM ĐỐI TÁC — dùng chung với Phiếu nhập */}
+      {isFormModalOpen && !editingPartner && (
+        <CreatePartnerModal
+          isOpen
+          onClose={() => setIsFormModalOpen(false)}
+          defaultType={formData.type || 'SUPPLIER'}
+          branchId={String(formData.branchId || '')}
+          branches={branches}
+          branchLocked={Boolean(selectedBranchId && selectedBranchId !== 'ALL')}
+          onSavePartner={async partner => {
+            await onAddPartner(partner);
+          }}
+        />
+      )}
+
+      {/* Sửa đối tác giữ nguyên form chi tiết và không cho đổi chi nhánh */}
+      {isFormModalOpen && editingPartner && (
         <div className="fixed inset-0 bg-white sm:bg-zinc-950/70 sm:backdrop-blur-xs z-50 flex items-center justify-center sm:p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full h-[100dvh] sm:h-auto sm:max-h-[90vh] sm:rounded-3xl sm:max-w-lg overflow-hidden shadow-none sm:shadow-2xl flex flex-col border-0 sm:border sm:border-orange-100">
             <div className="bg-white px-4 py-3.5 sm:px-6 sm:py-5 border-b border-orange-100 flex items-center gap-3 shrink-0">

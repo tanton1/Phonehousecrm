@@ -7,6 +7,7 @@ import { HelpHint } from './HelpHint';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
 import { purchaseErrorMessage } from '../utils/purchaseErrors';
 import { fetchLegacyUnassignedPartners } from '../services/firestoreService';
+import { CreatePartnerModal } from './CreatePartnerModal';
 
 type DraftLine = {
   key: string;
@@ -49,6 +50,7 @@ interface StockItemPurchaseEntryFormProps {
   warehouses: WarehouseInfo[];
   funds: FundAccount[];
   onAddPurchaseOrder: (order: PurchaseOrder, postToInventory: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
 }
 
 const money = (value: number) => new Intl.NumberFormat('vi-VN').format(Number(value || 0));
@@ -66,7 +68,7 @@ const searchable = (item: MasterCatalogItem, query: string) => {
  * supplier debt and the selected fund are posted together or not at all.
  */
 export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProps> = ({
-  isOpen, onClose, currentUser, partners, branches, warehouses, funds, onAddPurchaseOrder
+  isOpen, onClose, currentUser, partners, branches, warehouses, funds, onAddPurchaseOrder, onAddPartner
 }) => {
   const [catalog, setCatalog] = useState<MasterCatalogItem[]>([]);
   const [query, setQuery] = useState('');
@@ -84,6 +86,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [legacySuppliers, setLegacySuppliers] = useState<Partner[]>([]);
+  const [isCreateSupplierModalOpen, setIsCreateSupplierModalOpen] = useState(false);
   const receiptDraftKey = browserDraftKey('purchase-stock', currentUser?.id, currentUser?.branchId);
   const wasOpenRef = useRef(false);
   const draftHydratedRef = useRef(false);
@@ -395,7 +398,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="text-xs font-bold text-zinc-700">Chi nhánh<select value={branchId} onChange={event => setBranchId(event.target.value)} disabled={currentUser?.role !== 'ADMIN'} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn chi nhánh</option>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
               <label className="text-xs font-bold text-zinc-700">Kho nhận<select value={warehouseId} onChange={event => setWarehouseId(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn kho</option>{receiptWarehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}{warehouse.type === 'CENTRAL' ? ' · Kho Tổng' : ''}</option>)}</select></label>
-              <label className="text-xs font-bold text-zinc-700">Nhà cung cấp<select value={supplierId} onChange={event => setSupplierId(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn nhà cung cấp</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}{!supplier.branchId || supplier.branchId === 'ALL' ? ' · dữ liệu cũ, sẽ gắn chi nhánh' : ''}</option>)}</select></label>
+              <div><div className="flex items-center justify-between gap-2"><label className="text-xs font-bold text-zinc-700">Nhà cung cấp</label>{onAddPartner && <button type="button" onClick={() => setIsCreateSupplierModalOpen(true)} className="text-[11px] font-black text-orange-600 hover:underline">+ Thêm NCC</button>}</div><select value={supplierId} onChange={event => setSupplierId(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-semibold"><option value="">Chọn nhà cung cấp</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}{!supplier.branchId || supplier.branchId === 'ALL' ? ' · dữ liệu cũ, sẽ gắn chi nhánh' : ''}</option>)}</select></div>
             </div>
             <label className="block text-xs font-bold text-zinc-700">Ghi chú phiếu<textarea value={notes} onChange={event => setNotes(event.target.value)} rows={3} className="mt-1 w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm font-medium" placeholder="Ví dụ: Hóa đơn NCC, điều kiện bảo hành, ghi chú giao nhận..." /></label>
             <div className="rounded-2xl border border-sky-100 bg-sky-50/60 p-4 text-xs leading-5 text-sky-900"><b>Quy tắc kho:</b> Linh kiện nhập từ nhà cung cấp phải vào Kho Tổng. Phụ kiện có thể nhận trực tiếp vào kho bán lẻ.</div>
@@ -417,6 +420,20 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
 
         <footer className="flex items-center justify-between gap-3 border-t border-zinc-200 bg-white p-3 sm:p-4"><button type="button" onClick={() => currentStepIndex === 0 ? onClose() : setStep(RECEIPT_STEPS[currentStepIndex - 1].id)} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-black text-zinc-700"><ChevronLeft className="h-4 w-4" /> {currentStepIndex === 0 ? 'Đóng' : 'Quay lại'}</button>{step !== 'REVIEW' ? <button type="button" onClick={moveToNext} className="ml-auto inline-flex h-11 items-center gap-1.5 rounded-xl bg-orange-600 px-4 text-sm font-black text-white shadow-sm hover:bg-orange-700">Tiếp tục <ChevronRight className="h-4 w-4" /></button> : <button type="button" disabled={submitting} onClick={() => void submit()} className="ml-auto inline-flex h-11 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50">{submitting ? 'Đang ghi phiếu…' : <><CheckCircle2 className="h-4 w-4" /> Xác nhận nhập hàng</>}</button>}</footer>
       </div>
+      <CreatePartnerModal
+        isOpen={isCreateSupplierModalOpen}
+        onClose={() => setIsCreateSupplierModalOpen(false)}
+        defaultType="SUPPLIER"
+        branchId={branchId}
+        branches={branches}
+        branchLocked
+        lockType
+        onSavePartner={async newPartner => {
+          const savedPartner = onAddPartner ? await onAddPartner(newPartner) || newPartner : newPartner;
+          setLegacySuppliers(current => [savedPartner, ...current.filter(partner => partner.id !== savedPartner.id)]);
+          setSupplierId(savedPartner.id);
+        }}
+      />
     </div>
   );
 };

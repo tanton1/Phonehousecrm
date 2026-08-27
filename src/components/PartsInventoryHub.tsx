@@ -14,6 +14,7 @@ interface PartsInventoryHubProps {
   funds: FundAccount[];
   currentUser?: UserAccount | null;
   onAddPurchaseOrder: (order: PurchaseOrder, postToInventory: boolean) => Promise<PurchaseOrder | void> | PurchaseOrder | void;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
   onOpenPurchaseOrders?: () => void;
   /** Keeps old deep-links to `spare-parts` useful while there is only one visible page. */
   preferredSection?: 'retail' | 'technical';
@@ -41,6 +42,7 @@ export const PartsInventoryHub: React.FC<PartsInventoryHubProps> = ({
   funds,
   currentUser,
   onAddPurchaseOrder,
+  onAddPartner,
   onOpenPurchaseOrders,
   preferredSection
 }) => {
@@ -155,6 +157,7 @@ export const PartsInventoryHub: React.FC<PartsInventoryHubProps> = ({
         warehouses={warehouses}
         funds={funds}
         onAddPurchaseOrder={onAddPurchaseOrder}
+        onAddPartner={onAddPartner}
       />
     </div>
   );

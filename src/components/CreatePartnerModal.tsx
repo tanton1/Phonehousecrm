@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Building2, Phone, Mail, MapPin, FileText, Check } from 'lucide-react';
-import { Partner, PartnerType } from '../types';
+import { CustomerTier, Partner, PartnerType, StoreBranch, SupplierCategory } from '../types';
 import { HelpHint } from './HelpHint';
 
 interface CreatePartnerModalProps {
@@ -10,6 +10,9 @@ interface CreatePartnerModalProps {
   initialPhone?: string;
   initialName?: string;
   branchId?: string;
+  branches?: StoreBranch[];
+  branchLocked?: boolean;
+  lockType?: boolean;
   onSavePartner: (partner: Partner) => Partner | void | Promise<Partner | void>;
 }
 
@@ -20,30 +23,39 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
   initialPhone = '',
   initialName = '',
   branchId = '',
+  branches = [],
+  branchLocked = true,
+  lockType = false,
   onSavePartner
 }) => {
   const [partnerType, setPartnerType] = useState<PartnerType>(defaultType);
+  const [selectedBranchId, setSelectedBranchId] = useState(branchId);
   const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState(initialPhone);
   const [email, setEmail] = useState('');
   const [address, setAddress] = useState('');
   const [taxCode, setTaxCode] = useState('');
-  const [group, setGroup] = useState<'Khách lẻ' | 'Khách quen' | 'VIP' | 'Thợ / Đại lý' | 'NCC Uy tín'>('Khách lẻ');
+  const [customerTier, setCustomerTier] = useState<CustomerTier>('STANDARD');
+  const [supplierCategory, setSupplierCategory] = useState<SupplierCategory>('LIKE_NEW_WHOLESALER');
+  const [creditLimit, setCreditLimit] = useState(0);
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setPartnerType(defaultType);
+      setSelectedBranchId(branchId);
       setName(initialName);
       setPhone(initialPhone);
       setEmail('');
       setAddress('');
       setTaxCode('');
-      setGroup(defaultType === 'SUPPLIER' ? 'NCC Uy tín' : 'Khách lẻ');
+      setCustomerTier('STANDARD');
+      setSupplierCategory('LIKE_NEW_WHOLESALER');
+      setCreditLimit(0);
       setNotes('');
     }
-  }, [isOpen, defaultType, initialName, initialPhone]);
+  }, [branchId, isOpen, defaultType, initialName, initialPhone]);
 
   if (!isOpen) return null;
 
@@ -57,7 +69,7 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
       alert('Vui lòng nhập số điện thoại liên hệ!');
       return;
     }
-    if (!branchId || branchId === 'ALL') {
+    if (!selectedBranchId || selectedBranchId === 'ALL') {
       alert('Vui lòng chọn một chi nhánh cụ thể trước khi tạo đối tác.');
       return;
     }
@@ -65,17 +77,20 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
     setIsSubmitting(true);
     try {
       const newPartner: Partner = {
-        id: `${partnerType === 'SUPPLIER' ? 'SUP' : 'CUS'}-${Date.now()}`,
+        id: `${partnerType === 'SUPPLIER' ? 'SUP' : partnerType === 'CUSTOMER' ? 'CUS' : 'PAR'}-${Date.now()}`,
         name: name.trim(),
         phone: phone.trim(),
         email: email.trim() || undefined,
         address: address.trim() || undefined,
         taxCode: taxCode.trim() || undefined,
         type: partnerType,
-        branchId,
+        branchId: selectedBranchId,
+        ...(['CUSTOMER', 'BOTH'].includes(partnerType) ? { customerTier } : {}),
+        ...(['SUPPLIER', 'BOTH'].includes(partnerType) ? { supplierCategory } : {}),
+        creditLimit: Math.max(0, Number(creditLimit || 0)),
         outstandingDebt: 0,
         createdAt: new Date().toISOString().split('T')[0],
-        notes: notes.trim() ? `[${group}] ${notes.trim()}` : `[${group}] Tạo từ form nhanh`
+        notes: notes.trim()
       };
 
       await onSavePartner(newPartner);
@@ -98,8 +113,8 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
   };
 
   return (
-    <div data-ph-fullscreen-form className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-zinc-200/80 flex flex-col max-h-[90vh]">
+    <div data-ph-fullscreen-form className="fixed inset-0 bg-black/60 backdrop-blur-xs z-[130] flex items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-none sm:rounded-3xl w-full h-[100dvh] sm:h-auto sm:max-w-lg overflow-hidden shadow-2xl border-0 sm:border border-zinc-200/80 flex flex-col sm:max-h-[90vh]">
         {/* Header */}
         <div className="p-4 sm:p-5 bg-gradient-to-r from-orange-50/80 to-amber-50/50 border-b border-orange-100/80 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
@@ -108,7 +123,7 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
             </div>
             <div className="flex items-center gap-2">
               <h3 className="font-black text-zinc-900 text-base">
-                {partnerType === 'SUPPLIER' ? 'Thêm Nhà Cung Cấp Mới' : 'Thêm Khách Hàng Mới'}
+                {partnerType === 'SUPPLIER' ? 'Thêm Nhà Cung Cấp Mới' : partnerType === 'BOTH' ? 'Thêm Đối Tác Hai Chiều' : 'Thêm Khách Hàng Mới'}
               </h3>
               <HelpHint title="Tạo đối tác">Sau khi lưu, đối tác được thêm vào danh bạ và tự chọn cho form đang mở.</HelpHint>
             </div>
@@ -123,10 +138,35 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+          <div className="rounded-2xl border border-orange-200 bg-orange-50/70 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-black text-zinc-800">Chi nhánh quản lý <span className="text-rose-500">*</span></label>
+              <HelpHint title="Đối tác theo chi nhánh">Công nợ, phiếu nhập, hóa đơn và thanh toán của đối tác chỉ thuộc chi nhánh này. Sau khi phát sinh giao dịch, không được đổi chi nhánh.</HelpHint>
+            </div>
+            <select
+              required
+              disabled={branchLocked}
+              value={selectedBranchId}
+              onChange={event => setSelectedBranchId(event.target.value)}
+              className="mt-2 h-11 w-full rounded-xl border border-orange-200 bg-white px-3 text-sm font-bold text-zinc-900 outline-none focus:border-[#ff4b16] disabled:cursor-not-allowed disabled:bg-orange-50 disabled:text-zinc-700"
+            >
+              <option value="">-- Chọn chi nhánh --</option>
+              {branches.filter(branch => branch.isActive !== false).map(branch => (
+                <option key={branch.id} value={branch.id}>{branch.name}</option>
+              ))}
+              {selectedBranchId && !branches.some(branch => branch.id === selectedBranchId) && (
+                <option value={selectedBranchId}>{selectedBranchId}</option>
+              )}
+            </select>
+            <p className="mt-1.5 text-[10px] leading-4 text-orange-900/70">
+              {branchLocked ? 'Được lấy từ chi nhánh đang làm việc/phiếu nhập và khóa để tránh tạo nhầm.' : 'Admin phải chọn một chi nhánh cụ thể trước khi lưu.'}
+            </p>
+          </div>
+
           {/* Partner Type Toggle */}
           <div>
             <label className="block text-xs font-bold text-zinc-700 mb-1.5">Loại Đối Tác</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className={`grid grid-cols-3 gap-2 ${lockType ? 'pointer-events-none opacity-80' : ''}`}>
               {[
                 { id: 'CUSTOMER', label: '👤 Khách Hàng' },
                 { id: 'SUPPLIER', label: '🏢 Nhà Cung Cấp' },
@@ -183,31 +223,35 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
             </div>
           </div>
 
-          {/* Group & Tax code */}
+          {/* Business classification */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-zinc-700 mb-1">Phân Nhóm Đối Tác</label>
+            {(['SUPPLIER', 'BOTH'].includes(partnerType)) && <div>
+              <label className="block text-xs font-bold text-zinc-700 mb-1">Nhóm Nhà Cung Cấp</label>
               <select
-                value={group}
-                onChange={e => setGroup(e.target.value as any)}
+                value={supplierCategory}
+                onChange={e => setSupplierCategory(e.target.value as SupplierCategory)}
                 className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
               >
-                {partnerType === 'SUPPLIER' ? (
-                  <>
-                    <option value="NCC Uy tín">NCC Uy tín / Chiến lược</option>
-                    <option value="NCC Phụ kiện">NCC Phụ kiện & Đồ chơi</option>
-                    <option value="Thợ / Đại lý">Thợ sỉ / Cửa hàng liên kết</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="Khách lẻ">Khách Mua Lẻ Thường</option>
-                    <option value="Khách quen">Khách Quen / Giới Thiệu</option>
-                    <option value="VIP">Khách Hàng VIP</option>
-                    <option value="Thợ / Đại lý">Khách Thợ Sỉ / Đại Lý</option>
-                  </>
-                )}
+                <option value="OFFICIAL_DISTRIBUTOR">Nhà phân phối chính hãng</option>
+                <option value="LIKE_NEW_WHOLESALER">Nguồn máy / Hàng sỉ</option>
+                <option value="COMPONENTS">Linh kiện &amp; Phụ kiện</option>
+                {!lockType && <option value="FINANCE_PARTNER">Đối tác tài chính</option>}
               </select>
-            </div>
+            </div>}
+
+            {(['CUSTOMER', 'BOTH'].includes(partnerType)) && <div>
+              <label className="block text-xs font-bold text-zinc-700 mb-1">Nhóm Khách Hàng</label>
+              <select value={customerTier} onChange={e => setCustomerTier(e.target.value as CustomerTier)} className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all">
+                <option value="STANDARD">Khách tiêu chuẩn</option>
+                <option value="SILVER">Khách Bạc</option>
+                <option value="GOLD">Khách Vàng</option>
+                <option value="DIAMOND">Khách Kim cương</option>
+                <option value="WHOLESALE">Khách sỉ / Đại lý</option>
+              </select>
+            </div>}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
             <div>
               <label className="block text-xs font-bold text-zinc-700 mb-1">Mã Số Thuế / CCCD (nếu có)</label>
@@ -221,6 +265,11 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
                   className="w-full h-9 pl-9 pr-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 mb-1">Hạn Mức Công Nợ</label>
+              <input type="number" min="0" step="1000" value={creditLimit} onChange={e => setCreditLimit(Number(e.target.value))} className="w-full h-9 px-3 bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-mono font-medium focus:bg-white focus:outline-none focus:border-[#ff4b16] transition-all" />
             </div>
           </div>
 

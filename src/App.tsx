@@ -1610,6 +1610,7 @@ export default function App() {
             warehouses={warehouses}
             funds={filteredFunds}
             onAddPurchaseOrder={handleAddPurchaseOrder}
+            onAddPartner={handleAddPartner}
           />
         )}
 
@@ -1623,6 +1624,7 @@ export default function App() {
             currentUser={currentUser}
             preferredSection={activeTab === 'spare-parts' ? 'technical' : undefined}
             onAddPurchaseOrder={handleAddPurchaseOrder}
+            onAddPartner={handleAddPartner}
             onOpenPurchaseOrders={() => setActiveTab('purchase-orders')}
           />
         )}
