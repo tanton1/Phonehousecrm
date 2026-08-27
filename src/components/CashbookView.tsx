@@ -11,6 +11,7 @@ import {
 import { CreatePartnerModal } from './CreatePartnerModal';
 import { InterBranchDebtPanel } from '../features/finance/components/InterBranchDebtPanel';
 import { addFinanceCategory, fetchFinanceCategories } from '../services/configurationApiClient';
+import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamDateTimeString, getVietnamRelativeDateString } from '../utils/dateTimeUtils';
 
 // format helpers
 const formatCurrency = (amount: number) => {
@@ -79,22 +80,20 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     else if (activeFilter === 'RETAIL') result = result.filter(t => t.category === 'SALES_REVENUE');
 
     // 3. Date Filter
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getVietnamDateString();
     if (dateFilterMode === 'TODAY') {
       result = result.filter(t => (t.date || '').startsWith(todayStr));
     } else if (dateFilterMode === 'YESTERDAY') {
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const yesterday = getVietnamRelativeDateString(-1);
       result = result.filter(t => (t.date || '').startsWith(yesterday));
     } else if (dateFilterMode === '7DAYS') {
-      const past7 = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+      const past7 = getVietnamRelativeDateString(-6);
       result = result.filter(t => (t.date || '').slice(0, 10) >= past7);
     } else if (dateFilterMode === 'THIS_MONTH') {
       const thisMonth = todayStr.slice(0, 7);
       result = result.filter(t => (t.date || '').startsWith(thisMonth));
     } else if (dateFilterMode === 'LAST_MONTH') {
-      const d = new Date();
-      d.setMonth(d.getMonth() - 1);
-      const lastMonth = d.toISOString().slice(0, 7);
+      const lastMonth = getPreviousVietnamMonthString();
       result = result.filter(t => (t.date || '').startsWith(lastMonth));
     } else if (dateFilterMode === 'CUSTOM') {
       if (customStartDate) result = result.filter(t => (t.date || '').slice(0, 10) >= customStartDate);
@@ -425,7 +424,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     }
 
     const now = new Date();
-    const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
+    const dateStr = getVietnamDateTimeString(now).slice(0, 16);
 
     const txAdjust: CashTransaction = {
       id: `TX-${Date.now()}-ADJ`,
@@ -468,7 +467,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     }
 
     const now = new Date();
-    const dateStr = `${now.toISOString().slice(0, 10)} ${now.toTimeString().slice(0, 5)}`;
+    const dateStr = getVietnamDateTimeString(now).slice(0, 16);
     const randomCode = `${formData.type === 'RECEIPT' ? 'PT' : 'PC'}-${now.getFullYear()}${(now.getMonth()+1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${Math.floor(100 + Math.random() * 900)}`;
 
     const newTx: CashTransaction = {

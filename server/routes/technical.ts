@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Firestore } from 'firebase-admin/firestore';
+import { FieldPath, Firestore } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
@@ -854,10 +854,16 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       let lineQuery: FirebaseFirestore.Query = scope === 'mine'
         ? db.collection('technicalWorkOrderLines').where('assigneeUid', '==', req.user!.uid).where('status', 'in', activeStatuses)
         : db.collection('technicalWorkOrderLines').where('branchId', '==', branchId).where('status', 'in', activeStatuses);
-      lineQuery = lineQuery.orderBy('deadlineAt', 'asc');
+      lineQuery = lineQuery.orderBy('deadlineAt', 'asc').orderBy(FieldPath.documentId(), 'asc');
       const cursor = String(req.query.cursor || '').trim();
       if (cursor) {
-        try { lineQuery = lineQuery.startAfter(Buffer.from(cursor, 'base64url').toString('utf8')); } catch { throw new Error('CURSOR_INVALID'); }
+        try {
+          const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+          if (!parsed || typeof parsed.deadlineAt !== 'string' || typeof parsed.id !== 'string') throw new Error('CURSOR_INVALID');
+          lineQuery = lineQuery.startAfter(parsed.deadlineAt, parsed.id);
+        } catch {
+          throw new Error('CURSOR_INVALID');
+        }
       }
       const lineSnap = await lineQuery.limit(pageSize + 1).get();
       const pageDocs = lineSnap.docs.slice(0, pageSize);
@@ -865,8 +871,19 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       const workOrderIds = [...new Set(pageDocs.map(doc => String(doc.data().workOrderId || '')).filter(Boolean))];
       const woSnaps = workOrderIds.length ? await db.getAll(...workOrderIds.map(id => db.collection('technicalWorkOrders').doc(id))) : [];
       const woMap = new Map(woSnaps.filter(snap => snap.exists).map(snap => [snap.id, { id: snap.id, ...snap.data() } as any]));
+      const completeLineIds = [...new Set(woSnaps.flatMap(snap => {
+        const data = snap.exists ? snap.data() : null;
+        return Array.isArray(data?.taskLineIds) ? data.taskLineIds.map(String) : [];
+      }).filter(Boolean))];
+      const completeLineSnaps = completeLineIds.length
+        ? await db.getAll(...completeLineIds.map(id => db.collection('technicalWorkOrderLines').doc(id)))
+        : [];
+      const projectionDocsById = new Map<string, FirebaseFirestore.DocumentSnapshot>();
+      pageDocs.forEach(doc => projectionDocsById.set(doc.id, doc));
+      completeLineSnaps.filter(snap => snap.exists).forEach(doc => projectionDocsById.set(doc.id, doc));
+      const projectionDocs = [...projectionDocsById.values()];
       const linesByWo = new Map<string, any[]>();
-      pageDocs.forEach(doc => {
+      projectionDocs.forEach(doc => {
         const line = { id: doc.id, ...doc.data() } as any;
         const key = String(line.workOrderId || '');
         linesByWo.set(key, [...(linesByWo.get(key) || []), line]);
@@ -903,8 +920,11 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         if (item.currentCustodianUid) acc.devicesInCustody += 1;
         return acc;
       }, { workOrdersOpen: 0, devicesInCustody: 0, waitingAcceptance: 0, dueSoon: 0, overdue: 0, waitingParts: 0, waitingQc: 0, rework: 0 });
-      const lastDeadline = pageDocs.at(-1)?.data()?.deadlineAt;
-      return res.json({ success: true, data: { summary, alerts: items.filter(item => item.sla.isOverdue || item.blockers.length).slice(0, 20), items, hasMore, nextCursor: hasMore && lastDeadline ? Buffer.from(String(lastDeadline)).toString('base64url') : null } });
+      const lastDoc = pageDocs.at(-1);
+      const nextCursor = hasMore && lastDoc
+        ? Buffer.from(JSON.stringify({ deadlineAt: String(lastDoc.data()?.deadlineAt || ''), id: lastDoc.id })).toString('base64url')
+        : null;
+      return res.json({ success: true, data: { summary, alerts: items.filter(item => item.sla.isOverdue || item.blockers.length).slice(0, 20), items, hasMore, nextCursor } });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error?.message || 'Không thể tải bàn kỹ thuật.' });
     }
@@ -924,23 +944,32 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       const staffUid = ['TECH', 'TECHNICIAN'].includes(role) ? req.user!.uid : requestedStaffUid;
       const rangeStart = getVietnamDayUtcRange(fromDate).startUtc;
       const rangeEnd = getVietnamDayUtcRange(toDate).endUtc;
+      let assignedQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrderLines').where('branchId', '==', branchId).where('assignedAt', '>=', rangeStart).where('assignedAt', '<=', rangeEnd);
+      if (staffUid) assignedQuery = assignedQuery.where('assigneeUid', '==', staffUid);
       let verifiedQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrderLines').where('branchId', '==', branchId).where('qcVerifiedAt', '>=', rangeStart).where('qcVerifiedAt', '<=', rangeEnd);
       if (staffUid) verifiedQuery = verifiedQuery.where('assigneeUid', '==', staffUid);
       let commissionQuery: FirebaseFirestore.Query = db.collection('commissionLedger').where('branchId', '==', branchId).where('eligibleAt', '>=', rangeStart).where('eligibleAt', '<=', rangeEnd);
       if (staffUid) commissionQuery = commissionQuery.where('staffUid', '==', staffUid);
+      let pendingCommissionQuery: FirebaseFirestore.Query = db.collection('commissionLedger').where('branchId', '==', branchId).where('status', '==', 'PENDING').where('assignedAt', '>=', rangeStart).where('assignedAt', '<=', rangeEnd);
+      if (staffUid) pendingCommissionQuery = pendingCommissionQuery.where('staffUid', '==', staffUid);
       let sessionQuery: FirebaseFirestore.Query = db.collection('technicalTaskSessions').where('branchId', '==', branchId).where('startedAt', '>=', rangeStart).where('startedAt', '<=', rangeEnd);
       if (staffUid) sessionQuery = sessionQuery.where('technicianUid', '==', staffUid);
-      const [verifiedSnap, commissionSnap, sessionSnap] = await Promise.all([verifiedQuery.limit(2000).get(), commissionQuery.limit(2000).get(), sessionQuery.limit(4000).get()]);
+      const [assignedSnap, verifiedSnap, commissionSnap, pendingCommissionSnap, sessionSnap] = await Promise.all([
+        assignedQuery.limit(4000).get(), verifiedQuery.limit(4000).get(), commissionQuery.limit(4000).get(),
+        pendingCommissionQuery.limit(4000).get(), sessionQuery.limit(8000).get()
+      ]);
       const staff = new Map<string, any>();
       const ensure = (uid: string, name?: string) => {
         if (!staff.has(uid)) staff.set(uid, { staffUid: uid, staffName: name || uid, assignedTaskCount: 0, verifiedTaskCount: 0, completedWorkOrderIds: new Set<string>(), onTimeCount: 0, overdueCount: 0, qcFirstPassCount: 0, qcFailedCount: 0, reworkCount: 0, activeWorkMinutes: 0, waitingPartsMinutes: 0, commissionPending: 0, commissionEligible: 0, commissionPaid: 0 });
         return staff.get(uid);
       };
-      verifiedSnap.docs.forEach(doc => { const line = doc.data(); const row = ensure(String(line.assigneeUid || ''), line.assigneeName); row.verifiedTaskCount += 1; row.assignedTaskCount += 1; row.completedWorkOrderIds.add(String(line.workOrderId || '')); row.reworkCount += Number(line.reworkCycle || 0); if (line.deadlineAt && String(line.qcVerifiedAt) <= String(line.deadlineAt)) row.onTimeCount += 1; else row.overdueCount += 1; if (Number(line.reworkCycle || 0) === 0) row.qcFirstPassCount += 1; else row.qcFailedCount += 1; row.waitingPartsMinutes += Number(line.waitingPartsMinutes || 0); });
+      assignedSnap.docs.forEach(doc => { const line = doc.data(); ensure(String(line.assigneeUid || ''), line.assigneeName).assignedTaskCount += 1; });
+      verifiedSnap.docs.forEach(doc => { const line = doc.data(); const row = ensure(String(line.assigneeUid || ''), line.assigneeName); if (!line.assignedAt) row.assignedTaskCount += 1; row.verifiedTaskCount += 1; row.completedWorkOrderIds.add(String(line.workOrderId || '')); row.reworkCount += Number(line.reworkCycle || 0); if (line.deadlineAt && String(line.qcVerifiedAt) <= String(line.deadlineAt)) row.onTimeCount += 1; else row.overdueCount += 1; if (Number(line.reworkCycle || 0) === 0) row.qcFirstPassCount += 1; else row.qcFailedCount += 1; row.waitingPartsMinutes += Number(line.waitingPartsMinutes || 0); });
       sessionSnap.docs.forEach(doc => { const session = doc.data(); ensure(String(session.technicianUid || '')).activeWorkMinutes += Number(session.durationMinutes || 0); });
       commissionSnap.docs.forEach(doc => { const entry = doc.data(); const row = ensure(String(entry.staffUid || ''), entry.staffName); const amount = Number(entry.commissionPayable ?? entry.amount ?? 0); if (entry.status === 'PAID') row.commissionPaid += amount; else if (entry.status === 'ELIGIBLE') row.commissionEligible += amount; else if (entry.status === 'PENDING') row.commissionPending += amount; });
+      pendingCommissionSnap.docs.forEach(doc => { const entry = doc.data(); ensure(String(entry.staffUid || ''), entry.staffName).commissionPending += Number(entry.commissionPayable ?? entry.amount ?? 0); });
       const items = [...staff.values()].filter(row => row.staffUid).map(row => ({ ...row, completedWorkOrderCount: row.completedWorkOrderIds.size, completedWorkOrderIds: undefined, onTimeRate: row.verifiedTaskCount ? Math.round(row.onTimeCount * 10000 / row.verifiedTaskCount) / 100 : 0, firstPassRate: row.verifiedTaskCount ? Math.round(row.qcFirstPassCount * 10000 / row.verifiedTaskCount) / 100 : 0, averageActiveMinutes: row.verifiedTaskCount ? Math.round(row.activeWorkMinutes / row.verifiedTaskCount) : 0 }));
-      return res.json({ success: true, data: { from: fromDate, to: toDate, branchId, items } });
+      return res.json({ success: true, data: { from: fromDate, to: toDate, branchId, items, coverage: { assignedCapped: assignedSnap.size >= 4000, verifiedCapped: verifiedSnap.size >= 4000, commissionCapped: commissionSnap.size >= 4000 || pendingCommissionSnap.size >= 4000, sessionsCapped: sessionSnap.size >= 8000 } } });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error?.message || 'Không thể tải KPI kỹ thuật.' });
     }

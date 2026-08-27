@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { WarrantyTicket, DeviceItem, StoreBranch, StaffMember } from '../../../types';
 import { Wrench, Clock, CheckCircle2, Award, AlertTriangle, Cpu, ArrowRight, Plus, RefreshCw } from 'lucide-react';
 import { fetchMyTechnicalWork, fetchTechnicalCommissionLedger, TechnicalCommissionLedgerEntry } from '../../../services/technicalApiClient';
+import { getVietnamMonthString } from '../../../utils/dateTimeUtils';
 
 export interface TechHomeViewProps {
   warrantyTickets: WarrantyTicket[];
@@ -27,7 +28,7 @@ export const TechHomeView: React.FC<TechHomeViewProps> = ({
     setLoading(true);
     setError('');
     try {
-      const period = new Date().toISOString().slice(0, 7);
+      const period = getVietnamMonthString();
       const [lines, ledger] = await Promise.all([
         fetchMyTechnicalWork(),
         fetchTechnicalCommissionLedger(period)

@@ -14,6 +14,24 @@ export function getVietnamDateString(d: Date = new Date()): string {
   }).format(d);
 }
 
+/** Returns Vietnam month in YYYY-MM format. */
+export function getVietnamMonthString(d: Date = new Date()): string {
+  return getVietnamDateString(d).slice(0, 7);
+}
+
+/** Returns a Vietnam calendar date offset by the requested number of days. */
+export function getVietnamRelativeDateString(days: number, d: Date = new Date()): string {
+  return getVietnamDateString(new Date(d.getTime() + days * 86_400_000));
+}
+
+/** Returns the calendar month immediately before the current Vietnam month. */
+export function getPreviousVietnamMonthString(d: Date = new Date()): string {
+  const [year, month] = getVietnamMonthString(d).split('-').map(Number);
+  const previousYear = month === 1 ? year - 1 : year;
+  const previousMonth = month === 1 ? 12 : month - 1;
+  return `${previousYear}-${String(previousMonth).padStart(2, '0')}`;
+}
+
 /**
  * Returns current Vietnam time in HH:mm format
  */

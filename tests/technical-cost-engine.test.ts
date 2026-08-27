@@ -131,6 +131,23 @@ describe('Technical per-IMEI cost engine', () => {
     expect(store.get('spareParts', second.part.id).productMasterId).toBe('CAT_PIN_15');
   });
 
+  it('blocks direct spare-part stock receipts in production', async () => {
+    const store = createTechnicalCostDb({
+      warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'CENTRAL', isActive: true } }
+    });
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      await expect(processReceiveTechnicalSparePart(store.db, {
+        productMasterId: 'CAT_PIN_15', branchId: 'CN01', warehouseId: 'PARTS_CN01', quantity: 1, unitCost: 100_000,
+        sourceType: 'PART_PURCHASE', sourceId: 'SRC_DIRECT', idempotencyKey: 'part-receipt-production-block-001'
+      }, manager)).rejects.toThrow('SPARE_PART_PURCHASE_USE_PURCHASE_ORDER');
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
   it('does not allow a typed SKU to create a new technical stock balance', async () => {
     const store = createTechnicalCostDb({
       warehouses: { PARTS_CN01: { id: 'PARTS_CN01', branchId: 'CN01', type: 'CENTRAL', isActive: true } }

@@ -6,6 +6,7 @@ import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { HelpHint } from './HelpHint';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
 import { purchaseErrorMessage } from '../utils/purchaseErrors';
+import { getVietnamDateString } from '../utils/dateTimeUtils';
 import { fetchLegacyUnassignedPartners } from '../services/firestoreService';
 import { CreatePartnerModal } from './CreatePartnerModal';
 
@@ -332,7 +333,7 @@ export const StockItemPurchaseEntryForm: React.FC<StockItemPurchaseEntryFormProp
       branchName: branch.name,
       warehouseId: selectedWarehouse.id,
       warehouseName: selectedWarehouse.name,
-      orderDate: now.toISOString().slice(0, 10),
+      orderDate: getVietnamDateString(now),
       creatorName: currentUser?.displayName || 'Hệ thống',
       status: 'COMPLETED',
       paymentStatus: actualPaid >= total ? 'PAID' : actualPaid > 0 ? 'PARTIAL' : 'UNPAID',

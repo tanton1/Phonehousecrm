@@ -30,6 +30,7 @@ describe('Security Rules, Auth Hardening & Finance Idempotency Suite', () => {
             get: async (ref: any) => {
               if (ref.col === 'checkoutRequests') return { exists: false };
               if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
+              if (ref.col === 'branches') return { exists: true, data: () => ({ id: 'CN01', code: 'CN01', name: 'Chi nhánh 01', isActive: true }) };
               if (ref.col === 'funds') {
                 return {
                   exists: true,

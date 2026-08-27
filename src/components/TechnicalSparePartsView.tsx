@@ -112,7 +112,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
   const [selectedReceiptMaster, setSelectedReceiptMaster] = useState<MasterCatalogItem | null>(null);
-  const canReceive = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD'].includes(String(currentUser?.role || '').toUpperCase());
+  const canReceive = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'].includes(String(currentUser?.role || '').toUpperCase());
   const currentRole = String(currentUser?.role || '').toUpperCase();
   const canApproveSupply = SUPPLY_APPROVER_ROLES.has(currentRole);
   const warehouseById = useMemo(() => new Map(warehouses.map(item => [item.id, item])), [warehouses]);
@@ -484,7 +484,7 @@ export const TechnicalSparePartsView: React.FC<TechnicalSparePartsViewProps> = (
         </div>
         <div className="flex flex-wrap gap-2">
           {showRequests && requestableTechnicianWarehouses.length > 0 && <button onClick={() => { setSupplyError(''); setSupplyNotice(''); setSupplyOpen(true); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2.5 text-sm font-black text-orange-700"><Plus className="h-4 w-4" /> Yêu cầu Kho Tổng</button>}
-          {showInventory && canReceive && <button onClick={() => { if (onOpenPurchaseReceipt) onOpenPurchaseReceipt(); else { setCatalogError(''); setReceiptOpen(true); } }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white"><Plus className="h-4 w-4" /> Nhập hàng</button>}
+          {showInventory && canReceive && <button onClick={() => { if (onOpenPurchaseReceipt) onOpenPurchaseReceipt(); else setError('Hãy mở Phiếu nhập NCC để nhập hàng và ghi đồng thời tồn kho, công nợ, quỹ và chứng từ.'); }} className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white"><Plus className="h-4 w-4" /> Nhập hàng</button>}
           <button onClick={() => void refreshAll()} disabled={loading || supplyLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border bg-white px-4 py-2.5 text-sm font-black text-zinc-700 disabled:opacity-50">
             {loading || supplyLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Làm mới
           </button>

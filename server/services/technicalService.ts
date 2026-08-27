@@ -365,6 +365,7 @@ export async function processCreateWorkOrder(
         slaPolicyVersion: config.version,
         priorityMultiplierSnapshot: Number(config.priorityMultiplier?.[priority] || 1),
         evidencePhotoUrls: [],
+        assignedAt: now,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
       });
@@ -1257,6 +1258,7 @@ export async function processDecideTechnicalTaskAdditionRequest(
       addedAfterDiagnosis: true,
       additionRequestId: requestId,
       additionReason: request.reason,
+      assignedAt: now,
       createdAt: now,
       updatedAt: now
     };

@@ -260,6 +260,12 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
   }
 
   // 2. Legacy Format (Backward compatibility for non-production environments)
+  if (process.env.NODE_ENV === 'production') {
+    return {
+      isValid: false,
+      error: 'LEGACY_CHECKOUT_DISABLED: Production chỉ nhận checkout intent do server tự định giá và hạch toán.'
+    };
+  }
   const { invoice } = body;
   if (!invoice || typeof invoice !== 'object') {
     return { isValid: false, error: 'Thiếu đối tượng hóa đơn (invoice) hoặc cấu trúc intent thanh toán.' };

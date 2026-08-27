@@ -127,7 +127,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         branchName: null,
         stockQuantity: Number(product.stockQuantity || 0),
         reservedQuantity: 0,
-        availableQuantity: Number(product.stockQuantity || 0),
+        // Legacy product.stockQuantity has no branch ledger or receipt chain,
+        // therefore it is visible for reconciliation but never sellable.
+        availableQuantity: 0,
         currentCost: Number(product.buyPrice || 0),
         traceId: product.id,
         isLegacy: true

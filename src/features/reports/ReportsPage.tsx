@@ -8,6 +8,7 @@ import {
   Filter, Download, Printer, ArrowUpRight, ArrowDownLeft, PieChart, 
   Building2, Users, ShoppingCart, HelpCircle, ShieldCheck, ChevronRight, CheckCircle2, FileSpreadsheet
 } from 'lucide-react';
+import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamRelativeDateString } from '../../utils/dateTimeUtils';
 
 export interface ReportsPageProps {
   invoices: SalesInvoice[];
@@ -45,14 +46,11 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
   // 1. Filtered Data by Branch & Time Range
   const filteredData = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-    const past7Str = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+    const todayStr = getVietnamDateString();
+    const yesterdayStr = getVietnamRelativeDateString(-1);
+    const past7Str = getVietnamRelativeDateString(-6);
     const thisMonthStr = todayStr.slice(0, 7);
-    
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    const lastMonthStr = d.toISOString().slice(0, 7);
+    const lastMonthStr = getPreviousVietnamMonthString();
 
     const matchesTime = (dateStr?: string) => {
       if (!dateStr) return true;

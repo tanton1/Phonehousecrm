@@ -312,6 +312,19 @@ describe('PhoneHouse POS & Financial Invariants Test Suite', () => {
     expect(valid.data?.invoice.finalAmount).toBe(12000000);
   });
 
+  it('Case 7b: Production từ chối payload hóa đơn legacy ngay tại validator', () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(validateCheckoutPayload({
+        invoice: { id: 'INV-LEGACY-01', finalAmount: 12000000, paymentMethod: 'Tiền mặt' }
+      })).toMatchObject({ isValid: false, error: expect.stringContaining('LEGACY_CHECKOUT_DISABLED') });
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
   it('Case 8: Chia nhiều nguồn chỉ gửi mã thanh toán chuẩn cho API', () => {
     const result = validateCheckoutPayload({
       idempotencyKey: 'POS-SPLIT-0001',

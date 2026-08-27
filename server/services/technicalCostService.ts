@@ -416,6 +416,16 @@ export async function processReceiveTechnicalSparePart(
   // Supplier/opening-balance receipts are posted by the stock function, not
   // by a KTV.  A KTV uses the replenishment request flow below instead.
   if (!isPartStockApprover(actor)) throw new Error('SPARE_PART_RECEIPT_FORBIDDEN');
+  // Production stock must never be increased from this legacy utility route.
+  // Purchases go through the canonical Purchase Order receipt transaction so
+  // supplier debt, funds, cash documents, lots and stock are posted together.
+  // Opening/manual corrections require a dedicated approval workflow.
+  if (process.env.NODE_ENV === 'production') {
+    if (input.sourceType === 'PART_PURCHASE') {
+      throw new Error('SPARE_PART_PURCHASE_USE_PURCHASE_ORDER: Hãy nhập linh kiện bằng Phiếu nhập NCC.');
+    }
+    throw new Error('SPARE_PART_ADJUSTMENT_APPROVAL_REQUIRED: Điều chỉnh tồn phải có phiếu đề nghị và phê duyệt.');
+  }
   const key = assertIdempotencyKey(input.idempotencyKey);
   const sku = String(input.sku || '').trim().toUpperCase();
   const name = String(input.name || '').trim();

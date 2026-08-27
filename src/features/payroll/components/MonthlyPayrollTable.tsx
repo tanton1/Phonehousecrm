@@ -4,6 +4,7 @@ import type { AttendanceRecord, StaffMember, StoreBranch } from '../../../types'
 import { fetchTechnicalCommissionLedger, type TechnicalCommissionLedgerEntry } from '../../../services/technicalApiClient';
 import { approvePayrollRun, calculatePayrollRun, fetchPayrollRun, type PayrollRun } from '../../../services/payrollApiClient';
 import { HRMetricCarousel, type HRMetricItem } from '../../../components/HRMetricCarousel';
+import { getVietnamMonthString } from '../../../utils/dateTimeUtils';
 
 export interface PayrollRecord {
   staffId: string;
@@ -39,7 +40,7 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
   staffList,
   branches,
   attendanceRecords = [],
-  selectedMonth = new Date().toISOString().slice(0, 7),
+  selectedMonth = getVietnamMonthString(),
   selectedBranchId = 'ALL',
   search = '',
   recordFilter = 'ALL',

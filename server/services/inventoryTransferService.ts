@@ -407,6 +407,7 @@ export async function processCreateTechnicalTransfer(
           ratePolicyId: config.id,
           ratePolicyVersion: config.version,
           status: 'ASSIGNED',
+          assignedAt: now,
           createdAt: now,
           updatedAt: now
         });

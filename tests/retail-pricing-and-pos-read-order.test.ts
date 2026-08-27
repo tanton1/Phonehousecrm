@@ -9,6 +9,7 @@ function checkoutDb() {
     if (writeStarted) throw new Error('FIRESTORE_READ_AFTER_WRITE');
     if (ref.col === 'checkoutRequests') return { exists: false };
     if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
+    if (ref.col === 'branches') return { exists: true, data: () => ({ id: 'CN01', code: 'CN01', name: 'Chi nhánh 01', isActive: true }) };
     if (ref.col === 'funds') return { exists: true, data: () => ({ id: ref.docId, name: 'TM Chi nhánh', type: 'CASH', branchId: 'CN01', isActive: true }) };
     if (ref.col === 'devices') return { exists: true, data: () => ({ id: ref.docId, model: 'iPhone 15 Pro', storage: '256GB', condition: 'Like New 99%', imei: '123456789', sellPrice: 27000000, status: 'in_stock', branchId: 'CN01', currentLocationId: 'KHO01' }) };
     if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return { exists: true, data: () => ({ name: 'Sales', version: '1', isActive: true, commissionTags: [] }) };
@@ -52,6 +53,7 @@ describe('Retail pricing and Firestore POS transaction order', () => {
 
     expect(result.success).toBe(true);
     expect(result.finalAmount).toBe(27500000);
+    expect(result.invoice).toMatchObject({ branchId: 'CN01', branchName: 'Chi nhánh 01', branch: 'Chi nhánh 01' });
     expect(result.invoice.detailedItems[0]).toMatchObject({
       listPrice: 28000000,
       unitPrice: 27500000,

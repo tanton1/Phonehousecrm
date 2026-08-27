@@ -189,7 +189,11 @@ export async function executeAtomicCheckout(
     if (String(warehouseSnap.data()?.branchId || '') !== branchId) {
       throw new Error('POS_WAREHOUSE_BRANCH_MISMATCH: Kho bán hàng không thuộc chi nhánh lập hóa đơn.');
     }
-    const branchNameSnapshot = String(payload.branchName || payload.invoice?.branchName || payload.invoice?.branch || '').trim();
+    const branchSnap = await transaction.get(db.collection('branches').doc(branchId));
+    if (!branchSnap.exists || branchSnap.data()?.isActive === false || branchSnap.data()?.active === false || branchSnap.data()?.isArchived === true) {
+      throw new Error('POS_BRANCH_NOT_ACTIVE: Chi nhánh lập hóa đơn không tồn tại hoặc đã ngừng hoạt động.');
+    }
+    const branchNameSnapshot = String(branchSnap.data()?.name || branchSnap.data()?.code || branchId).trim();
     const isMultiPayment = Array.isArray(payload.payments) && payload.payments.length > 0;
     const paymentMethod = isMultiPayment
       ? 'Đa phương thức'
@@ -841,7 +845,8 @@ export async function executeAtomicCheckout(
       id: invoiceId,
       invoiceCode,
       branchId,
-      ...(branchNameSnapshot ? { branch: branchNameSnapshot, branchName: branchNameSnapshot } : {}),
+      branch: branchNameSnapshot,
+      branchName: branchNameSnapshot,
       warehouseId,
       customerId: payload.customerId || payload.customerPartner?.id || null,
       ...(customerIdentity ? {

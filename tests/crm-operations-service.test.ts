@@ -31,6 +31,7 @@ describe('CRM operations engine', () => {
         get: async (ref: any) => {
           if (ref.col === 'checkoutRequests') return { exists: false };
           if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO01', branchId: 'CN01', isActive: true }) };
+          if (ref.col === 'branches') return { exists: true, data: () => ({ id: 'CN01', code: 'CN01', name: 'Chi nhánh 01', isActive: true }) };
           if (ref.col === 'funds') return { exists: true, data: () => ({ name: 'Tiền mặt', type: 'CASH', branchId: 'CN01', active: true }) };
           if (ref.col === 'devices') return { exists: true, data: () => ({ model: 'iPhone 15 Pro Max', storage: '256GB', condition: 'Like New', imei: '55555', sellPrice: 20000000, status: 'in_stock', branchId: 'CN01', currentLocationId: 'KHO01' }) };
           if (ref.col === 'operationalConfigs' && ref.docId === 'sales') return { exists: true, data: () => ({ name: 'Sales', version: '1', isActive: true, commissionTags: [] }) };

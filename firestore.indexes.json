@@ -395,6 +395,23 @@
       ]
     },
     {
+      "collectionGroup": "technicalWorkOrderLines",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "assignedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "technicalWorkOrderLines",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "assigneeUid", "order": "ASCENDING" },
+        { "fieldPath": "assignedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "commissionLedger",
       "queryScope": "COLLECTION",
       "fields": [
@@ -417,6 +434,25 @@
         { "fieldPath": "branchId", "order": "ASCENDING" },
         { "fieldPath": "staffUid", "order": "ASCENDING" },
         { "fieldPath": "eligibleAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "commissionLedger",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "assignedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "commissionLedger",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "staffUid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "assignedAt", "order": "ASCENDING" }
       ]
     },
     {
