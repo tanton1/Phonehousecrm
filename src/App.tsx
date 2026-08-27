@@ -1553,6 +1553,7 @@ export default function App() {
             onUpdatePurchaseOrder={handleUpdatePurchaseOrder}
             onDeletePurchaseOrder={handleDeletePurchaseOrder}
             onPaySupplierDebt={handlePaySupplierDebt}
+            onAddPartner={handleAddPartner}
             initialSelectedOrderId={linkedPurchaseOrderId}
           />
         )}

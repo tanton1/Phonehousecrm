@@ -100,6 +100,14 @@ export const CreatePartnerModal: React.FC<CreatePartnerModalProps> = ({
       const message = String(error?.message || '');
       if (message.includes('PARTNER_BRANCH_FORBIDDEN')) {
         alert('Không thể tạo nhà cung cấp: chi nhánh chưa được chọn hoặc tài khoản không có quyền tại chi nhánh này.');
+      } else if (message.includes('FORBIDDEN_ROLE')) {
+        alert('Tài khoản hiện tại chưa có quyền tạo nhà cung cấp cho chi nhánh này.');
+      } else if (message.includes('PARTNER_CREATE_HANDLER_MISSING')) {
+        alert('Form nhập hàng chưa được kết nối chức năng lưu nhà cung cấp. Vui lòng tải lại trang.');
+      } else if (message.includes('PARTNER_CREATE_NO_SERVER_RESPONSE')) {
+        alert('Máy chủ chưa xác nhận nhà cung cấp đã được lưu. Dữ liệu chưa được chọn vào phiếu; vui lòng thử lại.');
+      } else if (message.includes('PARTNER_CREATE_BRANCH_MISMATCH')) {
+        alert('Nhà cung cấp trả về không thuộc chi nhánh của phiếu nhập. Vui lòng kiểm tra lại chi nhánh.');
       } else if (message.includes('PARTNER_ACCOUNT_TYPE_CONFLICT')) {
         alert('Số điện thoại này đang thuộc một loại đối tác không thể chuyển thành nhà cung cấp.');
       } else if (message.includes('PARTNER_REQUIRED_FIELDS')) {

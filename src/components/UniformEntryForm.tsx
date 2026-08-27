@@ -1084,15 +1084,27 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         branchLocked
         lockType
         onSavePartner={async (newPartner) => {
-          const savedPartner = onAddPartner
-            ? await onAddPartner({ ...newPartner, type: 'SUPPLIER', branchId: watchBranchId })
-            : undefined;
-          const selectedPartner = savedPartner || newPartner;
+          if (!onAddPartner) {
+            throw new Error('PARTNER_CREATE_HANDLER_MISSING');
+          }
+
+          const savedPartner = await onAddPartner({
+            ...newPartner,
+            type: 'SUPPLIER',
+            branchId: watchBranchId
+          });
+          if (!savedPartner?.id) {
+            throw new Error('PARTNER_CREATE_NO_SERVER_RESPONSE');
+          }
+          if (savedPartner.branchId !== watchBranchId) {
+            throw new Error('PARTNER_CREATE_BRANCH_MISMATCH');
+          }
+
           setLocallyCreatedSuppliers(current => [
-            selectedPartner,
-            ...current.filter(partner => partner.id !== selectedPartner.id)
+            savedPartner,
+            ...current.filter(partner => partner.id !== savedPartner.id)
           ]);
-          setValue('supplierId', selectedPartner.id);
+          setValue('supplierId', savedPartner.id, { shouldDirty: true, shouldValidate: true });
           setIsCreateSupplierModalOpen(false);
         }}
         defaultType="SUPPLIER"

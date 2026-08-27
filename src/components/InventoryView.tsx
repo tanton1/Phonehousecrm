@@ -93,7 +93,7 @@ interface InventoryViewProps {
   onOpenTransferModal?: (device: DeviceItem) => void;
   onAddCashTransaction?: (tx: CashTransaction) => void;
   onUpdatePartner?: (partner: Partner) => void;
-  onAddPartner?: (partner: Partner) => void;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
   catalogItems?: import('../types').MasterCatalogItem[];
   currentUser?: UserAccount | null;
   serverSummary?: InventoryDeviceSummary;
@@ -1252,6 +1252,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         partners={partners}
         funds={funds}
         onAddPurchaseOrder={onAddPurchaseOrder}
+        onAddPartner={onAddPartner}
       />
 
       {/* MODAL: Phân Tích Kho vs Chi Nhánh Chuyên Sâu */}

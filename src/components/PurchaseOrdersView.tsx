@@ -77,7 +77,7 @@ interface PurchaseOrdersViewProps {
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
   onAddCashTransaction?: (tx: import('../types').CashTransaction) => void;
   onUpdatePartner?: (partner: Partner) => void;
-  onAddPartner?: (partner: Partner) => void;
+  onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
   /** Temporary compatibility fallback used only if the catalog API is unavailable. */
   catalogItems?: MasterCatalogItem[];
   initialSelectedOrderId?: string | null;

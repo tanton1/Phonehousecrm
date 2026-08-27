@@ -14,6 +14,18 @@ import {
 const PARTNER_TYPES = new Set(['CUSTOMER', 'SUPPLIER', 'BOTH', 'STAFF']);
 const CUSTOMER_TIERS = new Set(['STANDARD', 'SILVER', 'GOLD', 'DIAMOND', 'WHOLESALE']);
 const SUPPLIER_CATEGORIES = new Set(['OFFICIAL_DISTRIBUTOR', 'LIKE_NEW_WHOLESALER', 'COMPONENTS', 'FINANCE_PARTNER']);
+export const PARTNER_OPERATION_ROLES = [
+  'ADMIN',
+  'REGIONAL_MANAGER',
+  'MANAGER',
+  'STORE_MANAGER',
+  'INVENTORY_MANAGER',
+  'WAREHOUSE',
+  'ACCOUNTANT',
+  'CASHIER',
+  'SALES',
+  'CUSTOMER_CARE'
+] as const;
 
 function text(value: unknown, maxLength = 500): string {
   return String(value || '').trim().slice(0, maxLength);
@@ -59,7 +71,7 @@ export function createPartnersRouter(db: Firestore | null): Router {
   const router = Router();
   router.use(authenticateFirebase);
 
-  router.get('/accounts', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'CASHIER', 'SALES', 'CUSTOMER_CARE'), async (req: Request, res: Response) => {
+  router.get('/accounts', requireRole(...PARTNER_OPERATION_ROLES), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const branchId = text(req.query.branchId, 100);
@@ -262,7 +274,7 @@ export function createPartnersRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'CASHIER', 'SALES', 'CUSTOMER_CARE'), async (req: Request, res: Response) => {
+  router.post('/', requireRole(...PARTNER_OPERATION_ROLES), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const id = text(req.body?.id, 100);
@@ -276,7 +288,7 @@ export function createPartnersRouter(db: Firestore | null): Router {
     }
   });
 
-  router.patch('/:partnerId', requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT', 'CASHIER', 'SALES', 'CUSTOMER_CARE'), async (req: Request, res: Response) => {
+  router.patch('/:partnerId', requireRole(...PARTNER_OPERATION_ROLES), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const partnerRef = db.collection('partners').doc(req.params.partnerId);
