@@ -16,6 +16,22 @@ function imageLimit(type: EvidenceType) {
   return type === 'CRM' ? 8 * 1024 * 1024 : 20 * 1024 * 1024;
 }
 
+function sha256StorageObject(file: any): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = file.createReadStream();
+    stream.on('data', (chunk: Buffer) => hash.update(chunk));
+    stream.on('error', reject);
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+async function issueEvidenceReadUrl(objectPath: string) {
+  const expiresAtMs = Date.now() + 5 * 60_000;
+  const [url] = await adminBucket.file(objectPath).getSignedUrl({ version: 'v4', action: 'read', expires: expiresAtMs });
+  return { url, expiresAt: new Date(expiresAtMs).toISOString() };
+}
+
 async function resolveResource(db: Firestore, req: Request, input: any) {
   const type = String(input.resourceType || '').toUpperCase() as EvidenceType;
   const resourceId = String(input.resourceId || '').trim();
@@ -83,20 +99,20 @@ export function createEvidenceRouter(db: Firestore | null): Router {
       if (session.actorUid !== req.user!.uid) throw new Error('EVIDENCE_SESSION_FORBIDDEN');
       if (session.status === 'COMPLETED') {
         const existing = await db.collection('evidenceRecords').doc(session.evidenceId).get();
-        return res.json({ success: true, data: existing.data() });
+        if (!existing.exists || existing.data()?.status !== 'ACTIVE') throw new Error('EVIDENCE_NOT_ACTIVE');
+        const access = await issueEvidenceReadUrl(String(existing.data()?.objectPath || session.objectPath));
+        return res.json({ success: true, data: { ...existing.data(), ...access, urlExpiresAt: access.expiresAt } });
       }
       if (session.status !== 'OPEN' || Number(session.expiresAtMs || 0) <= Date.now()) throw new Error('EVIDENCE_SESSION_EXPIRED');
       const file = adminBucket.file(session.objectPath);
       const [metadata] = await file.getMetadata();
       if (Number(metadata.size || 0) !== Number(session.expectedSize) || String(metadata.contentType || '') !== String(session.contentType)) throw new Error('EVIDENCE_UPLOAD_MISMATCH');
-      const [bytes] = await file.download();
-      const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
-      const [readUrl] = await file.getSignedUrl({ version: 'v4', action: 'read', expires: Date.now() + 7 * 24 * 60 * 60_000 });
+      const sha256 = await sha256StorageObject(file);
       const record = {
         id: session.evidenceId, resourceType: session.type, resourceId: session.resourceId,
         contextId: session.contextId || '', branchId: session.branchId, objectPath: session.objectPath,
         sha256, contentType: session.contentType, size: Number(metadata.size || 0),
-        createdByUid: req.user!.uid, status: 'ACTIVE', createdAt: new Date().toISOString(), url: readUrl
+        createdByUid: req.user!.uid, status: 'ACTIVE', createdAt: new Date().toISOString()
       };
       await db.runTransaction(async transaction => {
         const latest = await transaction.get(sessionRef);
@@ -104,7 +120,8 @@ export function createEvidenceRouter(db: Firestore | null): Router {
         transaction.create(db.collection('evidenceRecords').doc(record.id), { ...record, createdAtServer: FieldValue.serverTimestamp() });
         transaction.update(sessionRef, { status: 'COMPLETED', completedAt: FieldValue.serverTimestamp(), sha256 });
       });
-      return res.json({ success: true, data: record });
+      const access = await issueEvidenceReadUrl(record.objectPath);
+      return res.json({ success: true, data: { ...record, ...access, urlExpiresAt: access.expiresAt } });
     } catch (error: any) {
       return res.status(String(error?.message || '').includes('FORBIDDEN') ? 403 : 400).json({ success: false, code: String(error?.message || 'EVIDENCE_COMPLETE_FAILED').split(':')[0], message: 'Không thể xác nhận ảnh bằng chứng.' });
     }
@@ -116,8 +133,18 @@ export function createEvidenceRouter(db: Firestore | null): Router {
     if (!snap.exists) return res.status(404).json({ success: false, code: 'EVIDENCE_NOT_FOUND' });
     const record = snap.data()!;
     if (record.status !== 'ACTIVE' || !actorCanAccessBranch(req, String(record.branchId || ''))) return res.status(403).json({ success: false, code: 'EVIDENCE_ACCESS_DENIED' });
-    const [url] = await adminBucket.file(record.objectPath).getSignedUrl({ version: 'v4', action: 'read', expires: Date.now() + 10 * 60_000 });
-    return res.json({ success: true, data: { url, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() } });
+    try {
+      await resolveResource(db, req, {
+        resourceType: record.resourceType,
+        resourceId: record.resourceId,
+        contextId: record.contextId,
+        branchId: record.branchId
+      });
+    } catch {
+      return res.status(403).json({ success: false, code: 'EVIDENCE_RESOURCE_ACCESS_DENIED' });
+    }
+    const access = await issueEvidenceReadUrl(record.objectPath);
+    return res.json({ success: true, data: access });
   });
 
   router.post('/:id/revoke', requireRole('MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {

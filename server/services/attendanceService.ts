@@ -504,7 +504,9 @@ export async function processServerCheckOut(
   try {
     const openQuery = await db.collection('attendance')
       .where('staffId', '==', staffId)
+      .where('branchId', '==', payload.branchId)
       .where('attendanceStatus', '==', 'CHECKED_IN')
+      .orderBy('createdAt', 'desc')
       .limit(1)
       .get();
 
@@ -532,6 +534,12 @@ export async function processServerCheckOut(
       throw new Error('NOT_CHECKED_IN: Không tìm thấy lượt điểm danh vào ca đang mở để kết thúc ca.');
     }
     const data = snap.data()!;
+    if (String(data.staffId || '') !== staffId || String(data.branchId || '') !== String(payload.branchId || '')) {
+      throw new Error('ATTENDANCE_BRANCH_OR_STAFF_MISMATCH');
+    }
+    if (String(data.attendanceStatus || '') !== 'CHECKED_IN') {
+      throw new Error('ATTENDANCE_NOT_OPEN');
+    }
     if (data.checkOutTime) {
       throw new Error(`ALREADY_CHECKED_OUT: Bạn đã kết thúc ca làm việc lúc ${data.checkOutTime}.`);
     }
@@ -579,7 +587,7 @@ export async function processServerCheckOut(
 
     return {
       ...data,
-      id: recordId,
+      id: targetAttRef.id,
       ...updateFields
     } as unknown as AttendanceRecordResult;
   });

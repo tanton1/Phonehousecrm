@@ -69,6 +69,14 @@ service cloud.firestore {
       return isAdmin() || isManager() || (isActiveUser() && hasRole('ACCOUNTANT'));
     }
 
+    function canReadFinance() {
+      return canViewCost();
+    }
+
+    function canReadPayroll() {
+      return canViewCost();
+    }
+
     // 5. Multi-tenant Branch Isolation (Requires active user)
     function canAccessBranch(branchId) {
       return isAdmin() || (
@@ -297,12 +305,12 @@ service cloud.firestore {
 
     // 5. Financial Funds & Cash Transactions: Strict Single Writer Principle
     match /funds/{fundId} {
-      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow read: if canReadFinance() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Strict Single Writer: Only Server Finance API (/api/finance/...) via Admin SDK
     }
 
     match /cashTransactions/{txId} {
-      allow read: if isAuthenticated() && canAccessBranch(resource.data.branchId);
+      allow read: if canReadFinance() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Strict Single Writer: Only Server Finance API (/api/finance/...) via Admin SDK
     }
 
@@ -527,7 +535,9 @@ service cloud.firestore {
     }
 
     match /leadAssignmentHistory/{historyId} {
-      allow read: if isAdmin() || isManager();
+      allow read: if isAdmin() || (
+        isManager() && resource.data.branchId is string && canAccessBranch(resource.data.branchId)
+      );
       allow write: if false;
     }
 
@@ -589,7 +599,11 @@ service cloud.firestore {
     }
 
     match /commissionLedger/{commId} {
-      allow read: if isAdmin() || isManager() || (isAuthenticated() && resource.data.staffUid == request.auth.uid);
+      allow read: if isAdmin() || (
+        canReadPayroll() && resource.data.branchId is string && canAccessBranch(resource.data.branchId)
+      ) || (
+        isActiveUser() && resource.data.staffUid == request.auth.uid
+      );
       allow write: if false; // Strict Single Writer: Only Server Commission Engine
     }
 

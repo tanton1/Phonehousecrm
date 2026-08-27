@@ -10,6 +10,7 @@ import {
   newPartyMasterRecord,
   resolvePartyIdentity
 } from './branchPartyService';
+import { MAX_POS_DEVICES, normalizeCheckoutAccessoryLines } from '../validation/checkoutSchema';
 
 export interface CheckoutResult {
   success: boolean;
@@ -103,14 +104,24 @@ export async function executeAtomicCheckout(
   }
 
   const idempotencyKey = payload.idempotencyKey || payload.invoice?.idempotencyKey || payload.invoice?.id;
+  const canonicalDeviceIds = (payload.deviceIds || payload.devicesToSell?.map((device: any) => device.id) || [])
+    .map((deviceId: unknown) => String(deviceId || '').trim())
+    .filter(Boolean);
+  if (canonicalDeviceIds.length > MAX_POS_DEVICES) throw new Error('POS_CART_TOO_MANY_DEVICES');
+  if (new Set(canonicalDeviceIds).size !== canonicalDeviceIds.length) throw new Error('POS_DUPLICATE_DEVICE');
+  const canonicalAccessoryLines = normalizeCheckoutAccessoryLines(
+    isPureIntent
+      ? (payload.accessoryLines || [])
+      : (payload.accessoriesToSell || []).map((line: any) => ({
+          productId: line.productId || line.product?.id,
+          quantity: line.quantity
+        }))
+  );
 
   // Canonical Payload Hash Calculation (Protects against same idempotencyKey with altered payload)
   const canonicalPayloadObj = {
-    deviceIds: (payload.deviceIds || payload.devicesToSell?.map((d: any) => d.id) || []).sort(),
-    accessoryLines: (payload.accessoryLines || payload.accessoriesToSell || []).map((a: any) => ({
-      productId: a.productId || a.product?.id,
-      quantity: a.quantity
-    })).sort((a: any, b: any) => String(a.productId).localeCompare(String(b.productId))),
+    deviceIds: [...canonicalDeviceIds].sort(),
+    accessoryLines: canonicalAccessoryLines,
     commissionTagSelections: (payload.commissionTagSelections || []).map((selection: any) => ({
       itemType: selection.itemType,
       itemId: selection.itemId,
@@ -124,6 +135,7 @@ export async function executeAtomicCheckout(
     })).sort((a: any, b: any) => `${a.itemType}:${a.itemId}`.localeCompare(`${b.itemType}:${b.itemId}`)),
     payments: payload.payments,
     payment: payload.payment,
+    installmentContractCode: payload.installmentContractCode || payload.payment?.installmentContractCode || null,
     branchId: payload.branchId || payload.invoice?.branchId,
     warehouseId: payload.warehouseId || payload.invoice?.warehouseId,
     voucherCode: payload.voucherCode?.trim().toUpperCase(),
@@ -265,9 +277,7 @@ export async function executeAtomicCheckout(
     }
 
     // 3. Fetch & Validate Devices (Authoritative Status & Pricing from DB, with Lead Reservation support)
-    const deviceIds: string[] = isPureIntent
-      ? payload.deviceIds
-      : (payload.devicesToSell?.map((d: any) => d.id) || []);
+    const deviceIds = canonicalDeviceIds;
 
     const loadedDevices: any[] = [];
     const checkoutLeadId = payload.leadId || payload.invoice?.leadId;
@@ -304,16 +314,13 @@ export async function executeAtomicCheckout(
     }
 
     // 4. Fetch & Validate Accessories (Authoritative Multi-Branch Stock & Pricing from DB - Fail Closed if not initialized)
-    const accessoryLines: any[] = isPureIntent
-      ? (payload.accessoryLines || [])
-      : (payload.accessoriesToSell || []);
+    const accessoryLines = canonicalAccessoryLines;
 
     const loadedAccessories: any[] = [];
 
     for (const acc of accessoryLines) {
-      const prodId = acc.productId || acc.product?.id;
-      const quantity = typeof acc.quantity === 'number' && Number.isInteger(acc.quantity) && acc.quantity > 0 ? acc.quantity : 1;
-      if (!prodId) continue;
+      const prodId = acc.productId;
+      const quantity = acc.quantity;
 
       const prodRef: DocumentReference = db.collection('products').doc(prodId);
       const prodSnap = await transaction.get(prodRef);
@@ -942,7 +949,7 @@ export async function executeAtomicCheckout(
       installmentFinancePartnerId: payload.installmentFinancePartnerId || payload.payment?.installmentFinancePartnerId || null,
       installmentDisbursementStatus: financeAmount > 0 ? 'PENDING' : null,
       installmentExpectedAmount: financeAmount,
-      installmentContractCode: payload.invoice?.installmentContractCode || null,
+      installmentContractCode: payload.installmentContractCode || payload.payment?.installmentContractCode || payload.invoice?.installmentContractCode || null,
       installmentCompany: payload.invoice?.installmentCompany || payload.invoice?.installmentDetails?.financeCompany || null,
       installmentDetails: payload.invoice?.installmentDetails || null,
       idempotencyKey,

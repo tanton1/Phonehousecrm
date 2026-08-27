@@ -296,7 +296,7 @@ export function createCrmRouter(db: Firestore | null): Router {
       }
 
       const leadRef = db.collection('leads').doc(leadId);
-      let authCustomerId = '';
+      const activityRef = db.collection('customerActivities').doc();
 
       await db.runTransaction(async (transaction) => {
         const lSnap = await transaction.get(leadRef);
@@ -336,7 +336,7 @@ export function createCrmRouter(db: Firestore | null): Router {
           throw new Error(dbTransitionCheck.reason || 'Trạng thái hiện tại trên máy chủ không cho phép chuyển đổi này.');
         }
 
-        authCustomerId = lData.customerId || normalizeCustomerId(undefined, lData.phone);
+        const authCustomerId = lData.customerId || normalizeCustomerId(undefined, lData.phone);
 
         const updatePayload: Record<string, any> = {
           status: toStatus,
@@ -385,23 +385,24 @@ export function createCrmRouter(db: Firestore | null): Router {
         }
 
         transaction.update(leadRef, updatePayload);
-      });
-
-      // 2D. Record to Customer Activity Ledger via CRM Event Bus
-      await emitCrmEvent(db, {
-        type: toStatus === 'won' ? 'INVOICE_COMPLETED' : toStatus === 'lost' ? 'LEAD_LOST' : 'LEAD_STAGE_CHANGED',
-        customerId: authCustomerId,
-        leadId,
-        entityId: context?.invoiceId || context?.quoteId || leadId,
-        staffId: userUid,
-        staffName: userName,
-        branchId: userBranchId,
-        summary: `Chuyển trạng thái Lead từ "${fromStatus}" sang "${toStatus}"${context?.notes ? `: ${context.notes}` : ''}`,
-        details: {
-          fromStatus,
-          toStatus,
-          context
-        }
+        transaction.set(activityRef, {
+          id: activityRef.id,
+          customerId: authCustomerId,
+          leadId,
+          type: toStatus === 'won' ? 'INVOICE' : toStatus === 'lost' ? 'NOTE' : 'CARE',
+          entityId: context?.invoiceId || context?.quoteId || leadId,
+          staffId: userUid,
+          staffName: userName,
+          branchId: lData.branchId,
+          summary: `Chuyển trạng thái Lead từ "${currentStatus}" sang "${toStatus}"${context?.notes ? `: ${context.notes}` : ''}`,
+          details: {
+            eventType: toStatus === 'won' ? 'INVOICE_COMPLETED' : toStatus === 'lost' ? 'LEAD_LOST' : 'LEAD_STAGE_CHANGED',
+            fromStatus: currentStatus,
+            toStatus,
+            context: context || {}
+          },
+          createdAt: FieldValue.serverTimestamp()
+        });
       });
 
       return res.json({

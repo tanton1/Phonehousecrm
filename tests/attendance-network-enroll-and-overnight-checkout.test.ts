@@ -182,30 +182,33 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
       let updatedStatus = '';
       let updatedAttendanceStatus = '';
 
+      const openAttendanceQuery: any = {
+        where: () => openAttendanceQuery,
+        orderBy: () => openAttendanceQuery,
+        limit: () => ({
+          get: async () => ({
+            empty: false,
+            docs: [{
+              ref: { col: 'attendance', docId: 'ATT_STAFF_001_20260820', id: 'ATT_STAFF_001_20260820' },
+              data: () => ({
+                id: 'ATT_STAFF_001_20260820',
+                staffId: 'STAFF_001',
+                branchId: 'CN01',
+                checkInTime: '22:00:00',
+                attendanceStatus: 'CHECKED_IN',
+                scheduledStart: '22:00',
+                scheduledEnd: '06:00',
+                scheduledBreakMinutes: 60
+              })
+            }]
+          })
+        })
+      };
+
       const mockDb: any = {
         collection: (col: string) => ({
           doc: (docId: string) => ({ col, docId, id: docId }),
-          where: () => ({
-            where: () => ({
-              limit: () => ({
-                get: async () => ({
-                  empty: false,
-                  docs: [{
-                    ref: { col: 'attendance', docId: 'ATT_STAFF_001_20260820' },
-                    data: () => ({
-                      id: 'ATT_STAFF_001_20260820',
-                      staffId: 'STAFF_001',
-                      checkInTime: '22:00:00',
-                      attendanceStatus: 'CHECKED_IN',
-                      scheduledStart: '22:00',
-                      scheduledEnd: '06:00',
-                      scheduledBreakMinutes: 60
-                    })
-                  }]
-                })
-              })
-            })
-          })
+          where: openAttendanceQuery.where
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
@@ -217,6 +220,7 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
               data: () => ({
                 id: 'ATT_STAFF_001_20260820',
                 staffId: 'STAFF_001',
+                branchId: 'CN01',
                 checkInTime: '22:00:00',
                 attendanceStatus: 'CHECKED_IN',
                 scheduledStart: '22:00',
@@ -242,6 +246,7 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
       });
 
       expect(result).toBeDefined();
+      expect(result.id).toBe('ATT_STAFF_001_20260820');
       expect(updatedStatus).toBe('COMPLETED');
       expect(updatedAttendanceStatus).toBe('COMPLETED');
     });

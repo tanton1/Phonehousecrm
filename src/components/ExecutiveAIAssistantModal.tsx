@@ -25,6 +25,22 @@ import {
   StaffMember 
 } from '../types';
 import { processExecutiveQuery, ExecutiveQueryResult } from '../services/executiveAIEngine';
+import { apiJson } from '../services/apiClient';
+
+function executiveSummaryText(value: unknown): string {
+  return String(value || '')
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\/p\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 interface ExecutiveAIAssistantModalProps {
   isOpen: boolean;
@@ -123,9 +139,8 @@ export const ExecutiveAIAssistantModal: React.FC<ExecutiveAIAssistantModalProps>
 
       // 2. Also try fetching AI synthesis from server
       try {
-        const res = await fetch('/api/ai/executive-assistant', {
+        const data = await apiJson<{ success: boolean; htmlResponse?: string }>('/api/ai/executive-assistant', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query: q,
             context: {
@@ -136,7 +151,6 @@ export const ExecutiveAIAssistantModal: React.FC<ExecutiveAIAssistantModalProps>
             }
           })
         });
-        const data = await res.json();
         if (data.success && data.htmlResponse) {
           localResult.summaryHtml = data.htmlResponse;
         }
@@ -224,10 +238,9 @@ export const ExecutiveAIAssistantModal: React.FC<ExecutiveAIAssistantModalProps>
                   {new Date().toLocaleTimeString('vi-VN')}
                 </span>
               </div>
-              <div 
-                className="text-xs text-zinc-700 leading-relaxed font-sans prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: lastResult.summaryHtml }}
-              />
+              <div className="text-xs text-zinc-700 leading-relaxed font-sans whitespace-pre-line">
+                {executiveSummaryText(lastResult.summaryHtml)}
+              </div>
             </div>
           ) : (
             <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-zinc-200 text-zinc-400 text-xs space-y-2">

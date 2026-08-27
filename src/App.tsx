@@ -83,11 +83,12 @@ import {
   requestUpdateInventoryDeviceMetadata,
   requestUpdatePurchaseOrderNote
 } from './services/inventoryApiClient';
-import { requestInstallmentDisbursement, requestSettlePartnerDebt, type PartnerDebtSettlementDirection } from './services/financeApiClient';
+import { requestInstallmentDisbursement, requestPaymentAccounts, requestSettlePartnerDebt, type PartnerDebtSettlementDirection } from './services/financeApiClient';
 import { fetchAdminOperationalSnapshot, type AdminOperationalSnapshot } from './services/adminOperationalApiClient';
 import { requestUpdateInvoiceNote } from './services/posApiClient';
 import { requestLeadStateTransition } from './services/crmApiClient';
 import { isWarehouseActive } from './utils/warehouseLifecycle';
+import { hasPermission } from '../shared/permissions';
 
 const DashboardPage = React.lazy(() => import('./features/dashboard/DashboardPage').then(module => ({ default: module.DashboardPage })));
 const POSCockpitView = React.lazy(() => import('./features/pos/components/POSCockpitView').then(module => ({ default: module.POSCockpitView })));
@@ -765,20 +766,36 @@ export default function App() {
       };
     }
     setAdminOperationalSummary(null);
+    let financeLoadActive = true;
     const unsubs = [
       subscribeToLeads(items => setLeads(items || []), scope),
       subscribeToTradeIns(items => setTradeIns(items || []), scope),
       subscribeToInvoices(items => setInvoices(items || []), scope),
       subscribeToPartners(items => setPartners(items || []), scope),
-      subscribeToFunds(items => setFunds(items || []), scope),
-      subscribeToCashTransactions(items => setCashTransactions(items || []), scope),
       subscribeToTransfers(items => setTransfers(items || []), scope),
       subscribeToPurchaseOrders(items => setPurchaseOrders(items || []), scope)
     ];
+    if (hasPermission(role, 'FINANCE_VIEW')) {
+      unsubs.push(
+        subscribeToFunds(items => setFunds(items || []), scope),
+        subscribeToCashTransactions(items => setCashTransactions(items || []), scope)
+      );
+    } else {
+      setCashTransactions([]);
+      setFunds([]);
+      if (scope && hasPermission(role, 'POS_CHECKOUT')) {
+        void requestPaymentAccounts(scope)
+          .then(items => { if (financeLoadActive) setFunds(items); })
+          .catch(error => { if (financeLoadActive) console.warn('[POS payment accounts]', error); });
+      }
+    }
     if (['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(role)) {
       unsubs.push(subscribeToUsers(items => setUsers(items || []), undefined, scope));
     }
-    return () => unsubs.forEach(unsubscribe => unsubscribe());
+    return () => {
+      financeLoadActive = false;
+      unsubs.forEach(unsubscribe => unsubscribe());
+    };
   }, [authReady, currentUser?.id, currentUser?.role, currentUser?.branchId, activeBranchId, scopedBranchId]);
 
   // Product metadata is global but stock is not. POS receives a redacted,

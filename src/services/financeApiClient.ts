@@ -3,6 +3,23 @@ import { apiJson } from './apiClient';
 
 export type PartnerDebtSettlementDirection = 'PAYMENT' | 'RECEIPT';
 
+export async function requestPaymentAccounts(branchId: string): Promise<FundAccount[]> {
+  const response = await apiJson<{ success: boolean; accounts: Array<Partial<FundAccount> & Pick<FundAccount, 'id' | 'branchId' | 'name' | 'type'>> }>(
+    `/api/finance/payment-accounts?branchId=${encodeURIComponent(branchId)}`,
+    { method: 'GET' }
+  );
+  return (response.accounts || []).map(account => ({
+    ...account,
+    currentBalance: 0,
+    openingBalance: 0,
+    totalIncome: 0,
+    totalExpense: 0,
+    isActive: account.isActive !== false,
+    color: account.color || (account.type === 'CASH' ? 'orange' : 'blue'),
+    balanceHidden: true
+  })) as FundAccount[];
+}
+
 export interface PartnerDebtAllocationResult {
   sourceType: 'PURCHASE_ORDER' | 'INVOICE';
   sourceId: string;

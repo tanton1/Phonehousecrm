@@ -6,6 +6,38 @@
 export const ALLOWED_PAYMENT_METHODS = ['CASH', 'BANK', 'CARD', 'INSTALLMENT', 'DEBT'] as const;
 export type PaymentMethodType = typeof ALLOWED_PAYMENT_METHODS[number];
 
+export const MAX_POS_DEVICES = 50;
+export const MAX_POS_ACCESSORY_SKUS = 50;
+export const MAX_POS_ACCESSORY_QUANTITY_PER_SKU = 100;
+export const MAX_POS_PAYMENT_LINES = 10;
+export const MAX_POS_PAYMENT_AMOUNT = 100_000_000_000;
+
+export interface CanonicalAccessoryLine {
+  productId: string;
+  quantity: number;
+}
+
+export function normalizeCheckoutAccessoryLines(lines: unknown): CanonicalAccessoryLine[] {
+  if (!Array.isArray(lines)) return [];
+  const quantities = new Map<string, number>();
+  for (const rawLine of lines) {
+    if (!rawLine || typeof rawLine !== 'object') throw new Error('POS_ACCESSORY_LINE_INVALID');
+    const line = rawLine as Record<string, any>;
+    const productId = String(line.productId || line.product?.id || '').trim();
+    const quantity = Number(line.quantity);
+    if (!productId) throw new Error('POS_ACCESSORY_PRODUCT_REQUIRED');
+    if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error('POS_ACCESSORY_QUANTITY_INVALID');
+    quantities.set(productId, (quantities.get(productId) || 0) + quantity);
+  }
+  if (quantities.size > MAX_POS_ACCESSORY_SKUS) throw new Error('POS_CART_TOO_MANY_ACCESSORY_SKUS');
+  return [...quantities.entries()]
+    .map(([productId, quantity]) => {
+      if (quantity > MAX_POS_ACCESSORY_QUANTITY_PER_SKU) throw new Error('POS_ACCESSORY_QUANTITY_LIMIT_EXCEEDED');
+      return { productId, quantity };
+    })
+    .sort((left, right) => left.productId.localeCompare(right.productId));
+}
+
 export function normalizeCheckoutPaymentMethod(value: unknown): PaymentMethodType | null {
   const method = String(value || '').trim().toUpperCase();
   if (ALLOWED_PAYMENT_METHODS.includes(method as PaymentMethodType)) return method as PaymentMethodType;
@@ -135,7 +167,21 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
 
     // Check empty cart
     const deviceIds: string[] = body.deviceIds;
-    const accessoryLines = Array.isArray(body.accessoryLines) ? body.accessoryLines : [];
+    const rawAccessoryLines = Array.isArray(body.accessoryLines) ? body.accessoryLines : [];
+    let accessoryLines: CanonicalAccessoryLine[] = [];
+    try {
+      accessoryLines = normalizeCheckoutAccessoryLines(rawAccessoryLines);
+    } catch (error: any) {
+      const code = String(error?.message || 'POS_ACCESSORY_LINE_INVALID');
+      const messages: Record<string, string> = {
+        POS_ACCESSORY_LINE_INVALID: 'Dữ liệu dòng phụ kiện không hợp lệ.',
+        POS_ACCESSORY_PRODUCT_REQUIRED: 'Thiếu mã sản phẩm phụ kiện (productId).',
+        POS_ACCESSORY_QUANTITY_INVALID: 'Số lượng phụ kiện phải là số nguyên dương.',
+        POS_ACCESSORY_QUANTITY_LIMIT_EXCEEDED: `Tổng số lượng của một SKU phụ kiện không được vượt ${MAX_POS_ACCESSORY_QUANTITY_PER_SKU}.`,
+        POS_CART_TOO_MANY_ACCESSORY_SKUS: `Một hóa đơn không được vượt ${MAX_POS_ACCESSORY_SKUS} SKU phụ kiện.`
+      };
+      return { isValid: false, error: messages[code] || code };
+    }
 
     if (deviceIds.length === 0 && accessoryLines.length === 0) {
       return { isValid: false, error: 'Giỏ hàng không được để trống (phải có ít nhất 1 máy hoặc phụ kiện).' };
@@ -146,15 +192,13 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
       return { isValid: false, error: 'Phát hiện mã thiết bị trùng lặp trong giỏ hàng.' };
     }
 
-    // Check accessory quantity invariants (Must be finite positive integer >= 1 and <= 100)
+    if (deviceIds.length > MAX_POS_DEVICES) {
+      return { isValid: false, error: `Một hóa đơn không được vượt ${MAX_POS_DEVICES} máy.` };
+    }
+
+    // The canonical lines above have already merged repeated productId values.
     for (const acc of accessoryLines) {
-      if (!acc || typeof acc !== 'object') {
-        return { isValid: false, error: 'Dữ liệu dòng phụ kiện không hợp lệ.' };
-      }
-      if (!acc.productId || typeof acc.productId !== 'string') {
-        return { isValid: false, error: 'Thiếu mã sản phẩm phụ kiện (productId).' };
-      }
-      if (!Number.isInteger(acc.quantity) || acc.quantity < 1 || acc.quantity > 100) {
+      if (!Number.isSafeInteger(acc.quantity) || acc.quantity < 1 || acc.quantity > MAX_POS_ACCESSORY_QUANTITY_PER_SKU) {
         return { isValid: false, error: `Số lượng phụ kiện "${acc.productId}" không hợp lệ (${acc.quantity}). Phải là số nguyên từ 1 đến 100.` };
       }
     }
@@ -183,8 +227,12 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
 
     // Multi-Payment (Split Tender) Validation
     if (Array.isArray(body.payments) && body.payments.length > 0) {
+      if (body.payments.length > MAX_POS_PAYMENT_LINES) {
+        return { isValid: false, error: `Một hóa đơn không được vượt ${MAX_POS_PAYMENT_LINES} nguồn thanh toán.` };
+      }
       let installmentCount = 0;
       let debtCount = 0;
+      let totalPaymentAmount = 0;
 
       for (const p of body.payments) {
         if (!p || typeof p !== 'object') {
@@ -199,8 +247,12 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
           };
         }
         p.method = normalizedMethod;
-        if (typeof p.amount !== 'number' || !Number.isFinite(p.amount) || p.amount < 0) {
-          return { isValid: false, error: 'Số tiền thanh toán phải là số dương hợp lệ.' };
+        if (typeof p.amount !== 'number' || !Number.isFinite(p.amount) || !Number.isSafeInteger(p.amount) || p.amount < 0 || p.amount > MAX_POS_PAYMENT_AMOUNT) {
+          return { isValid: false, error: 'Số tiền thanh toán phải là số nguyên VNĐ hợp lệ.' };
+        }
+        totalPaymentAmount += p.amount;
+        if (!Number.isSafeInteger(totalPaymentAmount) || totalPaymentAmount > MAX_POS_PAYMENT_AMOUNT) {
+          return { isValid: false, error: 'Tổng tiền thanh toán vượt giới hạn giao dịch.' };
         }
 
         if (p.method === 'INSTALLMENT') installmentCount++;
@@ -239,8 +291,8 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
       }
 
       if (downPayment !== undefined) {
-        if (typeof downPayment !== 'number' || !Number.isFinite(downPayment) || downPayment < 0) {
-          return { isValid: false, error: 'Số tiền trả trước (downPayment) không hợp lệ.' };
+        if (typeof downPayment !== 'number' || !Number.isFinite(downPayment) || !Number.isSafeInteger(downPayment) || downPayment < 0 || downPayment > MAX_POS_PAYMENT_AMOUNT) {
+          return { isValid: false, error: 'Số tiền trả trước phải là số nguyên VNĐ hợp lệ.' };
         }
       }
 
@@ -256,7 +308,7 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
       }
     }
 
-    return { isValid: true, data: body as PureIntentCheckoutPayload };
+    return { isValid: true, data: { ...body, accessoryLines } as PureIntentCheckoutPayload };
   }
 
   // 2. Legacy Format (Backward compatibility for non-production environments)

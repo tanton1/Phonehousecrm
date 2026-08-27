@@ -450,6 +450,7 @@ export async function processCreateCrmLead(db: Firestore | null, input: CrmCreat
     transaction.set(db.collection('leadAssignmentHistory').doc(`ASSIGN_${leadId}_1`), {
       id: `ASSIGN_${leadId}_1`, leadId, fromStaffId: '', fromStaffName: 'Hàng chờ', toStaffId: assignee.id,
       toStaffName: assignee.name, changedBy: actor.uid, changedByName: actor.name || actor.uid,
+      branchId,
       reason: input.requestedAssigneeId ? 'MANUAL_REASSIGN' : 'AUTO_ASSIGN', notes: fallback ? 'Không tìm thấy nhân viên trong ca; giao người tạo' : '', changedAt: FieldValue.serverTimestamp()
     });
     transaction.set(counterRef, { rotation: rotation + 1, lastAssignedStaffId: assignee.id, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -737,6 +738,7 @@ export async function processAssignCrmLead(db: Firestore | null, input: { leadId
     transaction.set(db.collection('leadAssignmentHistory').doc(), cleanObject({
       leadId: lead.id, fromStaffId: isCare ? lead.customerCareOwnerId || '' : lead.assignedStaffId || '',
       fromStaffName: isCare ? lead.customerCareOwnerName || '' : lead.assignedStaff || '', toStaffId: target.id, toStaffName: targetName,
+      branchId: lead.branchId,
       changedBy: actor.uid, changedByName: actor.name || actor.uid, reason: input.reason || 'MANAGER_REASSIGN', notes: String(input.notes || '').trim() || undefined,
       changedAt: FieldValue.serverTimestamp()
     }));

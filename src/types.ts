@@ -1443,6 +1443,8 @@ export interface FundAccount {
   isDefault?: boolean;
   isArchived?: boolean;
   color: string;
+  /** POS may receive account routing data without financial balances. */
+  balanceHidden?: boolean;
 }
 
 export interface PartnerDebtTransaction {

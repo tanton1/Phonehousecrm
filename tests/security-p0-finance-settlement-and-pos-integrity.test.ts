@@ -83,6 +83,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
           installmentFinancePartnerId: 'FINANCE-PARTNER-01'
         },
         installmentFinancePartnerId: 'FINANCE-PARTNER-01',
+        installmentContractCode: 'HD-TG-001',
         commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-01', tagIds: ['MAY_TEST'] }]
       });
 
@@ -90,6 +91,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
       expect(result.finalAmount).toBe(30000000);
       expect(result.invoice.debtAmount).toBe(0); // Customer does NOT owe the bank financed portion!
       expect(result.invoice.financeAmount).toBe(20000000); // Financed by partner
+      expect(result.invoice.installmentContractCode).toBe('HD-TG-001');
     });
   });
 

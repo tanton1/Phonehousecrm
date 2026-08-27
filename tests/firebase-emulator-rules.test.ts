@@ -20,6 +20,8 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'users/manager-1'), { role: 'MANAGER', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'users/manager-2'), { role: 'MANAGER', active: true, branchId: 'CN02', assignedBranchIds: ['CN02'] });
     await setDoc(doc(context.firestore(), 'users/staff-1'), { role: 'SALES', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
+    await setDoc(doc(context.firestore(), 'users/tech-1'), { role: 'TECHNICIAN', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
+    await setDoc(doc(context.firestore(), 'users/accountant-1'), { role: 'ACCOUNTANT', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'technicalSecrets/WO-1'), { branchId: 'CN01', encryptedSecret: 'never-browser-readable' });
     await setDoc(doc(context.firestore(), 'catalogItems/SKU-1'), { branchId: 'CN01', lifecycleStatus: 'ACTIVE' });
     await setDoc(doc(context.firestore(), 'branches/CN01'), { id: 'CN01', name: 'PhoneHouse', isActive: true });
@@ -33,6 +35,10 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'sopTemplates/SOP-1'), { id: 'SOP-1', code: 'SOP-OPEN', isActive: true });
     await setDoc(doc(context.firestore(), 'dailyShiftChecklists/CL-1'), { id: 'CL-1', branchId: 'CN01', staffId: 'staff-1', isCompleted: false });
     await setDoc(doc(context.firestore(), 'shiftHandover/HO-1'), { id: 'HO-1', branchId: 'CN01', staffId: 'staff-1', status: 'SUBMITTED' });
+    await setDoc(doc(context.firestore(), 'funds/FUND-1'), { id: 'FUND-1', branchId: 'CN01', currentBalance: 1_000_000 });
+    await setDoc(doc(context.firestore(), 'cashTransactions/TX-1'), { id: 'TX-1', branchId: 'CN01', amount: 100_000 });
+    await setDoc(doc(context.firestore(), 'leadAssignmentHistory/AH-1'), { id: 'AH-1', branchId: 'CN01', leadId: 'LEAD-1' });
+    await setDoc(doc(context.firestore(), 'commissionLedger/COMM-1'), { id: 'COMM-1', branchId: 'CN01', staffUid: 'tech-1', amount: 50_000 });
   });
 });
 
@@ -97,5 +103,28 @@ afterAll(async () => { await env?.cleanup(); });
     await assertSucceeds(getDoc(doc(ownManagerDb, 'shiftHandover/HO-1')));
     await assertFails(getDoc(doc(otherManagerDb, 'dailyShiftChecklists/CL-1')));
     await assertFails(getDoc(doc(otherManagerDb, 'shiftHandover/HO-1')));
+  });
+
+  it('finance collections require finance role and matching branch', async () => {
+    const salesDb = env.authenticatedContext('staff-1').firestore();
+    const techDb = env.authenticatedContext('tech-1').firestore();
+    const accountantDb = env.authenticatedContext('accountant-1').firestore();
+    const otherManagerDb = env.authenticatedContext('manager-2').firestore();
+    await assertFails(getDoc(doc(salesDb, 'funds/FUND-1')));
+    await assertFails(getDoc(doc(techDb, 'cashTransactions/TX-1')));
+    await assertSucceeds(getDoc(doc(accountantDb, 'funds/FUND-1')));
+    await assertSucceeds(getDoc(doc(accountantDb, 'cashTransactions/TX-1')));
+    await assertFails(getDoc(doc(otherManagerDb, 'funds/FUND-1')));
+  });
+
+  it('lead assignment and commission reads stay branch scoped while staff may read own commission', async () => {
+    const ownManagerDb = env.authenticatedContext('manager-1').firestore();
+    const otherManagerDb = env.authenticatedContext('manager-2').firestore();
+    const technicianDb = env.authenticatedContext('tech-1').firestore();
+    await assertSucceeds(getDoc(doc(ownManagerDb, 'leadAssignmentHistory/AH-1')));
+    await assertFails(getDoc(doc(otherManagerDb, 'leadAssignmentHistory/AH-1')));
+    await assertSucceeds(getDoc(doc(ownManagerDb, 'commissionLedger/COMM-1')));
+    await assertFails(getDoc(doc(otherManagerDb, 'commissionLedger/COMM-1')));
+    await assertSucceeds(getDoc(doc(technicianDb, 'commissionLedger/COMM-1')));
   });
 });

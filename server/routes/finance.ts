@@ -5,6 +5,12 @@ import { requireRole } from '../middleware/requireRole';
 import { requirePermission } from '../middleware/requirePermission';
 import { processPartnerDebtSettlement } from '../services/partnerDebtService';
 import { processInstallmentDisbursement } from '../services/installmentDisbursementService';
+import {
+  assertFinanceIdempotencyRecord,
+  financePayloadHash,
+  parseVnd,
+  requireFinanceIdempotencyKey
+} from '../utils/financeIntegrity';
 
 function canAccessBranch(user: any, targetBranchId?: string): boolean {
   if (!targetBranchId || targetBranchId === 'ALL') return false;
@@ -42,8 +48,7 @@ export function validateFinanceAccountDraft(input: any) {
     throw new Error('BANK_FIELDS_REQUIRED: Tài khoản ngân hàng cần tên ngân hàng, số tài khoản và chủ tài khoản.');
   }
 
-  const openingBalance = Number(input?.openingBalance ?? input?.initialBalance ?? 0);
-  if (!Number.isFinite(openingBalance) || openingBalance < 0) throw new Error('OPENING_BALANCE_INVALID');
+  const openingBalance = parseVnd(input?.openingBalance ?? input?.initialBalance ?? 0, { allowZero: true, field: 'OPENING_BALANCE' });
   return {
     branchId,
     type,
@@ -101,6 +106,39 @@ export function createFinanceRouter(db: Firestore | null): Router {
       return res.json({ success: true, accounts });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message || 'ACCOUNT_LIST_FAILED' });
+    }
+  });
+
+  // POS users only receive routing metadata. Balances and finance totals stay
+  // behind FINANCE_VIEW and are never exposed by this endpoint.
+  router.get('/payment-accounts', requirePermission('POS_CHECKOUT'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const branchId = requiredBranchId(req.query.branchId);
+      if (!canAccessBranch(req.user, branchId)) {
+        return res.status(403).json({ success: false, error: 'BRANCH_FORBIDDEN' });
+      }
+      const snapshot = await db.collection('funds').where('branchId', '==', branchId).get();
+      const accounts = snapshot.docs
+        .map(item => ({ id: item.id, ...item.data() } as any))
+        .filter(item => item.isArchived !== true && item.isActive !== false && item.active !== false)
+        .map(item => ({
+          id: item.id,
+          branchId,
+          name: String(item.name || 'Tài khoản nhận tiền'),
+          type: String(item.type || 'CASH'),
+          bankName: String(item.bankName || ''),
+          accountNumber: String(item.accountNumber || ''),
+          accountHolder: String(item.accountHolder || ''),
+          isDefault: item.isDefault === true,
+          isActive: true,
+          active: true,
+          isArchived: false,
+          balanceHidden: true
+        }));
+      return res.json({ success: true, accounts });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error.message || 'PAYMENT_ACCOUNT_LIST_FAILED' });
     }
   });
 
@@ -325,14 +363,17 @@ export function createFinanceRouter(db: Firestore | null): Router {
         category,
         categoryName,
         notes,
-        isPLAccounted = true,
-        idempotencyKey = req.headers['x-idempotency-key'] as string
+        isPLAccounted = true
       } = req.body;
 
-      const numAmount = Number(amount);
-      if (!fundId || isNaN(numAmount) || numAmount <= 0) {
-        return res.status(400).json({ success: false, error: 'Thông tin quỹ hoặc số tiền thu không hợp lệ' });
-      }
+      if (!fundId) return res.status(400).json({ success: false, error: 'FUND_REQUIRED' });
+      const numAmount = parseVnd(amount);
+      const idempotencyKey = requireFinanceIdempotencyKey(req.body?.idempotencyKey, req.headers['x-idempotency-key']);
+      const payloadHash = financePayloadHash('RECEIPT', {
+        fundId, amount: numAmount, partnerId: partnerId || '', partnerName: partnerName || '',
+        partnerType: partnerType || 'CUSTOMER', category: category || 'OTHER_INCOME',
+        categoryName: categoryName || 'Thu tiền khác', notes: notes || '', isPLAccounted: isPLAccounted !== false
+      });
       if (category === 'CUSTOMER_DEBT_COLLECT') {
         return res.status(400).json({ success: false, error: 'USE_PARTNER_DEBT_SETTLEMENT: Thu nợ phải thực hiện từ Sổ nợ đối tác để cập nhật đồng thời công nợ và chứng từ gốc.' });
       }
@@ -345,13 +386,14 @@ export function createFinanceRouter(db: Firestore | null): Router {
 
       await db.runTransaction(async (transaction) => {
         // Idempotency Check
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          const idemSnap = await transaction.get(idemRef);
-          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
-            resultingTx = idemSnap.data()?.transaction;
-            return;
-          }
+        const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+        const idemSnap = await transaction.get(idemRef);
+        if (idemSnap.exists) {
+          const existing = idemSnap.data()!;
+          assertFinanceIdempotencyRecord(existing, { operationType: 'RECEIPT', payloadHash, actorUid: req.user!.uid });
+          if (existing.status !== 'COMPLETED') throw new Error('IDEMPOTENCY_REQUEST_IN_PROGRESS');
+          resultingTx = existing.transaction;
+          return;
         }
 
         const fundRef = db.collection('funds').doc(fundId);
@@ -372,8 +414,12 @@ export function createFinanceRouter(db: Firestore | null): Router {
           throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên quỹ thuộc chi nhánh "${fundBranchId}".`);
         }
 
-        const newBalance = (fundData.currentBalance || 0) + numAmount;
-        const newTotalIncome = (fundData.totalIncome || 0) + numAmount;
+        const currentBalance = parseVnd(fundData.currentBalance ?? 0, { allowZero: true, field: 'FUND_BALANCE' });
+        const totalIncome = parseVnd(fundData.totalIncome ?? 0, { allowZero: true, field: 'FUND_TOTAL_INCOME' });
+        const newBalance = currentBalance + numAmount;
+        const newTotalIncome = totalIncome + numAmount;
+        parseVnd(newBalance, { field: 'FUND_BALANCE' });
+        parseVnd(newTotalIncome, { field: 'FUND_TOTAL_INCOME' });
 
         transaction.update(fundRef, {
           currentBalance: newBalance,
@@ -409,17 +455,16 @@ export function createFinanceRouter(db: Firestore | null): Router {
           createdAt: FieldValue.serverTimestamp()
         });
 
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          transaction.set(idemRef, {
-            id: idempotencyKey,
-            status: 'COMPLETED',
-            type: 'RECEIPT',
-            transaction: resultingTx,
-            creatorUid: req.user?.uid,
-            createdAt: FieldValue.serverTimestamp()
-          });
-        }
+        transaction.set(idemRef, {
+          id: idempotencyKey,
+          status: 'COMPLETED',
+          type: 'RECEIPT',
+          payloadHash,
+          transaction: resultingTx,
+          creatorUid: req.user?.uid,
+          branchId: fundBranchId,
+          createdAt: FieldValue.serverTimestamp()
+        });
       });
 
       return res.json({
@@ -430,7 +475,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
     } catch (err: any) {
       console.error('[Finance Receipt Error]:', err);
       const isForbidden = err.message?.includes('BRANCH_FORBIDDEN') || err.message?.includes('PERMISSION');
-      return res.status(isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi xử lý phiếu thu' });
+      const isConflict = err.message?.includes('IDEMPOTENCY_KEY_CONFLICT');
+      return res.status(isConflict ? 409 : isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi xử lý phiếu thu' });
     }
   });
 
@@ -454,14 +500,17 @@ export function createFinanceRouter(db: Firestore | null): Router {
         category,
         categoryName,
         notes,
-        isPLAccounted = true,
-        idempotencyKey = req.headers['x-idempotency-key'] as string
+        isPLAccounted = true
       } = req.body;
 
-      const numAmount = Number(amount);
-      if (!fundId || isNaN(numAmount) || numAmount <= 0) {
-        return res.status(400).json({ success: false, error: 'Thông tin quỹ hoặc số tiền chi không hợp lệ' });
-      }
+      if (!fundId) return res.status(400).json({ success: false, error: 'FUND_REQUIRED' });
+      const numAmount = parseVnd(amount);
+      const idempotencyKey = requireFinanceIdempotencyKey(req.body?.idempotencyKey, req.headers['x-idempotency-key']);
+      const payloadHash = financePayloadHash('PAYMENT', {
+        fundId, amount: numAmount, partnerId: partnerId || '', partnerName: partnerName || '',
+        partnerType: partnerType || 'SUPPLIER', category: category || 'OPERATING_EXPENSE',
+        categoryName: categoryName || 'Chi phí hoạt động', notes: notes || '', isPLAccounted: isPLAccounted !== false
+      });
       if (category === 'SUPPLIER_DEBT_PAY') {
         return res.status(400).json({ success: false, error: 'USE_PARTNER_DEBT_SETTLEMENT: Trả nợ NCC phải thực hiện từ Sổ nợ đối tác để cập nhật đồng thời công nợ và phiếu nhập.' });
       }
@@ -474,13 +523,14 @@ export function createFinanceRouter(db: Firestore | null): Router {
 
       await db.runTransaction(async (transaction) => {
         // Idempotency Check
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          const idemSnap = await transaction.get(idemRef);
-          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
-            resultingTx = idemSnap.data()?.transaction;
-            return;
-          }
+        const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+        const idemSnap = await transaction.get(idemRef);
+        if (idemSnap.exists) {
+          const existing = idemSnap.data()!;
+          assertFinanceIdempotencyRecord(existing, { operationType: 'PAYMENT', payloadHash, actorUid: req.user!.uid });
+          if (existing.status !== 'COMPLETED') throw new Error('IDEMPOTENCY_REQUEST_IN_PROGRESS');
+          resultingTx = existing.transaction;
+          return;
         }
 
         const fundRef = db.collection('funds').doc(fundId);
@@ -502,13 +552,15 @@ export function createFinanceRouter(db: Firestore | null): Router {
         }
 
         // Invariant: Non-Negative Fund Balance Protection
-        const currentBalance = fundData.currentBalance || 0;
+        const currentBalance = parseVnd(fundData.currentBalance ?? 0, { allowZero: true, field: 'FUND_BALANCE' });
         if (currentBalance < numAmount) {
           throw new Error(`INSUFFICIENT_FUNDS: Số dư khả dụng trong quỹ "${fundData.name}" (${currentBalance.toLocaleString('vi-VN')} đ) không đủ để chi (${numAmount.toLocaleString('vi-VN')} đ).`);
         }
 
         const newBalance = currentBalance - numAmount;
-        const newTotalExpense = (fundData.totalExpense || 0) + numAmount;
+        const totalExpense = parseVnd(fundData.totalExpense ?? 0, { allowZero: true, field: 'FUND_TOTAL_EXPENSE' });
+        const newTotalExpense = totalExpense + numAmount;
+        parseVnd(newTotalExpense, { field: 'FUND_TOTAL_EXPENSE' });
 
         transaction.update(fundRef, {
           currentBalance: newBalance,
@@ -544,17 +596,16 @@ export function createFinanceRouter(db: Firestore | null): Router {
           createdAt: FieldValue.serverTimestamp()
         });
 
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          transaction.set(idemRef, {
-            id: idempotencyKey,
-            status: 'COMPLETED',
-            type: 'PAYMENT',
-            transaction: resultingTx,
-            creatorUid: req.user?.uid,
-            createdAt: FieldValue.serverTimestamp()
-          });
-        }
+        transaction.set(idemRef, {
+          id: idempotencyKey,
+          status: 'COMPLETED',
+          type: 'PAYMENT',
+          payloadHash,
+          transaction: resultingTx,
+          creatorUid: req.user?.uid,
+          branchId: fundBranchId,
+          createdAt: FieldValue.serverTimestamp()
+        });
       });
 
       return res.json({
@@ -565,7 +616,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
     } catch (err: any) {
       console.error('[Finance Payment Error]:', err);
       const isForbidden = err.message?.includes('BRANCH_FORBIDDEN') || err.message?.includes('PERMISSION');
-      return res.status(isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi xử lý phiếu chi' });
+      const isConflict = err.message?.includes('IDEMPOTENCY_KEY_CONFLICT');
+      return res.status(isConflict ? 409 : isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi xử lý phiếu chi' });
     }
   });
 
@@ -584,14 +636,15 @@ export function createFinanceRouter(db: Firestore | null): Router {
         fromFundId,
         toFundId,
         amount,
-        notes,
-        idempotencyKey = req.headers['x-idempotency-key'] as string
+        notes
       } = req.body;
-      const numAmount = Number(amount);
 
-      if (!fromFundId || !toFundId || fromFundId === toFundId || isNaN(numAmount) || numAmount <= 0) {
+      if (!fromFundId || !toFundId || fromFundId === toFundId) {
         return res.status(400).json({ success: false, error: 'Thông tin quỹ chuyển/nhận hoặc số tiền không hợp lệ' });
       }
+      const numAmount = parseVnd(amount);
+      const idempotencyKey = requireFinanceIdempotencyKey(req.body?.idempotencyKey, req.headers['x-idempotency-key']);
+      const payloadHash = financePayloadHash('TRANSFER', { fromFundId, toFundId, amount: numAmount, notes: notes || '' });
 
       const now = getVietnamDateTime();
       const codeOut = `PC${Date.now().toString().slice(-6)}`;
@@ -604,15 +657,15 @@ export function createFinanceRouter(db: Firestore | null): Router {
 
       await db.runTransaction(async (transaction) => {
         // Idempotency Check
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          const idemSnap = await transaction.get(idemRef);
-          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
-            const data = idemSnap.data();
-            txOut = data?.txOut;
-            txIn = data?.txIn;
-            return;
-          }
+        const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+        const idemSnap = await transaction.get(idemRef);
+        if (idemSnap.exists) {
+          const existing = idemSnap.data()!;
+          assertFinanceIdempotencyRecord(existing, { operationType: 'TRANSFER', payloadHash, actorUid: req.user!.uid });
+          if (existing.status !== 'COMPLETED') throw new Error('IDEMPOTENCY_REQUEST_IN_PROGRESS');
+          txOut = existing.txOut;
+          txIn = existing.txIn;
+          return;
         }
 
         const fromRef = db.collection('funds').doc(fromFundId);
@@ -638,24 +691,33 @@ export function createFinanceRouter(db: Firestore | null): Router {
         if (!canAccessBranch(req.user, fromBranchId) || !canAccessBranch(req.user, toBranchId)) {
           throw new Error('BRANCH_FORBIDDEN: Bạn không có đủ thẩm quyền trên cả hai chi nhánh của quỹ chuyển và quỹ nhận.');
         }
+        if (fromBranchId !== toBranchId) {
+          throw new Error('INTER_BRANCH_TRANSFER_REQUIRES_SETTLEMENT: Chuyển tiền khác chi nhánh phải qua quy trình đối soát liên chi nhánh.');
+        }
 
         // Check sufficient balance
-        const fromBalance = fromData.currentBalance || 0;
+        const fromBalance = parseVnd(fromData.currentBalance ?? 0, { allowZero: true, field: 'SOURCE_FUND_BALANCE' });
+        const toBalance = parseVnd(toData.currentBalance ?? 0, { allowZero: true, field: 'DESTINATION_FUND_BALANCE' });
+        const fromTotalExpense = parseVnd(fromData.totalExpense ?? 0, { allowZero: true, field: 'SOURCE_FUND_TOTAL_EXPENSE' });
+        const toTotalIncome = parseVnd(toData.totalIncome ?? 0, { allowZero: true, field: 'DESTINATION_FUND_TOTAL_INCOME' });
         if (fromBalance < numAmount) {
           throw new Error(`INSUFFICIENT_FUNDS: Quỹ nguồn "${fromData.name}" (${fromBalance.toLocaleString('vi-VN')} đ) không đủ số dư để chuyển ${numAmount.toLocaleString('vi-VN')} đ.`);
         }
+        parseVnd(fromTotalExpense + numAmount, { field: 'SOURCE_FUND_TOTAL_EXPENSE' });
+        parseVnd(toBalance + numAmount, { field: 'DESTINATION_FUND_BALANCE' });
+        parseVnd(toTotalIncome + numAmount, { field: 'DESTINATION_FUND_TOTAL_INCOME' });
 
         // Update fromFund
         transaction.update(fromRef, {
           currentBalance: fromBalance - numAmount,
-          totalExpense: (fromData.totalExpense || 0) + numAmount,
+          totalExpense: fromTotalExpense + numAmount,
           updatedAt: now
         });
 
         // Update toFund
         transaction.update(toRef, {
-          currentBalance: (toData.currentBalance || 0) + numAmount,
-          totalIncome: (toData.totalIncome || 0) + numAmount,
+          currentBalance: toBalance + numAmount,
+          totalIncome: toTotalIncome + numAmount,
           updatedAt: now
         });
 
@@ -716,18 +778,17 @@ export function createFinanceRouter(db: Firestore | null): Router {
           createdAt: FieldValue.serverTimestamp()
         });
 
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          transaction.set(idemRef, {
-            id: idempotencyKey,
-            status: 'COMPLETED',
-            type: 'TRANSFER',
-            txOut,
-            txIn,
-            creatorUid: req.user?.uid,
-            createdAt: FieldValue.serverTimestamp()
-          });
-        }
+        transaction.set(idemRef, {
+          id: idempotencyKey,
+          status: 'COMPLETED',
+          type: 'TRANSFER',
+          payloadHash,
+          txOut,
+          txIn,
+          creatorUid: req.user?.uid,
+          branchId: fromBranchId,
+          createdAt: FieldValue.serverTimestamp()
+        });
       });
 
       return res.json({
@@ -739,7 +800,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
     } catch (err: any) {
       console.error('[Finance Transfer Error]:', err);
       const isForbidden = err.message?.includes('BRANCH_FORBIDDEN') || err.message?.includes('PERMISSION');
-      return res.status(isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi chuyển quỹ' });
+      const isConflict = err.message?.includes('IDEMPOTENCY_KEY_CONFLICT');
+      return res.status(isConflict ? 409 : isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi chuyển quỹ' });
     }
   });
 
@@ -757,27 +819,27 @@ export function createFinanceRouter(db: Firestore | null): Router {
       const {
         fundId,
         actualBalance,
-        notes,
-        idempotencyKey = req.headers['x-idempotency-key'] as string
+        notes
       } = req.body;
-      const numActual = Number(actualBalance);
 
-      if (!fundId || isNaN(numActual) || numActual < 0) {
-        return res.status(400).json({ success: false, error: 'Thông tin quỹ hoặc số dư thực tế không hợp lệ' });
-      }
+      if (!fundId) return res.status(400).json({ success: false, error: 'FUND_REQUIRED' });
+      const numActual = parseVnd(actualBalance, { allowZero: true, field: 'ACTUAL_BALANCE' });
+      const idempotencyKey = requireFinanceIdempotencyKey(req.body?.idempotencyKey, req.headers['x-idempotency-key']);
+      const payloadHash = financePayloadHash('RECONCILE', { fundId, actualBalance: numActual, notes: notes || '' });
 
       const now = getVietnamDateTime();
       let adjustmentTx: any = null;
 
       await db.runTransaction(async (transaction) => {
         // Idempotency Check
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          const idemSnap = await transaction.get(idemRef);
-          if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
-            adjustmentTx = idemSnap.data()?.adjustmentTx;
-            return;
-          }
+        const idemRef = db.collection('financeRequests').doc(idempotencyKey);
+        const idemSnap = await transaction.get(idemRef);
+        if (idemSnap.exists) {
+          const existing = idemSnap.data()!;
+          assertFinanceIdempotencyRecord(existing, { operationType: 'RECONCILE', payloadHash, actorUid: req.user!.uid });
+          if (existing.status !== 'COMPLETED') throw new Error('IDEMPOTENCY_REQUEST_IN_PROGRESS');
+          adjustmentTx = existing.adjustmentTx;
+          return;
         }
 
         const fundRef = db.collection('funds').doc(fundId);
@@ -796,7 +858,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
           throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền đối soát quỹ thuộc chi nhánh "${fundBranchId}".`);
         }
 
-        const currentBalance = fundData.currentBalance || 0;
+        const currentBalance = parseVnd(fundData.currentBalance ?? 0, { allowZero: true, field: 'FUND_BALANCE' });
         const diff = numActual - currentBalance;
 
         transaction.update(fundRef, {
@@ -839,17 +901,16 @@ export function createFinanceRouter(db: Firestore | null): Router {
           });
         }
 
-        if (idempotencyKey) {
-          const idemRef = db.collection('financeRequests').doc(idempotencyKey);
-          transaction.set(idemRef, {
-            id: idempotencyKey,
-            status: 'COMPLETED',
-            type: 'RECONCILE',
-            adjustmentTx,
-            creatorUid: req.user?.uid,
-            createdAt: FieldValue.serverTimestamp()
-          });
-        }
+        transaction.set(idemRef, {
+          id: idempotencyKey,
+          status: 'COMPLETED',
+          type: 'RECONCILE',
+          payloadHash,
+          adjustmentTx,
+          creatorUid: req.user?.uid,
+          branchId: fundBranchId,
+          createdAt: FieldValue.serverTimestamp()
+        });
       });
 
       return res.json({
@@ -860,7 +921,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
     } catch (err: any) {
       console.error('[Finance Reconcile Error]:', err);
       const isForbidden = err.message?.includes('BRANCH_FORBIDDEN') || err.message?.includes('PERMISSION');
-      return res.status(isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi đối soát số dư' });
+      const isConflict = err.message?.includes('IDEMPOTENCY_KEY_CONFLICT');
+      return res.status(isConflict ? 409 : isForbidden ? 403 : 400).json({ success: false, error: err.message || 'Lỗi đối soát số dư' });
     }
   });
 
