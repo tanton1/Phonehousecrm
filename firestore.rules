@@ -572,8 +572,20 @@ service cloud.firestore {
     }
 
     match /qcInspections/{qcId} {
-      allow read: if isAuthenticated() && isActiveUser();
+      allow read: if canViewCost() && canAccessBranch(resource.data.branchId);
       allow write: if false; // Strict Single Writer: Only Server Technical QC API
+    }
+
+    match /technicalTaskSessions/{sessionId} {
+      allow read, write: if false;
+    }
+
+    match /technicalQuoteAdjustments/{adjustmentId} {
+      allow read, write: if false;
+    }
+
+    match /repairPayments/{paymentId} {
+      allow read, write: if false;
     }
 
     match /commissionLedger/{commId} {

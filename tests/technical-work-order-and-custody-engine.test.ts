@@ -358,7 +358,7 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
       const mockDb: any = {
         collection: (col: string) => ({ doc: (docId: string) => ({ col, docId, id: docId }) }),
         runTransaction: async (cb: any) => cb({
-          get: async () => ({
+          get: async (ref: any) => ref.col === 'technicalOperationIdempotency' ? ({ exists: false, data: () => undefined }) : ({
             exists: true,
             data: () => ({ id: 'WO_INTERNAL', workOrderType: 'INBOUND_PREP', assetOwnership: 'COMPANY', status: 'QC_PASSED', branchId: 'CN01' })
           }),
@@ -370,7 +370,8 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
         mockDb,
         'WO_INTERNAL',
         'Giao máy sau sửa',
-        { uid: 'UID_WAREHOUSE', role: 'MANAGER', branchId: 'CN01' }
+        { uid: 'UID_WAREHOUSE', role: 'MANAGER', branchId: 'CN01' },
+        { idempotencyKey: 'company-delivery-reject-0001', paidAmount: 0, paymentMethod: 'DEBT' }
       )).rejects.toThrow('CUSTOMER_DELIVERY_ONLY');
     });
   });

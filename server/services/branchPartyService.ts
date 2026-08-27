@@ -6,6 +6,7 @@ export type DebtDirection = 'RECEIVABLE' | 'PAYABLE';
 export type DebtLedgerSourceType =
   | 'PURCHASE_ORDER'
   | 'INVOICE'
+  | 'TECHNICAL_WORK_ORDER'
   | 'PAYMENT'
   | 'REFUND'
   | 'ADJUSTMENT'

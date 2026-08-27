@@ -391,6 +391,7 @@ const suggestedPartGroups = (issueTypes: string[] = []) => [...new Set(issueType
 const emptyTask = (): TechnicalTaskTypeConfig => ({
   id: '', taskType: '', name: '', taskCode: '', baseCommission: Number.NaN,
   laborCostToDevice: Number.NaN, capitalizeLaborCost: true, reworkCommissionPolicy: 'NO_EXTRA_COMMISSION', requiredEvidenceTypes: ['AFTER_PHOTO', 'RESULT_NOTES'],
+  quoteGate: 'APPROVAL_REQUIRED',
   requiredPartTemplates: [], intakeIssueTypes: [],
   normalSlaHours: Number.NaN, prioritySlaHours: Number.NaN, urgentSlaHours: Number.NaN,
   priorityMultiplier: { NORMAL: Number.NaN, PRIORITY: Number.NaN, URGENT: Number.NaN },
@@ -445,6 +446,7 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
         <NumberField label="Hoa hồng trả KTV" value={draft.baseCommission} onChange={value => setDraft({ ...draft, baseCommission: value })} />
         <NumberField label="Công tính vào giá vốn máy" value={draft.laborCostToDevice ?? Number.NaN} onChange={value => setDraft({ ...draft, laborCostToDevice: value })} />
         <label className="space-y-1 text-sm font-semibold"><span>Phiên bản</span><input value={draft.version} onChange={e => setDraft({ ...draft, version: e.target.value })} className="w-full rounded-xl border px-3 py-2.5" /></label>
+        <label className="space-y-1 text-sm font-semibold"><span>Điều kiện báo giá</span><select value={draft.quoteGate || 'APPROVAL_REQUIRED'} onChange={e => setDraft({ ...draft, quoteGate: e.target.value as TechnicalTaskTypeConfig['quoteGate'] })} className="w-full rounded-xl border px-3 py-2.5"><option value="APPROVAL_REQUIRED">Phải duyệt giá trước khi làm</option><option value="DIAGNOSIS_ALLOWED">Được chẩn đoán trước</option><option value="NOT_APPLICABLE">Không áp dụng báo giá</option></select></label>
         <NumberField label="SLA thường (giờ)" value={draft.normalSlaHours} onChange={value => setDraft({ ...draft, normalSlaHours: value })} />
         <NumberField label="SLA ưu tiên (giờ)" value={draft.prioritySlaHours ?? Number.NaN} onChange={value => setDraft({ ...draft, prioritySlaHours: value })} />
         <NumberField label="SLA khẩn (giờ)" value={draft.urgentSlaHours} onChange={value => setDraft({ ...draft, urgentSlaHours: value })} />

@@ -16,7 +16,12 @@ import {
   processQCInspection,
   processReturnToStock,
   processRequestTechnicalHandoff,
+  processRequestTechnicalQuoteAdjustment,
+  processDecideTechnicalQuoteAdjustment,
   processDeliverToCustomer,
+  processCollectTechnicalDebtPayment,
+  deriveTechnicalBoardStage,
+  deriveTechnicalAllowedActions,
   isTechnicalEvidenceUrlForWorkOrder
 } from '../services/technicalService';
 import {
@@ -45,6 +50,7 @@ import {
 import { processAcceptTechnicalTransfer } from '../services/inventoryTransferService';
 import crypto from 'crypto';
 import { revealTechnicalPasscode } from '../services/technicalSecretService';
+import { getVietnamDayUtcRange, getVietnamMonthString } from '../../shared/vietnamTime';
 
 export function createTechnicalRouter(db: Firestore | null): Router {
   const router = Router();
@@ -472,7 +478,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/parts/receive', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE', 'TECH_LEAD'), async (req: Request, res: Response) => {
+  router.post('/parts/receive', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await processReceiveTechnicalSparePart(db, req.body, req.user!);
@@ -563,8 +569,34 @@ export function createTechnicalRouter(db: Firestore | null): Router {
    * Deliver Repaired/Warranted Device to Customer
    */
   router.post(
+    '/work-orders/:id/quote-adjustments',
+    requireRole('ADMIN', 'MANAGER', 'SALES', 'SALE', 'CASHIER'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        return res.json({ success: true, data: await processRequestTechnicalQuoteAdjustment(db, req.params.id, req.body || {}, req.user!) });
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error?.message || 'Không thể gửi duyệt báo giá.' });
+      }
+    }
+  );
+
+  router.post(
+    '/work-orders/:id/quote-adjustments/:adjustmentId/decision',
+    requireRole('ADMIN', 'MANAGER', 'ACCOUNTANT'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        return res.json({ success: true, data: await processDecideTechnicalQuoteAdjustment(db, req.params.id, req.params.adjustmentId, req.body || {}, req.user!) });
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error?.message || 'Không thể duyệt báo giá.' });
+      }
+    }
+  );
+
+  router.post(
     '/work-orders/:id/deliver-customer',
-    requireRole('ADMIN', 'MANAGER', 'SALES', 'SALE', 'TECH_LEAD'),
+    requireRole('ADMIN', 'MANAGER', 'SALES', 'SALE', 'CASHIER'),
     async (req: Request, res: Response) => {
       if (!db) {
         return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
@@ -581,6 +613,19 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     }
   );
 
+  router.post(
+    '/work-orders/:id/payments',
+    requireRole('ADMIN', 'MANAGER', 'SALES', 'SALE', 'CASHIER'),
+    async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        return res.json({ success: true, data: await processCollectTechnicalDebtPayment(db, req.params.id, req.body || {}, req.user!) });
+      } catch (error: any) {
+        return res.status(400).json({ success: false, error: error?.message || 'Không thể thu công nợ sửa chữa.' });
+      }
+    }
+  );
+
   /**
    * GET /api/technical/commissions?period=YYYY-MM
    * Server-redacted source of truth for technician wallets and payroll previews.
@@ -588,14 +633,14 @@ export function createTechnicalRouter(db: Firestore | null): Router {
   router.get('/commissions', async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const requestedPeriod = String(req.query.period || new Date().toISOString().slice(0, 7));
+      const requestedPeriod = String(req.query.period || getVietnamMonthString());
       if (!/^\d{4}-\d{2}$/.test(requestedPeriod)) {
         return res.status(400).json({ success: false, error: 'INVALID_PAYROLL_PERIOD' });
       }
-      const snapshot = await db.collection('commissionLedger')
-        .where('payrollPeriod', '==', requestedPeriod)
-        .limit(1000)
-        .get();
+      const [eligibleSnapshot, pendingSnapshot] = await Promise.all([
+        db.collection('commissionLedger').where('payrollPeriod', '==', requestedPeriod).limit(1000).get(),
+        db.collection('commissionLedger').where('assignedPeriod', '==', requestedPeriod).where('status', '==', 'PENDING').limit(1000).get()
+      ]);
       const role = String(req.user!.role || '').toUpperCase();
       const canReviewBranch = ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'TECH_LEAD'].includes(role);
       const allowedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
@@ -605,7 +650,8 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         if (typeof value.toDate === 'function') return value.toDate().toISOString();
         return null;
       };
-      const entries = snapshot.docs
+      const uniqueDocs = new Map([...eligibleSnapshot.docs, ...pendingSnapshot.docs].map(doc => [doc.id, doc]));
+      const entries = [...uniqueDocs.values()]
         .map(doc => ({ id: doc.id, ...doc.data() } as any))
         .filter(entry => {
           if (!canReviewBranch) return entry.staffUid === req.user!.uid;
@@ -636,21 +682,29 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     try {
       const role = String(req.user!.role || '').toUpperCase();
       const allowedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
-      const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || '')) ? `${req.query.from}T00:00:00.000Z` : '';
-      const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || '')) ? `${req.query.to}T23:59:59.999Z` : '';
+      const fromDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || '')) ? String(req.query.from) : '';
+      const toDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || '')) ? String(req.query.to) : '';
+      const from = fromDate ? getVietnamDayUtcRange(fromDate).startUtc : '';
+      const to = toDate ? getVietnamDayUtcRange(toDate).endUtc : '';
       const serializeDate = (value: any): string => {
         if (!value) return '';
         if (typeof value === 'string') return value;
         if (typeof value.toDate === 'function') return value.toDate().toISOString();
         return '';
       };
-      const snapshot = await db.collection('technicalWorkOrders').limit(1000).get();
+      const requestedBranchId = String(req.query.branchId || req.user!.branchId || '').trim();
+      if (!requestedBranchId) throw new Error('BRANCH_REQUIRED');
+      if (role !== 'ADMIN' && !allowedBranches.has(requestedBranchId)) throw new Error('BRANCH_FORBIDDEN');
+      let reportQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrders')
+        .where('branchId', '==', requestedBranchId)
+        .where('status', '==', 'DELIVERED_TO_CUSTOMER');
+      if (from) reportQuery = reportQuery.where('deliveredAt', '>=', from);
+      if (to) reportQuery = reportQuery.where('deliveredAt', '<=', to);
+      const snapshot = await reportQuery.orderBy('deliveredAt', 'desc').limit(500).get();
       const items = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as any))
         .filter(item => {
           if (!['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(item.workOrderType || ''))) return false;
-          if (String(item.status || '') !== 'DELIVERED_TO_CUSTOMER') return false;
-          if (role !== 'ADMIN' && !allowedBranches.has(item.branchId)) return false;
           const deliveredAt = serializeDate(item.deliveredAt);
           return (!from || deliveredAt >= from) && (!to || deliveredAt <= to);
         })
@@ -707,11 +761,17 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         if (typeof value.toDate === 'function') return value.toDate().toISOString();
         return '';
       };
-      const workOrderSnapshot = await db.collection('technicalWorkOrders').limit(1000).get();
+      const requestedBranchId = String(req.query.branchId || req.user!.branchId || '').trim();
+      if (!requestedBranchId) throw new Error('BRANCH_REQUIRED');
+      if (role !== 'ADMIN' && !allowedBranches.has(requestedBranchId)) throw new Error('BRANCH_FORBIDDEN');
+      const workOrderSnapshot = await db.collection('technicalWorkOrders')
+        .where('branchId', '==', requestedBranchId)
+        .where('workOrderType', 'in', ['CUSTOMER_SERVICE', 'WARRANTY'])
+        .orderBy('receivedAt', 'desc')
+        .limit(500)
+        .get();
       const workOrders = workOrderSnapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as any))
-        .filter(item => ['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(item.workOrderType || '')))
-        .filter(item => role === 'ADMIN' || allowedBranches.has(String(item.branchId || '')))
         .filter(item => String(item.status || '') !== 'CANCELLED');
       const lineIds = [...new Set(workOrders.flatMap(item => Array.isArray(item.taskLineIds) ? item.taskLineIds : []).map(String).filter(Boolean))];
       const lineSnapshots = lineIds.length ? await db.getAll(...lineIds.map(id => db.collection('technicalWorkOrderLines').doc(id))) : [];
@@ -721,19 +781,6 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         const key = String(line.workOrderId || '');
         linesByOrder.set(key, [...(linesByOrder.get(key) || []), line]);
       });
-      const getStage = (workOrder: any, lines: any[]) => {
-        const status = String(workOrder.status || 'ASSIGNED');
-        const openLineStatuses = lines
-          .map(line => String(line.status || 'ASSIGNED'))
-          .filter(lineStatus => !['COMPLETED', 'VERIFIED'].includes(lineStatus));
-        const allOpenTasksWaitingForParts = openLineStatuses.length > 0 && openLineStatuses.every(lineStatus => lineStatus === 'WAITING_PARTS');
-        if (status === 'DELIVERED_TO_CUSTOMER') return 'COMPLETED';
-        if (['QC_PASSED', 'CUSTOMER_READY'].includes(status)) return 'WAITING_DELIVERY';
-        if (['TECH_COMPLETED', 'QC_PENDING'].includes(status)) return 'WAITING_QC';
-        if (allOpenTasksWaitingForParts) return 'WAITING_PARTS';
-        if (status === 'ASSIGNED' || lines.every(line => String(line.status || '') === 'ASSIGNED')) return 'WAITING_ACCEPTANCE';
-        return 'IN_PROGRESS';
-      };
       const items = workOrders.map(workOrder => {
         const lines = (linesByOrder.get(workOrder.id) || []).map(line => ({
           id: line.id,
@@ -743,7 +790,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
           assigneeName: line.assigneeName || '',
           deadlineAt: serializeDate(line.deadlineAt)
         }));
-        const finalAmount = Number(workOrder.finalServiceAmount ?? workOrder.customerApprovedQuote ?? workOrder.totalEstimatedCost ?? 0);
+        const finalAmount = Number(workOrder.approvedFinalAmount ?? (workOrder.workOrderType === 'WARRANTY' ? 0 : 0));
         const paidAmount = Number(workOrder.paidAmount || 0);
         return {
           id: workOrder.id,
@@ -751,7 +798,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
           branchId: workOrder.branchId || '',
           type: workOrder.workOrderType,
           status: workOrder.status || 'ASSIGNED',
-          stage: getStage(workOrder, lines),
+          stage: deriveTechnicalBoardStage(workOrder, lines),
           customerName: workOrder.customerName || 'Khách lẻ',
           customerPhone: workOrder.customerPhone || '',
           imei: workOrder.imei || '',
@@ -764,6 +811,8 @@ export function createTechnicalRouter(db: Firestore | null): Router {
           balanceDue: Math.max(0, Number(workOrder.balanceDue ?? finalAmount - paidAmount)),
           paymentStatus: workOrder.paymentStatus || (paidAmount >= finalAmount ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'),
           paymentMethod: workOrder.paymentMethod || 'DEBT',
+          quoteStatus: workOrder.quoteStatus || (workOrder.workOrderType === 'WARRANTY' ? 'NOT_REQUIRED' : 'PENDING_APPROVAL'),
+          approvedFinalAmount: workOrder.approvedFinalAmount ?? null,
           taskLines: lines
         };
       }).sort((left, right) => String(right.receivedAt || right.deliveredAt).localeCompare(String(left.receivedAt || left.deliveredAt)));
@@ -785,6 +834,119 @@ export function createTechnicalRouter(db: Firestore | null): Router {
   });
 
   /**
+   * GET /api/technical/workspace
+   * Canonical, branch-scoped Kanban projection. Frontend receives the next
+   * action and allowed actions from the server instead of rebuilding policy.
+   */
+  router.get('/workspace', async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const role = String(req.user!.role || '').toUpperCase();
+      const scope = String(req.query.scope || 'mine') === 'branch' ? 'branch' : 'mine';
+      const branchId = String(req.query.branchId || req.user!.branchId || '').trim();
+      const branchRoles = ['ADMIN', 'MANAGER', 'TECH_LEAD', 'INVENTORY_MANAGER', 'WAREHOUSE'];
+      if (scope === 'branch' && !branchRoles.includes(role)) throw new Error('TECHNICAL_WORKSPACE_BRANCH_FORBIDDEN');
+      if (!branchId) throw new Error('BRANCH_REQUIRED');
+      const allowedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      if (role !== 'ADMIN' && !allowedBranches.has(branchId)) throw new Error('BRANCH_FORBIDDEN');
+      const activeStatuses = ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_PARTS', 'COMPLETED', 'REWORK_REQUIRED'];
+      const pageSize = Math.min(50, Math.max(10, Number(req.query.pageSize || 30)));
+      let lineQuery: FirebaseFirestore.Query = scope === 'mine'
+        ? db.collection('technicalWorkOrderLines').where('assigneeUid', '==', req.user!.uid).where('status', 'in', activeStatuses)
+        : db.collection('technicalWorkOrderLines').where('branchId', '==', branchId).where('status', 'in', activeStatuses);
+      lineQuery = lineQuery.orderBy('deadlineAt', 'asc');
+      const cursor = String(req.query.cursor || '').trim();
+      if (cursor) {
+        try { lineQuery = lineQuery.startAfter(Buffer.from(cursor, 'base64url').toString('utf8')); } catch { throw new Error('CURSOR_INVALID'); }
+      }
+      const lineSnap = await lineQuery.limit(pageSize + 1).get();
+      const pageDocs = lineSnap.docs.slice(0, pageSize);
+      const hasMore = lineSnap.docs.length > pageSize;
+      const workOrderIds = [...new Set(pageDocs.map(doc => String(doc.data().workOrderId || '')).filter(Boolean))];
+      const woSnaps = workOrderIds.length ? await db.getAll(...workOrderIds.map(id => db.collection('technicalWorkOrders').doc(id))) : [];
+      const woMap = new Map(woSnaps.filter(snap => snap.exists).map(snap => [snap.id, { id: snap.id, ...snap.data() } as any]));
+      const linesByWo = new Map<string, any[]>();
+      pageDocs.forEach(doc => {
+        const line = { id: doc.id, ...doc.data() } as any;
+        const key = String(line.workOrderId || '');
+        linesByWo.set(key, [...(linesByWo.get(key) || []), line]);
+      });
+      const nowMs = Date.now();
+      const items = [...linesByWo.entries()].map(([workOrderId, lines]) => {
+        const wo = woMap.get(workOrderId) || { id: workOrderId, branchId };
+        const deadlineAt = lines.map(line => String(line.deadlineAt || '')).filter(Boolean).sort()[0] || '';
+        const minutesRemaining = deadlineAt ? Math.round((Date.parse(deadlineAt) - nowMs) / 60_000) : null;
+        const stage = deriveTechnicalBoardStage(wo, lines);
+        const allowedActions = deriveTechnicalAllowedActions(wo, lines, req.user!);
+        const blockers = [
+          ...(wo.activeHandoffId ? ['Đang chờ bàn giao KTV'] : []),
+          ...(stage === 'WAITING_PARTS' ? ['Chờ linh kiện'] : []),
+          ...(String(wo.workOrderType || '') === 'CUSTOMER_SERVICE' && String(wo.quoteStatus || '') !== 'APPROVED' ? ['Chờ duyệt báo giá'] : [])
+        ];
+        return {
+          workOrderId, code: wo.code || workOrderId, status: wo.status || 'ASSIGNED', imei: wo.imei || '', model: wo.model || 'Thiết bị',
+          workOrderType: wo.workOrderType, branchId: wo.branchId, stage,
+          currentCustodianUid: wo.currentCustodianUid || null, currentCustodianName: wo.currentCustodianName || null,
+          sla: { deadlineAt: deadlineAt || null, minutesRemaining, risk: minutesRemaining == null ? 'NONE' : minutesRemaining < 0 ? 'OVERDUE' : minutesRemaining <= 120 ? 'HIGH' : 'NORMAL', isOverdue: minutesRemaining != null && minutesRemaining < 0 },
+          blockers, nextAction: allowedActions[0] || null, allowedActions,
+          taskLines: lines.map(line => ({ id: line.id, taskName: line.taskName, status: line.status, assigneeUid: line.assigneeUid, assigneeName: line.assigneeName, deadlineAt: line.deadlineAt || null, reworkCycle: Number(line.reworkCycle || 0) }))
+        };
+      });
+      const summary = items.reduce((acc, item) => {
+        acc.workOrdersOpen += 1;
+        if (item.stage === 'WAITING_ACCEPTANCE') acc.waitingAcceptance += 1;
+        if (item.stage === 'WAITING_PARTS') acc.waitingParts += 1;
+        if (item.stage === 'WAITING_QC') acc.waitingQc += 1;
+        if (item.stage === 'REWORK') acc.rework += 1;
+        if (item.sla.risk === 'HIGH') acc.dueSoon += 1;
+        if (item.sla.isOverdue) acc.overdue += 1;
+        if (item.currentCustodianUid) acc.devicesInCustody += 1;
+        return acc;
+      }, { workOrdersOpen: 0, devicesInCustody: 0, waitingAcceptance: 0, dueSoon: 0, overdue: 0, waitingParts: 0, waitingQc: 0, rework: 0 });
+      const lastDeadline = pageDocs.at(-1)?.data()?.deadlineAt;
+      return res.json({ success: true, data: { summary, alerts: items.filter(item => item.sla.isOverdue || item.blockers.length).slice(0, 20), items, hasMore, nextCursor: hasMore && lastDeadline ? Buffer.from(String(lastDeadline)).toString('base64url') : null } });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tải bàn kỹ thuật.' });
+    }
+  });
+
+  router.get('/kpi', requireRole('ADMIN', 'MANAGER', 'TECH_LEAD', 'ACCOUNTANT', 'TECH', 'TECHNICIAN'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const role = String(req.user!.role || '').toUpperCase();
+      const branchId = String(req.query.branchId || req.user!.branchId || '').trim();
+      const fromDate = String(req.query.from || '');
+      const toDate = String(req.query.to || '');
+      if (!branchId || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) throw new Error('KPI_RANGE_REQUIRED');
+      const allowedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      if (role !== 'ADMIN' && !allowedBranches.has(branchId)) throw new Error('BRANCH_FORBIDDEN');
+      const requestedStaffUid = String(req.query.staffUid || '').trim();
+      const staffUid = ['TECH', 'TECHNICIAN'].includes(role) ? req.user!.uid : requestedStaffUid;
+      const rangeStart = getVietnamDayUtcRange(fromDate).startUtc;
+      const rangeEnd = getVietnamDayUtcRange(toDate).endUtc;
+      let verifiedQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrderLines').where('branchId', '==', branchId).where('qcVerifiedAt', '>=', rangeStart).where('qcVerifiedAt', '<=', rangeEnd);
+      if (staffUid) verifiedQuery = verifiedQuery.where('assigneeUid', '==', staffUid);
+      let commissionQuery: FirebaseFirestore.Query = db.collection('commissionLedger').where('branchId', '==', branchId).where('eligibleAt', '>=', rangeStart).where('eligibleAt', '<=', rangeEnd);
+      if (staffUid) commissionQuery = commissionQuery.where('staffUid', '==', staffUid);
+      let sessionQuery: FirebaseFirestore.Query = db.collection('technicalTaskSessions').where('branchId', '==', branchId).where('startedAt', '>=', rangeStart).where('startedAt', '<=', rangeEnd);
+      if (staffUid) sessionQuery = sessionQuery.where('technicianUid', '==', staffUid);
+      const [verifiedSnap, commissionSnap, sessionSnap] = await Promise.all([verifiedQuery.limit(2000).get(), commissionQuery.limit(2000).get(), sessionQuery.limit(4000).get()]);
+      const staff = new Map<string, any>();
+      const ensure = (uid: string, name?: string) => {
+        if (!staff.has(uid)) staff.set(uid, { staffUid: uid, staffName: name || uid, assignedTaskCount: 0, verifiedTaskCount: 0, completedWorkOrderIds: new Set<string>(), onTimeCount: 0, overdueCount: 0, qcFirstPassCount: 0, qcFailedCount: 0, reworkCount: 0, activeWorkMinutes: 0, waitingPartsMinutes: 0, commissionPending: 0, commissionEligible: 0, commissionPaid: 0 });
+        return staff.get(uid);
+      };
+      verifiedSnap.docs.forEach(doc => { const line = doc.data(); const row = ensure(String(line.assigneeUid || ''), line.assigneeName); row.verifiedTaskCount += 1; row.assignedTaskCount += 1; row.completedWorkOrderIds.add(String(line.workOrderId || '')); row.reworkCount += Number(line.reworkCycle || 0); if (line.deadlineAt && String(line.qcVerifiedAt) <= String(line.deadlineAt)) row.onTimeCount += 1; else row.overdueCount += 1; if (Number(line.reworkCycle || 0) === 0) row.qcFirstPassCount += 1; else row.qcFailedCount += 1; row.waitingPartsMinutes += Number(line.waitingPartsMinutes || 0); });
+      sessionSnap.docs.forEach(doc => { const session = doc.data(); ensure(String(session.technicianUid || '')).activeWorkMinutes += Number(session.durationMinutes || 0); });
+      commissionSnap.docs.forEach(doc => { const entry = doc.data(); const row = ensure(String(entry.staffUid || ''), entry.staffName); const amount = Number(entry.commissionPayable ?? entry.amount ?? 0); if (entry.status === 'PAID') row.commissionPaid += amount; else if (entry.status === 'ELIGIBLE') row.commissionEligible += amount; else if (entry.status === 'PENDING') row.commissionPending += amount; });
+      const items = [...staff.values()].filter(row => row.staffUid).map(row => ({ ...row, completedWorkOrderCount: row.completedWorkOrderIds.size, completedWorkOrderIds: undefined, onTimeRate: row.verifiedTaskCount ? Math.round(row.onTimeCount * 10000 / row.verifiedTaskCount) / 100 : 0, firstPassRate: row.verifiedTaskCount ? Math.round(row.qcFirstPassCount * 10000 / row.verifiedTaskCount) / 100 : 0, averageActiveMinutes: row.verifiedTaskCount ? Math.round(row.activeWorkMinutes / row.verifiedTaskCount) : 0 }));
+      return res.json({ success: true, data: { from: fromDate, to: toDate, branchId, items } });
+    } catch (error: any) {
+      return res.status(400).json({ success: false, error: error?.message || 'Không thể tải KPI kỹ thuật.' });
+    }
+  });
+
+  /**
    * GET /api/technical/my-work
    * Get all task lines assigned to authenticated technician
    */
@@ -796,16 +958,19 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     try {
       const role = String(req.user!.role || '').toUpperCase();
       const canSeeQcQueue = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(role);
+      const requestedBranchId = String(req.query.branchId || req.user!.branchId || '').trim();
+      if (!requestedBranchId) throw new Error('BRANCH_REQUIRED');
+      const assignedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
+      if (role !== 'ADMIN' && !assignedBranches.has(requestedBranchId)) throw new Error('BRANCH_FORBIDDEN');
       const snap = canSeeQcQueue
-        ? await db.collection('technicalWorkOrderLines').limit(200).get()
-        : await db.collection('technicalWorkOrderLines').where('assigneeUid', '==', req.user!.uid).limit(100).get();
+        ? await db.collection('technicalWorkOrderLines').where('branchId', '==', requestedBranchId).limit(200).get()
+        : await db.collection('technicalWorkOrderLines').where('assigneeUid', '==', req.user!.uid).where('branchId', '==', requestedBranchId).limit(100).get();
 
       const workOrderIds = [...new Set(snap.docs.map(doc => String(doc.data().workOrderId || '')).filter(Boolean))];
       const workOrderSnaps = workOrderIds.length > 0
         ? await db.getAll(...workOrderIds.map(id => db.collection('technicalWorkOrders').doc(id)))
         : [];
       const workOrders = new Map(workOrderSnaps.filter(item => item.exists).map(item => [item.id, item.data()!]));
-      const assignedBranches = new Set([req.user!.branchId, ...(req.user!.assignedBranchIds || [])].filter(Boolean));
       const mayViewCost = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(role);
       const lines = snap.docs.filter(doc => {
         const line = doc.data();

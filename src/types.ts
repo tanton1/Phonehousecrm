@@ -231,7 +231,8 @@ export interface TechnicalTaskTypeConfig {
   laborCostToDevice?: number;
   capitalizeLaborCost?: boolean;
   reworkCommissionPolicy?: 'NO_EXTRA_COMMISSION' | 'REPEAT_COMMISSION' | 'MANAGER_APPROVAL';
-  requiredEvidenceTypes?: Array<'BEFORE_PHOTO' | 'AFTER_PHOTO' | 'RESULT_NOTES' | 'REPLACEMENT_SERIAL'>;
+  quoteGate?: 'DIAGNOSIS_ALLOWED' | 'APPROVAL_REQUIRED' | 'NOT_APPLICABLE';
+  requiredEvidenceTypes?: Array<'BEFORE_PHOTO' | 'AFTER_PHOTO' | 'RESULT_NOTES' | 'REPLACEMENT_SERIAL' | 'BATTERY_HEALTH_AFTER' | 'TRUE_TONE_RESULT' | 'WATER_SEAL_PHOTO' | 'MIC_TEST_VIDEO' | 'CUSTOMER_APPROVAL'>;
   /**
    * Danh mục linh kiện được phép dùng cho task. Đây là policy nghiệp vụ,
    * không phải tồn kho: KTV chỉ được giữ/xuất linh kiện khớp một rule này.
@@ -251,6 +252,7 @@ export interface TechnicalTaskTypeConfig {
   /** Nhóm lỗi có thể gợi ý nhanh task này tại phiếu tiếp nhận. */
   intakeIssueTypes?: WarrantyTicket['issueType'][];
   qcChecklistTemplateId?: string;
+  qcChecklistSteps?: Array<{ key: string; label: string; required?: boolean }>;
   normalSlaHours: number;
   prioritySlaHours?: number;
   urgentSlaHours: number;
@@ -1536,7 +1538,7 @@ export interface DebtLedgerEntry {
   partyMasterId?: string;
   legacyPartnerId: string;
   direction: 'RECEIVABLE' | 'PAYABLE';
-  sourceType: 'PURCHASE_ORDER' | 'INVOICE' | 'PAYMENT' | 'REFUND' | 'ADJUSTMENT' | 'INTER_BRANCH_TRANSFER';
+  sourceType: 'PURCHASE_ORDER' | 'INVOICE' | 'TECHNICAL_WORK_ORDER' | 'PAYMENT' | 'REFUND' | 'ADJUSTMENT' | 'INTER_BRANCH_TRANSFER';
   sourceDocumentId: string;
   sourceDocumentCode: string;
   debitIncrease: number;

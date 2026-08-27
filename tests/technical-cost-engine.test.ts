@@ -26,7 +26,12 @@ type Query = { col: string; field: string; value: unknown; query: true };
 
 function createTechnicalCostDb(seed: Record<string, Record<string, any>>) {
   const data = new Map<string, any>();
-  Object.entries(seed).forEach(([collection, docs]) => Object.entries(docs).forEach(([id, value]) => data.set(`${collection}/${id}`, { ...value })));
+  Object.entries(seed).forEach(([collection, docs]) => Object.entries(docs).forEach(([id, value]) => {
+    const normalized = collection === 'technicalWorkOrders' && ['ACCEPTED', 'IN_PROGRESS', 'QC_FAILED_REWORK'].includes(String(value.status || ''))
+      ? { currentCustodianUid: 'TECH_01', ...value }
+      : value;
+    data.set(`${collection}/${id}`, { ...normalized });
+  }));
   const ref = (col: string, id: string): Ref => ({ col, id });
   const snap = (target: Ref) => ({ id: target.id, ref: target, exists: data.has(`${target.col}/${target.id}`), data: () => data.get(`${target.col}/${target.id}`) });
   const querySnap = (target: Query) => {
@@ -43,6 +48,10 @@ function createTechnicalCostDb(seed: Record<string, Record<string, any>>) {
     runTransaction: async (callback: any) => callback({
       get: async (target: Ref | Query) => (target as Query).query ? querySnap(target as Query) : snap(target as Ref),
       set: (target: Ref, value: any, options?: { merge?: boolean }) => data.set(`${target.col}/${target.id}`, options?.merge ? { ...(data.get(`${target.col}/${target.id}`) || {}), ...value } : { ...value }),
+      create: (target: Ref, value: any) => {
+        if (data.has(`${target.col}/${target.id}`)) throw new Error('ALREADY_EXISTS');
+        data.set(`${target.col}/${target.id}`, { ...value });
+      },
       update: (target: Ref, value: any) => data.set(`${target.col}/${target.id}`, { ...(data.get(`${target.col}/${target.id}`) || {}), ...value })
     })
   };
@@ -388,10 +397,10 @@ describe('Technical per-IMEI cost engine', () => {
     )).rejects.toThrow('PART_ISSUE_NOT_SETTLED');
   });
 
-  it('allows completing a task without a photo when no part remains unsettled', async () => {
+  it('allows completing a task without a photo only when the policy does not require one', async () => {
     const store = createTechnicalCostDb({
       technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01' } },
-      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', assigneeUid: 'TECH_01', requiredEvidenceTypes: ['AFTER_PHOTO'] } }
+      technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', assigneeUid: 'TECH_01', requiredEvidenceTypes: [] } }
     });
     const result = await processCompleteTaskLine(
       store.db,
@@ -407,6 +416,7 @@ describe('Technical per-IMEI cost engine', () => {
 
   it('rejects an external HTTPS URL that is not evidence for the same work order', async () => {
     const store = createTechnicalCostDb({
+      technicalWorkOrders: { WO_01: { id: 'WO_01', status: 'IN_PROGRESS', branchId: 'CN01', currentCustodianUid: 'TECH_01' } },
       technicalWorkOrderLines: { LINE_01: { id: 'LINE_01', workOrderId: 'WO_01', status: 'IN_PROGRESS', assigneeUid: 'TECH_01', requiredEvidenceTypes: ['AFTER_PHOTO'] } }
     });
     await expect(processCompleteTaskLine(
@@ -468,7 +478,7 @@ describe('Technical per-IMEI cost engine', () => {
     }, manager);
     expect(approved.lineId).toBeTruthy();
     expect(store.get('technicalTaskAdditionRequests', created.request.id)).toMatchObject({ status: 'APPROVED', lineId: approved.lineId });
-    expect(store.get('technicalWorkOrders', 'WO_01')).toMatchObject({ customerApprovedQuote: 450_000 });
+    expect(store.get('technicalWorkOrders', 'WO_01')).toMatchObject({ proposedQuoteAmount: 450_000, quoteStatus: 'PENDING_APPROVAL' });
     expect(store.get('technicalWorkOrderLines', approved.lineId!)).toMatchObject({ taskType: 'THAY_CAM', status: 'ASSIGNED', additionRequestId: created.request.id });
   });
 });

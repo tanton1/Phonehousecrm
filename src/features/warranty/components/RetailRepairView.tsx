@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { getVietnamDateString, getVietnamMonthString } from '../../../../shared/vietnamTime';
 import { ClipboardPlus, Clock3, CreditCard, Loader2, RefreshCw, Smartphone, Wrench } from 'lucide-react';
 import { FundAccount, StoreBranch, UserAccount } from '../../../types';
 import {
@@ -20,8 +21,8 @@ interface RetailRepairViewProps {
 }
 
 const money = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 });
-const monthStart = () => `${new Date().toISOString().slice(0, 7)}-01`;
-const today = () => new Date().toISOString().slice(0, 10);
+const monthStart = () => `${getVietnamMonthString()}-01`;
+const today = () => getVietnamDateString();
 
 const stageLabel: Record<string, { label: string; className: string }> = {
   WAITING_ACCEPTANCE: { label: 'Chờ KTV nhận', className: 'bg-amber-100 text-amber-800' },
@@ -90,7 +91,6 @@ export const RetailRepairView: React.FC<RetailRepairViewProps> = ({ currentUser,
     setSavingDelivery(true); setError('');
     try {
       await requestDeliverToCustomer(deliveryCase.id, deliveryNotes.trim(), {
-        finalAmount: payment.finalAmount,
         paidAmount: payment.paidAmount,
         paymentMethod: payment.paymentMethod,
         fundId: payment.paidAmount > 0 && payment.paymentMethod !== 'DEBT' ? payment.fundId : undefined,

@@ -8,6 +8,13 @@ import {
   WorkOrderStatus
 } from './technicalStateMachine';
 import { calculateTechnicalTaskQuote, TechnicalPriority, TechnicalTaskTypeRecord } from './inventoryTransferService';
+import {
+  debtLedgerEntry,
+  newBranchPartyAccountRecord,
+  newPartyMasterRecord,
+  resolvePartyIdentity
+} from './branchPartyService';
+import { getVietnamMonthString } from '../../shared/vietnamTime';
 
 export interface CreateWorkOrderLineInput {
   taskType: string;
@@ -58,15 +65,30 @@ export interface QCInspectionInput {
   overallResult: 'PASS' | 'FAIL';
   failedReason?: string;
   photoEvidenceUrls?: string[];
+  failures?: Array<{
+    checklistKey: string;
+    affectedLineIds: string[];
+    reason: string;
+    severity: 'MINOR' | 'MAJOR' | 'CRITICAL';
+  }>;
 }
 
 export interface CustomerDeliveryPaymentInput {
-  finalAmount?: number;
   paidAmount?: number;
   paymentMethod?: 'CASH' | 'BANK' | 'DEBT';
   fundId?: string;
   note?: string;
+  idempotencyKey?: string;
 }
+
+export interface TechnicalQuoteAdjustmentInput {
+  requestedAmount: number;
+  reason: string;
+  customerApprovalEvidenceId?: string;
+  idempotencyKey: string;
+}
+
+type TechnicalActor = { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] };
 
 function canAccessBranch(user: any, targetBranchId?: string): boolean {
   if (!targetBranchId) return true;
@@ -82,6 +104,55 @@ function isTechnicalSupervisor(user: { role?: string }): boolean {
 
 function isClosedWorkOrder(status: unknown): boolean {
   return ['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH', 'CANCELLED'].includes(String(status || ''));
+}
+
+function assertTaskCustodyAuthority(workOrder: any, line: any, actor: TechnicalActor): void {
+  const branchId = String(workOrder?.branchId || line?.branchId || '').trim();
+  if (!branchId || !canAccessBranch(actor, branchId)) throw new Error('BRANCH_FORBIDDEN');
+  if (!['ACCEPTED', 'IN_PROGRESS', 'QC_FAILED_REWORK'].includes(String(workOrder?.status || ''))) {
+    throw new Error('CUSTODY_ACCEPTANCE_REQUIRED: Phải quét IMEI nhận máy trước khi thao tác task.');
+  }
+  if (String(workOrder?.currentCustodianUid || '') !== actor.uid) {
+    throw new Error('CURRENT_CUSTODIAN_REQUIRED: Chỉ KTV đang giữ máy mới được thao tác.');
+  }
+  if (String(line?.assigneeUid || '') !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
+  if (workOrder?.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING');
+  if (isClosedWorkOrder(workOrder?.status)) throw new Error('WORK_ORDER_CLOSED');
+  if (
+    String(workOrder?.workOrderType || '') === 'CUSTOMER_SERVICE'
+    && String(line?.quoteGate || 'APPROVAL_REQUIRED') === 'APPROVAL_REQUIRED'
+    && String(workOrder?.quoteStatus || '') !== 'APPROVED'
+  ) {
+    throw new Error('QUOTE_APPROVAL_REQUIRED: Khách phải duyệt báo giá trước khi bắt đầu task sửa chữa.');
+  }
+}
+
+export function deriveTechnicalBoardStage(workOrder: any, lines: any[]): string {
+  const status = String(workOrder?.status || 'ASSIGNED');
+  const openStatuses = (lines || []).map(line => String(line?.status || 'ASSIGNED')).filter(value => !['COMPLETED', 'VERIFIED', 'CANCELLED'].includes(value));
+  if (status === 'DELIVERED_TO_CUSTOMER' || status === 'RETURNED_TO_STOCK' || status === 'RETURNED_TO_BRANCH') return 'COMPLETED';
+  if (['QC_PASSED', 'CUSTOMER_READY'].includes(status)) return 'WAITING_DELIVERY';
+  if (['TECH_COMPLETED', 'QC_PENDING'].includes(status)) return 'WAITING_QC';
+  if (status === 'QC_FAILED_REWORK' || openStatuses.includes('REWORK_REQUIRED')) return 'REWORK';
+  if (openStatuses.length > 0 && openStatuses.every(value => value === 'WAITING_PARTS')) return 'WAITING_PARTS';
+  if (status === 'ASSIGNED' || (openStatuses.length > 0 && openStatuses.every(value => value === 'ASSIGNED'))) return 'WAITING_ACCEPTANCE';
+  return 'IN_PROGRESS';
+}
+
+export function deriveTechnicalAllowedActions(workOrder: any, lines: any[], actor: TechnicalActor): string[] {
+  const role = String(actor.role || '').toUpperCase();
+  const currentCustodian = String(workOrder?.currentCustodianUid || '');
+  const assigned = lines.some(line => String(line.assigneeUid || '') === actor.uid);
+  const actions: string[] = [];
+  if (['ASSIGNED', 'DRAFT'].includes(String(workOrder?.status || '')) && assigned) actions.push('ACCEPT_CUSTODY');
+  if (currentCustodian === actor.uid && !workOrder?.activeHandoffId) {
+    if (lines.some(line => ['ACCEPTED', 'REWORK_REQUIRED'].includes(String(line.status || '')))) actions.push('START_TASK');
+    if (lines.some(line => ['IN_PROGRESS', 'WAITING_PARTS'].includes(String(line.status || '')))) actions.push('UPDATE_TASK', 'REQUEST_PART', 'REQUEST_ADDITIONAL_TASK');
+  }
+  if (['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(role) && ['TECH_COMPLETED', 'QC_PENDING'].includes(String(workOrder?.status || ''))) actions.push('QC');
+  if (['ADMIN', 'MANAGER', 'SALES', 'SALE', 'CASHIER'].includes(role) && String(workOrder?.status || '') === 'QC_PASSED' && workOrder?.assetOwnership === 'CUSTOMER') actions.push('DELIVER_CUSTOMER');
+  if (['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'].includes(role) && String(workOrder?.status || '') === 'QC_PASSED' && workOrder?.assetOwnership !== 'CUSTOMER') actions.push('RETURN_TO_STOCK');
+  return [...new Set(actions)];
 }
 
 function technicalIdempotencyId(scope: string, key: string): string {
@@ -277,11 +348,22 @@ export async function processCreateWorkOrder(
         laborCostToDevice: quote.laborCostToDevice,
         capitalizeLaborCost: quote.capitalizeLaborCost,
         reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
+        quoteGate: config.quoteGate || (input.workOrderType === 'CUSTOMER_SERVICE' ? 'APPROVAL_REQUIRED' : 'NOT_APPLICABLE'),
         status: 'ASSIGNED',
         requiredParts: config.requiredPartTemplates || [],
         intakeIssueTypes: config.intakeIssueTypes || [],
         requiredEvidenceTypes: config.requiredEvidenceTypes || [],
         qcChecklistTemplateId: config.qcChecklistTemplateId || null,
+        qcChecklistSnapshot: {
+          templateId: config.qcChecklistTemplateId || 'QC_STANDARD_12_STEPS_V2',
+          version: config.version,
+          taskSpecificSteps: config.qcChecklistSteps || []
+        },
+        slaHours: quote.slaHours,
+        deadlineAt: quote.deadlineAt,
+        slaPolicyId: config.id,
+        slaPolicyVersion: config.version,
+        priorityMultiplierSnapshot: Number(config.priorityMultiplier?.[priority] || 1),
         evidencePhotoUrls: [],
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
@@ -310,7 +392,11 @@ export async function processCreateWorkOrder(
         status: 'PENDING',
         eligibilityRequiresStockReturn: isInternalAsset,
         eligibilityRequiresCustomerDelivery: !isInternalAsset,
-        payrollPeriod: now.slice(0, 7), // YYYY-MM
+        assignedAt: now,
+        assignedPeriod: getVietnamMonthString(now),
+        payrollPeriod: null,
+        eligibleAt: null,
+        eligibilityReason: null,
         createdAt: FieldValue.serverTimestamp()
       });
     }
@@ -337,6 +423,11 @@ export async function processCreateWorkOrder(
       customerName: input.customerName || null,
       customerPhone: input.customerPhone || null,
       customerApprovedQuote: approvedQuote,
+      proposedQuoteAmount: input.workOrderType === 'CUSTOMER_SERVICE' ? Math.max(approvedQuote, estimatedCost) : 0,
+      quoteStatus: input.workOrderType === 'WARRANTY' ? 'NOT_REQUIRED' : input.workOrderType === 'CUSTOMER_SERVICE' ? 'PENDING_APPROVAL' : 'NOT_REQUIRED',
+      approvedFinalAmount: input.workOrderType === 'WARRANTY' ? 0 : null,
+      quoteVersion: 0,
+      customerPromisedAt: input.intakeDetails?.expectedReturnDate || null,
       intakeDetails: input.intakeDetails || null,
       // Phiếu tiếp nhận không lưu mật mã mở máy. Chỉ lưu trạng thái/ghi chú hỗ trợ mở máy trong intakeDetails.
       hasPasscode: false,
@@ -847,19 +938,17 @@ export async function processStartTaskLine(
       throw new Error(`LINE_NOT_FOUND: Không tìm thấy hạng mục công việc "${lineId}".`);
     }
     if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
-    if (woSnap.data()?.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING: Không thể bắt đầu task khi máy đang chờ bàn giao trách nhiệm.');
-
     const lineData = lineSnap.data()!;
+    const workOrder = woSnap.data()!;
 
     // Parent-Child URL Verification
     if (lineData.workOrderId !== workOrderId) {
       throw new Error(`WORK_ORDER_MISMATCH: Hạng mục "${lineId}" không thuộc phiếu kỹ thuật "${workOrderId}".`);
     }
+    assertTaskCustodyAuthority(workOrder, lineData, technicianUser);
 
-    // Assignee Verification
-    if (lineData.assigneeUid !== technicianUser.uid && technicianUser.role !== 'ADMIN' && technicianUser.role !== 'MANAGER') {
-      throw new Error('PERMISSION_DENIED: Hạng mục này không được phân công cho bạn.');
-    }
+    const activeSessionsQuery = db.collection('technicalTaskSessions').where('lineId', '==', lineId).where('status', '==', 'ACTIVE').limit(1);
+    const activeSessionsSnap = await transaction.get(activeSessionsQuery);
 
     // State Machine Validation
     const transition = canTransitionTaskLine(lineData.status as TaskLineStatus, 'IN_PROGRESS');
@@ -868,10 +957,20 @@ export async function processStartTaskLine(
     }
 
     const now = new Date().toISOString();
+    if (!activeSessionsSnap.empty) throw new Error('TASK_SESSION_ALREADY_ACTIVE');
+    const sessionId = `TTS_${lineId}_${Date.now()}`;
     transaction.update(lineRef, {
       status: 'IN_PROGRESS',
-      startedAt: now,
+      ...(!lineData.firstStartedAt && !lineData.startedAt ? { firstStartedAt: now, startedAt: now } : {}),
+      lastStartedAt: now,
+      activeSessionId: sessionId,
       updatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.create(db.collection('technicalTaskSessions').doc(sessionId), {
+      id: sessionId, workOrderId, lineId, technicianUid: technicianUser.uid,
+      branchId: workOrder.branchId,
+      startedAt: now, endedAt: null, endReason: null, durationMinutes: 0,
+      status: 'ACTIVE', createdAt: FieldValue.serverTimestamp()
     });
 
     // Update parent work order status to IN_PROGRESS
@@ -914,18 +1013,26 @@ export async function processMarkTaskWaitingForParts(
     if (!lineSnap.exists) throw new Error('LINE_NOT_FOUND');
     const workOrder = woSnap.data()!;
     const line = lineSnap.data()!;
+    const activeSessionRef = line.activeSessionId ? db.collection('technicalTaskSessions').doc(String(line.activeSessionId)) : null;
+    const activeSessionSnap = activeSessionRef ? await transaction.get(activeSessionRef) : null;
     if (String(line.workOrderId || '') !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
-    if (!canAccessBranch(actor, String(workOrder.branchId || line.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
-    if (!isTechnicalSupervisor(actor) && String(line.assigneeUid || '') !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
-    if (isClosedWorkOrder(workOrder.status)) throw new Error('WORK_ORDER_CLOSED');
+    assertTaskCustodyAuthority(workOrder, line, actor);
     const transition = canTransitionTaskLine(line.status as TaskLineStatus, 'WAITING_PARTS');
     if (!transition.allowed) throw new Error(transition.reason || 'TASK_WAITING_PARTS_TRANSITION_INVALID');
     const now = new Date().toISOString();
+    const sessionDurationMinutes = activeSessionSnap?.exists
+      ? Math.max(0, Math.round((Date.parse(now) - Date.parse(String(activeSessionSnap.data()?.startedAt || now))) / 60_000))
+      : 0;
     transaction.update(lineRef, {
       status: 'WAITING_PARTS',
       partsWaitingAt: now,
       partsWaitingReason: reason,
+      activeSessionId: null,
+      activeWorkMinutes: Number(line.activeWorkMinutes || 0) + sessionDurationMinutes,
       updatedAt: FieldValue.serverTimestamp()
+    });
+    if (activeSessionRef && activeSessionSnap?.exists) transaction.update(activeSessionRef, {
+      status: 'CLOSED', endedAt: now, endReason: 'WAITING_PARTS', durationMinutes: sessionDurationMinutes, updatedAt: FieldValue.serverTimestamp()
     });
     transaction.update(woRef, { status: 'IN_PROGRESS', updatedAt: FieldValue.serverTimestamp() });
     transaction.set(db.collection('technicalWorkOrderEvents').doc(`EVT_PARTS_WAIT_${lineId}_${Date.now()}`), {
@@ -997,6 +1104,10 @@ export async function processCreateTechnicalTaskAdditionRequest(
       || lines[0];
     if (!assignedLine || (!isTechnicalSupervisor(actor) && String(assignedLine.assigneeUid || '') !== actor.uid)) {
       throw new Error('TECHNICIAN_NOT_ASSIGNED');
+    }
+    if (!isTechnicalSupervisor(actor)) {
+      if (!['ACCEPTED', 'IN_PROGRESS', 'QC_FAILED_REWORK'].includes(String(workOrder.status || ''))) throw new Error('CUSTODY_ACCEPTANCE_REQUIRED');
+      if (String(workOrder.currentCustodianUid || '') !== actor.uid || workOrder.activeHandoffId) throw new Error('CURRENT_CUSTODIAN_REQUIRED');
     }
     const now = new Date().toISOString();
     const requestId = `TAR_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
@@ -1126,11 +1237,22 @@ export async function processDecideTechnicalTaskAdditionRequest(
       laborCostToDevice: quote.laborCostToDevice,
       capitalizeLaborCost: quote.capitalizeLaborCost,
       reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
+      quoteGate: config.quoteGate || (String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE' ? 'APPROVAL_REQUIRED' : 'NOT_APPLICABLE'),
       status: 'ASSIGNED',
       requiredParts: config.requiredPartTemplates || [],
       intakeIssueTypes: config.intakeIssueTypes || [],
       requiredEvidenceTypes: config.requiredEvidenceTypes || [],
       qcChecklistTemplateId: config.qcChecklistTemplateId || null,
+      qcChecklistSnapshot: {
+        templateId: config.qcChecklistTemplateId || 'QC_STANDARD_12_STEPS_V2',
+        version: config.version,
+        taskSpecificSteps: config.qcChecklistSteps || []
+      },
+      slaHours: quote.slaHours,
+      deadlineAt: quote.deadlineAt,
+      slaPolicyId: config.id,
+      slaPolicyVersion: config.version,
+      priorityMultiplierSnapshot: Number(config.priorityMultiplier?.[priority] || 1),
       evidencePhotoUrls: [],
       addedAfterDiagnosis: true,
       additionRequestId: requestId,
@@ -1172,7 +1294,11 @@ export async function processDecideTechnicalTaskAdditionRequest(
       status: 'PENDING',
       eligibilityRequiresStockReturn: workOrder.eligibilityRequiresStockReturn === true,
       eligibilityRequiresCustomerDelivery: workOrder.eligibilityRequiresCustomerDelivery === true,
-      payrollPeriod: now.slice(0, 7),
+      assignedAt: now,
+      assignedPeriod: getVietnamMonthString(now),
+      payrollPeriod: null,
+      eligibleAt: null,
+      eligibilityReason: null,
       additionRequestId: requestId,
       createdAt: now
     });
@@ -1181,8 +1307,9 @@ export async function processDecideTechnicalTaskAdditionRequest(
       taskLineIds: [...new Set([...(Array.isArray(workOrder.taskLineIds) ? workOrder.taskLineIds : existingLines.map(line => line.id)), lineId])],
       totalCommissionAmount: Number(workOrder.totalCommissionAmount || 0) + quote.commissionAmount,
       ...(String(workOrder.workOrderType || '') === 'CUSTOMER_SERVICE' ? {
-        customerApprovedQuote: Number(workOrder.customerApprovedQuote || 0) + additionalCustomerQuote,
-        additionalCustomerQuote: Number(workOrder.additionalCustomerQuote || 0) + additionalCustomerQuote
+        proposedQuoteAmount: Number(workOrder.proposedQuoteAmount ?? workOrder.customerApprovedQuote ?? workOrder.totalEstimatedCost ?? 0) + additionalCustomerQuote,
+        additionalCustomerQuote: Number(workOrder.additionalCustomerQuote || 0) + additionalCustomerQuote,
+        quoteStatus: 'PENDING_APPROVAL'
       } : {}),
       ...(shouldReopen ? {
         status: 'IN_PROGRESS',
@@ -1221,7 +1348,7 @@ export async function processCompleteTaskLine(
   lineId: string,
   evidencePhotoUrls: string[],
   notes: string,
-  technicianUser: { uid: string; role?: string },
+  technicianUser: TechnicalActor,
   completionMetadata: {
     replacementSerials?: string[];
     postRepairMetrics?: Record<string, string | number | boolean | null>;
@@ -1241,10 +1368,11 @@ export async function processCompleteTaskLine(
       throw new Error(`WORK_ORDER_MISMATCH: Hạng mục "${lineId}" không thuộc phiếu kỹ thuật "${workOrderId}".`);
     }
 
-    // Assignee Verification
-    if (lineData.assigneeUid !== technicianUser.uid && technicianUser.role !== 'ADMIN' && technicianUser.role !== 'MANAGER') {
-      throw new Error('PERMISSION_DENIED: Hạng mục này không được phân công cho bạn.');
-    }
+    const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+    const woSnap = await transaction.get(woRef);
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    const woData = woSnap.data()!;
+    assertTaskCustodyAuthority(woData, lineData, technicianUser);
 
     // State Machine Validation
     const transition = canTransitionTaskLine(lineData.status as TaskLineStatus, 'COMPLETED');
@@ -1271,6 +1399,17 @@ export async function processCompleteTaskLine(
     if (requiredEvidenceTypes.includes('REPLACEMENT_SERIAL') && replacementSerials.length === 0) {
       throw new Error('REPLACEMENT_SERIAL_REQUIRED: Hạng mục này bắt buộc ghi serial linh kiện thay thế.');
     }
+    const photoRequired = requiredEvidenceTypes.some(type => ['BEFORE_PHOTO', 'AFTER_PHOTO', 'WATER_SEAL_PHOTO', 'MIC_TEST_VIDEO'].includes(type));
+    if (photoRequired && evidencePhotoUrls.length === 0) {
+      throw new Error('TECHNICAL_EVIDENCE_INCOMPLETE: Hạng mục này bắt buộc có ảnh hoặc video bằng chứng.');
+    }
+    const metrics = completionMetadata.postRepairMetrics || {};
+    if (requiredEvidenceTypes.includes('BATTERY_HEALTH_AFTER') && !Number.isFinite(Number(metrics.batteryHealth))) {
+      throw new Error('TECHNICAL_EVIDENCE_INCOMPLETE: Thiếu chỉ số pin sau sửa.');
+    }
+    if (requiredEvidenceTypes.includes('TRUE_TONE_RESULT') && typeof metrics.trueTone !== 'boolean') {
+      throw new Error('TECHNICAL_EVIDENCE_INCOMPLETE: Thiếu kết quả kiểm tra True Tone.');
+    }
 
     // Read every dependent record before the first write (Firestore transaction invariant).
     const allLinesSnap = await transaction.get(
@@ -1282,11 +1421,8 @@ export async function processCompleteTaskLine(
     const partReservationsSnap = await transaction.get(
       db.collection('technicalPartReservations').where('workOrderLineId', '==', lineId)
     );
-    const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
-    const woSnap = await transaction.get(woRef);
-    const woData = woSnap.exists ? woSnap.data()! : {};
-    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
-    if (woData.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING: Không thể hoàn thành task khi máy đang chờ bàn giao trách nhiệm.');
+    const activeSessionRef = lineData.activeSessionId ? db.collection('technicalTaskSessions').doc(String(lineData.activeSessionId)) : null;
+    const activeSessionSnap = activeSessionRef ? await transaction.get(activeSessionRef) : null;
     const linkedTransferRef = woData.transferId ? db.collection('transfers').doc(woData.transferId) : null;
     const linkedTransferSnap = linkedTransferRef ? await transaction.get(linkedTransferRef) : null;
 
@@ -1321,6 +1457,9 @@ export async function processCompleteTaskLine(
     }
 
     const now = new Date().toISOString();
+    const sessionDurationMinutes = activeSessionSnap?.exists
+      ? Math.max(0, Math.round((Date.parse(now) - Date.parse(String(activeSessionSnap.data()?.startedAt || now))) / 60_000))
+      : 0;
     transaction.update(lineRef, {
       status: 'COMPLETED',
       completedAt: now,
@@ -1330,7 +1469,12 @@ export async function processCompleteTaskLine(
         replacementSerials,
         postRepairMetrics: completionMetadata.postRepairMetrics || {}
       },
+      activeSessionId: null,
+      activeWorkMinutes: Number(lineData.activeWorkMinutes || 0) + sessionDurationMinutes,
       updatedAt: FieldValue.serverTimestamp()
+    });
+    if (activeSessionRef && activeSessionSnap?.exists) transaction.update(activeSessionRef, {
+      status: 'CLOSED', endedAt: now, endReason: 'COMPLETED', durationMinutes: sessionDurationMinutes, updatedAt: FieldValue.serverTimestamp()
     });
 
     if (allCompleted) {
@@ -1425,17 +1569,40 @@ export async function processQCInspection(
       throw new Error('QC_SELF_INSPECTION_FORBIDDEN: Người sửa chữa không được tự nghiệm thu KCS cho công việc của mình.');
     }
 
-    // E. Checklist Verification: All required steps must be true for PASS
+    const taskSpecificSteps = allLinesSnap.docs.flatMap(doc => {
+      const snapshot = doc.data().qcChecklistSnapshot;
+      return Array.isArray(snapshot?.taskSpecificSteps) ? snapshot.taskSpecificSteps : [];
+    });
+    const requiredChecklistKeys = [...new Set([
+      ...REQUIRED_QC_CHECKLIST_STEPS,
+      ...taskSpecificSteps.filter((step: any) => step?.required !== false).map((step: any) => String(step.key || '')).filter(Boolean)
+    ])];
+    const checklistSnapshot = {
+      version: inspection.checklistVersion || 'QC_STANDARD_12_STEPS_V2',
+      baseSteps: REQUIRED_QC_CHECKLIST_STEPS,
+      taskSpecificSteps
+    };
+    // E. Checklist Verification uses the immutable policy snapshot on each task.
     const checklist = inspection.checklistResults || {};
     if (inspection.overallResult === 'PASS') {
-      for (const reqStep of REQUIRED_QC_CHECKLIST_STEPS) {
+      for (const reqStep of requiredChecklistKeys) {
         if (checklist[reqStep] !== true) {
           throw new Error(`INCOMPLETE_CHECKLIST: Bước kiểm tra bắt buộc "${reqStep}" chưa đạt chuẩn.`);
         }
       }
     } else {
-      if (!inspection.failedReason || inspection.failedReason.trim().length === 0) {
-        throw new Error('FAILED_REASON_REQUIRED: Bắt buộc nhập lý do không đạt KCS để KTV có căn cứ xử lý lại.');
+      const failures = Array.isArray(inspection.failures) ? inspection.failures : [];
+      if (failures.length === 0) throw new Error('QC_AFFECTED_LINES_REQUIRED: Chọn đúng hạng mục không đạt KCS.');
+      const completedLines = new Map(allLinesSnap.docs.map(doc => [doc.id, doc.data()]));
+      for (const failure of failures) {
+        if (!String(failure.reason || '').trim()) throw new Error('FAILED_REASON_REQUIRED');
+        if (!Array.isArray(failure.affectedLineIds) || failure.affectedLineIds.length === 0) throw new Error('QC_AFFECTED_LINES_REQUIRED');
+        for (const affectedLineId of failure.affectedLineIds) {
+          const affected = completedLines.get(String(affectedLineId));
+          if (!affected || !['COMPLETED', 'VERIFIED'].includes(String(affected.status || ''))) {
+            throw new Error('QC_AFFECTED_LINE_INVALID');
+          }
+        }
       }
     }
     const qcEvidenceUrls = Array.isArray(inspection.photoEvidenceUrls) ? inspection.photoEvidenceUrls : [];
@@ -1457,9 +1624,11 @@ export async function processQCInspection(
       inspectorUid: inspectorUser.uid,
       inspectorName: inspectorUser.name || 'Chuyên viên KCS',
       checklistVersion: inspection.checklistVersion || 'QC_STANDARD_12_STEPS_V2',
+      checklistSnapshot,
       checklistResults: checklist,
       overallResult: inspection.overallResult,
       failedReason: inspection.failedReason || null,
+      failures: inspection.failures || [],
       photoEvidenceUrls: qcEvidenceUrls,
       reworkCycle: woData.reworkCount || 0,
       inspectedAt: now,
@@ -1488,6 +1657,8 @@ export async function processQCInspection(
         } : {
           status: 'ELIGIBLE',
           eligibleAt: now,
+          payrollPeriod: getVietnamMonthString(now),
+          eligibilityReason: 'QC_PASSED',
           approvedByUid: inspectorUser.uid,
           updatedAt: FieldValue.serverTimestamp()
         });
@@ -1517,11 +1688,23 @@ export async function processQCInspection(
         updatedAt: FieldValue.serverTimestamp()
       });
 
-      // Reset task lines to REWORK_REQUIRED
+      const failureByLine = new Map<string, string>();
+      for (const failure of inspection.failures || []) {
+        for (const affectedLineId of failure.affectedLineIds || []) {
+          failureByLine.set(String(affectedLineId), String(failure.reason || inspection.failedReason || 'KCS không đạt'));
+        }
+      }
+      // Only the failed task lines return to rework. Verified work stays intact.
       for (const lineDoc of allLinesSnap.docs) {
+        const reworkReason = failureByLine.get(lineDoc.id);
+        if (!reworkReason) continue;
+        const lineData = lineDoc.data();
         transaction.update(lineDoc.ref, {
           status: 'REWORK_REQUIRED',
-          reworkReason: inspection.failedReason,
+          reworkCycle: Number(lineData.reworkCycle || 0) + 1,
+          reworkReason,
+          lastReworkReason: reworkReason,
+          lastQcInspectionId: inspectionId,
           updatedAt: FieldValue.serverTimestamp()
         });
       }
@@ -1627,6 +1810,8 @@ export async function processReturnToStock(
         transaction.update(db.collection('commissionLedger').doc(`COMM_${lineId}`), {
           status: 'ELIGIBLE',
           eligibleAt: now,
+          payrollPeriod: getVietnamMonthString(now),
+          eligibilityReason: 'RETURNED_TO_STOCK',
           approvedByUid: warehouseStaff.uid,
           stockReturnConfirmedAt: now,
           updatedAt: FieldValue.serverTimestamp()
@@ -1669,6 +1854,103 @@ export async function processReturnToStock(
   });
 }
 
+export async function processRequestTechnicalQuoteAdjustment(
+  db: Firestore,
+  workOrderId: string,
+  input: TechnicalQuoteAdjustmentInput,
+  actor: TechnicalActor
+): Promise<{ adjustmentId: string; status: 'PENDING' }> {
+  const requestedAmount = Number(input.requestedAmount);
+  if (!Number.isSafeInteger(requestedAmount) || requestedAmount < 0) throw new Error('QUOTE_AMOUNT_INVALID');
+  if (String(input.reason || '').trim().length < 5) throw new Error('QUOTE_REASON_REQUIRED');
+  const key = requireTechnicalIdempotencyKey(input.idempotencyKey);
+  const adjustmentId = `TQA_${technicalIdempotencyId(workOrderId, key).slice(0, 28).toUpperCase()}`;
+  const adjustmentRef = db.collection('technicalQuoteAdjustments').doc(adjustmentId);
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  return db.runTransaction(async transaction => {
+    const [woSnap, adjustmentSnap] = await Promise.all([transaction.get(woRef), transaction.get(adjustmentRef)]);
+    if (adjustmentSnap.exists) return { adjustmentId, status: 'PENDING' as const };
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    const wo = woSnap.data()!;
+    if (!canAccessBranch(actor, String(wo.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (!['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(wo.workOrderType || ''))) throw new Error('QUOTE_NOT_APPLICABLE');
+    if (isClosedWorkOrder(wo.status)) throw new Error('WORK_ORDER_CLOSED');
+    const now = new Date().toISOString();
+    transaction.create(adjustmentRef, {
+      id: adjustmentId,
+      workOrderId,
+      branchId: wo.branchId,
+      previousAmount: Number(wo.approvedFinalAmount ?? wo.proposedQuoteAmount ?? 0),
+      requestedAmount,
+      reason: String(input.reason).trim(),
+      customerApprovalEvidenceId: String(input.customerApprovalEvidenceId || '').trim() || null,
+      status: 'PENDING',
+      requestedByUid: actor.uid,
+      requestedByName: actor.name || actor.uid,
+      requestedAt: now,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(woRef, { proposedQuoteAmount: requestedAmount, quoteStatus: 'PENDING_APPROVAL', updatedAt: FieldValue.serverTimestamp() });
+    return { adjustmentId, status: 'PENDING' as const };
+  });
+}
+
+export async function processDecideTechnicalQuoteAdjustment(
+  db: Firestore,
+  workOrderId: string,
+  adjustmentId: string,
+  input: { decision: 'APPROVED' | 'REJECTED'; reason?: string; idempotencyKey: string },
+  actor: TechnicalActor
+): Promise<{ adjustmentId: string; status: 'APPROVED' | 'REJECTED' }> {
+  const decision = String(input.decision || '').toUpperCase() as 'APPROVED' | 'REJECTED';
+  if (!['APPROVED', 'REJECTED'].includes(decision)) throw new Error('QUOTE_DECISION_INVALID');
+  const key = requireTechnicalIdempotencyKey(input.idempotencyKey);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`QUOTE_DECISION:${adjustmentId}`, key));
+  const adjustmentRef = db.collection('technicalQuoteAdjustments').doc(adjustmentId);
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  return db.runTransaction(async transaction => {
+    const [woSnap, adjustmentSnap, idemSnap] = await Promise.all([
+      transaction.get(woRef), transaction.get(adjustmentRef), transaction.get(idemRef)
+    ]);
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    if (!adjustmentSnap.exists) throw new Error('QUOTE_ADJUSTMENT_NOT_FOUND');
+    const wo = woSnap.data()!;
+    const adjustment = adjustmentSnap.data()!;
+    if (String(adjustment.workOrderId || '') !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
+    if (!canAccessBranch(actor, String(wo.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (idemSnap.exists) return { adjustmentId, status: String(adjustment.status || decision) as 'APPROVED' | 'REJECTED' };
+    if (adjustment.status !== 'PENDING') throw new Error('QUOTE_ADJUSTMENT_ALREADY_DECIDED');
+    if (decision === 'APPROVED' && Number(adjustment.requestedAmount || 0) > 0 && !String(adjustment.customerApprovalEvidenceId || '').trim()) {
+      throw new Error('CUSTOMER_QUOTE_APPROVAL_EVIDENCE_REQUIRED');
+    }
+    const now = new Date().toISOString();
+    transaction.update(adjustmentRef, {
+      status: decision,
+      decisionReason: String(input.reason || '').trim(),
+      approvedByUid: actor.uid,
+      approvedByName: actor.name || actor.uid,
+      approvedAt: now,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.update(woRef, decision === 'APPROVED' ? {
+      approvedFinalAmount: Number(adjustment.requestedAmount || 0),
+      customerApprovedQuote: Number(adjustment.requestedAmount || 0),
+      customerApprovalEvidenceId: adjustment.customerApprovalEvidenceId,
+      quoteStatus: 'APPROVED',
+      quoteVersion: Number(wo.quoteVersion || 0) + 1,
+      quoteApprovedAt: now,
+      quoteApprovedByUid: actor.uid,
+      updatedAt: FieldValue.serverTimestamp()
+    } : {
+      quoteStatus: 'REJECTED',
+      quoteVersion: Number(wo.quoteVersion || 0) + 1,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.create(idemRef, { scope: 'QUOTE_DECISION', adjustmentId, workOrderId, decision, createdAt: now });
+    return { adjustmentId, status: decision };
+  });
+}
+
 /**
  * 7. Deliver Customer Service / Warranty Device to Customer
  */
@@ -1681,9 +1963,12 @@ export async function processDeliverToCustomer(
 ): Promise<{ success: boolean; workOrderId: string }> {
   const normalizedDeliveryNotes = String(notes || '').trim();
   if (normalizedDeliveryNotes.length < 5) throw new Error('DELIVERY_NOTES_REQUIRED');
+  const idempotencyKey = requireTechnicalIdempotencyKey(paymentInput?.idempotencyKey);
+  const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`DELIVER_CUSTOMER:${workOrderId}`, idempotencyKey));
   return await db.runTransaction(async (transaction) => {
     const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
-    const woSnap = await transaction.get(woRef);
+    const [woSnap, idemSnap] = await Promise.all([transaction.get(woRef), transaction.get(idemRef)]);
+    if (idemSnap.exists) return { success: true, workOrderId };
     if (!woSnap.exists) {
       throw new Error(`WORK_ORDER_NOT_FOUND: Không tìm thấy phiếu kỹ thuật "${workOrderId}".`);
     }
@@ -1701,7 +1986,16 @@ export async function processDeliverToCustomer(
       throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên chi nhánh "${woData.branchId}".`);
     }
 
-    const finalAmount = Number(paymentInput?.finalAmount ?? woData.finalServiceAmount ?? woData.customerApprovedQuote ?? woData.totalEstimatedCost ?? 0);
+    const isWarranty = String(woData.workOrderType || '') === 'WARRANTY';
+    const hasLegacyApprovalEvidence = Boolean(woData.customerApprovalEvidenceId || (woData.quoteApprovedAt && woData.quoteApprovedByUid));
+    if (!isWarranty && String(woData.quoteStatus || '') !== 'APPROVED') {
+      if (!(woData.quoteStatus == null && hasLegacyApprovalEvidence && Number.isSafeInteger(Number(woData.customerApprovedQuote)))) {
+        throw new Error('QUOTE_APPROVAL_REQUIRED: Báo giá phải được quản lý hoặc kế toán duyệt trước khi giao máy.');
+      }
+    }
+    const finalAmount = isWarranty
+      ? 0
+      : Number(woData.approvedFinalAmount ?? (hasLegacyApprovalEvidence ? woData.customerApprovedQuote : NaN));
     const paidAmount = Number(paymentInput?.paidAmount ?? 0);
     const paymentMethod = String(paymentInput?.paymentMethod || (paidAmount > 0 ? 'CASH' : 'DEBT')).toUpperCase();
     if (!Number.isFinite(finalAmount) || finalAmount < 0 || !Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount > finalAmount) {
@@ -1711,9 +2005,32 @@ export async function processDeliverToCustomer(
     if (paidAmount > 0 && paymentMethod === 'DEBT') throw new Error('REPAIR_PAYMENT_METHOD_INVALID');
     if (paidAmount > 0 && !String(paymentInput?.fundId || '').trim()) throw new Error('REPAIR_PAYMENT_FUND_REQUIRED');
 
+    if (!Number.isSafeInteger(finalAmount) || !Number.isSafeInteger(paidAmount)) throw new Error('REPAIR_PAYMENT_AMOUNT_INVALID');
     const now = new Date().toISOString();
     const fundRef = paidAmount > 0 ? db.collection('funds').doc(String(paymentInput?.fundId || '').trim()) : null;
-    const fundSnap = fundRef ? await transaction.get(fundRef) : null;
+    const balanceDue = Math.max(0, finalAmount - paidAmount);
+    const customerPhone = String(woData.customerPhone || '').trim();
+    if (balanceDue > 0 && !customerPhone) throw new Error('CUSTOMER_PHONE_REQUIRED_FOR_DEBT');
+    const customerId = String(woData.customerId || '').trim() || (customerPhone
+      ? `TECHCUS_${crypto.createHash('sha256').update(`${woData.branchId}:${customerPhone.replace(/\D/g, '')}`).digest('hex').slice(0, 20).toUpperCase()}`
+      : '');
+    const customerProfile = customerId ? {
+      id: customerId,
+      branchId: woData.branchId,
+      type: 'CUSTOMER',
+      name: woData.customerName || 'Khách sửa chữa',
+      phone: customerPhone
+    } : null;
+    const customerIdentity = customerProfile ? resolvePartyIdentity(customerProfile, String(woData.branchId || '')) : null;
+    const customerRef = customerId ? db.collection('partners').doc(customerId) : null;
+    const masterRef = customerIdentity ? db.collection('partyMasters').doc(customerIdentity.partyMasterId) : null;
+    const accountRef = customerIdentity ? db.collection('branchPartyAccounts').doc(customerIdentity.branchPartyAccountId) : null;
+    const [fundSnap, customerSnap, masterSnap, accountSnap] = await Promise.all([
+      fundRef ? transaction.get(fundRef) : Promise.resolve(null),
+      customerRef ? transaction.get(customerRef) : Promise.resolve(null),
+      masterRef ? transaction.get(masterRef) : Promise.resolve(null),
+      accountRef ? transaction.get(accountRef) : Promise.resolve(null)
+    ]);
     const fund = fundSnap?.data();
     const expectedFundType = paymentMethod === 'CASH' ? 'CASH' : 'BANK';
     if (paidAmount > 0) {
@@ -1722,7 +2039,6 @@ export async function processDeliverToCustomer(
       if (String(fund.branchId || '') !== String(woData.branchId || '')) throw new Error('REPAIR_PAYMENT_FUND_BRANCH_MISMATCH');
       if (String(fund.type || '').toUpperCase() !== expectedFundType) throw new Error('REPAIR_PAYMENT_FUND_TYPE_MISMATCH');
     }
-    const balanceDue = Math.max(0, finalAmount - paidAmount);
     const paymentStatus = finalAmount === 0 ? 'NOT_REQUIRED' : balanceDue === 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID';
     const paymentTransactionId = paidAmount > 0 ? `TECH_REPAIR_RECEIPT_${workOrderId}` : null;
 
@@ -1758,12 +2074,61 @@ export async function processDeliverToCustomer(
         createdAt: FieldValue.serverTimestamp()
       });
     }
+    if (customerProfile && customerIdentity && customerRef && masterRef && accountRef) {
+      const existingCustomer = customerSnap?.exists ? customerSnap.data()! : null;
+      const existingAccount = accountSnap?.exists ? accountSnap.data()! : null;
+      if (existingCustomer && String(existingCustomer.branchId || '') !== String(woData.branchId || '')) throw new Error('CUSTOMER_BRANCH_MISMATCH');
+      if (!masterSnap?.exists) transaction.create(masterRef, newPartyMasterRecord(customerProfile, customerIdentity, staffUser.uid, now));
+      if (!accountSnap?.exists) {
+        transaction.create(accountRef, newBranchPartyAccountRecord({ ...customerProfile, totalSpent: finalAmount }, String(woData.branchId || ''), customerIdentity, staffUser.uid, now, {
+          receivableBalance: balanceDue
+        }));
+      } else {
+        transaction.update(accountRef, {
+          legacyPartnerId: customerId,
+          receivableBalance: Number(existingAccount?.receivableBalance || 0) + balanceDue,
+          totalSales: Number(existingAccount?.totalSales || 0) + finalAmount,
+          updatedByUid: staffUser.uid,
+          updatedAt: now
+        });
+      }
+      const customerPatch = {
+        ...customerProfile,
+        partyMasterId: customerIdentity.partyMasterId,
+        branchPartyAccountId: customerIdentity.branchPartyAccountId,
+        outstandingDebt: Number(existingCustomer?.outstandingDebt || 0) + balanceDue,
+        totalSpent: Number(existingCustomer?.totalSpent || 0) + finalAmount,
+        lastTechnicalWorkOrderId: workOrderId,
+        updatedAt: now
+      };
+      if (customerSnap?.exists) transaction.set(customerRef, customerPatch, { merge: true });
+      else transaction.create(customerRef, { ...customerPatch, createdAt: now });
+      if (finalAmount > 0) {
+        const chargeId = `DLE_TECH_${workOrderId}_CHARGE`;
+        transaction.create(db.collection('debtLedgerEntries').doc(chargeId), debtLedgerEntry({
+          id: chargeId, branchId: woData.branchId, partyAccountId: customerIdentity.branchPartyAccountId,
+          partyMasterId: customerIdentity.partyMasterId, legacyPartnerId: customerId, direction: 'RECEIVABLE',
+          sourceType: 'TECHNICAL_WORK_ORDER', sourceDocumentId: workOrderId, sourceDocumentCode: woData.code || workOrderId,
+          debitIncrease: finalAmount, actorUid: staffUser.uid, occurredAt: now, note: `Phí sửa chữa ${woData.code || workOrderId}`
+        }));
+      }
+      if (paidAmount > 0) {
+        const paidLedgerId = `DLE_TECH_${workOrderId}_INITIAL_PAYMENT`;
+        transaction.create(db.collection('debtLedgerEntries').doc(paidLedgerId), debtLedgerEntry({
+          id: paidLedgerId, branchId: woData.branchId, partyAccountId: customerIdentity.branchPartyAccountId,
+          partyMasterId: customerIdentity.partyMasterId, legacyPartnerId: customerId, direction: 'RECEIVABLE',
+          sourceType: 'PAYMENT', sourceDocumentId: workOrderId, sourceDocumentCode: woData.code || workOrderId,
+          creditDecrease: paidAmount, actorUid: staffUser.uid, occurredAt: now, note: `Thu tiền sửa chữa ${woData.code || workOrderId}`
+        }));
+      }
+    }
     transaction.set(db.collection('repairPayments').doc(`REPAIR_PAYMENT_${workOrderId}`), {
       id: `REPAIR_PAYMENT_${workOrderId}`,
       workOrderId,
       workOrderCode: woData.code || workOrderId,
       branchId: woData.branchId,
       customerName: woData.customerName || '',
+      customerId,
       finalAmount,
       paidAmount,
       balanceDue,
@@ -1785,6 +2150,7 @@ export async function processDeliverToCustomer(
       deliveredByUid: staffUser.uid,
       deliveryNotes: normalizedDeliveryNotes,
       finalServiceAmount: finalAmount,
+      approvedFinalAmount: finalAmount,
       paidAmount,
       balanceDue,
       paymentStatus,
@@ -1799,6 +2165,8 @@ export async function processDeliverToCustomer(
         transaction.update(db.collection('commissionLedger').doc(`COMM_${lineId}`), {
           status: 'ELIGIBLE',
           eligibleAt: now,
+          payrollPeriod: getVietnamMonthString(now),
+          eligibilityReason: 'DELIVERED_TO_CUSTOMER',
           approvedByUid: staffUser.uid,
           customerDeliveryConfirmedAt: now,
           updatedAt: FieldValue.serverTimestamp()
@@ -1822,7 +2190,93 @@ export async function processDeliverToCustomer(
       });
     }
 
+    transaction.set(idemRef, { scope: 'DELIVER_CUSTOMER', workOrderId, createdAt: now });
+
     return { success: true, workOrderId };
+  });
+}
+
+export async function processCollectTechnicalDebtPayment(
+  db: Firestore,
+  workOrderId: string,
+  input: { amount: number; paymentMethod: 'CASH' | 'BANK'; fundId: string; note?: string; idempotencyKey: string },
+  actor: TechnicalActor
+): Promise<{ success: boolean; balanceDue: number; paymentId: string }> {
+  const amount = Number(input.amount);
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('REPAIR_PAYMENT_AMOUNT_INVALID');
+  const paymentMethod = String(input.paymentMethod || '').toUpperCase();
+  if (!['CASH', 'BANK'].includes(paymentMethod)) throw new Error('REPAIR_PAYMENT_METHOD_INVALID');
+  const fundId = String(input.fundId || '').trim();
+  if (!fundId) throw new Error('REPAIR_PAYMENT_FUND_REQUIRED');
+  const key = requireTechnicalIdempotencyKey(input.idempotencyKey);
+  const paymentId = `REPAIR_PAYMENT_${technicalIdempotencyId(workOrderId, key).slice(0, 28).toUpperCase()}`;
+  const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`TECH_DEBT_PAYMENT:${workOrderId}`, key));
+  const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+  const fundRef = db.collection('funds').doc(fundId);
+  return db.runTransaction(async transaction => {
+    const [woSnap, fundSnap, idemSnap] = await Promise.all([transaction.get(woRef), transaction.get(fundRef), transaction.get(idemRef)]);
+    if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
+    const wo = woSnap.data()!;
+    if (idemSnap.exists) return { success: true, balanceDue: Number(wo.balanceDue || 0), paymentId };
+    if (!canAccessBranch(actor, String(wo.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    if (wo.status !== 'DELIVERED_TO_CUSTOMER') throw new Error('CUSTOMER_DELIVERY_REQUIRED');
+    const currentBalanceDue = Number(wo.balanceDue || 0);
+    if (!Number.isSafeInteger(currentBalanceDue) || amount > currentBalanceDue) throw new Error('REPAIR_PAYMENT_EXCEEDS_BALANCE');
+    if (!fundSnap.exists) throw new Error('REPAIR_PAYMENT_FUND_NOT_FOUND');
+    const fund = fundSnap.data()!;
+    if (String(fund.branchId || '') !== String(wo.branchId || '')) throw new Error('REPAIR_PAYMENT_FUND_BRANCH_MISMATCH');
+    if (String(fund.type || '').toUpperCase() !== paymentMethod) throw new Error('REPAIR_PAYMENT_FUND_TYPE_MISMATCH');
+    if (fund.isActive === false || fund.active === false || fund.isArchived) throw new Error('REPAIR_PAYMENT_FUND_INACTIVE');
+    const customerId = String(wo.customerId || '').trim();
+    const customerRef = customerId ? db.collection('partners').doc(customerId) : null;
+    const customerSnap = customerRef ? await transaction.get(customerRef) : null;
+    const customer = customerSnap?.exists ? customerSnap.data()! : null;
+    const accountId = String(customer?.branchPartyAccountId || '').trim();
+    const accountRef = accountId ? db.collection('branchPartyAccounts').doc(accountId) : null;
+    const accountSnap = accountRef ? await transaction.get(accountRef) : null;
+    if (!customerRef || !customer || !accountRef || !accountSnap?.exists) throw new Error('CUSTOMER_DEBT_ACCOUNT_NOT_FOUND');
+    const now = new Date().toISOString();
+    const nextBalanceDue = currentBalanceDue - amount;
+    transaction.update(fundRef, {
+      currentBalance: Number(fund.currentBalance || 0) + amount,
+      totalIncome: Number(fund.totalIncome || 0) + amount,
+      updatedAt: now
+    });
+    transaction.create(db.collection('cashTransactions').doc(`TECH_DEBT_RECEIPT_${paymentId}`), {
+      id: `TECH_DEBT_RECEIPT_${paymentId}`, code: `PTSC-${String(wo.code || workOrderId)}-${paymentId.slice(-6)}`,
+      type: 'RECEIPT', amount, category: 'REPAIR_DEBT_COLLECTION', categoryName: 'Thu công nợ sửa chữa',
+      fundId, fundName: fund.name || 'Quỹ thu tiền', fundType: fund.type || paymentMethod,
+      partnerId: customerId, partnerName: customer.name || wo.customerName || 'Khách sửa chữa', partnerType: 'CUSTOMER',
+      branchId: wo.branchId, referenceType: 'TECHNICAL_WORK_ORDER', referenceId: workOrderId,
+      referenceCode: wo.code || workOrderId, date: now, notes: input.note || `Thu công nợ phiếu sửa ${wo.code || workOrderId}`,
+      creator: actor.name || actor.uid, creatorUid: actor.uid, isPLAccounted: false, status: 'COMPLETED', createdAt: FieldValue.serverTimestamp()
+    });
+    transaction.create(db.collection('repairPayments').doc(paymentId), {
+      id: paymentId, workOrderId, workOrderCode: wo.code || workOrderId, branchId: wo.branchId,
+      customerId, customerName: customer.name || wo.customerName || '', amount, paymentMethod, fundId,
+      collectedByUid: actor.uid, collectedByName: actor.name || actor.uid, collectedAt: now,
+      note: String(input.note || '').trim(), status: 'PAID', createdAt: FieldValue.serverTimestamp()
+    });
+    const debtLedgerId = `DLE_TECH_${paymentId}`;
+    transaction.create(db.collection('debtLedgerEntries').doc(debtLedgerId), debtLedgerEntry({
+      id: debtLedgerId, branchId: wo.branchId, partyAccountId: accountId,
+      partyMasterId: customer.partyMasterId, legacyPartnerId: customerId, direction: 'RECEIVABLE',
+      sourceType: 'PAYMENT', sourceDocumentId: workOrderId, sourceDocumentCode: wo.code || workOrderId,
+      creditDecrease: amount, actorUid: actor.uid, occurredAt: now, note: input.note || `Thu công nợ sửa chữa ${wo.code || workOrderId}`
+    }));
+    transaction.update(accountRef, {
+      receivableBalance: Math.max(0, Number(accountSnap.data()?.receivableBalance || 0) - amount),
+      updatedByUid: actor.uid, updatedAt: now
+    });
+    transaction.update(customerRef, { outstandingDebt: Math.max(0, Number(customer.outstandingDebt || 0) - amount), updatedAt: now });
+    transaction.update(woRef, {
+      paidAmount: Number(wo.paidAmount || 0) + amount,
+      balanceDue: nextBalanceDue,
+      paymentStatus: nextBalanceDue === 0 ? 'PAID' : 'PARTIAL',
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    transaction.create(idemRef, { scope: 'TECH_DEBT_PAYMENT', workOrderId, paymentId, createdAt: now });
+    return { success: true, balanceDue: nextBalanceDue, paymentId };
   });
 }
 

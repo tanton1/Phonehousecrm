@@ -509,6 +509,12 @@ export async function requestQCInspection(
     overallResult: 'PASS' | 'FAIL';
     failedReason?: string;
     photoEvidenceUrls?: string[];
+    failures?: Array<{
+      checklistKey: string;
+      affectedLineIds: string[];
+      reason: string;
+      severity: 'MINOR' | 'MAJOR' | 'CRITICAL';
+    }>;
   }
 ): Promise<{ success: boolean; result: 'PASS' | 'FAIL'; inspectionId: string }> {
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/qc`, inspection);
@@ -525,6 +531,25 @@ export async function requestReturnToStock(
   return await sendTechnicalApiRequest(`work-orders/${workOrderId}/return-to-stock`, { targetWarehouseId, scannedImei });
 }
 
+export async function requestTechnicalQuoteAdjustment(workOrderId: string, input: {
+  requestedAmount: number;
+  reason: string;
+  customerApprovalEvidenceId?: string;
+}): Promise<any> {
+  return sendTechnicalApiRequest(`work-orders/${workOrderId}/quote-adjustments`, {
+    ...input,
+    idempotencyKey: createTechnicalIdempotencyKey(`quote-adjustment-${workOrderId}`)
+  });
+}
+
+export async function decideTechnicalQuoteAdjustment(workOrderId: string, adjustmentId: string, decision: 'APPROVED' | 'REJECTED', reason?: string): Promise<any> {
+  return sendTechnicalApiRequest(`work-orders/${workOrderId}/quote-adjustments/${adjustmentId}/decision`, {
+    decision,
+    reason,
+    idempotencyKey: createTechnicalIdempotencyKey(`quote-decision-${adjustmentId}`)
+  });
+}
+
 /**
  * 8. Deliver Repaired Device to Customer
  */
@@ -532,14 +557,34 @@ export async function requestDeliverToCustomer(
   workOrderId: string,
   notes: string = '',
   payment?: {
-    finalAmount: number;
+    /** Deprecated display-only value. The server always uses approvedFinalAmount. */
+    finalAmount?: number;
     paidAmount: number;
     paymentMethod: 'CASH' | 'BANK' | 'DEBT';
     fundId?: string;
     note?: string;
+    idempotencyKey?: string;
   }
 ): Promise<{ success: boolean; workOrderId: string }> {
-  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/deliver-customer`, { notes, payment });
+  return await sendTechnicalApiRequest(`work-orders/${workOrderId}/deliver-customer`, {
+    notes,
+    payment: payment ? {
+      ...payment,
+      idempotencyKey: payment.idempotencyKey || createTechnicalIdempotencyKey(`deliver-customer-${workOrderId}`)
+    } : { idempotencyKey: createTechnicalIdempotencyKey(`deliver-customer-${workOrderId}`) }
+  });
+}
+
+export async function requestCollectTechnicalDebtPayment(workOrderId: string, input: {
+  amount: number;
+  paymentMethod: 'CASH' | 'BANK';
+  fundId: string;
+  note?: string;
+}): Promise<any> {
+  return sendTechnicalApiRequest(`work-orders/${workOrderId}/payments`, {
+    ...input,
+    idempotencyKey: createTechnicalIdempotencyKey(`technical-debt-payment-${workOrderId}`)
+  });
 }
 
 export interface TechnicalCommissionLedgerEntry {
@@ -652,6 +697,26 @@ export async function fetchRetailRepairDashboard(): Promise<RetailRepairDashboar
  */
 export async function fetchMyTechnicalWork(): Promise<any[]> {
   return await sendTechnicalApiRequest('my-work', {}, 'GET');
+}
+
+export async function fetchTechnicalWorkspace(params: {
+  scope?: 'mine' | 'branch';
+  branchId?: string;
+  pageSize?: number;
+  cursor?: string;
+} = {}): Promise<any> {
+  const query = new URLSearchParams();
+  query.set('scope', params.scope || 'mine');
+  if (params.branchId) query.set('branchId', params.branchId);
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.cursor) query.set('cursor', params.cursor);
+  return sendTechnicalApiRequest(`workspace?${query.toString()}`, {}, 'GET');
+}
+
+export async function fetchTechnicalKpi(input: { from: string; to: string; branchId: string; staffUid?: string }): Promise<any> {
+  const query = new URLSearchParams({ from: input.from, to: input.to, branchId: input.branchId });
+  if (input.staffUid) query.set('staffUid', input.staffUid);
+  return sendTechnicalApiRequest(`kpi?${query.toString()}`, {}, 'GET');
 }
 
 export function createTechnicalIdempotencyKey(scope: string): string {

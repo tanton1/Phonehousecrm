@@ -83,9 +83,15 @@ export function createInventoryTransfersRouter(db: Firestore | null): Router {
         capitalizeLaborCost: body.capitalizeLaborCost !== false,
         reworkCommissionPolicy: ['NO_EXTRA_COMMISSION', 'REPEAT_COMMISSION', 'MANAGER_APPROVAL'].includes(body.reworkCommissionPolicy) ? body.reworkCommissionPolicy : 'NO_EXTRA_COMMISSION',
         requiredEvidenceTypes: Array.isArray(body.requiredEvidenceTypes) ? body.requiredEvidenceTypes.filter((value: unknown) => typeof value === 'string') : [],
+        quoteGate: ['DIAGNOSIS_ALLOWED', 'APPROVAL_REQUIRED', 'NOT_APPLICABLE'].includes(String(body.quoteGate || ''))
+          ? String(body.quoteGate)
+          : 'APPROVAL_REQUIRED',
         requiredPartTemplates,
         intakeIssueTypes,
         qcChecklistTemplateId: body.qcChecklistTemplateId ? String(body.qcChecklistTemplateId) : null,
+        qcChecklistSteps: Array.isArray(body.qcChecklistSteps)
+          ? body.qcChecklistSteps.map((step: any) => ({ key: String(step.key || '').trim(), label: String(step.label || '').trim(), required: step.required !== false })).filter((step: any) => step.key && step.label)
+          : [],
         normalSlaHours: Number(body.normalSlaHours),
         prioritySlaHours: Number(body.prioritySlaHours),
         urgentSlaHours: Number(body.urgentSlaHours),

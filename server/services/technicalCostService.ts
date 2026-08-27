@@ -260,6 +260,22 @@ function assertTechnicianUsesOwnWarehouse(actor: TechnicalCostActor, warehouse: 
   if (String(warehouse?.custodianUid || '') !== actor.uid) throw new Error('TECHNICIAN_PERSONAL_WAREHOUSE_FORBIDDEN');
 }
 
+function assertAcceptedCustodyForParts(workOrder: any, lineOrIssue: any, actor: TechnicalCostActor): void {
+  if (workOrder?.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING');
+  if (!['ACCEPTED', 'IN_PROGRESS', 'QC_FAILED_REWORK'].includes(String(workOrder?.status || ''))) {
+    throw new Error('CUSTODY_ACCEPTANCE_REQUIRED');
+  }
+  const assignedUid = String(lineOrIssue?.assigneeUid || lineOrIssue?.issuedToUid || '');
+  const custodianUid = String(workOrder?.currentCustodianUid || '');
+  if (!assignedUid || custodianUid !== assignedUid) throw new Error('CURRENT_CUSTODIAN_REQUIRED');
+  if (!isElevated(actor) && actor.uid !== custodianUid) throw new Error('CURRENT_CUSTODIAN_REQUIRED');
+  if (
+    String(workOrder?.workOrderType || '') === 'CUSTOMER_SERVICE'
+    && String(lineOrIssue?.quoteGate || 'APPROVAL_REQUIRED') === 'APPROVAL_REQUIRED'
+    && String(workOrder?.quoteStatus || '') !== 'APPROVED'
+  ) throw new Error('QUOTE_APPROVAL_REQUIRED');
+}
+
 function isPartStockApprover(actor: TechnicalCostActor): boolean {
   return ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'WAREHOUSE'].includes(normalizedRole(actor));
 }
@@ -399,7 +415,7 @@ export async function processReceiveTechnicalSparePart(
 ): Promise<{ part: any; lot: any; receiptId: string; idempotentReplay?: boolean }> {
   // Supplier/opening-balance receipts are posted by the stock function, not
   // by a KTV.  A KTV uses the replenishment request flow below instead.
-  if (!isPartStockApprover(actor) && normalizedRole(actor) !== 'TECH_LEAD') throw new Error('SPARE_PART_RECEIPT_FORBIDDEN');
+  if (!isPartStockApprover(actor)) throw new Error('SPARE_PART_RECEIPT_FORBIDDEN');
   const key = assertIdempotencyKey(input.idempotencyKey);
   const sku = String(input.sku || '').trim().toUpperCase();
   const name = String(input.name || '').trim();
@@ -979,14 +995,18 @@ export async function processDecideTechnicalPartStockRequest(
 }
 
 export async function listTechnicalPartStockRequests(db: Firestore, actor: TechnicalCostActor, status?: string): Promise<any[]> {
-  const snapshot = await db.collection('technicalPartStockRequests').limit(300).get();
   const role = normalizedRole(actor);
+  const branchId = String(actor.branchId || '').trim();
+  if (!branchId && role !== 'ADMIN') throw new Error('BRANCH_REQUIRED');
+  let query: FirebaseFirestore.Query = db.collection('technicalPartStockRequests');
+  if (role !== 'ADMIN' || branchId) query = query.where('branchId', '==', branchId);
+  if (status) query = query.where('status', '==', status);
+  const snapshot = await query.orderBy('requestedAt', 'desc').limit(300).get();
   return snapshot.docs
     .map(doc => ({ id: doc.id, ...doc.data() } as any))
     .filter(request => canAccessBranch(actor, String(request.branchId || '')))
     .filter(request => role === 'ADMIN' || role === 'REGIONAL_MANAGER' || isPartSupplyApprover(actor) || String(request.targetCustodianUid || '') === actor.uid || String(request.targetWarehouseCustodianUid || '') === actor.uid || String(request.requestedByUid || '') === actor.uid)
-    .filter(request => !status || String(request.status || '') === status)
-    .sort((left, right) => String(right.requestedAt || right.createdAt || '').localeCompare(String(left.requestedAt || left.createdAt || '')));
+    .filter(request => !status || String(request.status || '') === status);
 }
 
 /**
@@ -1207,12 +1227,12 @@ export async function processReserveTechnicalPart(
     const part = partSnap.data()!;
     const warehouse = warehouseSnap.data()!;
     const lot = lotSnap?.data();
-    if (workOrder.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING');
     if (line.workOrderId !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
     if (!canAccessBranch(actor, String(workOrder.branchId || line.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
     if (!isElevated(actor) && line.assigneeUid !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
     if (!ACTIVE_PART_WORK_ORDER_STATUSES.has(String(workOrder.status))) throw new Error('WORK_ORDER_NOT_OPEN_FOR_PARTS');
     if (!ACTIVE_PART_LINE_STATUSES.has(String(line.status))) throw new Error('TASK_NOT_OPEN_FOR_PARTS');
+    assertAcceptedCustodyForParts(workOrder, line, actor);
     if (warehouse.isActive === false || warehouseBranchId(warehouse) !== String(workOrder.branchId)) throw new Error('PART_WAREHOUSE_BRANCH_MISMATCH');
     assertTechnicianUsesOwnWarehouse(actor, warehouse);
     if (part.branchId && part.branchId !== workOrder.branchId) throw new Error('SPARE_PART_BRANCH_MISMATCH');
@@ -1466,12 +1486,12 @@ export async function processIssueTechnicalPart(
     const warehouse = warehouseSnap.data()!;
     const lot = lotSnap?.data();
     const reservation = reservationSnap?.data();
-    if (workOrder.activeHandoffId) throw new Error('TECH_HANDOFF_PENDING');
     if (line.workOrderId !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
     if (!canAccessBranch(actor, String(workOrder.branchId || line.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
     if (!isElevated(actor) && line.assigneeUid !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
     if (!ACTIVE_PART_WORK_ORDER_STATUSES.has(String(workOrder.status))) throw new Error('WORK_ORDER_NOT_OPEN_FOR_PARTS');
     if (!ACTIVE_PART_LINE_STATUSES.has(String(line.status))) throw new Error('TASK_NOT_OPEN_FOR_PARTS');
+    assertAcceptedCustodyForParts(workOrder, line, actor);
     if (warehouse.isActive === false || warehouseBranchId(warehouse) !== String(workOrder.branchId)) throw new Error('PART_WAREHOUSE_BRANCH_MISMATCH');
     assertTechnicianUsesOwnWarehouse(actor, warehouse);
     if (part.branchId && part.branchId !== workOrder.branchId) throw new Error('SPARE_PART_BRANCH_MISMATCH');
@@ -1614,12 +1634,21 @@ export async function processIssueTechnicalPart(
     // A task that was waiting for a requested part becomes actionable again
     // only when the KTV actually issues it from their own warehouse.
     if (String(line.status || '') === 'WAITING_PARTS') {
+      const sessionId = randomId('TTS');
       transaction.update(lineRef, {
         status: 'IN_PROGRESS',
         partsAvailableAt: now,
+        lastStartedAt: now,
+        activeSessionId: sessionId,
         updatedAt: now
       });
       transaction.update(woRef, { status: 'IN_PROGRESS', updatedAt: now });
+      transaction.create(db.collection('technicalTaskSessions').doc(sessionId), {
+        id: sessionId, workOrderId, lineId: input.lineId, technicianUid: line.assigneeUid,
+        branchId: workOrder.branchId,
+        startedAt: now, endedAt: null, endReason: null, durationMinutes: 0,
+        status: 'ACTIVE', resumedByPartIssueId: issueId, createdAt: now
+      });
     }
     transaction.set(db.collection('technicalPartIssues').doc(issueId), issue);
     transaction.set(db.collection('sparePartMovements').doc(movementId), {
@@ -1684,6 +1713,7 @@ async function settleTechnicalPart(
     if (!canAccessBranch(actor, String(issue.branchId || workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
     if (!isElevated(actor) && issue.issuedToUid !== actor.uid) throw new Error('TECHNICIAN_NOT_ASSIGNED');
     if (!ACTIVE_PART_WORK_ORDER_STATUSES.has(String(workOrder.status))) throw new Error('WORK_ORDER_NOT_OPEN_FOR_PARTS');
+    assertAcceptedCustodyForParts(workOrder, issue, actor);
 
     const issued = numberOrZero(issue.quantityIssued);
     const consumed = numberOrZero(issue.quantityConsumed);
@@ -2188,12 +2218,13 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
   if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
   const workOrder = woSnap.data()!;
   if (!canAccessBranch(actor, String(workOrder.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
-  const [linesSnap, issuesSnap, reservationsSnap, exceptionsSnap, additionRequestsSnap, externalSnap, recoverySnap, postingSnap, qcSnap, movementBySourceSnap, movementByWorkOrderSnap, costEventsSnap] = await Promise.all([
+  const [linesSnap, issuesSnap, reservationsSnap, exceptionsSnap, additionRequestsSnap, quoteAdjustmentsSnap, externalSnap, recoverySnap, postingSnap, qcSnap, movementBySourceSnap, movementByWorkOrderSnap, costEventsSnap] = await Promise.all([
     db.collection('technicalWorkOrderLines').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartIssues').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartReservations').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalPartExceptions').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalTaskAdditionRequests').where('workOrderId', '==', workOrderId).get(),
+    db.collection('technicalQuoteAdjustments').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalExternalCosts').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalRecoveries').where('workOrderId', '==', workOrderId).get(),
     db.collection('technicalCostPostings').doc(workOrderId).get(),
@@ -2207,6 +2238,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
   const partReservations: any[] = reservationsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const partExceptions: any[] = exceptionsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const taskAdditionRequests: any[] = additionRequestsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
+  const quoteAdjustments: any[] = quoteAdjustmentsSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const externalCosts: any[] = externalSnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const recoveries: any[] = recoverySnap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
   const openingDeviceCost = numberOrZero(workOrder.openingDeviceCost ?? postingSnap.data()?.breakdown?.openingDeviceCost);
@@ -2238,6 +2270,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
     ...partReservations.map(reservation => ({ id: reservation.id, type: 'PART_RESERVATION', title: `Giữ linh kiện: ${reservation.partName}`, occurredAt: eventTime(reservation.reservedAt || reservation.createdAt), actorUid: reservation.reservedByUid || null, status: reservation.status })),
     ...partExceptions.map(exception => ({ id: exception.id, type: 'PART_EXCEPTION', title: `Ngoại lệ linh kiện: ${exception.partName}`, occurredAt: eventTime(exception.decidedAt || exception.requestedAt || exception.createdAt), actorUid: exception.decidedByUid || exception.requestedByUid || null, status: exception.status })),
     ...taskAdditionRequests.map(request => ({ id: request.id, type: 'TASK_ADDITION', title: `Lỗi phát sinh: ${request.taskName || request.taskType}`, occurredAt: eventTime(request.decidedAt || request.requestedAt || request.createdAt), actorUid: request.decidedByUid || request.requestedByUid || null, status: request.status })),
+    ...quoteAdjustments.map(adjustment => ({ id: adjustment.id, type: 'QUOTE_ADJUSTMENT', title: `Báo giá: ${adjustment.status}`, occurredAt: eventTime(adjustment.approvedAt || adjustment.requestedAt || adjustment.createdAt), actorUid: adjustment.approvedByUid || adjustment.requestedByUid || null, status: adjustment.status })),
     ...qcInspections.map(inspection => ({ id: inspection.id, type: 'QC_INSPECTION', title: `KCS ${inspection.overallResult}`, occurredAt: eventTime(inspection.inspectedAt || inspection.createdAt), actorUid: inspection.inspectorUid || null, actorName: inspection.inspectorName || null, status: inspection.overallResult })),
     ...(mayViewCost ? costEvents.map(event => ({ id: event.id, type: event.eventType, title: 'Kết chuyển giá vốn', occurredAt: eventTime(event.createdAt), actorUid: event.createdByUid || null, amount: event.amount, costAfter: event.costAfter })) : [])
   ].filter((event): event is any => !!event && !!event.occurredAt)
@@ -2284,6 +2317,7 @@ export async function getTechnicalCostBreakdown(db: Firestore, workOrderId: stri
     partReservations: publicIssue(partReservations),
     partExceptions: publicIssue(partExceptions),
     taskAdditionRequests: publicIssue(taskAdditionRequests),
+    quoteAdjustments: publicIssue(quoteAdjustments),
     externalCosts: mayViewCost ? publicIssue(externalCosts) : [],
     recoveries: mayViewCost ? publicIssue(recoveries) : [],
     qcInspections: publicIssue(qcInspections),

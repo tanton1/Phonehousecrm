@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
+import { getVietnamMonthString } from '../../shared/vietnamTime';
 
 export type TechnicalPriority = 'NORMAL' | 'PRIORITY' | 'URGENT';
 export type ReceiptResult = 'RECEIVED' | 'MISSING' | 'WRONG_DEVICE' | 'DAMAGED';
@@ -21,6 +22,7 @@ export interface TechnicalTaskTypeRecord {
   laborCostToDevice?: number;
   capitalizeLaborCost?: boolean;
   reworkCommissionPolicy?: 'NO_EXTRA_COMMISSION' | 'REPEAT_COMMISSION' | 'MANAGER_APPROVAL';
+  quoteGate?: 'DIAGNOSIS_ALLOWED' | 'APPROVAL_REQUIRED' | 'NOT_APPLICABLE';
   requiredEvidenceTypes?: string[];
   requiredPartTemplates?: Array<{
     partId?: string;
@@ -32,6 +34,7 @@ export interface TechnicalTaskTypeRecord {
   }>;
   intakeIssueTypes?: string[];
   qcChecklistTemplateId?: string;
+  qcChecklistSteps?: Array<{ key: string; label: string; required?: boolean }>;
   normalSlaHours: number;
   prioritySlaHours: number;
   urgentSlaHours: number;
@@ -371,10 +374,16 @@ export async function processCreateTechnicalTransfer(
           laborCostToDevice: quote.laborCostToDevice,
           capitalizeLaborCost: quote.capitalizeLaborCost,
           reworkCommissionPolicy: config.reworkCommissionPolicy || 'NO_EXTRA_COMMISSION',
+          quoteGate: config.quoteGate || 'NOT_APPLICABLE',
           requiredEvidenceTypes: config.requiredEvidenceTypes || [],
           requiredPartTemplates: config.requiredPartTemplates || [],
           intakeIssueTypes: config.intakeIssueTypes || [],
           qcChecklistTemplateId: config.qcChecklistTemplateId || null,
+          qcChecklistSnapshot: {
+            templateId: config.qcChecklistTemplateId || 'QC_STANDARD_12_STEPS_V2',
+            version: config.version,
+            taskSpecificSteps: config.qcChecklistSteps || []
+          },
           slaHours: quote.slaHours,
           deadlineAt: quote.deadlineAt,
           requiresQc: config.requiresQc,
@@ -422,7 +431,11 @@ export async function processCreateTechnicalTransfer(
           reworkCycle: 0,
           status: 'PENDING',
           eligibilityRequiresStockReturn: true,
-          payrollPeriod: now.slice(0, 7),
+          assignedAt: now,
+          assignedPeriod: getVietnamMonthString(now),
+          payrollPeriod: null,
+          eligibleAt: null,
+          eligibilityReason: null,
           createdAt: now
         });
       }

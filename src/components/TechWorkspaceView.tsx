@@ -9,10 +9,11 @@ import { StaffHRView } from './StaffHRView';
 import { UserAccount, WarrantyTicket, DeviceItem, CommissionTransaction, StoreBranch, WarehouseInfo, FundAccount } from '../types';
 import { calculateStaffDualWallet } from '../utils/commissionEngine';
 import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
-import { fetchMyTechnicalWork, fetchPendingTechnicalHandoffs, fetchRepairRevenueReport, fetchTechnicalCommissionLedger, requestAcceptTechnicalHandoff, RepairRevenueReport, TechnicalCommissionLedgerEntry } from '../services/technicalApiClient';
+import { fetchTechnicalWorkspace, fetchPendingTechnicalHandoffs, fetchRepairRevenueReport, fetchTechnicalCommissionLedger, requestAcceptTechnicalHandoff, RepairRevenueReport, TechnicalCommissionLedgerEntry } from '../services/technicalApiClient';
 import { TechnicalWorkOrderDrawer } from './TechnicalWorkOrderDrawer';
 import { uploadTechnicalEvidence } from '../services/technicalEvidenceService';
 import { HelpHint } from './HelpHint';
+import { getVietnamDateString, getVietnamMonthString } from '../../shared/vietnamTime';
 
 interface TechWorkspaceViewProps {
   devices: DeviceItem[];
@@ -54,8 +55,8 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   const [repairReport, setRepairReport] = useState<RepairRevenueReport | null>(null);
   const [repairReportLoading, setRepairReportLoading] = useState(false);
   const [repairReportError, setRepairReportError] = useState('');
-  const [reportFrom, setReportFrom] = useState(() => `${new Date().toISOString().slice(0, 7)}-01`);
-  const [reportTo, setReportTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportFrom, setReportFrom] = useState(() => `${getVietnamMonthString()}-01`);
+  const [reportTo, setReportTo] = useState(() => getVietnamDateString());
   const currentRole = String(currentUser?.role || '').toUpperCase();
   const canViewRepairReport = ['ADMIN', 'MANAGER', 'ACCOUNTANT'].includes(currentRole);
 
@@ -98,13 +99,33 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   const loadAssignedWork = async () => {
     setIsSyncing(true);
     try {
-      const period = new Date().toISOString().slice(0, 7);
-      const [lines, ledger, handoffs] = await Promise.all([
-        fetchMyTechnicalWork(),
+      const period = getVietnamMonthString();
+      const principalUid = String((currentUser as any)?.authUid || currentUser?.id || '');
+      const scope = ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(currentRole) ? 'branch' : 'mine';
+      const [workspace, ledger, handoffs] = await Promise.all([
+        fetchTechnicalWorkspace({ scope, branchId: currentUser?.branchId, pageSize: 50 }),
         fetchTechnicalCommissionLedger(period),
         fetchPendingTechnicalHandoffs()
       ]);
-      setAssignedWorkLines(Array.isArray(lines) ? lines : []);
+      const lines = (workspace?.items || []).flatMap((item: any) => (item.taskLines || []).map((line: any) => ({
+        ...line,
+        workOrderId: item.workOrderId,
+        workOrderCode: item.code,
+        workOrderStatus: item.status,
+        workOrderType: item.workOrderType,
+        branchId: item.branchId,
+        imei: item.imei,
+        model: item.model,
+        currentCustodianUid: item.currentCustodianUid,
+        currentCustodianName: item.currentCustodianName,
+        boardStage: item.stage,
+        allowedActions: item.allowedActions,
+        blockers: item.blockers,
+        slaRisk: item.sla?.risk,
+        minutesRemaining: item.sla?.minutesRemaining,
+        assigneeUid: line.assigneeUid || principalUid
+      })));
+      setAssignedWorkLines(lines);
       setLedgerCommissions((ledger || []).map(mapLedgerEntry));
       setPendingHandoffs(Array.isArray(handoffs) ? handoffs : []);
       setAssignedWorkError('');
@@ -137,8 +158,8 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   }, [currentUser?.id, canViewRepairReport]);
 
   // Active tech staff identification
-  const currentStaffId = currentUser?.id || '';
-  const staffMember = (INITIAL_STAFF_MEMBERS || []).find(s => s?.id === currentStaffId || s?.name === currentUser?.displayName)
+  const currentStaffId = String((currentUser as any)?.authUid || currentUser?.id || '');
+  const staffMember = (INITIAL_STAFF_MEMBERS || []).find(s => s?.id === currentStaffId)
     || { id: currentStaffId, name: currentUser?.displayName || 'Kỹ thuật viên', role: 'TECHNICIAN', branchId: currentUser?.branchId || '' } as any;
 
   // Automated Tech Wallet Calculation using Phase 3 Engine
@@ -199,15 +220,13 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
   };
 
   const assignedDevices = useMemo(() => {
-    const userNames = new Set([currentUser?.displayName, currentUser?.name, staffMember?.name].filter(Boolean));
+    const principalUid = String((currentUser as any)?.authUid || currentUser?.id || '');
     const assignedDeviceIds = new Set(assignedWorkLines.map(line => String(line.deviceId || '')).filter(Boolean));
     return devices.filter(device =>
       assignedDeviceIds.has(String(device.id)) ||
-      (device as any).currentCustodianUid === currentUser?.id ||
-      userNames.has(device.technicianAssigned) ||
-      userNames.has(device.currentCustodian)
+      String((device as any).currentCustodianUid || '') === principalUid
     );
-  }, [devices, assignedWorkLines, currentUser, staffMember]);
+  }, [devices, assignedWorkLines, currentUser]);
 
   const kanbanTasks = useMemo(() => {
     const grouped = new Map<string, any[]>();
@@ -221,7 +240,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
       const lineStatuses = lines.map(line => String(line.status || 'ASSIGNED'));
       const openLineStatuses = lineStatuses.filter(status => !['COMPLETED', 'VERIFIED'].includes(status));
       const allOpenTasksWaitingForParts = openLineStatuses.length > 0 && openLineStatuses.every(status => status === 'WAITING_PARTS');
-      const stage = ['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH'].includes(workOrderStatus)
+      const stage = first.boardStage || (['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH'].includes(workOrderStatus)
         ? 'COMPLETED'
         : ['QC_PASSED', 'CUSTOMER_READY'].includes(workOrderStatus)
           ? 'WAITING_DELIVERY'
@@ -231,7 +250,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
               ? 'WAITING_PARTS'
               : workOrderStatus === 'ASSIGNED' || lineStatuses.every(status => status === 'ASSIGNED')
                 ? 'WAITING_ACCEPTANCE'
-                : 'IN_PROGRESS';
+                : 'IN_PROGRESS');
       const actionableLine = lines.find(line => ['ASSIGNED', 'ACCEPTED', 'REWORK_REQUIRED', 'IN_PROGRESS', 'WAITING_PARTS'].includes(String(line.status || ''))) || first;
       const technicians = [...new Map(lines.filter(line => line.assigneeUid || line.assigneeName).map(line => [String(line.assigneeUid || line.assigneeName), { id: String(line.assigneeUid || ''), name: String(line.assigneeName || 'Chưa gán KTV') }])).values()];
       return {
@@ -358,7 +377,7 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
                 <div className="flex items-center gap-2">
                   <div className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-bold text-zinc-700 flex items-center gap-2 shadow-2xs">
                     <Clock className="w-3.5 h-3.5 text-orange-500" />
-                    <span>SLA Tiêu Chuẩn: &lt; 2h / ca</span>
+                    <span>SLA theo cấu hình từng task</span>
                   </div>
                 </div>
               </div>

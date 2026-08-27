@@ -20,12 +20,14 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async () => ({
+            get: async (ref: any) => ref.col === 'technicalOperationIdempotency' ? ({ exists: false, data: () => undefined }) : ({
               exists: true,
               data: () => ({
                 id: 'WO_CUST_01',
                 workOrderType: 'CUSTOMER_SERVICE',
                 status: 'QC_PASSED',
+                quoteStatus: 'APPROVED',
+                approvedFinalAmount: 0,
                 customerName: 'Nguyễn Văn A',
                 imei: '356789012345678',
                 branchId: 'CN01'
@@ -52,12 +54,14 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async () => ({
+            get: async (ref: any) => ref.col === 'technicalOperationIdempotency' ? ({ exists: false, data: () => undefined }) : ({
               exists: true,
               data: () => ({
                 id: 'WO_CUST_01',
                 workOrderType: 'CUSTOMER_SERVICE',
                 status: 'QC_PASSED',
+                quoteStatus: 'APPROVED',
+                approvedFinalAmount: 0,
                 customerName: 'Nguyễn Văn A',
                 deviceId: 'DEV-CUST-01',
                 imei: '356789012345678',
@@ -75,7 +79,7 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
         }
       };
 
-      const result = await processDeliverToCustomer(mockDb, 'WO_CUST_01', 'Đã trả máy cho khách', { uid: 'UID_STAFF_01', branchId: 'CN01' });
+      const result = await processDeliverToCustomer(mockDb, 'WO_CUST_01', 'Đã trả máy cho khách', { uid: 'UID_STAFF_01', branchId: 'CN01' }, { idempotencyKey: 'deliver-customer-test-0001', paidAmount: 0, paymentMethod: 'DEBT' });
       expect(result.success).toBe(true);
       expect(updatedStatus).toBe('DELIVERED_TO_CUSTOMER');
     });

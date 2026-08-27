@@ -37,6 +37,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
   const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
   const [qcReason, setQcReason] = useState('');
   const [qcFiles, setQcFiles] = useState<File[]>([]);
+  const [qcFailedLineIds, setQcFailedLineIds] = useState<string[]>([]);
   const [acceptanceFiles, setAcceptanceFiles] = useState<File[]>([]);
   const [technicianFilter, setTechnicianFilter] = useState('ALL');
 
@@ -140,15 +141,25 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
       setActionError('Vui lòng ghi rõ lý do KCS không đạt để trả lại KTV.');
       return;
     }
+    if (qcResult === 'FAIL' && qcFailedLineIds.length === 0) {
+      setActionError('Chọn ít nhất một hạng mục thực sự không đạt KCS.');
+      return;
+    }
     setLoadingTaskId(qcTask.id);
     try {
       const workOrderId = String((qcTask as any).workOrderId);
       const photoEvidenceUrls = qcFiles.length ? await uploadTechnicalEvidence(workOrderId, 'qc-inspection', qcFiles) : [];
       await requestQCInspection(String((qcTask as any).workOrderId), {
         checklistVersion: 'QC_STANDARD_12_STEPS_V2', checklistResults: qcChecks,
-        overallResult: qcResult, failedReason: qcReason.trim() || undefined, photoEvidenceUrls
+        overallResult: qcResult, failedReason: qcReason.trim() || undefined, photoEvidenceUrls,
+        failures: qcResult === 'FAIL' ? [{
+          checklistKey: QC_STEPS.find(([key]) => qcChecks[key] === false)?.[0] || 'overall',
+          affectedLineIds: qcFailedLineIds,
+          reason: qcReason.trim(),
+          severity: 'MAJOR'
+        }] : undefined
       });
-      setQcTask(null); setQcChecks({}); setQcReason(''); setQcResult('PASS'); setQcFiles([]); setActionError(null);
+      setQcTask(null); setQcChecks({}); setQcReason(''); setQcResult('PASS'); setQcFiles([]); setQcFailedLineIds([]); setActionError(null);
       if (onRefresh) await onRefresh();
     } catch (error: any) {
       setActionError(error?.message || 'Không thể hoàn tất KCS.');
@@ -224,7 +235,7 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         );
       case 'WAITING_QC':
         if ((task as any).sourceKind === 'TECHNICAL_WORK_ORDER' && ['TECH_COMPLETED', 'QC_PENDING'].includes(String((task as any).workOrderStatus || '')) && ['ADMIN', 'MANAGER', 'TECH_LEAD'].includes(String(currentUserRole || '').toUpperCase())) {
-          return <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); setQcTask(task); setQcChecks({}); setQcResult('PASS'); setQcReason(''); setQcFiles([]); }} className="w-full mt-3 py-1.5 bg-violet-600 text-white text-xs font-bold rounded hover:bg-violet-700 disabled:opacity-50">KCS độc lập · Duyệt 12 bước</button>;
+          return <button disabled={isBusy} onClick={(e) => { e.stopPropagation(); setQcTask(task); setQcChecks({}); setQcResult('PASS'); setQcReason(''); setQcFiles([]); setQcFailedLineIds([]); }} className="w-full mt-3 py-1.5 bg-violet-600 text-white text-xs font-bold rounded hover:bg-violet-700 disabled:opacity-50">KCS độc lập · Duyệt 12 bước</button>;
         }
         return <div className="mt-3 rounded bg-violet-50 py-1.5 text-center text-xs font-semibold text-violet-700">⏳ Chờ KCS độc lập</div>;
       case 'WAITING_DELIVERY':
@@ -370,7 +381,19 @@ export const TechKanbanBoard: React.FC<TechKanbanBoardProps> = ({ tasks, onTaskC
         </div>
       )}
 
-      {qcTask && <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm"><div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h3 className="font-black text-zinc-950">KCS độc lập · 12 tiêu chí</h3><HelpHint title="KCS độc lập">Người KCS đối chiếu đủ 12 tiêu chí trước khi cho máy chuyển sang bước trả khách hoặc nhập lại kho. Ảnh là tùy chọn.</HelpHint></div><p className="text-xs text-zinc-500">{qcTask.ticketNumber} · IMEI {qcTask.imei}</p></div><button onClick={() => setQcTask(null)} className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold">Đóng</button></div><div className="mt-4 grid gap-2 sm:grid-cols-2">{QC_STEPS.map(([key, label]) => <label key={key} className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${qcChecks[key] ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}><input type="checkbox" checked={Boolean(qcChecks[key])} onChange={e => setQcChecks(current => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-bold"><span>Kết quả KCS</span><select value={qcResult} onChange={e => setQcResult(e.target.value as 'PASS' | 'FAIL')} className="h-10 w-full rounded-xl border px-3"><option value="PASS">Đạt · chuyển bước tiếp</option><option value="FAIL">Không đạt · trả KTV làm lại</option></select></label><label className="space-y-1 text-xs font-bold"><span>Lý do/Ghi chú</span><input value={qcReason} onChange={e => setQcReason(e.target.value)} className="h-10 w-full rounded-xl border px-3" placeholder={qcResult === 'FAIL' ? 'Bắt buộc khi không đạt' : 'Ghi chú KCS'} /></label></div><label className="mt-4 block rounded-xl border border-dashed p-3 text-xs font-bold"><span>Ảnh bằng chứng KCS (không bắt buộc)</span><input type="file" accept="image/*" multiple onChange={event => setQcFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block font-normal text-zinc-500">Đã chọn {qcFiles.length} ảnh · tối đa 8 ảnh, 20MB/ảnh.</span></label><button disabled={loadingTaskId === qcTask.id} onClick={() => void submitQc()} className="mt-4 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black text-white disabled:opacity-50">{loadingTaskId === qcTask.id ? 'Đang ghi nhận...' : 'Xác nhận kết quả KCS'}</button></div></div>}
+      {qcTask && <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm">
+        <div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl">
+          <div className="flex items-start justify-between gap-3">
+            <div><div className="flex items-center gap-2"><h3 className="font-black text-zinc-950">KCS độc lập · 12 tiêu chí</h3><HelpHint title="KCS độc lập">Người KCS đối chiếu đủ 12 tiêu chí trước khi cho máy chuyển sang bước trả khách hoặc nhập lại kho. Ảnh là tùy chọn.</HelpHint></div><p className="text-xs text-zinc-500">{qcTask.ticketNumber} · IMEI {qcTask.imei}</p></div>
+            <button onClick={() => setQcTask(null)} className="rounded-lg bg-zinc-100 px-3 py-1 text-xs font-bold">Đóng</button>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">{QC_STEPS.map(([key, label]) => <label key={key} className={`flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${qcChecks[key] ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}><input type="checkbox" checked={Boolean(qcChecks[key])} onChange={e => setQcChecks(current => ({ ...current, [key]: e.target.checked }))} />{label}</label>)}</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-xs font-bold"><span>Kết quả KCS</span><select value={qcResult} onChange={e => setQcResult(e.target.value as 'PASS' | 'FAIL')} className="h-10 w-full rounded-xl border px-3"><option value="PASS">Đạt · chuyển bước tiếp</option><option value="FAIL">Không đạt · trả đúng task lỗi</option></select></label><label className="space-y-1 text-xs font-bold"><span>Lý do/Ghi chú</span><input value={qcReason} onChange={e => setQcReason(e.target.value)} className="h-10 w-full rounded-xl border px-3" placeholder={qcResult === 'FAIL' ? 'Bắt buộc khi không đạt' : 'Ghi chú KCS'} /></label></div>
+          {qcResult === 'FAIL' && <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3"><p className="text-xs font-black text-red-800">Hạng mục cần làm lại</p><p className="mt-1 text-[11px] text-red-700">Chỉ hạng mục được chọn mới bị trả về KTV.</p><div className="mt-2 space-y-2">{((qcTask as any).taskLines || []).filter((line: any) => ['COMPLETED', 'VERIFIED'].includes(String(line.status))).map((line: any) => <label key={line.id} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-bold"><input type="checkbox" checked={qcFailedLineIds.includes(String(line.id))} onChange={event => setQcFailedLineIds(current => event.target.checked ? [...new Set([...current, String(line.id)])] : current.filter(id => id !== String(line.id)))} />{line.taskName || line.taskType || line.id}</label>)}</div></div>}
+          <label className="mt-4 block rounded-xl border border-dashed p-3 text-xs font-bold"><span>Ảnh bằng chứng KCS (không bắt buộc)</span><input type="file" accept="image/*" multiple onChange={event => setQcFiles(Array.from(event.target.files || []))} className="mt-2 block w-full text-xs"/><span className="mt-1 block font-normal text-zinc-500">Đã chọn {qcFiles.length} ảnh · tối đa 8 ảnh, 20MB/ảnh.</span></label>
+          <button disabled={loadingTaskId === qcTask.id} onClick={() => void submitQc()} className="mt-4 w-full rounded-xl bg-violet-600 py-2.5 text-sm font-black text-white disabled:opacity-50">{loadingTaskId === qcTask.id ? 'Đang ghi nhận...' : 'Xác nhận kết quả KCS'}</button>
+        </div>
+      </div>}
 
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-4">
         {COLUMNS.map(col => {
