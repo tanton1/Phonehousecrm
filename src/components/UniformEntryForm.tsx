@@ -115,6 +115,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const catalogRequestVersion = useRef(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [legacySuppliers, setLegacySuppliers] = useState<Partner[]>([]);
+  // Keep a successful quick-create response in the form immediately. The
+  // parent partner subscription/state refresh is asynchronous; without this
+  // local bridge, the supplier validation effect sees the previous list and
+  // clears the newly selected supplier before the parent can render it.
+  const [locallyCreatedSuppliers, setLocallyCreatedSuppliers] = useState<Partner[]>([]);
   const [isCustomPaid, setIsCustomPaid] = useState(false);
   const entryDraftKey = browserDraftKey('purchase-imei', currentUser?.id, defaultBranchId);
   const wasOpenRef = useRef(false);
@@ -225,9 +230,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     .includes(String(currentUser?.role || '').toUpperCase());
   const supplierCandidates = useMemo(() => {
     const byId = new Map<string, Partner>();
-    [...partners, ...legacySuppliers].forEach(partner => byId.set(partner.id, partner));
+    [...partners, ...legacySuppliers, ...locallyCreatedSuppliers].forEach(partner => byId.set(partner.id, partner));
     return [...byId.values()];
-  }, [legacySuppliers, partners]);
+  }, [legacySuppliers, locallyCreatedSuppliers, partners]);
   const suppliers = useMemo(() => supplierCandidates.filter(partner => {
     if (partner.type !== 'SUPPLIER' && partner.type !== 'BOTH') return false;
     const partnerBranchId = String(partner.branchId || '').trim();
@@ -1083,6 +1088,10 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             ? await onAddPartner({ ...newPartner, type: 'SUPPLIER', branchId: watchBranchId })
             : undefined;
           const selectedPartner = savedPartner || newPartner;
+          setLocallyCreatedSuppliers(current => [
+            selectedPartner,
+            ...current.filter(partner => partner.id !== selectedPartner.id)
+          ]);
           setValue('supplierId', selectedPartner.id);
           setIsCreateSupplierModalOpen(false);
         }}
