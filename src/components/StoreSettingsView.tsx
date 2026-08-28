@@ -48,7 +48,14 @@ import {
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
 import { isWarehouseActive, isWarehouseArchived } from '../utils/warehouseLifecycle';
-import { requestRegisterTelegramWebhook, requestTelegramStatus, requestTelegramTest, TelegramRuntimeStatus } from '../services/telegramApiClient';
+import {
+  requestDeleteTelegramConfiguration,
+  requestRegisterTelegramWebhook,
+  requestSaveTelegramConfiguration,
+  requestTelegramStatus,
+  requestTelegramTest,
+  TelegramRuntimeStatus
+} from '../services/telegramApiClient';
 
 export type StoreSettingsTab = 'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty' | 'notifications';
 
@@ -109,6 +116,11 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [telegramStatusLoading, setTelegramStatusLoading] = useState(false);
   const [telegramTestLoading, setTelegramTestLoading] = useState(false);
   const [telegramWebhookLoading, setTelegramWebhookLoading] = useState(false);
+  const [telegramConfigSaving, setTelegramConfigSaving] = useState(false);
+  const [telegramConfigDeleting, setTelegramConfigDeleting] = useState(false);
+  const [telegramForm, setTelegramForm] = useState({
+    botToken: '', chatId: '', ownerUserIds: '', alertsEnabled: true, queriesEnabled: true
+  });
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -117,7 +129,15 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const loadTelegramStatus = async () => {
     setTelegramStatusLoading(true);
     try {
-      setTelegramStatus(await requestTelegramStatus());
+      const nextStatus = await requestTelegramStatus();
+      setTelegramStatus(nextStatus);
+      setTelegramForm(current => ({
+        ...current,
+        chatId: nextStatus.chatId || current.chatId,
+        ownerUserIds: nextStatus.ownerUserIds?.join(', ') || current.ownerUserIds,
+        alertsEnabled: nextStatus.configured ? nextStatus.alertsEnabled !== false : true,
+        queriesEnabled: nextStatus.configured ? nextStatus.queriesEnabled !== false : true
+      }));
     } catch (error: any) {
       setTelegramStatus({ configured: false, connected: false, errorCode: error?.message || 'TELEGRAM_STATUS_FAILED' });
     } finally {
@@ -1216,6 +1236,103 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               </div>
             </div>
 
+            <div className="rounded-2xl border border-orange-200 bg-orange-50/50 p-4 sm:p-5">
+              <div className="flex items-start gap-3">
+                <div className="rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 p-2.5 text-white"><Bot className="h-5 w-5" /></div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-black text-zinc-900">Kết nối Bot ngay trên PhoneHouseCRM</h3>
+                  <p className="mt-1 text-xs leading-5 text-zinc-600">Token được mã hóa trên server và không hiển thị lại. Mã bảo vệ webhook được hệ thống tự sinh khi lưu.</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1.5 sm:col-span-2">
+                  <span className="text-xs font-black text-zinc-700">Bot Token từ @BotFather *</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={telegramForm.botToken}
+                    onChange={event => setTelegramForm(current => ({ ...current, botToken: event.target.value.trim() }))}
+                    placeholder={telegramStatus?.hasBotToken ? 'Đã lưu an toàn · để trống nếu không đổi token' : 'Ví dụ: 123456789:AA...'}
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none focus:border-orange-500"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-black text-zinc-700">Chat ID nhóm Telegram *</span>
+                  <input
+                    inputMode="numeric"
+                    value={telegramForm.chatId}
+                    onChange={event => setTelegramForm(current => ({ ...current, chatId: event.target.value.replace(/[^0-9-]/g, '') }))}
+                    placeholder="-1001234567890"
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none focus:border-orange-500"
+                  />
+                  <p className="text-[11px] text-zinc-500">ID nhóm thường là số âm bắt đầu bằng -100.</p>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-black text-zinc-700">Telegram User ID của chủ hệ thống</span>
+                  <input
+                    inputMode="numeric"
+                    value={telegramForm.ownerUserIds}
+                    onChange={event => setTelegramForm(current => ({ ...current, ownerUserIds: event.target.value.replace(/[^0-9, ]/g, '') }))}
+                    placeholder="123456789"
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none focus:border-orange-500"
+                  />
+                  <p className="text-[11px] text-zinc-500">Nhiều ID thì cách nhau bằng dấu phẩy; chỉ các ID này được xem “all”.</p>
+                </label>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-bold text-zinc-700">
+                  <input type="checkbox" checked={telegramForm.alertsEnabled} onChange={event => setTelegramForm(current => ({ ...current, alertsEnabled: event.target.checked }))} /> Cảnh báo chấm công
+                </label>
+                <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-bold text-zinc-700">
+                  <input type="checkbox" checked={telegramForm.queriesEnabled} onChange={event => setTelegramForm(current => ({ ...current, queriesEnabled: event.target.checked }))} /> Tra cứu vận hành
+                </label>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={telegramConfigSaving || (!telegramStatus?.hasBotToken && !telegramForm.botToken) || !telegramForm.chatId}
+                  onClick={async () => {
+                    setTelegramConfigSaving(true);
+                    try {
+                      await requestSaveTelegramConfiguration(telegramForm);
+                      setTelegramForm(current => ({ ...current, botToken: '' }));
+                      showToast('Đã lưu, xác minh Bot và đăng ký webhook thành công.');
+                      await loadTelegramStatus();
+                    } catch (error: any) {
+                      showToast(error?.message || 'Không lưu được cấu hình Telegram.', 'error');
+                    } finally {
+                      setTelegramConfigSaving(false);
+                    }
+                  }}
+                  className="rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2.5 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {telegramConfigSaving ? 'Đang xác minh & kết nối…' : 'Lưu & kết nối Bot'}
+                </button>
+                {telegramStatus?.source === 'DATABASE' && <button
+                  type="button"
+                  disabled={telegramConfigDeleting}
+                  onClick={async () => {
+                    if (!window.confirm('Xóa cấu hình Bot Telegram đã lưu trên PhoneHouseCRM?')) return;
+                    setTelegramConfigDeleting(true);
+                    try {
+                      await requestDeleteTelegramConfiguration();
+                      setTelegramForm({ botToken: '', chatId: '', ownerUserIds: '', alertsEnabled: true, queriesEnabled: true });
+                      showToast('Đã xóa cấu hình Bot Telegram.');
+                      await loadTelegramStatus();
+                    } catch (error: any) {
+                      showToast(error?.message || 'Không xóa được cấu hình Telegram.', 'error');
+                    } finally {
+                      setTelegramConfigDeleting(false);
+                    }
+                  }}
+                  className="rounded-xl border border-rose-200 bg-white px-4 py-2.5 text-xs font-black text-rose-600 disabled:opacity-40"
+                >{telegramConfigDeleting ? 'Đang xóa…' : 'Xóa cấu hình'}</button>}
+              </div>
+            </div>
+
             {/* Status Card */}
             <div className={`rounded-2xl border p-5 flex items-start space-x-4 ${telegramStatus?.connected ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
               <div className={`w-2 h-2 rounded-full mt-2 ${telegramStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></div>
@@ -1230,10 +1347,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   {telegramStatus?.connected
                     ? `Webhook: ${telegramStatus.webhookConfigured ? 'đã đăng ký' : 'chưa đăng ký'} · Cảnh báo: ${telegramStatus.alertsEnabled ? 'bật' : 'tắt'} · Tra cứu: ${telegramStatus.queriesEnabled ? 'bật' : 'tắt'}`
                     : telegramStatus?.missing?.length
-                      ? `Thiếu cấu hình máy chủ: ${telegramStatus.missing.join(', ')}`
+                      ? `Chưa đủ cấu hình: ${telegramStatus.missing.join(', ')}. Hãy nhập form phía trên.`
                       : telegramStatus?.errorCode || 'Không kết nối được Telegram API.'}
                 </p>
-                {telegramStatus?.connected && <p className="mt-1 text-[11px] text-zinc-500">Tin đang chờ webhook: {telegramStatus.pendingUpdateCount || 0} · Group: {telegramStatus.destinationFingerprint || '—'}</p>}
+                {telegramStatus?.connected && <p className="mt-1 text-[11px] text-zinc-500">Tin đang chờ webhook: {telegramStatus.pendingUpdateCount || 0} · Group: {telegramStatus.destinationFingerprint || '—'} · Nguồn: {telegramStatus.source === 'DATABASE' ? 'Cài trực tiếp trên CRM' : 'Biến Production'}</p>}
                 <button
                   disabled={!telegramStatus?.connected || telegramTestLoading}
                   onClick={async (e) => {

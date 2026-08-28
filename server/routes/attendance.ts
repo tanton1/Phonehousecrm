@@ -11,6 +11,7 @@ import { listAttendanceHistory } from '../services/attendanceHistoryService';
 import {
   attendanceTelegramOutboxId,
   dispatchTelegramOutboxEvent,
+  loadTelegramConfig,
   processAttendanceLocationHeartbeat
 } from '../services/telegramService';
 
@@ -226,6 +227,7 @@ export function createAttendanceRouter(db: Firestore | null): Router {
 
   router.post('/check-in', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
+      await loadTelegramConfig(db).catch(() => null);
       const ip = getClientIp(req);
       const sanitizedPayload = {
         staffId: req.user!.uid,
@@ -262,6 +264,7 @@ export function createAttendanceRouter(db: Firestore | null): Router {
   // 3. Authoritative Check-Out Endpoint (Requires Firebase Auth Token & Branch Access)
   router.post('/check-out', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
+      await loadTelegramConfig(db).catch(() => null);
       const bodyWithAuth = {
         ...req.body,
         staffId: req.user?.uid || req.body.staffId,
@@ -288,6 +291,7 @@ export function createAttendanceRouter(db: Firestore | null): Router {
   // were actually received while PhoneHouseCRM was open.
   router.post('/location-heartbeats', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
+      await loadTelegramConfig(db).catch(() => null);
       const branchId = String(req.body?.branchId || req.user?.branchId || '').trim();
       const result = await processAttendanceLocationHeartbeat(db, {
         branchId,

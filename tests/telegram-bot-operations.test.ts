@@ -1,10 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   attendanceTelegramOutboxId,
+  clearTelegramConfigCache,
   createAttendanceTelegramOutboxRecord,
   escapeTelegramHtml,
   getTelegramRuntimeStatus,
+  loadTelegramConfig,
   parseTelegramIntent,
+  saveTelegramConfiguration,
   telegramIsConfigured
 } from '../server/services/telegramService';
 
@@ -13,10 +16,14 @@ const ORIGINAL_ENV = {
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
   TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
   TELEGRAM_ALERTS_ENABLED: process.env.TELEGRAM_ALERTS_ENABLED,
-  TELEGRAM_QUERIES_ENABLED: process.env.TELEGRAM_QUERIES_ENABLED
+  TELEGRAM_QUERIES_ENABLED: process.env.TELEGRAM_QUERIES_ENABLED,
+  CHANNEL_TOKEN_ENCRYPTION_KEY: process.env.CHANNEL_TOKEN_ENCRYPTION_KEY
 };
 
 afterEach(() => {
+  clearTelegramConfigCache();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   Object.entries(ORIGINAL_ENV).forEach(([key, value]) => {
     if (value == null) delete process.env[key];
     else process.env[key] = value;
@@ -63,5 +70,46 @@ describe('Telegram bot deterministic intent and safety layer', () => {
       connected: false,
       missing: expect.arrayContaining(['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'TELEGRAM_WEBHOOK_SECRET'])
     });
+  });
+
+  it('stores Bot token and webhook secret encrypted when configured from CRM', async () => {
+    process.env.CHANNEL_TOKEN_ENCRYPTION_KEY = 'phonehouse-telegram-config-encryption-key-2026';
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_CHAT_ID;
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    let stored: Record<string, any> | null = null;
+    const ref = {
+      get: async () => ({ exists: Boolean(stored), data: () => stored }),
+      set: async (value: Record<string, any>) => { stored = value; },
+      delete: async () => { stored = null; }
+    };
+    const db: any = { collection: (name: string) => {
+      expect(name).toBe('telegramConfigurations');
+      return { doc: (id: string) => { expect(id).toBe('primary'); return ref; } };
+    } };
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/getMe')) return new Response(JSON.stringify({ ok: true, result: { username: 'PhoneHouseBot' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (url.includes('/getChat')) return new Response(JSON.stringify({ ok: true, result: { id: -1001234567890, type: 'supergroup', title: 'PhoneHouse' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      throw new Error('UNEXPECTED_TELEGRAM_METHOD');
+    }));
+    const token = '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdef';
+    const result = await saveTelegramConfiguration(db, {
+      botToken: token,
+      chatId: '-1001234567890',
+      ownerUserIds: '111222333, 444555666',
+      alertsEnabled: true,
+      queriesEnabled: true
+    }, { uid: 'ADMIN_UID', name: 'Admin' });
+    expect(result).toMatchObject({ source: 'DATABASE', hasBotToken: true, hasWebhookSecret: true, chatId: '-1001234567890' });
+    expect(stored).toMatchObject({
+      encryptedBotToken: { algorithm: 'aes-256-gcm' },
+      encryptedWebhookSecret: { algorithm: 'aes-256-gcm' },
+      ownerUserIds: ['111222333', '444555666']
+    });
+    expect(JSON.stringify(stored)).not.toContain(token);
+    clearTelegramConfigCache();
+    const loaded = await loadTelegramConfig(db, true);
+    expect(loaded.token).toBe(token);
+    expect(loaded.webhookSecret).toHaveLength(64);
   });
 });

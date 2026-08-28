@@ -42,6 +42,7 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'telegramOutboxEvents/TG-1'), { id: 'TG-1', branchId: 'CN01', staffId: 'staff-1', status: 'PENDING' });
     await setDoc(doc(context.firestore(), 'telegramQueryAudit/TQA-1'), { id: 'TQA-1', senderFingerprint: 'masked' });
     await setDoc(doc(context.firestore(), 'telegramRateLimits/TRL-1'), { id: 'TRL-1', count: 1 });
+    await setDoc(doc(context.firestore(), 'telegramConfigurations/primary'), { encryptedBotToken: { ciphertext: 'secret' }, chatId: '-1001' });
     await setDoc(doc(context.firestore(), 'attendanceLocationState/ATT-1'), { id: 'ATT-1', branchId: 'CN01', staffId: 'staff-1', lastLatitude: 16.0, lastLongitude: 108.0 });
   });
 });
@@ -60,6 +61,7 @@ afterAll(async () => { await env?.cleanup(); });
       'telegramOutboxEvents/TG-1',
       'telegramQueryAudit/TQA-1',
       'telegramRateLimits/TRL-1',
+      'telegramConfigurations/primary',
       'attendanceLocationState/ATT-1'
     ]) {
       await assertFails(getDoc(doc(adminDb, path)));

@@ -421,6 +421,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /telegramConfigurations/{configurationId} {
+      allow read, write: if false; // Bot token và webhook secret chỉ được giải mã trong API server.
+    }
+
     match /attendanceLocationState/{attendanceId} {
       allow read, write: if false;
     }

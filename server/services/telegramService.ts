@@ -4,6 +4,7 @@ import { getVietnamDateString } from '../../shared/vietnamTime';
 import { getDeviceLifecycleTimeline } from './deviceLifecycleService';
 import { deriveTechnicalBoardStage } from './technicalService';
 import { verifyGeofence } from './geofenceService';
+import { decryptChannelSecret, encryptChannelSecret } from './channelConnectionService';
 
 type TelegramAction = 'CHECK_IN' | 'CHECK_OUT' | 'MISSING_CHECK_IN' | 'SHIFT_LOCATION';
 
@@ -14,6 +15,25 @@ export interface TelegramConfig {
   ownerUserIds: Set<string>;
   alertsEnabled: boolean;
   queriesEnabled: boolean;
+  source?: 'ENVIRONMENT' | 'DATABASE';
+}
+
+export interface TelegramAdminConfiguration {
+  source: 'ENVIRONMENT' | 'DATABASE';
+  hasBotToken: boolean;
+  hasWebhookSecret: boolean;
+  chatId: string;
+  ownerUserIds: string[];
+  alertsEnabled: boolean;
+  queriesEnabled: boolean;
+}
+
+export interface TelegramConfigurationInput {
+  botToken?: unknown;
+  chatId?: unknown;
+  ownerUserIds?: unknown;
+  alertsEnabled?: unknown;
+  queriesEnabled?: unknown;
 }
 
 export interface AttendanceTelegramAlertInput {
@@ -54,6 +74,10 @@ type TelegramIntent =
   | { kind: 'UNKNOWN' };
 
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH', 'CANCELLED']);
+const TELEGRAM_CONFIGURATION_COLLECTION = 'telegramConfigurations';
+const TELEGRAM_CONFIGURATION_DOCUMENT = 'primary';
+const TELEGRAM_CONFIGURATION_CACHE_MS = 60_000;
+let databaseTelegramConfigCache: { config: TelegramConfig; expiresAt: number } | null = null;
 
 function boolEnv(name: string, fallback = false): boolean {
   const value = String(process.env[name] || '').trim().toLowerCase();
@@ -61,15 +85,133 @@ function boolEnv(name: string, fallback = false): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value);
 }
 
-export function getTelegramConfig(): TelegramConfig {
+function environmentTelegramConfig(): TelegramConfig {
   return {
     token: String(process.env.TELEGRAM_BOT_TOKEN || '').trim(),
     chatId: String(process.env.TELEGRAM_CHAT_ID || '').trim(),
     webhookSecret: String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim(),
     ownerUserIds: new Set(String(process.env.TELEGRAM_OWNER_USER_IDS || '').split(',').map(value => value.trim()).filter(Boolean)),
     alertsEnabled: boolEnv('TELEGRAM_ALERTS_ENABLED'),
-    queriesEnabled: boolEnv('TELEGRAM_QUERIES_ENABLED')
+    queriesEnabled: boolEnv('TELEGRAM_QUERIES_ENABLED'),
+    source: 'ENVIRONMENT'
   };
+}
+
+export function getTelegramConfig(): TelegramConfig {
+  if (databaseTelegramConfigCache && databaseTelegramConfigCache.expiresAt > Date.now()) {
+    return databaseTelegramConfigCache.config;
+  }
+  return environmentTelegramConfig();
+}
+
+export function clearTelegramConfigCache(): void {
+  databaseTelegramConfigCache = null;
+}
+
+function normalizeOwnerUserIds(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(values.map(item => String(item || '').trim()).filter(Boolean))];
+}
+
+function publicTelegramConfiguration(config: TelegramConfig): TelegramAdminConfiguration {
+  return {
+    source: config.source === 'DATABASE' ? 'DATABASE' : 'ENVIRONMENT',
+    hasBotToken: Boolean(config.token),
+    hasWebhookSecret: Boolean(config.webhookSecret),
+    chatId: config.chatId,
+    ownerUserIds: [...config.ownerUserIds],
+    alertsEnabled: config.alertsEnabled,
+    queriesEnabled: config.queriesEnabled
+  };
+}
+
+export async function loadTelegramConfig(db: Firestore | null, force = false): Promise<TelegramConfig> {
+  if (!force && databaseTelegramConfigCache && databaseTelegramConfigCache.expiresAt > Date.now()) {
+    return databaseTelegramConfigCache.config;
+  }
+  const environment = environmentTelegramConfig();
+  if (!db) return environment;
+  const snapshot = await db.collection(TELEGRAM_CONFIGURATION_COLLECTION).doc(TELEGRAM_CONFIGURATION_DOCUMENT).get();
+  const data = snapshot.exists ? snapshot.data() || {} : null;
+  if (!data || data.active === false) {
+    databaseTelegramConfigCache = null;
+    return environment;
+  }
+  try {
+    const config: TelegramConfig = {
+      token: decryptChannelSecret(data.encryptedBotToken),
+      chatId: String(data.chatId || '').trim(),
+      webhookSecret: decryptChannelSecret(data.encryptedWebhookSecret),
+      ownerUserIds: new Set(normalizeOwnerUserIds(data.ownerUserIds)),
+      alertsEnabled: data.alertsEnabled !== false,
+      queriesEnabled: data.queriesEnabled !== false,
+      source: 'DATABASE'
+    };
+    databaseTelegramConfigCache = { config, expiresAt: Date.now() + TELEGRAM_CONFIGURATION_CACHE_MS };
+    return config;
+  } catch (error) {
+    if (telegramIsConfigured(environment)) return environment;
+    throw new Error('TELEGRAM_CONFIGURATION_DECRYPT_FAILED');
+  }
+}
+
+export async function getTelegramAdminConfiguration(db: Firestore | null): Promise<TelegramAdminConfiguration> {
+  return publicTelegramConfiguration(await loadTelegramConfig(db, true));
+}
+
+export async function saveTelegramConfiguration(
+  db: Firestore,
+  input: TelegramConfigurationInput,
+  actor: { uid: string; name?: string }
+): Promise<TelegramAdminConfiguration> {
+  const ref = db.collection(TELEGRAM_CONFIGURATION_COLLECTION).doc(TELEGRAM_CONFIGURATION_DOCUMENT);
+  const currentSnapshot = await ref.get();
+  const current = currentSnapshot.exists ? currentSnapshot.data() || {} : {};
+  const environment = environmentTelegramConfig();
+  const suppliedToken = String(input.botToken || '').trim();
+  const token = suppliedToken || decryptChannelSecret(current.encryptedBotToken) || environment.token;
+  const chatId = String(input.chatId ?? current.chatId ?? environment.chatId).trim();
+  const webhookSecret = decryptChannelSecret(current.encryptedWebhookSecret)
+    || environment.webhookSecret
+    || crypto.randomBytes(32).toString('hex');
+  const ownerUserIds = normalizeOwnerUserIds(input.ownerUserIds ?? current.ownerUserIds ?? [...environment.ownerUserIds]);
+  const alertsEnabled = typeof input.alertsEnabled === 'boolean' ? input.alertsEnabled : current.alertsEnabled !== false;
+  const queriesEnabled = typeof input.queriesEnabled === 'boolean' ? input.queriesEnabled : current.queriesEnabled !== false;
+  if (!/^\d{6,20}:[A-Za-z0-9_-]{20,}$/.test(token)) throw new Error('TELEGRAM_BOT_TOKEN_INVALID');
+  if (!/^-\d{5,25}$/.test(chatId)) throw new Error('TELEGRAM_GROUP_CHAT_ID_INVALID');
+  if (ownerUserIds.some(id => !/^\d{3,25}$/.test(id))) throw new Error('TELEGRAM_OWNER_USER_ID_INVALID');
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(webhookSecret)) throw new Error('TELEGRAM_WEBHOOK_SECRET_INVALID');
+  const candidate: TelegramConfig = {
+    token, chatId, webhookSecret, ownerUserIds: new Set(ownerUserIds), alertsEnabled, queriesEnabled, source: 'DATABASE'
+  };
+  const [bot, chat] = await Promise.all([
+    telegramRequest<any>('getMe', undefined, candidate),
+    telegramRequest<any>('getChat', { chat_id: chatId }, candidate)
+  ]);
+  if (!['group', 'supergroup'].includes(String(chat?.type || ''))) throw new Error('TELEGRAM_GROUP_CHAT_REQUIRED');
+  await ref.set({
+    encryptedBotToken: encryptChannelSecret(token),
+    encryptedWebhookSecret: encryptChannelSecret(webhookSecret),
+    tokenFingerprint: crypto.createHash('sha256').update(token).digest('hex').slice(0, 12),
+    chatId,
+    chatTitle: String(chat?.title || '').trim().slice(0, 200),
+    botUsername: String(bot?.username || '').trim().slice(0, 100),
+    ownerUserIds,
+    alertsEnabled,
+    queriesEnabled,
+    active: true,
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedAtIso: new Date().toISOString(),
+    updatedByUid: actor.uid,
+    updatedByName: String(actor.name || actor.uid).trim().slice(0, 160)
+  }, { merge: false });
+  databaseTelegramConfigCache = { config: candidate, expiresAt: Date.now() + TELEGRAM_CONFIGURATION_CACHE_MS };
+  return publicTelegramConfiguration(candidate);
+}
+
+export async function deleteTelegramConfiguration(db: Firestore): Promise<void> {
+  await db.collection(TELEGRAM_CONFIGURATION_COLLECTION).doc(TELEGRAM_CONFIGURATION_DOCUMENT).delete();
+  clearTelegramConfigCache();
 }
 
 export function telegramIsConfigured(config = getTelegramConfig()): boolean {
@@ -153,8 +295,8 @@ async function telegramRequest<T = any>(method: string, payload?: Record<string,
   return result.result as T;
 }
 
-export async function sendTelegramMessage(text: string, options: { chatId?: string; replyToMessageId?: string | number } = {}): Promise<any> {
-  const config = getTelegramConfig();
+export async function sendTelegramMessage(text: string, options: { chatId?: string; replyToMessageId?: string | number; config?: TelegramConfig } = {}): Promise<any> {
+  const config = options.config || getTelegramConfig();
   if (!telegramIsConfigured(config)) throw new Error('TELEGRAM_NOT_CONFIGURED');
   return telegramRequest('sendMessage', {
     chat_id: options.chatId || config.chatId,
@@ -165,14 +307,16 @@ export async function sendTelegramMessage(text: string, options: { chatId?: stri
   }, config);
 }
 
-export async function getTelegramRuntimeStatus(): Promise<Record<string, unknown>> {
-  const config = getTelegramConfig();
+export async function getTelegramRuntimeStatus(db: Firestore | null = null): Promise<Record<string, unknown>> {
+  const config = db ? await loadTelegramConfig(db, true) : getTelegramConfig();
+  const adminConfiguration = publicTelegramConfiguration(config);
   if (!telegramIsConfigured(config)) {
-    return { configured: false, connected: false, alertsEnabled: config.alertsEnabled, queriesEnabled: config.queriesEnabled, missing: [!config.token && 'TELEGRAM_BOT_TOKEN', !config.chatId && 'TELEGRAM_CHAT_ID', !config.webhookSecret && 'TELEGRAM_WEBHOOK_SECRET'].filter(Boolean) };
+    return { ...adminConfiguration, configured: false, connected: false, missing: [!config.token && 'TELEGRAM_BOT_TOKEN', !config.chatId && 'TELEGRAM_CHAT_ID', !config.webhookSecret && 'TELEGRAM_WEBHOOK_SECRET'].filter(Boolean) };
   }
   try {
     const [bot, webhook] = await Promise.all([telegramRequest<any>('getMe', undefined, config), telegramRequest<any>('getWebhookInfo', undefined, config)]);
     return {
+      ...adminConfiguration,
       configured: true,
       connected: true,
       botUsername: bot?.username || '',
@@ -185,12 +329,12 @@ export async function getTelegramRuntimeStatus(): Promise<Record<string, unknown
       destinationFingerprint: crypto.createHash('sha256').update(config.chatId).digest('hex').slice(0, 10)
     };
   } catch (error: any) {
-    return { configured: true, connected: false, alertsEnabled: config.alertsEnabled, queriesEnabled: config.queriesEnabled, errorCode: String(error?.message || 'TELEGRAM_STATUS_FAILED') };
+    return { ...adminConfiguration, configured: true, connected: false, errorCode: String(error?.message || 'TELEGRAM_STATUS_FAILED') };
   }
 }
 
-export async function registerTelegramWebhook(publicBaseUrl: string): Promise<{ url: string }> {
-  const config = getTelegramConfig();
+export async function registerTelegramWebhook(publicBaseUrl: string, configOverride?: TelegramConfig): Promise<{ url: string }> {
+  const config = configOverride || getTelegramConfig();
   if (!telegramIsConfigured(config)) throw new Error('TELEGRAM_NOT_CONFIGURED');
   const baseUrl = String(publicBaseUrl || '').trim().replace(/\/$/, '');
   if (!/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?$/.test(baseUrl)) throw new Error('TELEGRAM_PUBLIC_URL_INVALID');
@@ -204,8 +348,14 @@ export async function registerTelegramWebhook(publicBaseUrl: string): Promise<{ 
   return { url };
 }
 
+export async function unregisterTelegramWebhook(configOverride?: TelegramConfig): Promise<void> {
+  const config = configOverride || getTelegramConfig();
+  if (!config.token) return;
+  await telegramRequest('deleteWebhook', { drop_pending_updates: true }, config);
+}
+
 export async function dispatchTelegramOutboxEvent(db: Firestore, eventId: string): Promise<{ sent: boolean; skipped?: boolean; errorCode?: string }> {
-  const config = getTelegramConfig();
+  const config = await loadTelegramConfig(db);
   if (!config.alertsEnabled || !telegramIsConfigured(config)) return { sent: false, skipped: true, errorCode: 'TELEGRAM_ALERTS_DISABLED_OR_NOT_CONFIGURED' };
   const ref = db.collection('telegramOutboxEvents').doc(eventId);
   let record: TelegramOutboxRecord | null = null;
@@ -220,7 +370,7 @@ export async function dispatchTelegramOutboxEvent(db: Firestore, eventId: string
   });
   if (!claimed || !record) return { sent: false, skipped: true };
   try {
-    const provider = await sendTelegramMessage(formatAttendanceAlert(record));
+    const provider = await sendTelegramMessage(formatAttendanceAlert(record), { config });
     await ref.update({ status: 'SENT', sentAt: FieldValue.serverTimestamp(), providerMessageId: provider?.message_id || null, nextAttemptAt: null, lastErrorCode: null });
     return { sent: true };
   } catch (error: any) {

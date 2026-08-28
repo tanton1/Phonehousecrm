@@ -5,14 +5,18 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import {
   answerTelegramQuery,
+  deleteTelegramConfiguration,
   dispatchPendingTelegramOutbox,
-  getTelegramConfig,
+  getTelegramAdminConfiguration,
   getTelegramRuntimeStatus,
+  loadTelegramConfig,
   registerTelegramWebhook,
+  saveTelegramConfiguration,
   scanMissingAttendanceAlerts,
   sendTelegramMessage,
   telegramHelpText,
-  telegramIsConfigured
+  telegramIsConfigured,
+  unregisterTelegramWebhook
 } from '../services/telegramService';
 
 function constantTimeEqual(expectedValue: string, suppliedValue: string): boolean {
@@ -35,22 +39,72 @@ function errorResponse(res: Response, status: number, code: string, message: str
   return res.status(status).json({ success: false, code, message, requestId: (res.req as any)?.requestId });
 }
 
+function publicBaseUrl(req: Request): string {
+  const configuredUrl = String(process.env.PHONEHOUSE_PUBLIC_URL || process.env.APP_URL || '').trim();
+  const vercelUrl = String(process.env.VERCEL_PROJECT_PRODUCTION_URL || '').trim();
+  const requestUrl = `${req.protocol}://${req.get('host')}`;
+  return configuredUrl || (vercelUrl ? `https://${vercelUrl}` : requestUrl);
+}
+
 export function createTelegramRouter(db: Firestore | null): Router {
   const router = Router();
 
   router.get('/status', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (_req, res) => {
-    const data = await getTelegramRuntimeStatus();
-    return res.json({ success: true, data });
+    try {
+      const data = await getTelegramRuntimeStatus(db);
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return errorResponse(res, 500, String(error?.message || 'TELEGRAM_STATUS_FAILED'), 'Không đọc được cấu hình Telegram đã bảo vệ.');
+    }
+  });
+
+  router.get('/configuration', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (_req, res) => {
+    try {
+      const data = await getTelegramAdminConfiguration(db);
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return errorResponse(res, 500, String(error?.message || 'TELEGRAM_CONFIGURATION_READ_FAILED'), 'Không đọc được cấu hình Telegram.');
+    }
+  });
+
+  router.post('/configuration', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
+    if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    try {
+      const configuration = await saveTelegramConfiguration(db, req.body || {}, {
+        uid: req.user!.uid,
+        name: req.user?.name || req.user?.email || req.user!.uid
+      });
+      const config = await loadTelegramConfig(db, true);
+      const webhook = await registerTelegramWebhook(publicBaseUrl(req), config);
+      return res.json({ success: true, data: { configuration, webhook } });
+    } catch (error: any) {
+      const code = String(error?.message || 'TELEGRAM_CONFIGURATION_SAVE_FAILED').split(':')[0];
+      const status = code.startsWith('TELEGRAM_PROVIDER_') ? 422 : code.includes('INVALID') || code.includes('REQUIRED') ? 400 : 500;
+      return errorResponse(res, status, code, 'Không lưu được cấu hình. Hãy kiểm tra Bot Token, Chat ID nhóm và quyền gửi tin của Bot.');
+    }
+  });
+
+  router.delete('/configuration', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (_req, res) => {
+    if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    try {
+      const config = await loadTelegramConfig(db, true);
+      if (config.source === 'DATABASE') await unregisterTelegramWebhook(config).catch(() => null);
+      await deleteTelegramConfiguration(db);
+      return res.json({ success: true, data: { deleted: true } });
+    } catch (error: any) {
+      return errorResponse(res, 500, String(error?.message || 'TELEGRAM_CONFIGURATION_DELETE_FAILED'), 'Không xóa được cấu hình Telegram.');
+    }
   });
 
   router.post('/test', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
     if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
     try {
+      const config = await loadTelegramConfig(db, true);
       const provider = await sendTelegramMessage([
         '<b>✅ PHONEHOUSE TELEGRAM ĐÃ KẾT NỐI</b>',
         `Người kiểm tra: ${String(req.user?.name || req.user?.uid || 'Quản lý').replace(/[<>&]/g, '')}`,
         `Thời gian: <code>${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</code>`
-      ].join('\n'));
+      ].join('\n'), { config });
       return res.json({ success: true, data: { messageId: provider?.message_id || null } });
     } catch (error: any) {
       return errorResponse(res, 502, String(error?.message || 'TELEGRAM_TEST_FAILED'), 'Không gửi được tin kiểm tra tới group Telegram.');
@@ -59,11 +113,8 @@ export function createTelegramRouter(db: Firestore | null): Router {
 
   router.post('/register-webhook', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
     try {
-      const configuredUrl = String(process.env.PHONEHOUSE_PUBLIC_URL || process.env.APP_URL || '').trim();
-      const vercelUrl = String(process.env.VERCEL_PROJECT_PRODUCTION_URL || '').trim();
-      const requestUrl = `${req.protocol}://${req.get('host')}`;
-      const baseUrl = configuredUrl || (vercelUrl ? `https://${vercelUrl}` : requestUrl);
-      const data = await registerTelegramWebhook(baseUrl);
+      const config = await loadTelegramConfig(db, true);
+      const data = await registerTelegramWebhook(publicBaseUrl(req), config);
       return res.json({ success: true, data });
     } catch (error: any) {
       return errorResponse(res, 502, String(error?.message || 'TELEGRAM_WEBHOOK_REGISTER_FAILED'), 'Không đăng ký được webhook Telegram.');
@@ -72,7 +123,7 @@ export function createTelegramRouter(db: Firestore | null): Router {
 
   router.post('/webhook', async (req, res) => {
     if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
-    const config = getTelegramConfig();
+    const config = await loadTelegramConfig(db);
     if (!telegramIsConfigured(config)) return errorResponse(res, 503, 'TELEGRAM_NOT_CONFIGURED', 'Telegram chưa được cấu hình.');
     const suppliedSecret = String(req.headers['x-telegram-bot-api-secret-token'] || '');
     if (!constantTimeEqual(config.webhookSecret, suppliedSecret)) return errorResponse(res, 401, 'TELEGRAM_WEBHOOK_UNAUTHORIZED', 'Webhook Telegram không hợp lệ.');
@@ -110,7 +161,7 @@ export function createTelegramRouter(db: Firestore | null): Router {
     }
 
     if (!config.queriesEnabled) {
-      await sendTelegramMessage('⏸ Chức năng tra cứu dữ liệu Telegram hiện chưa được bật.', { chatId, replyToMessageId: message.message_id }).catch(() => null);
+      await sendTelegramMessage('⏸ Chức năng tra cứu dữ liệu Telegram hiện chưa được bật.', { chatId, replyToMessageId: message.message_id, config }).catch(() => null);
       return res.status(200).send('OK');
     }
     const text = String(message.text || message.caption || '').trim();
@@ -127,10 +178,10 @@ export function createTelegramRouter(db: Firestore | null): Router {
         chatFingerprint: senderFingerprint(chatId),
         createdAt: FieldValue.serverTimestamp()
       });
-      await sendTelegramMessage(answer.reply, { chatId, replyToMessageId: message.message_id });
+      await sendTelegramMessage(answer.reply, { chatId, replyToMessageId: message.message_id, config });
     } catch (error: any) {
       console.error(JSON.stringify({ level: 'error', code: 'TELEGRAM_QUERY_FAILED', requestId: req.requestId, sender: senderFingerprint(senderId) }));
-      await sendTelegramMessage('⚠️ Bot chưa thể tải dữ liệu lúc này. Vui lòng thử lại sau.', { chatId, replyToMessageId: message.message_id }).catch(() => null);
+      await sendTelegramMessage('⚠️ Bot chưa thể tải dữ liệu lúc này. Vui lòng thử lại sau.', { chatId, replyToMessageId: message.message_id, config }).catch(() => null);
     }
     return res.status(200).send('OK');
   });
@@ -138,6 +189,7 @@ export function createTelegramRouter(db: Firestore | null): Router {
   const handleDispatch = async (req: Request, res: Response) => {
     if (!internalSecretValid(req)) return errorResponse(res, 401, 'CRON_UNAUTHORIZED', 'Lịch chạy không hợp lệ.');
     if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    await loadTelegramConfig(db, true);
     const result = await dispatchPendingTelegramOutbox(db, Number(req.body?.limit || 25));
     return res.json({ success: true, data: result });
   };
@@ -147,6 +199,7 @@ export function createTelegramRouter(db: Firestore | null): Router {
   const handleAttendanceScan = async (req: Request, res: Response) => {
     if (!internalSecretValid(req)) return errorResponse(res, 401, 'CRON_UNAUTHORIZED', 'Lịch chạy không hợp lệ.');
     if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    await loadTelegramConfig(db, true);
     const scan = await scanMissingAttendanceAlerts(db);
     const dispatch = await dispatchPendingTelegramOutbox(db, 50);
     return res.json({ success: true, data: { scan, dispatch } });
