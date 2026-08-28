@@ -3,6 +3,7 @@ import { verifyGeofence, LatLng } from './geofenceService';
 import { assertAttendanceVerificationSession } from './attendanceVerificationService';
 import { getWeekDates, resolveDepartment } from './shiftSchedulingService';
 import { hasPermission, normalizeRole } from '../../shared/permissions';
+import { attendanceWorkdayFields } from '../../shared/attendancePolicy';
 
 export function resolveAttendanceRadius(branch: { attendanceRadius?: unknown; allowedGpsRadiusMeters?: unknown } | null | undefined): number {
   const canonical = Number(branch?.attendanceRadius);
@@ -33,6 +34,7 @@ export interface CheckInEvidenceRequest {
 export interface CheckOutRequest {
   staffId: string;
   branchId: string;
+  userCoords?: LatLng;
   faceSessionId?: string;
   verificationNonce?: string;
   deviceId?: string;
@@ -117,6 +119,12 @@ export interface AttendanceRecordResult {
   workDurationMinutes: number;
   breakDurationMinutes?: number;
   netWorkMinutes?: number;
+  scheduledNetMinutes?: number;
+  requiredFullDayMinutes?: number;
+  requiredHalfDayMinutes?: number;
+  creditedWorkDay?: 0 | 0.5 | 1;
+  workdayStatus?: 'FULL_DAY' | 'HALF_DAY' | 'INSUFFICIENT' | 'MISSING_CHECKOUT' | 'PENDING_REVIEW' | 'REJECTED' | 'SCHEDULE_MISSING';
+  workdayPolicyVersion?: string;
   verification: {
     gpsVerified: boolean;
     distanceMeters: number;
@@ -127,6 +135,12 @@ export interface AttendanceRecordResult {
     photoCaptured?: boolean;
     photoEvidenceId?: string;
     photoCapturedAt?: string;
+    serverTimeIso: string;
+  };
+  checkOutVerification?: {
+    gpsVerified: boolean;
+    distanceMeters: number;
+    userCoords: LatLng;
     serverTimeIso: string;
   };
   reviewData?: {
@@ -448,6 +462,7 @@ export async function processServerCheckIn(
       networkVerified: false,
       qrScanned,
       photoCaptured: Boolean(photoEvidenceId),
+      ...(userCoords ? { userCoords } : {}),
       ...(photoEvidenceId ? { photoEvidenceId, photoCapturedAt: serverTimeIso } : {}),
       serverTimeIso
     }
@@ -540,6 +555,12 @@ export async function processServerCheckOut(
       workDurationMinutes: 523,
       breakDurationMinutes: 60,
       netWorkMinutes: 463,
+      scheduledNetMinutes: 480,
+      requiredFullDayMinutes: 432,
+      requiredHalfDayMinutes: 240,
+      creditedWorkDay: 1,
+      workdayStatus: 'FULL_DAY',
+      workdayPolicyVersion: 'ATTENDANCE_WORKDAY_V1',
       earlyMinutes: 0,
       otMinutes: 0,
       verification: {
@@ -549,10 +570,40 @@ export async function processServerCheckOut(
         networkVerified: true,
         qrScanned: false,
         serverTimeIso: now.toISOString()
+      },
+      checkOutVerification: {
+        gpsVerified: true,
+        distanceMeters: 10,
+        userCoords: payload.userCoords || { latitude: 16.0678, longitude: 108.2208 },
+        serverTimeIso: now.toISOString()
       }
     };
     return completedRecord;
   }
+
+  const latitude = Number(payload.userCoords?.latitude);
+  const longitude = Number(payload.userCoords?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error('CHECKOUT_GPS_REQUIRED: Cần lấy vị trí GPS hiện tại trước khi xác nhận ra ca.');
+  }
+  const userCoords = { latitude, longitude };
+  const branchSnap = await db.collection('branches').doc(String(payload.branchId || '')).get();
+  if (!branchSnap.exists) throw new Error('BRANCH_NOT_FOUND: Không tìm thấy chi nhánh chấm công.');
+  const branch = branchSnap.data() || {};
+  if (branch.isActive === false || branch.active === false) throw new Error('BRANCH_NOT_ACTIVE: Chi nhánh đã ngừng hoạt động.');
+  if (typeof branch.gpsLatitude !== 'number' || typeof branch.gpsLongitude !== 'number') {
+    throw new Error('BRANCH_GPS_NOT_CONFIGURED: Chi nhánh chưa được cấu hình tọa độ GPS chuẩn.');
+  }
+  const geoCheck = verifyGeofence(userCoords, {
+    latitude: branch.gpsLatitude,
+    longitude: branch.gpsLongitude
+  }, resolveAttendanceRadius(branch));
+  const checkOutVerification = {
+    gpsVerified: geoCheck.isInside,
+    distanceMeters: geoCheck.distanceMeters,
+    userCoords,
+    serverTimeIso: now.toISOString()
+  };
 
   // 1. Find active check-in document for this staffId (handles overnight and regular shifts)
   let targetAttRef = db.collection('attendance').doc(recordId);
@@ -621,15 +672,37 @@ export async function processServerCheckOut(
     const scheduledBreak = data.scheduledBreakMinutes || data.breakDurationMinutes || 0;
     const netWorkMinutes = Math.max(0, workDurationMinutes - scheduledBreak);
 
-    const updateFields = {
+    const verificationStatus: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED' = data.verificationStatus === 'REJECTED'
+      ? 'REJECTED'
+      : data.verificationStatus === 'PENDING_REVIEW' || !geoCheck.isInside
+        ? 'PENDING_REVIEW'
+        : 'VERIFIED';
+
+    const calculatedRecord = {
+      ...data,
       checkOutTime: timeStr,
       status: 'COMPLETED',
       attendanceStatus: 'COMPLETED',
+      verificationStatus,
       punctualityStatus: earlyMinutes > 15 ? 'EARLY' : data.lateMinutes > 0 ? 'LATE' : 'ON_TIME',
       workDurationMinutes,
       netWorkMinutes,
       earlyMinutes,
       otMinutes,
+      checkOutVerification
+    };
+    const updateFields = {
+      checkOutTime: calculatedRecord.checkOutTime,
+      status: calculatedRecord.status,
+      attendanceStatus: calculatedRecord.attendanceStatus,
+      verificationStatus: calculatedRecord.verificationStatus,
+      punctualityStatus: calculatedRecord.punctualityStatus,
+      workDurationMinutes: calculatedRecord.workDurationMinutes,
+      netWorkMinutes: calculatedRecord.netWorkMinutes,
+      earlyMinutes: calculatedRecord.earlyMinutes,
+      otMinutes: calculatedRecord.otMinutes,
+      checkOutVerification,
+      ...attendanceWorkdayFields(calculatedRecord),
       updatedAt: FieldValue.serverTimestamp()
     };
 
@@ -745,10 +818,17 @@ export async function processAttendanceReview(
       reason
     };
 
-    const updateFields = {
+    const reviewedRecord = {
+      ...data,
       verificationStatus: newVerificationStatus,
       status: newStatus,
-      reviewData,
+      reviewData
+    };
+    const updateFields = {
+      verificationStatus: reviewedRecord.verificationStatus,
+      status: reviewedRecord.status,
+      reviewData: reviewedRecord.reviewData,
+      ...attendanceWorkdayFields(reviewedRecord),
       updatedAt: FieldValue.serverTimestamp()
     };
 

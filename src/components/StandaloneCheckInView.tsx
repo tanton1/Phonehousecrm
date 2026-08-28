@@ -19,6 +19,7 @@ import { auth } from '../lib/firebase';
 import { AttendanceRecord, StaffMember, StoreBranch, UserAccount } from '../types';
 import { getVietnamDateString } from '../utils/dateTimeUtils';
 import { CheckInContext, requestCheckInContext } from '../services/attendanceApiClient';
+import { resolveAttendanceWorkday } from '../../shared/attendancePolicy';
 
 interface StandaloneCheckInViewProps {
   currentUser?: UserAccount | StaffMember | null;
@@ -26,13 +27,13 @@ interface StandaloneCheckInViewProps {
   branches?: StoreBranch[];
   attendanceRecords?: AttendanceRecord[];
   onCheckInSuccess?: (record: any) => Promise<any> | void;
-  onCheckOutSuccess?: () => Promise<AttendanceRecord | void> | AttendanceRecord | void;
+  onCheckOutSuccess?: (userCoords: { latitude: number; longitude: number }) => Promise<AttendanceRecord | void> | AttendanceRecord | void;
   onNavigateToHR?: () => void;
   onClose?: () => void;
 }
 
 type GpsResult = {
-  status: 'IDLE' | 'LOADING' | 'MATCHED' | 'OUTSIDE' | 'ERROR';
+  status: 'IDLE' | 'LOADING' | 'CAPTURED' | 'MATCHED' | 'OUTSIDE' | 'ERROR';
   latitude?: number;
   longitude?: number;
   accuracyMeters?: number;
@@ -86,6 +87,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   const [completedRecord, setCompletedRecord] = useState<AttendanceRecord | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [checkOutError, setCheckOutError] = useState('');
+  const [checkOutGps, setCheckOutGps] = useState<GpsResult>({ status: 'IDLE' });
 
   const role = String(currentUser?.role || '').toUpperCase();
   const assignedBranchIds = (currentUser as UserAccount | undefined)?.assignedBranchIds || [];
@@ -141,31 +143,33 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     void loadContext();
   }, [selectedBranchId]);
 
-  const locate = () => {
-    if (!context) {
-      setGps({ status: 'ERROR', message: 'Chưa tải được tọa độ cửa hàng.' });
+  const captureLocation = (setResult: React.Dispatch<React.SetStateAction<GpsResult>>, requireContext = true) => {
+    if (!context && requireContext) {
+      setResult({ status: 'ERROR', message: 'Chưa tải được tọa độ cửa hàng.' });
       return;
     }
     if (!navigator.geolocation) {
-      setGps({ status: 'ERROR', message: 'Điện thoại hoặc trình duyệt không hỗ trợ định vị GPS.' });
+      setResult({ status: 'ERROR', message: 'Điện thoại hoặc trình duyệt không hỗ trợ định vị GPS.' });
       return;
     }
-    setGps({ status: 'LOADING' });
+    setResult({ status: 'LOADING' });
     navigator.geolocation.getCurrentPosition(
       position => {
         const latitude = position.coords.latitude;
         const longitude = position.coords.longitude;
-        const distance = distanceMeters(latitude, longitude, context.branch.latitude, context.branch.longitude);
-        const matched = distance <= context.branch.radiusMeters;
-        setGps({
-          status: matched ? 'MATCHED' : 'OUTSIDE',
+        const distance = context ? distanceMeters(latitude, longitude, context.branch.latitude, context.branch.longitude) : undefined;
+        const matched = context ? Number(distance) <= context.branch.radiusMeters : false;
+        setResult({
+          status: context ? (matched ? 'MATCHED' : 'OUTSIDE') : 'CAPTURED',
           latitude,
           longitude,
           accuracyMeters: Math.round(position.coords.accuracy || 0),
           distanceMeters: distance,
-          message: matched
-            ? `Vị trí hợp lệ, cách cửa hàng ${distance}m.`
-            : `Bạn đang cách cửa hàng ${distance}m, vượt bán kính ${context.branch.radiusMeters}m.`
+          message: !context
+            ? 'Đã lấy tọa độ GPS. Máy chủ sẽ đối chiếu với vị trí chi nhánh khi ra ca.'
+            : matched
+              ? `Vị trí hợp lệ, cách cửa hàng ${distance}m.`
+              : `Bạn đang cách cửa hàng ${distance}m, vượt bán kính ${context.branch.radiusMeters}m.`
         });
       },
       error => {
@@ -174,11 +178,13 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
           : error.code === error.TIMEOUT
             ? 'Không lấy được GPS kịp thời. Hãy ra vị trí thoáng và thử lại.'
             : 'Không xác định được vị trí hiện tại.';
-        setGps({ status: 'ERROR', message });
+        setResult({ status: 'ERROR', message });
       },
       { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 }
     );
   };
+  const locate = () => captureLocation(setGps);
+  const locateCheckOut = () => captureLocation(setCheckOutGps, false);
 
   const selectPhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -212,6 +218,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
         }
       });
       setCompletedRecord(result as AttendanceRecord);
+      setCheckOutGps({ status: 'IDLE' });
     } catch (error: any) {
       setSubmitError(error?.message || 'Chấm công chưa thành công.');
     } finally {
@@ -221,11 +228,20 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
   const checkOut = async () => {
     if (!onCheckOutSuccess || isCheckingOut) return;
-    if (!window.confirm('Xác nhận kết thúc ca làm việc hiện tại?')) return;
+    if (!['CAPTURED', 'MATCHED', 'OUTSIDE'].includes(checkOutGps.status) || checkOutGps.latitude == null || checkOutGps.longitude == null) {
+      locateCheckOut();
+      return;
+    }
+    const confirmation = checkOutGps.status === 'MATCHED'
+      ? 'GPS ra ca đã hợp lệ. Xác nhận kết thúc ca làm việc hiện tại?'
+      : checkOutGps.status === 'OUTSIDE'
+        ? 'GPS đang ngoài bán kính cửa hàng. Bạn vẫn có thể kết thúc ca nhưng ngày công sẽ chờ quản lý duyệt. Tiếp tục?'
+        : 'Đã lấy GPS ra ca. Máy chủ sẽ đối chiếu với tọa độ cửa hàng. Tiếp tục kết thúc ca?';
+    if (!window.confirm(confirmation)) return;
     setIsCheckingOut(true);
     setCheckOutError('');
     try {
-      const result = await onCheckOutSuccess();
+      const result = await onCheckOutSuccess({ latitude: checkOutGps.latitude, longitude: checkOutGps.longitude });
       if (result) setCompletedRecord(result);
       else setCheckOutError('Chưa nhận được xác nhận kết thúc ca từ máy chủ. Vui lòng thử lại.');
     } catch (error: any) {
@@ -239,6 +255,14 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     const record = activeAttendance;
     const recordDistance = record.verification?.distanceMeters ?? record.verification?.gpsDistanceMeters;
     const isWorking = !hasCheckedOut;
+    const workday = resolveAttendanceWorkday(record as any);
+    const workdayLabel = workday.status === 'FULL_DAY' ? '1 công hợp lệ'
+      : workday.status === 'HALF_DAY' ? '0,5 công hợp lệ'
+        : workday.status === 'PENDING_REVIEW' ? 'Chờ quản lý duyệt GPS'
+          : workday.status === 'MISSING_CHECKOUT' ? 'Chưa có giờ ra ca'
+            : workday.status === 'SCHEDULE_MISSING' ? 'Thiếu lịch ca hợp lệ'
+              : workday.status === 'REJECTED' ? 'Không được tính công'
+                : 'Chưa đủ 0,5 công';
     return (
       <div className={`min-h-full bg-[#fffaf6] p-3 sm:p-6 ${isWorking ? 'pb-36' : 'pb-24'}`}>
         <div className="mx-auto max-w-xl overflow-hidden rounded-[28px] border border-orange-100 bg-white shadow-xl shadow-orange-100/60">
@@ -262,9 +286,16 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
             <ResultRow icon={Clock3} label="Ca làm" value={`${record.shiftName || 'Ca làm việc'} · ${record.scheduledStart || '--:--'}–${record.scheduledEnd || '--:--'}`} />
             <ResultRow icon={MapPin} label="GPS" value={record.verification?.gpsVerified ? `Hợp lệ${Number.isFinite(recordDistance) ? ` · cách ${Math.round(Number(recordDistance))}m` : ''}` : 'Chờ quản lý kiểm tra'} />
             <ResultRow icon={Camera} label="Ảnh tại chỗ" value={record.verification?.photoCaptured || record.verification?.photoEvidenceId ? 'Đã lưu an toàn' : 'Đã gửi'} />
+            {isWorking && <section className={`rounded-2xl border p-4 ${checkOutGps.status === 'MATCHED' ? 'border-emerald-200 bg-emerald-50/60' : checkOutGps.status === 'OUTSIDE' || checkOutGps.status === 'ERROR' ? 'border-amber-200 bg-amber-50/70' : 'border-zinc-200 bg-zinc-50'}`}>
+              <div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-sm font-black text-zinc-900"><LocateFixed className="h-4 w-4 text-orange-500" /> GPS khi ra ca</div><p className="mt-1 text-xs font-semibold text-zinc-500">Vị trí ra ca được đo lại, không dùng tọa độ lúc vào ca.</p></div>{checkOutGps.status === 'MATCHED' && <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-black text-emerald-700">Hợp lệ</span>}</div>
+              {checkOutGps.message && <div className={`mt-3 rounded-xl p-2.5 text-xs font-bold ${checkOutGps.status === 'MATCHED' ? 'bg-white text-emerald-800' : 'bg-white text-amber-800'}`}>{checkOutGps.message}</div>}
+              <button type="button" onClick={locateCheckOut} disabled={checkOutGps.status === 'LOADING'} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-950 px-3 py-3 text-xs font-black text-white disabled:opacity-40">{checkOutGps.status === 'LOADING' ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}{checkOutGps.status === 'IDLE' ? 'Lấy GPS ra ca' : 'Đo lại GPS ra ca'}</button>
+            </section>}
             {hasCheckedOut && Number(record.workDurationMinutes || 0) > 0 && (
               <ResultRow icon={ShieldCheck} label="Thời gian làm việc" value={`${Math.floor(Number(record.workDurationMinutes) / 60)} giờ ${Number(record.workDurationMinutes) % 60} phút`} />
             )}
+            {hasCheckedOut && <ResultRow icon={CalendarDays} label="Ngày công được tính" value={`${workdayLabel} · thực làm ${workday.actualNetMinutes}/${workday.scheduledNetMinutes} phút`} />}
+            {hasCheckedOut && record.checkOutVerification && <ResultRow icon={LogOut} label="GPS ra ca" value={record.checkOutVerification.gpsVerified ? `Hợp lệ · cách ${Math.round(Number(record.checkOutVerification.distanceMeters || 0))}m` : 'Ngoài bán kính · chờ quản lý duyệt'} />}
             {checkOutError && <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{checkOutError}</div>}
             {hasCheckedOut && <button onClick={onClose} className="mt-3 w-full rounded-2xl bg-zinc-950 px-4 py-3.5 text-sm font-black text-white">Đóng</button>}
           </div>
@@ -272,8 +303,8 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
         {isWorking && (
           <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] mx-auto max-w-xl rounded-[22px] border border-orange-100 bg-white/95 p-2.5 shadow-2xl shadow-orange-200/70 backdrop-blur sm:static sm:mt-4 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
-            <button onClick={checkOut} disabled={!onCheckOutSuccess || isCheckingOut} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 px-4 py-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
-              {isCheckingOut ? <><Loader2 className="h-5 w-5 animate-spin" /> Đang xác nhận ra ca…</> : <><LogOut className="h-5 w-5" /> Xác nhận ra ca</>}
+            <button onClick={checkOut} disabled={!onCheckOutSuccess || isCheckingOut || checkOutGps.status === 'LOADING'} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 px-4 py-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+              {isCheckingOut ? <><Loader2 className="h-5 w-5 animate-spin" /> Đang xác nhận ra ca…</> : checkOutGps.status === 'IDLE' ? <><LocateFixed className="h-5 w-5" /> Lấy GPS để ra ca</> : <><LogOut className="h-5 w-5" /> {checkOutGps.status === 'OUTSIDE' ? 'Ra ca & gửi duyệt' : 'Xác nhận ra ca'}</>}
             </button>
           </div>
         )}
@@ -382,7 +413,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
         <div className="rounded-2xl bg-white px-4 py-3 text-xs text-zinc-500 shadow-sm">
           <div className="flex items-center gap-2 font-bold text-zinc-700"><ShieldCheck className="h-4 w-4 text-orange-500" /> Điều kiện chấm công</div>
-          <p className="mt-1">Ca hợp lệ, GPS trong bán kính cửa hàng và một ảnh chụp tại thời điểm vào ca.</p>
+          <p className="mt-1">Vào ca cần GPS và ảnh tại chỗ; ra ca sẽ đo GPS lại. Làm đủ từ 90% ca được 1 công, từ 50% được 0,5 công.</p>
         </div>
 
         {onNavigateToHR && <button onClick={onNavigateToHR} className="w-full py-2 text-xs font-bold text-zinc-500">Xem lịch ca & chấm công của tôi</button>}

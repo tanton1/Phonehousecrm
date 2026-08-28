@@ -134,7 +134,24 @@ export function createAttendanceRouter(db: Firestore | null): Router {
       }
       const now = new Date();
       const workDate = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
-      const shift = await resolveShiftAssignment(db, {
+      // When an overnight shift is still open, use that exact assignment for
+      // checkout instead of requiring a new schedule on the following date.
+      const openAttendance = await db.collection('attendance')
+        .where('staffId', '==', req.user!.uid)
+        .where('branchId', '==', branchId)
+        .where('attendanceStatus', '==', 'CHECKED_IN')
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+      const openRecord = openAttendance.empty ? null : openAttendance.docs[0].data();
+      const shift = openRecord ? {
+        shiftId: String(openRecord.shiftId || 'SHIFT_CUSTOM'),
+        shiftName: String(openRecord.shiftName || 'Ca đang làm'),
+        startTime: String(openRecord.scheduledStart || ''),
+        endTime: String(openRecord.scheduledEnd || ''),
+        breakMinutes: Number(openRecord.scheduledBreakMinutes ?? openRecord.breakDurationMinutes ?? 0),
+        isOff: false
+      } : await resolveShiftAssignment(db, {
         staffId: req.user!.uid,
         branchId,
         workDate

@@ -1,5 +1,6 @@
 import { Firestore } from 'firebase-admin/firestore';
 import { normalizeRole } from '../../shared/permissions';
+import { resolveAttendanceWorkday } from '../../shared/attendancePolicy';
 
 export interface AttendanceHistoryActor {
   uid: string;
@@ -71,7 +72,7 @@ export function resolveAttendanceHistoryScope(actor: AttendanceHistoryActor, inp
 
 export function buildAttendanceHistorySummary(records: Array<Record<string, any>>): AttendanceHistorySummary {
   return records.reduce<AttendanceHistorySummary>((summary, record) => {
-    if (record.checkInTime) summary.workDays += 1;
+    summary.workDays += resolveAttendanceWorkday(record).credit;
     if (record.checkOutTime) summary.completedDays += 1;
     summary.lateMinutes += Math.max(0, Number(record.lateMinutes || 0));
     summary.earlyMinutes += Math.max(0, Number(record.earlyMinutes || 0));
@@ -111,6 +112,12 @@ function publicAttendanceRecord(id: string, data: Record<string, any>) {
     workDurationMinutes: Number(data.workDurationMinutes || 0),
     breakDurationMinutes: Number(data.breakDurationMinutes || 0),
     netWorkMinutes: Number(data.netWorkMinutes || 0),
+    scheduledNetMinutes: Number(data.scheduledNetMinutes || 0),
+    requiredFullDayMinutes: Number(data.requiredFullDayMinutes || 0),
+    requiredHalfDayMinutes: Number(data.requiredHalfDayMinutes || 0),
+    creditedWorkDay: resolveAttendanceWorkday(data).credit,
+    workdayStatus: resolveAttendanceWorkday(data).status,
+    workdayPolicyVersion: data.workdayPolicyVersion,
     status: data.status,
     attendanceStatus: data.attendanceStatus,
     punctualityStatus: data.punctualityStatus,
@@ -128,6 +135,12 @@ function publicAttendanceRecord(id: string, data: Record<string, any>) {
       photoCapturedAt: verification.photoCapturedAt,
       serverTimeIso: verification.serverTimeIso
     },
+    checkOutVerification: data.checkOutVerification ? {
+      gpsVerified: data.checkOutVerification.gpsVerified === true,
+      distanceMeters: Number(data.checkOutVerification.distanceMeters || 0),
+      userCoords: data.checkOutVerification.userCoords,
+      serverTimeIso: data.checkOutVerification.serverTimeIso
+    } : undefined,
     reviewData: data.reviewData
   };
 }

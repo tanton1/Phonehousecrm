@@ -1704,6 +1704,12 @@ export interface AttendanceRecord {
   workDurationMinutes: number;
   breakDurationMinutes: number;
   netWorkMinutes: number;
+  scheduledNetMinutes?: number;
+  requiredFullDayMinutes?: number;
+  requiredHalfDayMinutes?: number;
+  creditedWorkDay?: 0 | 0.5 | 1;
+  workdayStatus?: 'FULL_DAY' | 'HALF_DAY' | 'INSUFFICIENT' | 'MISSING_CHECKOUT' | 'PENDING_REVIEW' | 'REJECTED' | 'SCHEDULE_MISSING';
+  workdayPolicyVersion?: string;
   
   // Check-in evidence. Wi-Fi/Face fields remain optional for historical records only.
   verification: {
@@ -1719,6 +1725,12 @@ export interface AttendanceRecord {
     photoCaptured?: boolean;
     photoEvidenceId?: string;
     photoCapturedAt?: string;
+    serverTimeIso?: string;
+  };
+  checkOutVerification?: {
+    gpsVerified: boolean;
+    distanceMeters?: number;
+    userCoords?: { latitude: number; longitude: number };
     serverTimeIso?: string;
   };
 

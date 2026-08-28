@@ -20,6 +20,7 @@ import ShiftSchedulingView from './ShiftSchedulingView';
 import { MonthlyPayrollTable } from '../features/payroll/components/MonthlyPayrollTable';
 import { HRMetricCarousel, type HRMetricItem } from './HRMetricCarousel';
 import AttendanceHistoryDrawer from './AttendanceHistoryDrawer';
+import { resolveAttendanceWorkday } from '../../shared/attendancePolicy';
 
 export type HRSubModule = 'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL';
 
@@ -106,14 +107,19 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   const lateCount = todayAttendance.filter((record) => record.status === 'LATE' || record.punctualityStatus === 'LATE' || Number(record.lateMinutes || 0) > 0).length;
   const completedCount = todayAttendance.filter((record) => record.status === 'COMPLETED' || record.attendanceStatus === 'COMPLETED').length;
   const pendingLeaveCount = scopedLeaveRequests.filter((request) => request.status === 'PENDING').length;
-  const workDayKeys = new Set(monthAttendance.filter((record) => Boolean(record.checkInTime)).map((record) => `${record.staffId}_${record.date}`));
+  const workDayCredits = new Map<string, number>();
+  monthAttendance.forEach((record) => {
+    const key = `${record.staffId}_${record.date}`;
+    workDayCredits.set(key, Math.max(workDayCredits.get(key) || 0, resolveAttendanceWorkday(record as any).credit));
+  });
+  const totalValidWorkDays = Math.round([...workDayCredits.values()].reduce((sum, value) => sum + value, 0) * 2) / 2;
 
   const metrics: HRMetricItem[] = [
     { id: 'staff', label: 'Nhân sự hoạt động', value: staffList.length, note: selectedBranchId === 'ALL' ? 'Toàn hệ thống' : accessibleBranches.find((branch) => branch.id === selectedBranchId)?.name, icon: Users },
     { id: 'checked-in', label: 'Đã vào ca hôm nay', value: `${checkedInCount}/${staffList.length}`, note: `${completedCount} người đã kết thúc ca`, icon: UserCheck },
     { id: 'late', label: 'Cần kiểm tra', value: lateCount, note: lateCount ? 'Trường hợp đi trễ hôm nay' : 'Không có trường hợp đi trễ', icon: AlertTriangle },
     activeModule === 'TIMESHEET'
-      ? { id: 'workdays', label: `Ngày công ${selectedPeriod}`, value: workDayKeys.size, note: 'Theo dữ liệu chấm công', icon: CalendarDays }
+      ? { id: 'workdays', label: `Công hợp lệ ${selectedPeriod}`, value: totalValidWorkDays, note: 'Đã checkout và đủ thời gian theo ca', icon: CalendarDays }
       : { id: 'leave', label: 'Đơn chờ duyệt', value: pendingLeaveCount, note: 'Nghỉ phép hoặc đổi ca', icon: FileText }
   ];
 
@@ -131,11 +137,12 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
 
   const timesheetRows = useMemo(() => timesheetStaffList.map((staff) => {
     const records = monthAttendance.filter((record) => attendanceMatchesStaff(record, staff));
-    const workedDates = new Set(records.filter((record) => Boolean(record.checkInTime)).map((record) => record.date));
+    const workedDates = new Map<string, number>();
+    records.forEach((record) => workedDates.set(record.date, Math.max(workedDates.get(record.date) || 0, resolveAttendanceWorkday(record as any).credit)));
     const completedDates = new Set(records.filter((record) => Boolean(record.checkOutTime)).map((record) => record.date));
     return {
       staff,
-      workDays: workedDates.size,
+      workDays: Math.round([...workedDates.values()].reduce((sum, value) => sum + value, 0) * 2) / 2,
       completedDays: completedDates.size,
       lateMinutes: records.reduce((sum, record) => sum + Number(record.lateMinutes || 0), 0),
       otMinutes: records.reduce((sum, record) => sum + Number(record.otMinutes || 0), 0),

@@ -40,10 +40,10 @@ describe('attendance history management', () => {
     expect(normalizeAttendanceHistoryMonth('2026-08')).toBe('2026-08');
     expect(() => normalizeAttendanceHistoryMonth('08/2026')).toThrow('ATTENDANCE_HISTORY_MONTH_INVALID');
     expect(buildAttendanceHistorySummary([
-      { checkInTime: '08:05:00', checkOutTime: '17:00:00', lateMinutes: 5, otMinutes: 10 },
+      { checkInTime: '08:05:00', checkOutTime: '17:00:00', scheduledStart: '08:00', scheduledEnd: '17:00', scheduledBreakMinutes: 60, netWorkMinutes: 475, verificationStatus: 'VERIFIED', verification: { gpsVerified: true }, lateMinutes: 5, otMinutes: 10 },
       { checkInTime: '08:00:00', lateMinutes: 0, verificationStatus: 'PENDING_REVIEW' }
     ])).toEqual({
-      workDays: 2,
+      workDays: 1,
       completedDays: 1,
       lateMinutes: 5,
       earlyMinutes: 0,

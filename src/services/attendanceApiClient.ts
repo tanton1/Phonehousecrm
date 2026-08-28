@@ -177,8 +177,14 @@ export async function requestCheckInContext(branchId: string): Promise<CheckInCo
 /**
  * Authoritative Server Check-out returning the completed Attendance Record
  */
-export async function requestServerCheckOut(branchId: string): Promise<AttendanceRecord> {
+export async function requestServerCheckOut(
+  branchId: string,
+  userCoords: { latitude: number; longitude: number }
+): Promise<AttendanceRecord> {
   if (!branchId) throw new Error('BRANCH_REQUIRED: Cần chọn chi nhánh trước khi kết thúc ca.');
+  if (!Number.isFinite(userCoords?.latitude) || !Number.isFinite(userCoords?.longitude)) {
+    throw new Error('CHECKOUT_GPS_REQUIRED: Cần lấy vị trí GPS hiện tại trước khi kết thúc ca.');
+  }
   const storageKey = 'phonehouse_attendance_device_id';
   let deviceId = window.sessionStorage.getItem(storageKey) || '';
   if (!deviceId) {
@@ -192,6 +198,7 @@ export async function requestServerCheckOut(branchId: string): Promise<Attendanc
   });
   return sendAttendanceApiRequest<AttendanceRecord>('check-out', {
     branchId,
+    userCoords,
     faceSessionId: session.sessionId,
     verificationNonce: session.nonce,
     deviceId

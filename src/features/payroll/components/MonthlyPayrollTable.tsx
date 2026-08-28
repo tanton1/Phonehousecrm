@@ -5,6 +5,7 @@ import { fetchTechnicalCommissionLedger, type TechnicalCommissionLedgerEntry } f
 import { approvePayrollRun, calculatePayrollRun, fetchPayrollRun, type PayrollRun } from '../../../services/payrollApiClient';
 import { HRMetricCarousel, type HRMetricItem } from '../../../components/HRMetricCarousel';
 import { getVietnamMonthString } from '../../../utils/dateTimeUtils';
+import { resolveAttendanceWorkday } from '../../../../shared/attendancePolicy';
 
 export interface PayrollRecord {
   staffId: string;
@@ -82,9 +83,10 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
       const staffUid = String((staff as any).authUid || staff.id);
       const staffAttendance = attendanceRecords.filter((record) => (record.staffId === staff.id || record.staffId === staffUid) && record.date.startsWith(month));
       const scheduledDates = new Set(staffAttendance.filter((record) => record.shiftId && record.shiftId !== 'OFF').map((record) => record.date));
-      const actualDates = new Set(staffAttendance.filter((record) => Boolean(record.checkInTime)).map((record) => record.date));
+      const actualDates = new Map<string, number>();
+      staffAttendance.forEach((record) => actualDates.set(record.date, Math.max(actualDates.get(record.date) || 0, resolveAttendanceWorkday(record as any).credit)));
       const standardWorkDays = scheduledDates.size;
-      const workDays = actualDates.size;
+      const workDays = Math.round([...actualDates.values()].reduce((sum, credit) => sum + credit, 0) * 2) / 2;
       const posCommission = Number((staff as any).salesCommission || 0) + Number((staff as any).kpiSalesBonus || 0);
       const techCommission = technicalLedger
         .filter((entry) => entry.staffUid === staffUid && entry.status === 'ELIGIBLE' && !entry.payrollPostingId)

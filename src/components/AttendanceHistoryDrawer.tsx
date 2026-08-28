@@ -9,6 +9,7 @@ import {
   Clock3,
   ExternalLink,
   Loader2,
+  LogOut,
   LocateFixed,
   RefreshCw,
   ShieldCheck,
@@ -24,6 +25,7 @@ import {
 } from '../services/attendanceApiClient';
 import { requestEvidencePreviewObjectUrl } from '../services/evidenceApiClient';
 import { getVietnamDateString } from '../utils/dateTimeUtils';
+import { resolveAttendanceWorkday } from '../../shared/attendancePolicy';
 
 type HistoryFilter = 'ALL' | 'COMPLETED' | 'WORKING' | 'LATE' | 'MISSING' | 'PENDING';
 
@@ -88,7 +90,7 @@ function matchesFilter(record: AttendanceRecord, filter: HistoryFilter) {
 
 function summarizeRecords(records: AttendanceRecord[]): AttendanceHistorySummary {
   return records.reduce((summary, record) => {
-    if (record.checkInTime) summary.workDays += 1;
+    summary.workDays += resolveAttendanceWorkday(record as any).credit;
     if (record.checkOutTime) summary.completedDays += 1;
     summary.lateMinutes += Math.max(0, Number(record.lateMinutes || 0));
     summary.earlyMinutes += Math.max(0, Number(record.earlyMinutes || 0));
@@ -238,7 +240,7 @@ export const AttendanceHistoryDrawer: React.FC<AttendanceHistoryDrawerProps> = (
       <main className="min-h-0 flex-1 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-5">
         <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {[
-            { label: 'Ngày công', value: summary.workDays, icon: CalendarDays },
+            { label: 'Công hợp lệ', value: summary.workDays, icon: CalendarDays },
             { label: 'Đủ giờ ra', value: summary.completedDays, icon: CheckCircle2 },
             { label: 'Đi trễ', value: `${summary.lateMinutes}p`, icon: AlertCircle },
             { label: 'Tăng ca', value: formatMinutes(summary.overtimeMinutes), icon: Timer }
@@ -252,6 +254,7 @@ export const AttendanceHistoryDrawer: React.FC<AttendanceHistoryDrawerProps> = (
           {!loading && visibleRecords.length === 0 && <div className="rounded-3xl border border-zinc-200 bg-white px-5 py-14 text-center"><CalendarDays className="mx-auto h-8 w-8 text-zinc-300" /><div className="mt-3 text-sm font-black text-zinc-700">Không có bản ghi phù hợp</div><p className="mt-1 text-xs font-semibold text-zinc-500">Hãy đổi tháng hoặc trạng thái lọc.</p></div>}
           {visibleRecords.map(record => {
             const state = recordState(record);
+            const workday = resolveAttendanceWorkday(record as any);
             const expanded = expandedId === record.id;
             const distance = Number(record.verification?.distanceMeters ?? record.verification?.gpsDistanceMeters ?? 0);
             const coords = record.verification?.userCoords;
@@ -271,10 +274,15 @@ export const AttendanceHistoryDrawer: React.FC<AttendanceHistoryDrawerProps> = (
                   <Detail label="Thời gian thực làm" value={formatMinutes(record.netWorkMinutes || record.workDurationMinutes || 0)} />
                   <Detail label="Đi trễ" value={`${Number(record.lateMinutes || 0)} phút`} warning={Number(record.lateMinutes || 0) > 0} />
                   <Detail label="Về sớm / tăng ca" value={`${Number(record.earlyMinutes || 0)}p / ${Number(record.otMinutes || 0)}p`} />
+                  <Detail label="Ngày công được tính" value={workday.credit === 1 ? '1 công' : workday.credit === 0.5 ? '0,5 công' : '0 công'} warning={workday.credit === 0} />
+                  <Detail label="Ngưỡng đủ công" value={`${workday.actualNetMinutes}/${workday.requiredFullDayMinutes} phút (90%)`} />
                 </div>
                 <div className="mt-3 rounded-xl bg-zinc-50 p-3">
                   <div className="flex items-start gap-2"><LocateFixed className={`mt-0.5 h-4 w-4 shrink-0 ${record.verification?.gpsVerified ? 'text-emerald-600' : 'text-red-600'}`} /><div className="min-w-0 flex-1"><div className="text-xs font-black text-zinc-800">{record.verification?.gpsVerified ? 'GPS phù hợp cửa hàng' : 'GPS cần quản lý kiểm tra'}</div><div className="mt-1 text-[11px] font-semibold text-zinc-500">Khoảng cách ghi nhận: {Math.round(distance)} m</div></div>{coords && Number.isFinite(coords.latitude) && Number.isFinite(coords.longitude) && <a href={`https://www.google.com/maps?q=${coords.latitude},${coords.longitude}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] font-black text-[#ff4b16]">Bản đồ <ExternalLink className="h-3 w-3" /></a>}</div>
                 </div>
+                {record.checkOutVerification && <div className="mt-2 rounded-xl bg-zinc-50 p-3">
+                  <div className="flex items-start gap-2"><LogOut className={`mt-0.5 h-4 w-4 shrink-0 ${record.checkOutVerification.gpsVerified ? 'text-emerald-600' : 'text-amber-600'}`} /><div><div className="text-xs font-black text-zinc-800">GPS ra ca: {record.checkOutVerification.gpsVerified ? 'hợp lệ' : 'chờ quản lý duyệt'}</div><div className="mt-1 text-[11px] font-semibold text-zinc-500">Khoảng cách ghi nhận: {Math.round(Number(record.checkOutVerification.distanceMeters || 0))} m</div></div></div>
+                </div>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {evidenceId ? <button type="button" onClick={() => void showPhoto(evidenceId)} className="inline-flex h-9 items-center gap-2 rounded-xl bg-zinc-900 px-3 text-xs font-black text-white"><Camera className="h-4 w-4" /> Xem ảnh vào ca</button> : <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-zinc-100 px-3 text-xs font-bold text-zinc-500"><Camera className="h-4 w-4" /> Không có ảnh</span>}
                   {canReview && record.verificationStatus === 'PENDING_REVIEW' && <button type="button" onClick={() => { setReviewRecord(record); setReviewDecision('APPROVE'); setReviewReason(''); }} className="inline-flex h-9 items-center gap-2 rounded-xl bg-[#ff4b16] px-3 text-xs font-black text-white"><ShieldCheck className="h-4 w-4" /> Duyệt bản ghi</button>}

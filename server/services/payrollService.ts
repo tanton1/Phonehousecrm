@@ -1,4 +1,6 @@
 import type { Firestore } from 'firebase-admin/firestore';
+import { resolveAttendanceWorkday } from '../../shared/attendancePolicy';
+import { resolveDepartment } from './shiftSchedulingService';
 
 export interface PayrollActor {
   uid: string;
@@ -50,10 +52,22 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function periodDates(period: string): string[] {
+  const [year, month] = period.split('-').map(Number);
+  const days = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return Array.from({ length: days }, (_, index) => `${period}-${String(index + 1).padStart(2, '0')}`);
+}
+
+function mondayBasedDayIndex(date: string): number {
+  const [year, month, day] = date.split('-').map(Number);
+  return (new Date(Date.UTC(year, month - 1, day, 12)).getUTCDay() + 6) % 7;
+}
+
 export function buildPayrollRecords(input: {
   users: Array<{ id: string; data: Record<string, any> }>;
   attendance: Array<Record<string, any>>;
   schedules: Array<Record<string, any>>;
+  departmentPolicies?: Array<Record<string, any>>;
   commissions: Array<Record<string, any>>;
   branches: Array<{ id: string; data: Record<string, any> }>;
   period: string;
@@ -66,16 +80,38 @@ export function buildPayrollRecords(input: {
   return scopedUsers.map(({ id, data }) => {
     const authIds = new Set([id, data.id, data.uid, data.authUid].filter(Boolean).map(String));
     const staffAttendance = input.attendance.filter((record) => authIds.has(String(record.staffId || '')) && String(record.date || '').startsWith(input.period));
-    const workedDates = new Set(staffAttendance.filter((record) => Boolean(record.checkInTime)).map((record) => String(record.date)));
+    const workdayCredits = new Map<string, number>();
+    staffAttendance.forEach((record) => {
+      const date = String(record.date || '');
+      if (!date) return;
+      workdayCredits.set(date, Math.max(workdayCredits.get(date) || 0, resolveAttendanceWorkday(record).credit));
+    });
     const scheduledDates = new Set<string>();
+    const payrollBranchId = input.branchId === 'ALL' ? String(data.branchId || '') : input.branchId;
+    const department = resolveDepartment(data);
+    const fixedPolicy = (input.departmentPolicies || []).find((policy) => (
+      policy.active !== false
+      && policy.mode === 'FIXED'
+      && String(policy.branchId || '') === payrollBranchId
+      && String(policy.departmentId || '').toUpperCase() === department.departmentId.toUpperCase()
+    ));
+    if (fixedPolicy) {
+      const workDayIndexes = new Set((fixedPolicy.workDayIndexes || []).map(Number));
+      periodDates(input.period).forEach((date) => {
+        if (workDayIndexes.has(mondayBasedDayIndex(date))) scheduledDates.add(date);
+      });
+    }
     input.schedules
       .filter((schedule) => authIds.has(String(schedule.staffId || '')) && schedule.status === 'PUBLISHED')
+      .filter((schedule) => !schedule.branchId || schedule.branchId === payrollBranchId)
       .forEach((schedule) => Object.entries(schedule.days || {}).forEach(([date, assignment]: [string, any]) => {
-        if (date.startsWith(input.period) && assignment?.shiftId && assignment.shiftId !== 'OFF' && assignment.isOff !== true) scheduledDates.add(date);
+        if (!date.startsWith(input.period)) return;
+        if (assignment?.shiftId === 'OFF' || assignment?.isOff === true) scheduledDates.delete(date);
+        else if (assignment?.shiftId) scheduledDates.add(date);
       }));
 
     const standardWorkDays = scheduledDates.size;
-    const workDays = workedDates.size;
+    const workDays = Math.round([...workdayCredits.values()].reduce((sum, credit) => sum + credit, 0) * 2) / 2;
     const baseSalary = numberValue(data.baseSalary);
     const proratedBase = standardWorkDays > 0 ? Math.round(baseSalary / standardWorkDays * Math.min(workDays, standardWorkDays)) : 0;
     const technicalEntries = input.commissions.filter((entry) => authIds.has(String(entry.staffUid || entry.staffId || '')) && entry.status === 'ELIGIBLE' && !entry.payrollPostingId);
@@ -105,10 +141,11 @@ export function buildPayrollRecords(input: {
 
 async function loadPayrollSources(db: Firestore, period: string) {
   const periodEnd = nextPeriodStart(period);
-  const [users, attendance, schedules, commissions, branches] = await Promise.all([
+  const [users, attendance, schedules, departmentPolicies, commissions, branches] = await Promise.all([
     db.collection('users').limit(1000).get(),
     db.collection('attendance').where('date', '>=', `${period}-01`).where('date', '<', periodEnd).limit(10000).get(),
     db.collection('weeklyShiftSchedules').limit(3000).get(),
+    db.collection('shiftDepartmentPolicies').limit(500).get(),
     db.collection('commissionLedger').where('payrollPeriod', '==', period).limit(5000).get(),
     db.collection('branches').limit(500).get()
   ]);
@@ -116,6 +153,7 @@ async function loadPayrollSources(db: Firestore, period: string) {
     users: users.docs.map((doc) => ({ id: doc.id, data: doc.data() })),
     attendance: attendance.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
     schedules: schedules.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+    departmentPolicies: departmentPolicies.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
     commissions: commissions.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
     branches: branches.docs.map((doc) => ({ id: doc.id, data: doc.data() }))
   };

@@ -338,14 +338,14 @@ export default function App() {
     }
   };
 
-  const handleCheckOut = async () => {
+  const handleCheckOut = async (userCoords: { latitude: number; longitude: number }) => {
     if (!currentUser) return;
     const authUid = auth.currentUser?.uid || currentUser.id;
     const today = getVietnamDateString();
 
     try {
       if (!currentUser.branchId) throw new Error('BRANCH_REQUIRED: Tài khoản chưa được gán chi nhánh.');
-      const completedRecord = await requestServerCheckOut(currentUser.branchId);
+      const completedRecord = await requestServerCheckOut(currentUser.branchId, userCoords);
       
       // Update state directly with the authoritative completed record from backend (retaining calculated workDurationMinutes)
       setAttendanceRecords(prev => prev.map(a => 

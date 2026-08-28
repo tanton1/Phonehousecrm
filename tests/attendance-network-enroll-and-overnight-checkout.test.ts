@@ -223,7 +223,13 @@ describe('Attendance GPS/photo schema normalization & overnight checkout suite',
 
       const mockDb: any = {
         collection: (col: string) => ({
-          doc: (docId: string) => ({ col, docId, id: docId }),
+          doc: (docId: string) => ({
+            col, docId, id: docId,
+            get: async () => col === 'branches' ? ({
+              exists: true,
+              data: () => ({ id: 'CN01', name: 'PhoneHouse', gpsLatitude: 16.0612, gpsLongitude: 108.2170, attendanceRadius: 80, isActive: true })
+            }) : ({ exists: false })
+          }),
           where: openAttendanceQuery.where
         }),
         runTransaction: async (cb: any) => {
@@ -257,6 +263,7 @@ describe('Attendance GPS/photo schema normalization & overnight checkout suite',
       const result = await processServerCheckOut(mockDb, {
         staffId: 'STAFF_001',
         branchId: 'CN01',
+        userCoords: { latitude: 16.06121, longitude: 108.21701 },
         clientIp: '113.161.45.99',
         ...verificationInput
       });
