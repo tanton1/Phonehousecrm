@@ -1,6 +1,5 @@
 import express from 'express';
 import path from 'path';
-import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { adminDb } from './server/firebaseAdmin';
@@ -223,60 +222,10 @@ import { createAdminRouter } from './server/routes/admin';
 app.use('/api/admin', createAdminRouter(adminDb));
 import { createEvidenceRouter } from './server/routes/evidence';
 app.use('/api/evidence', createEvidenceRouter(adminDb));
+import { createTelegramRouter } from './server/routes/telegram';
+app.use('/api/telegram', createTelegramRouter(adminDb));
 
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
-
-// Vietnam Timezone (UTC+7) Date Helper
-export const getVietnamDateString = (d: Date = new Date()): string => {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(d);
-};
-
-// Secure Server-side Telegram Bot Alert Endpoint (Protected by Authentication & Role Authorization)
-app.post('/api/telegram/send-alert', authenticateFirebase, async (req: any, res) => {
-  // P1.3 Fix: Require ADMIN or MANAGER role to send outbound Telegram broadcast alerts
-  const userRole = req.user?.role || req.user?.roleLevel;
-  if (userRole !== 'ADMIN' && userRole !== 'MANAGER') {
-    return res.status(403).json({
-      success: false,
-      message: 'Chỉ Quản Lý (MANAGER) hoặc Quản Trị Viên (ADMIN) mới có quyền gửi thông báo Telegram.'
-    });
-  }
-
-  const { text } = req.body;
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  // P1.3 Fix: Enforce server-side TELEGRAM_CHAT_ID to prevent client recipient hijacking
-  const targetChatId = process.env.TELEGRAM_CHAT_ID;
-
-  if (!token || !targetChatId) {
-    return res.status(400).json({
-      success: false,
-      message: 'Telegram Bot Token hoặc Chat ID chưa được cấu hình trên máy chủ.'
-    });
-  }
-
-  try {
-    const telegramUrl = `https://api.telegram.org/bot${token}/sendMessage`;
-    const response = await fetch(telegramUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: targetChatId,
-        text: text || '🔔 Thông báo từ PhoneHouse ERP System',
-        parse_mode: 'HTML'
-      })
-    });
-
-    const result = await response.json();
-    if (result.ok) {
-      return res.json({ success: true, result });
-    } else {
-      return res.status(500).json({ success: false, error: result });
-    }
-  } catch (error: any) {
-    console.error('Error sending Telegram alert from server:', error);
-    return res.status(500).json({ success: false, error: error?.message || String(error) });
-  }
-});
 
 // ============================================================================
 // EXECUTIVE AI VOICE COPILOT & TELEGRAM BOT INGESTION (IDEA 1)
@@ -369,105 +318,6 @@ Số tiền phải được định dạng theo tiền tệ Việt Nam (ví dụ
     transcribedText: userPrompt,
     htmlResponse: defaultHtml
   });
-});
-
-const telegramChatRateBuckets = new Map<string, { count: number; resetAt: number }>();
-// Inbound Telegram Bot Webhook (Receives voice memo & text from Telegram app)
-app.post('/api/telegram/webhook', async (req, res) => {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const configuredChatId = process.env.TELEGRAM_CHAT_ID;
-  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!token || !configuredChatId || !webhookSecret) {
-    return res.status(503).json({ success: false, code: 'TELEGRAM_NOT_CONFIGURED', requestId: req.requestId });
-  }
-  const suppliedSecret = String(req.headers['x-telegram-bot-api-secret-token'] || '');
-  const expected = Buffer.from(webhookSecret);
-  const supplied = Buffer.from(suppliedSecret);
-  if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) {
-    return res.status(401).json({ success: false, code: 'TELEGRAM_WEBHOOK_UNAUTHORIZED', requestId: req.requestId });
-  }
-  const update = req.body || {};
-  const message = update.message || update.edited_message;
-
-  if (!message) {
-    return res.status(200).send('OK');
-  }
-
-  const chatId = message.chat?.id;
-  if (String(chatId) !== String(configuredChatId)) return res.status(200).send('OK');
-  const now = Date.now();
-  const previousBucket = telegramChatRateBuckets.get(String(chatId));
-  const bucket = !previousBucket || previousBucket.resetAt <= now ? { count: 0, resetAt: now + 60_000 } : previousBucket;
-  bucket.count += 1;
-  telegramChatRateBuckets.set(String(chatId), bucket);
-  if (bucket.count > 20) return res.status(429).json({ success: false, code: 'TELEGRAM_RATE_LIMITED', requestId: req.requestId });
-  const updateId = String(update.update_id || '');
-  if (!updateId) return res.status(400).json({ success: false, code: 'TELEGRAM_UPDATE_ID_REQUIRED' });
-  const updateRef = adminDb.collection('telegramWebhookUpdates').doc(updateId);
-  try {
-    await updateRef.create({ receivedAt: new Date().toISOString(), chatFingerprint: crypto.createHash('sha256').update(String(chatId)).digest('hex').slice(0, 12) });
-  } catch (error: any) {
-    if (String(error?.code || '').includes('already-exists') || Number(error?.code) === 6) return res.status(200).send('OK');
-    console.error(JSON.stringify({ level: 'error', requestId: req.requestId, code: 'TELEGRAM_DEDUPE_FAILED' }));
-    return res.status(503).json({ success: false, code: 'TELEGRAM_TEMPORARILY_UNAVAILABLE', requestId: req.requestId });
-  }
-  const command = String(message.text || '').trim().split(/\s+/)[0].toLowerCase();
-  if (!['/report', '/baocao', '/help', '/start'].includes(command)) {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: 'Lệnh hỗ trợ: /report (báo cáo hôm nay), /help (hướng dẫn).' })
-    }).catch(() => null);
-    return res.status(200).send('OK');
-  }
-  if (command === '/help' || command === '/start') {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: 'PhoneHouse CRM: dùng /report để xem báo cáo tổng hợp hôm nay.' })
-    }).catch(() => null);
-    return res.status(200).send('OK');
-  }
-  const todayStr = getVietnamDateString();
-  let aggregateSnap;
-  try {
-    aggregateSnap = await adminDb.collection('executiveDailyAggregates').doc(`${todayStr}_ALL`).get();
-  } catch (_error) {
-    return res.status(503).json({ success: false, code: 'TELEGRAM_REPORT_UNAVAILABLE', requestId: req.requestId });
-  }
-  const metrics = aggregateSnap.exists ? aggregateSnap.data() || {} : {};
-  const todayRevenue = Number(metrics.revenue || 0);
-  const todayInvoicesCount = Number(metrics.invoiceCount || 0);
-  const hasInventoryAggregate = Number.isFinite(Number(metrics.inStockDeviceCount));
-  const hasFinanceAggregate = Number.isFinite(Number(metrics.totalFundBalance));
-  const hasRepairAggregate = Number.isFinite(Number(metrics.pendingRepairCount));
-  const inStockDevicesCount = Number(metrics.inStockDeviceCount || 0);
-  const totalFunds = Number(metrics.totalFundBalance || 0);
-  const cashFunds = Number(metrics.cashFundBalance || 0);
-  const bankFunds = Number(metrics.bankFundBalance || 0);
-  const pendingWarrantiesCount = Number(metrics.pendingRepairCount || 0);
-  const responseHtml = `
-<b>🤖 TRỢ LÝ GIÁM ĐỐC PHONEHOUSE AI</b>
-💰 <b>Doanh thu hôm nay:</b> <code>${todayRevenue.toLocaleString('vi-VN')} đ</code> (${todayInvoicesCount} hóa đơn)
-📱 <b>Tồn kho sẵn bán:</b> ${hasInventoryAggregate ? `<b>${inStockDevicesCount} cây máy</b>` : '<i>Chưa tổng hợp</i>'}
-💼 <b>Số dư các quỹ:</b> ${hasFinanceAggregate ? `<code>${totalFunds.toLocaleString('vi-VN')} đ</code> (Két: ${(cashFunds / 1_000_000).toFixed(1)}Tr • NH: ${(bankFunds / 1_000_000).toFixed(1)}Tr)` : '<i>Chưa tổng hợp</i>'}
-🔧 <b>Bảo hành & Sửa chữa:</b> ${hasRepairAggregate ? `<b>${pendingWarrantiesCount} phiếu</b>` : '<i>Chưa tổng hợp</i>'}
-${aggregateSnap.exists ? '✅ <i>Dữ liệu tổng hợp từ PhoneHouse CRM.</i>' : '⚠️ <i>Chưa có bản tổng hợp hôm nay. Vui lòng mở Báo cáo để cập nhật.</i>'}
-`.trim();
-
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: responseHtml,
-        parse_mode: 'HTML'
-      })
-    });
-  } catch (_error) {
-    console.error(JSON.stringify({ level: 'error', requestId: req.requestId, code: 'TELEGRAM_REPLY_FAILED' }));
-  }
-
-  res.status(200).send('OK');
 });
 
 // 2. High-Precision Offline Local Trade-in Estimation & Market Valuation Engine (Unified with Client Engine)

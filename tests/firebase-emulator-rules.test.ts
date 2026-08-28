@@ -39,6 +39,10 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'cashTransactions/TX-1'), { id: 'TX-1', branchId: 'CN01', amount: 100_000 });
     await setDoc(doc(context.firestore(), 'leadAssignmentHistory/AH-1'), { id: 'AH-1', branchId: 'CN01', leadId: 'LEAD-1' });
     await setDoc(doc(context.firestore(), 'commissionLedger/COMM-1'), { id: 'COMM-1', branchId: 'CN01', staffUid: 'tech-1', amount: 50_000 });
+    await setDoc(doc(context.firestore(), 'telegramOutboxEvents/TG-1'), { id: 'TG-1', branchId: 'CN01', staffId: 'staff-1', status: 'PENDING' });
+    await setDoc(doc(context.firestore(), 'telegramQueryAudit/TQA-1'), { id: 'TQA-1', senderFingerprint: 'masked' });
+    await setDoc(doc(context.firestore(), 'telegramRateLimits/TRL-1'), { id: 'TRL-1', count: 1 });
+    await setDoc(doc(context.firestore(), 'attendanceLocationState/ATT-1'), { id: 'ATT-1', branchId: 'CN01', staffId: 'staff-1', lastLatitude: 16.0, lastLongitude: 108.0 });
   });
 });
 
@@ -47,6 +51,21 @@ afterAll(async () => { await env?.cleanup(); });
   it('ADMIN browser cannot read server-only technical secrets', async () => {
     const db = env.authenticatedContext('admin-1').firestore();
     await assertFails(getDoc(doc(db, 'technicalSecrets/WO-1')));
+  });
+
+  it('Telegram operations and live attendance locations are server-only even for ADMIN', async () => {
+    const adminDb = env.authenticatedContext('admin-1').firestore();
+    const staffDb = env.authenticatedContext('staff-1').firestore();
+    for (const path of [
+      'telegramOutboxEvents/TG-1',
+      'telegramQueryAudit/TQA-1',
+      'telegramRateLimits/TRL-1',
+      'attendanceLocationState/ATT-1'
+    ]) {
+      await assertFails(getDoc(doc(adminDb, path)));
+      await assertFails(getDoc(doc(staffDb, path)));
+      await assertFails(setDoc(doc(adminDb, path), { tampered: true }));
+    }
   });
 
   it('active authenticated users retain explicit safe catalog reads', async () => {

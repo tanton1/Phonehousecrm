@@ -205,7 +205,8 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   };
 
   const submit = async () => {
-    if (!context || !onCheckInSuccess || gps.status !== 'MATCHED' || !gps.latitude || !gps.longitude || !photoFile) return;
+    if (!context || !onCheckInSuccess || !['MATCHED', 'OUTSIDE'].includes(gps.status) || gps.latitude == null || gps.longitude == null || !photoFile) return;
+    if (gps.status === 'OUTSIDE' && !window.confirm('GPS đang ngoài bán kính cửa hàng. Lượt vào ca sẽ được lưu ở trạng thái chờ quản lý duyệt và gửi cảnh báo. Tiếp tục?')) return;
     setIsSubmitting(true);
     setSubmitError('');
     try {
@@ -312,7 +313,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     );
   }
 
-  const ready = Boolean(context && gps.status === 'MATCHED' && photoFile && !isSubmitting);
+  const ready = Boolean(context && ['MATCHED', 'OUTSIDE'].includes(gps.status) && photoFile && !isSubmitting);
 
   return (
     <div className="min-h-full bg-[#fffaf6] pb-24 sm:pb-8">
@@ -413,7 +414,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
 
         <div className="rounded-2xl bg-white px-4 py-3 text-xs text-zinc-500 shadow-sm">
           <div className="flex items-center gap-2 font-bold text-zinc-700"><ShieldCheck className="h-4 w-4 text-orange-500" /> Điều kiện chấm công</div>
-          <p className="mt-1">Vào ca cần GPS và ảnh tại chỗ; ra ca sẽ đo GPS lại. Làm đủ từ 90% ca được 1 công, từ 50% được 0,5 công.</p>
+          <p className="mt-1">Vào ca cần GPS và ảnh tại chỗ; GPS ngoài bán kính vẫn được ghi nhận nhưng phải chờ quản lý duyệt và hệ thống sẽ cảnh báo. Làm đủ từ 90% ca được 1 công, từ 50% được 0,5 công.</p>
         </div>
 
         {onNavigateToHR && <button onClick={onNavigateToHR} className="w-full py-2 text-xs font-bold text-zinc-500">Xem lịch ca & chấm công của tôi</button>}

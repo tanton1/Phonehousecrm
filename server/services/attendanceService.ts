@@ -4,6 +4,11 @@ import { assertAttendanceVerificationSession } from './attendanceVerificationSer
 import { getWeekDates, resolveDepartment } from './shiftSchedulingService';
 import { hasPermission, normalizeRole } from '../../shared/permissions';
 import { attendanceWorkdayFields } from '../../shared/attendancePolicy';
+import {
+  attendanceTelegramOutboxId,
+  createAttendanceTelegramOutboxRecord,
+  telegramAlertsEnabled
+} from './telegramService';
 
 export function resolveAttendanceRadius(branch: { attendanceRadius?: unknown; allowedGpsRadiusMeters?: unknown } | null | undefined): number {
   const canonical = Number(branch?.attendanceRadius);
@@ -430,6 +435,9 @@ export async function processServerCheckIn(
   }
 
   const recordId = `ATT_${staffId}_${dateStr.replace(/-/g, '')}`;
+  const checkInViolations: Array<'LATE' | 'OUTSIDE_GEOFENCE'> = [];
+  if (lateMinutes > 0) checkInViolations.push('LATE');
+  if (!geoCheck.isInside) checkInViolations.push('OUTSIDE_GEOFENCE');
   const newRecord: AttendanceRecordResult = {
     id: recordId,
     staffId,
@@ -515,6 +523,27 @@ export async function processServerCheckIn(
         linkedAttendanceId: recordId,
         linkedAt: FieldValue.serverTimestamp()
       });
+      if (checkInViolations.length > 0 && telegramAlertsEnabled()) {
+        transaction.set(
+          db.collection('telegramOutboxEvents').doc(attendanceTelegramOutboxId(recordId, 'CHECK_IN')),
+          createAttendanceTelegramOutboxRecord({
+            attendanceId: recordId,
+            action: 'CHECK_IN',
+            staffId,
+            staffName,
+            branchId,
+            branchName: authoritativeBranchName,
+            scheduledStart,
+            scheduledEnd,
+            actualTime: timeStr,
+            lateMinutes,
+            distanceMeters: geoCheck.distanceMeters,
+            radiusMeters: authoritativeRadius,
+            violations: checkInViolations
+          }),
+          { merge: false }
+        );
+      }
     });
   }
 
@@ -712,6 +741,26 @@ export async function processServerCheckOut(
       usedAt: FieldValue.serverTimestamp(),
       attendanceId: targetAttRef.id
     });
+    if (!geoCheck.isInside && telegramAlertsEnabled()) {
+      transaction.set(
+        db.collection('telegramOutboxEvents').doc(attendanceTelegramOutboxId(targetAttRef.id, 'CHECK_OUT')),
+        createAttendanceTelegramOutboxRecord({
+          attendanceId: targetAttRef.id,
+          action: 'CHECK_OUT',
+          staffId,
+          staffName: String(data.staffName || staffId),
+          branchId: String(data.branchId || payload.branchId),
+          branchName: String(data.branchName || branch.name || branch.code || payload.branchId),
+          scheduledStart: data.scheduledStart,
+          scheduledEnd: data.scheduledEnd,
+          actualTime: timeStr,
+          distanceMeters: geoCheck.distanceMeters,
+          radiusMeters: resolveAttendanceRadius(branch),
+          violations: ['OUTSIDE_GEOFENCE']
+        }),
+        { merge: false }
+      );
+    }
 
     return {
       ...data,

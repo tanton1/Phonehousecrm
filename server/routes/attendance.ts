@@ -8,6 +8,11 @@ import { listShiftBoard, saveShiftBoard, upsertShiftDefinition, upsertShiftDepar
 import { createAttendanceVerificationSession } from '../services/attendanceVerificationService';
 import { normalizeRole } from '../../shared/permissions';
 import { listAttendanceHistory } from '../services/attendanceHistoryService';
+import {
+  attendanceTelegramOutboxId,
+  dispatchTelegramOutboxEvent,
+  processAttendanceLocationHeartbeat
+} from '../services/telegramService';
 
 const CHECKLIST_CATEGORIES = new Set(['OPENING', 'MID_SHIFT', 'CLOSING']);
 const CHECKLIST_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'NORMAL']);
@@ -238,6 +243,9 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         clientIp: ip
       };
       const result = await processServerCheckIn(db, sanitizedPayload);
+      await dispatchTelegramOutboxEvent(db, attendanceTelegramOutboxId(result.id, 'CHECK_IN')).catch(error => {
+        console.warn('[Attendance Telegram CheckIn Dispatch]:', String(error?.message || error));
+      });
       return res.json({ success: true, data: result });
     } catch (error: any) {
       console.error('[Attendance CheckIn Error]:', error);
@@ -262,6 +270,9 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         clientIp: getClientIp(req)
       };
       const result = await processServerCheckOut(db, bodyWithAuth);
+      await dispatchTelegramOutboxEvent(db, attendanceTelegramOutboxId(result.id, 'CHECK_OUT')).catch(error => {
+        console.warn('[Attendance Telegram CheckOut Dispatch]:', String(error?.message || error));
+      });
       return res.json({ success: true, data: result });
     } catch (error: any) {
       console.error('[Attendance CheckOut Error]:', error);
@@ -269,6 +280,31 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         success: false,
         error: error?.message || 'Lỗi xử lý kết thúc ca làm việc.'
       });
+    }
+  });
+
+  // Foreground-only location heartbeat. Mobile browsers cannot guarantee
+  // background execution; the API therefore reports only observations that
+  // were actually received while PhoneHouseCRM was open.
+  router.post('/location-heartbeats', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
+    try {
+      const branchId = String(req.body?.branchId || req.user?.branchId || '').trim();
+      const result = await processAttendanceLocationHeartbeat(db, {
+        branchId,
+        latitude: Number(req.body?.latitude),
+        longitude: Number(req.body?.longitude),
+        accuracyMeters: Number(req.body?.accuracyMeters || 0)
+      }, { uid: req.user!.uid, name: req.user?.name || req.user?.email || req.user!.uid });
+      if (result.eventId) {
+        await dispatchTelegramOutboxEvent(db, result.eventId).catch(error => {
+          console.warn('[Attendance Telegram Location Dispatch]:', String(error?.message || error));
+        });
+      }
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      const code = String(error?.message || 'ATTENDANCE_LOCATION_FAILED').split(':')[0];
+      const status = code.includes('NOT_OPEN') ? 409 : code.includes('FORBIDDEN') ? 403 : code.includes('NOT_FOUND') ? 404 : 400;
+      return res.status(status).json({ success: false, code, message: 'Không thể cập nhật vị trí trong ca.' });
     }
   });
 

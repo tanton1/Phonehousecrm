@@ -65,7 +65,7 @@ export interface AttendanceHistoryResult {
  * Executes an authenticated API request to the backend Attendance service
  */
 async function sendAttendanceApiRequest<T>(
-  endpoint: 'check-in-context' | 'check-in' | 'check-out' | 'network-check' | 'review' | 'verification-sessions' | 'leave-requests' | `leave-requests/${string}/review` | `checklists/${string}/save` | `checklists/${string}/review` | 'handovers' | `handovers/${string}/review`,
+  endpoint: 'check-in-context' | 'check-in' | 'check-out' | 'location-heartbeats' | 'network-check' | 'review' | 'verification-sessions' | 'leave-requests' | `leave-requests/${string}/review` | `checklists/${string}/save` | `checklists/${string}/review` | 'handovers' | `handovers/${string}/review`,
   payload: Record<string, any> = {}
 ): Promise<T> {
   const firebaseUser = auth.currentUser;
@@ -203,6 +203,16 @@ export async function requestServerCheckOut(
     verificationNonce: session.nonce,
     deviceId
   });
+}
+
+export async function requestAttendanceLocationHeartbeat(input: {
+  branchId: string;
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number;
+}): Promise<{ attendanceId: string; isInside: boolean; distanceMeters: number; radiusMeters: number }> {
+  if (!input.branchId) throw new Error('BRANCH_REQUIRED');
+  return sendAttendanceApiRequest('location-heartbeats', input);
 }
 
 /**

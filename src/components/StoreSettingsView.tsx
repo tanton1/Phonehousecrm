@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Store,
@@ -48,6 +48,7 @@ import {
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
 import { isWarehouseActive, isWarehouseArchived } from '../utils/warehouseLifecycle';
+import { requestRegisterTelegramWebhook, requestTelegramStatus, requestTelegramTest, TelegramRuntimeStatus } from '../services/telegramApiClient';
 
 export interface StoreSettingsViewProps {
   branches: StoreBranch[];
@@ -93,13 +94,32 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   onNavigateToCashbook,
   isFirebaseConnected = true
 }) => {
-  const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty'>('branches');
+  const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty' | 'notifications'>('branches');
   const [warehouseBranchFilter, setWarehouseBranchFilter] = useState<string>('ALL');
   // Kho chưa phát sinh được xóa vĩnh viễn; dữ liệu lưu trữ cũ không còn hiển thị trong luồng thiết lập.
   const showArchivedWarehouses = false;
 
   // Executive AI Modal state
   const [isExecutiveModalOpen, setIsExecutiveModalOpen] = useState(false);
+  const [telegramStatus, setTelegramStatus] = useState<TelegramRuntimeStatus | null>(null);
+  const [telegramStatusLoading, setTelegramStatusLoading] = useState(false);
+  const [telegramTestLoading, setTelegramTestLoading] = useState(false);
+  const [telegramWebhookLoading, setTelegramWebhookLoading] = useState(false);
+
+  const loadTelegramStatus = async () => {
+    setTelegramStatusLoading(true);
+    try {
+      setTelegramStatus(await requestTelegramStatus());
+    } catch (error: any) {
+      setTelegramStatus({ configured: false, connected: false, errorCode: error?.message || 'TELEGRAM_STATUS_FAILED' });
+    } finally {
+      setTelegramStatusLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'notifications') void loadTelegramStatus();
+  }, [activeTab]);
 
   // Company info form state
   const [companyForm, setCompanyForm] = useState<StoreSettings>(settings);
@@ -1146,13 +1166,13 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   </div>
                   <div>
                     <h3 className="text-base font-black flex items-center gap-2">
-                      <span>Trợ Lý Giám Đốc AI Voice & Tra Cứu Số Liệu (Telegram Bot)</span>
+                      <span>Bot Telegram · Cảnh báo & tra cứu vận hành</span>
                       <span className="text-[10px] bg-orange-500/20 text-orange-400 px-2.5 py-0.5 rounded-full border border-orange-500/30 font-mono">
-                        Multimodal Voice AI
+                        Server-authoritative
                       </span>
                     </h3>
                     <p className="text-xs text-zinc-400 mt-0.5">
-                      Ban Giám Đốc có thể tra cứu tức thì Doanh số, Tồn kho máy IMEI, Sổ quỹ, Tiến độ Kỹ thuật qua Voice Memo trên Telegram.
+                      Tra cứu doanh số, tồn kho IMEI và tiến độ kỹ thuật bằng lệnh hoặc câu hỏi tiếng Việt trong đúng group đã cấu hình.
                     </p>
                   </div>
                 </div>
@@ -1162,9 +1182,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 space-y-1">
                   <div className="text-[11px] font-bold text-orange-400 flex items-center gap-1.5">
                     <Mic className="w-3.5 h-3.5" />
-                    <span>Lệnh thoại mẫu:</span>
+                    <span>Câu hỏi mẫu:</span>
                   </div>
-                  <p className="text-xs text-zinc-300 italic">"Hôm nay bán được bao nhiêu cây 16 Pro Max rồi?", "Số dư các quỹ tiền mặt hiện tại?"</p>
+                  <p className="text-xs text-zinc-300 italic">“@Bot doanh số PH109 hôm nay?”, “@Bot IMEI 12345 đang ở đâu?”</p>
                 </div>
 
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 space-y-1">
@@ -1189,25 +1209,63 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
             </div>
 
             {/* Status Card */}
-            <div className="bg-green-50 border border-green-200 rounded-2xl p-5 flex items-start space-x-4">
-              <div className="w-2 h-2 rounded-full bg-green-500 mt-2 animate-pulse"></div>
+            <div className={`rounded-2xl border p-5 flex items-start space-x-4 ${telegramStatus?.connected ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+              <div className={`w-2 h-2 rounded-full mt-2 ${telegramStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`}></div>
               <div className="flex-1">
-                <h3 className="text-sm font-bold text-green-800">Trạng thái Bot: Đã kết nối</h3>
-                <p className="text-xs text-green-700 mt-1">Hệ thống đang liên kết với Bot. API Token và Chat ID đã được cấu hình trong biến môi trường bảo mật.</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className={`text-sm font-bold ${telegramStatus?.connected ? 'text-emerald-800' : 'text-amber-900'}`}>
+                    {telegramStatusLoading ? 'Đang kiểm tra Telegram…' : telegramStatus?.connected ? `Đã kết nối${telegramStatus.botUsername ? ` · @${telegramStatus.botUsername}` : ''}` : 'Telegram chưa hoạt động'}
+                  </h3>
+                  <button type="button" onClick={() => void loadTelegramStatus()} disabled={telegramStatusLoading} className="inline-flex items-center gap-1 rounded-lg border border-current/20 px-2.5 py-1.5 text-[11px] font-bold disabled:opacity-40"><RotateCcw className={`h-3.5 w-3.5 ${telegramStatusLoading ? 'animate-spin' : ''}`} /> Kiểm tra lại</button>
+                </div>
+                <p className={`text-xs mt-1 ${telegramStatus?.connected ? 'text-emerald-700' : 'text-amber-800'}`}>
+                  {telegramStatus?.connected
+                    ? `Webhook: ${telegramStatus.webhookConfigured ? 'đã đăng ký' : 'chưa đăng ký'} · Cảnh báo: ${telegramStatus.alertsEnabled ? 'bật' : 'tắt'} · Tra cứu: ${telegramStatus.queriesEnabled ? 'bật' : 'tắt'}`
+                    : telegramStatus?.missing?.length
+                      ? `Thiếu cấu hình máy chủ: ${telegramStatus.missing.join(', ')}`
+                      : telegramStatus?.errorCode || 'Không kết nối được Telegram API.'}
+                </p>
+                {telegramStatus?.connected && <p className="mt-1 text-[11px] text-zinc-500">Tin đang chờ webhook: {telegramStatus.pendingUpdateCount || 0} · Group: {telegramStatus.destinationFingerprint || '—'}</p>}
                 <button
-                  onClick={(e) => {
+                  disabled={!telegramStatus?.connected || telegramTestLoading}
+                  onClick={async (e) => {
                     e.preventDefault();
-                    showToast('Đã gửi tin nhắn kiểm tra thành công tới Bot Telegram!');
-                    fetch('/api/telegram/send-alert', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ text: '🔔 Tin nhắn kiểm tra từ hệ thống PhoneHouse CRM!' })
-                    }).catch(err => console.error(err));
+                    setTelegramTestLoading(true);
+                    try {
+                      await requestTelegramTest();
+                      showToast('Telegram đã xác nhận gửi tin kiểm tra tới group.');
+                    } catch (error: any) {
+                      showToast(error?.message || 'Không gửi được tin kiểm tra Telegram.', 'error');
+                    } finally {
+                      setTelegramTestLoading(false);
+                      void loadTelegramStatus();
+                    }
                   }}
-                  className="mt-3 px-4 py-2 bg-white border border-green-300 text-green-700 rounded-lg text-xs font-bold hover:bg-green-50 transition-all cursor-pointer"
+                  className="mt-3 px-4 py-2 bg-white border border-zinc-200 text-zinc-800 rounded-lg text-xs font-bold hover:bg-zinc-50 transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Gửi tin nhắn Test Alert
+                  {telegramTestLoading ? 'Đang gửi…' : 'Gửi tin kiểm tra'}
                 </button>
+                {telegramStatus?.configured && !telegramStatus?.webhookConfigured && (
+                  <button
+                    type="button"
+                    disabled={telegramWebhookLoading}
+                    onClick={async () => {
+                      setTelegramWebhookLoading(true);
+                      try {
+                        await requestRegisterTelegramWebhook();
+                        showToast('Đã đăng ký webhook Telegram cho Production.');
+                        await loadTelegramStatus();
+                      } catch (error: any) {
+                        showToast(error?.message || 'Không đăng ký được webhook Telegram.', 'error');
+                      } finally {
+                        setTelegramWebhookLoading(false);
+                      }
+                    }}
+                    className="ml-2 mt-3 rounded-lg bg-zinc-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-40"
+                  >
+                    {telegramWebhookLoading ? 'Đang đăng ký…' : 'Đăng ký webhook'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1217,10 +1275,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
               <div className="flex items-center justify-between p-4 rounded-2xl border border-zinc-100 hover:border-orange-200 transition-colors bg-zinc-50/50">
                 <div>
                   <div className="font-bold text-zinc-800 text-sm">Cảnh báo rời chi nhánh (Geofencing)</div>
-                  <div className="text-xs text-zinc-500 mt-0.5">Thông báo khi nhân viên đã vào ca nhưng di chuyển xa hơn 100m.</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">Thông báo theo bán kính GPS được cấu hình riêng tại từng chi nhánh; cần hai lần đo ngoài phạm vi liên tiếp.</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" className="sr-only peer" defaultChecked />
+                  <input type="checkbox" className="sr-only peer" checked={Boolean(telegramStatus?.alertsEnabled)} disabled readOnly />
                   <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
                 </label>
               </div>
@@ -1231,7 +1289,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   <div className="text-xs text-zinc-500 mt-0.5">Tự động tổng kết tiền mặt, chuyển khoản khi nhân viên chốt ca.</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" className="sr-only peer" defaultChecked />
+                  <input type="checkbox" className="sr-only peer" checked={false} disabled readOnly />
                   <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
                 </label>
               </div>
@@ -1242,7 +1300,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   <div className="text-xs text-zinc-500 mt-0.5">Gửi thông báo khi có Khách hàng mới được thêm vào hệ thống.</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" className="sr-only peer" />
+                  <input type="checkbox" className="sr-only peer" checked={false} disabled readOnly />
                   <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
                 </label>
               </div>
@@ -1253,22 +1311,14 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   <div className="text-xs text-zinc-500 mt-0.5">Thông báo khi có phiếu biên nhận thiết bị mới từ khách hàng.</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" className="sr-only peer" defaultChecked />
+                  <input type="checkbox" className="sr-only peer" checked={false} disabled readOnly />
                   <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
                 </label>
               </div>
             </div>
 
-            <div className="pt-4 flex justify-end">
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  showToast('Đã lưu cấu hình thông báo thành công!');
-                }}
-                className="px-6 py-3 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-sm font-bold shadow-lg cursor-pointer transition-all"
-              >
-                Lưu cấu hình
-              </button>
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
+              Các công tắc trên phản ánh cấu hình thật của server. Token, group và quyền tra cứu được lưu trong biến môi trường Production, không lưu trong trình duyệt.
             </div>
 
             {/* Telegram Groups & Templates */}

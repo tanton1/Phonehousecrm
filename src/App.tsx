@@ -387,7 +387,12 @@ export default function App() {
     setIsLoginModalOpen(true);
   };
 
-  const currentAttendance = attendanceRecords.find(a => a.staffId === (auth.currentUser?.uid || currentUser?.id) && a.date === getVietnamDateString());
+  const attendancePrincipalUid = auth.currentUser?.uid || currentUser?.id;
+  const currentAttendance = attendanceRecords.find(a =>
+    a.staffId === attendancePrincipalUid && Boolean(a.checkInTime) && !a.checkOutTime
+  ) || attendanceRecords.find(a =>
+    a.staffId === attendancePrincipalUid && a.date === getVietnamDateString()
+  );
 
   const activeBranchId = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER' 
     ? (currentUser.role === 'MANAGER' && selectedBranchId === 'ALL' ? currentUser.branchId : selectedBranchId)
@@ -1465,6 +1470,7 @@ export default function App() {
       <GeofenceBackgroundTracker
         currentUser={currentUser}
         isCheckedIn={Boolean(currentAttendance?.checkInTime && !currentAttendance?.checkOutTime)}
+        attendanceBranchId={currentAttendance?.branchId}
       />
 
       <AppShell

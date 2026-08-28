@@ -409,6 +409,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /telegramOutboxEvents/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /telegramQueryAudit/{eventId} {
+      allow read, write: if false;
+    }
+
+    match /telegramRateLimits/{rateId} {
+      allow read, write: if false;
+    }
+
+    match /attendanceLocationState/{attendanceId} {
+      allow read, write: if false;
+    }
+
     match /weeklyShiftSchedules/{scheduleId} {
       allow read: if isAuthenticated() && (isAdmin() || canAccessBranch(resource.data.branchId) || resource.data.staffId == request.auth.uid);
       allow write: if false; // Server-only: /api/attendance/shift-board validates branch, staff and shift snapshots.
