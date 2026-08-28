@@ -137,3 +137,25 @@ export async function uploadEvidenceViaServer(input: {
   const record = await uploadEvidenceRecordViaServer(input);
   return record.url;
 }
+
+/**
+ * Loads a short-lived, authenticated browser preview. Call URL.revokeObjectURL
+ * when the preview is closed so evidence never remains in browser storage.
+ */
+export async function requestEvidencePreviewObjectUrl(evidenceId: string): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('UNAUTHENTICATED: Vui lòng đăng nhập lại.');
+  const token = await user.getIdToken(false);
+  const response = await fetch(`/api/evidence/${encodeURIComponent(evidenceId)}/content`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store'
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.message || result.code || 'EVIDENCE_PREVIEW_FAILED');
+  }
+  const blob = await response.blob();
+  if (!blob.type.startsWith('image/')) throw new Error('EVIDENCE_PREVIEW_TYPE_INVALID');
+  return URL.createObjectURL(blob);
+}

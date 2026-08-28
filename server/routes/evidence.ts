@@ -38,6 +38,14 @@ async function issueEvidenceReadUrl(objectPath: string) {
   return { url, expiresAt: new Date(expiresAtMs).toISOString() };
 }
 
+function inlineEvidenceBuffer(value: unknown): Buffer | null {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (value && typeof (value as any).toBuffer === 'function') return Buffer.from((value as any).toBuffer());
+  if ((value as any)?.type === 'Buffer' && Array.isArray((value as any).data)) return Buffer.from((value as any).data);
+  return null;
+}
+
 async function resolveResource(db: Firestore, req: Request, input: any) {
   const type = String(input.resourceType || '').toUpperCase() as EvidenceType;
   const resourceId = String(input.resourceId || '').trim();
@@ -270,8 +278,60 @@ export function createEvidenceRouter(db: Firestore | null): Router {
     } catch {
       return res.status(403).json({ success: false, code: 'EVIDENCE_RESOURCE_ACCESS_DENIED' });
     }
+    if (record.storageMode === 'INLINE_FIRESTORE') {
+      return res.json({
+        success: true,
+        data: {
+          url: `/api/evidence/${encodeURIComponent(req.params.id)}/content`,
+          expiresAt: null,
+          requiresAuthorization: true
+        }
+      });
+    }
     const access = await issueEvidenceReadUrl(record.objectPath);
     return res.json({ success: true, data: access });
+  });
+
+  // Authenticated same-origin content endpoint. This supports the compact
+  // Firestore-backed attendance photos as well as Storage-backed evidence
+  // without exposing a long-lived public URL.
+  router.get('/:id/content', async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'FIRESTORE_NOT_CONFIGURED' });
+    const snap = await db.collection('evidenceRecords').doc(req.params.id).get();
+    if (!snap.exists) return res.status(404).json({ success: false, code: 'EVIDENCE_NOT_FOUND' });
+    const record = snap.data()!;
+    if (record.status !== 'ACTIVE' || !actorCanAccessBranch(req, String(record.branchId || ''))) {
+      return res.status(403).json({ success: false, code: 'EVIDENCE_ACCESS_DENIED' });
+    }
+    try {
+      await resolveResource(db, req, {
+        resourceType: record.resourceType,
+        resourceId: record.resourceId,
+        contextId: record.contextId,
+        branchId: record.branchId
+      });
+      res.setHeader('Content-Type', String(record.contentType || 'image/jpeg'));
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (record.storageMode === 'INLINE_FIRESTORE') {
+        const content = inlineEvidenceBuffer(record.inlineData);
+        if (!content?.length) throw new Error('EVIDENCE_INLINE_CONTENT_MISSING');
+        res.setHeader('Content-Length', String(content.length));
+        return res.status(200).send(content);
+      }
+      const objectPath = String(record.objectPath || '');
+      if (!objectPath) throw new Error('EVIDENCE_OBJECT_PATH_MISSING');
+      return adminBucket.file(objectPath).createReadStream()
+        .on('error', () => {
+          if (!res.headersSent) res.status(404).json({ success: false, code: 'EVIDENCE_CONTENT_NOT_FOUND' });
+          else res.end();
+        })
+        .pipe(res);
+    } catch (error: any) {
+      if (res.headersSent) return res.end();
+      const code = String(error?.message || 'EVIDENCE_CONTENT_FAILED').split(':')[0];
+      return res.status(code.includes('DENIED') ? 403 : 400).json({ success: false, code, message: 'Không thể mở ảnh bằng chứng.' });
+    }
   });
 
   router.post('/:id/revoke', requireRole('MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {

@@ -4,6 +4,7 @@ import {
   Building2,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   FileText,
   HelpCircle,
@@ -18,6 +19,7 @@ import { getVietnamDateString } from '../utils/dateTimeUtils';
 import ShiftSchedulingView from './ShiftSchedulingView';
 import { MonthlyPayrollTable } from '../features/payroll/components/MonthlyPayrollTable';
 import { HRMetricCarousel, type HRMetricItem } from './HRMetricCarousel';
+import AttendanceHistoryDrawer from './AttendanceHistoryDrawer';
 
 export type HRSubModule = 'OVERVIEW' | 'SHIFTS' | 'TIMESHEET' | 'PAYROLL';
 
@@ -51,7 +53,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   onApproveLeave
 }) => {
   const role = String(currentUser?.role || '').toUpperCase();
-  const canManage = ['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(role);
+  const canManage = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'].includes(role);
   const canViewPayroll = canManage || role === 'ACCOUNTANT';
   const [activeModule, setActiveModule] = useState<HRSubModule>(initialSubModule || 'OVERVIEW');
   const [selectedBranchId, setSelectedBranchId] = useState(() => role === 'ADMIN' ? 'ALL' : String(currentUser?.branchId || 'ALL'));
@@ -59,6 +61,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [approvingId, setApprovingId] = useState('');
+  const [selectedHistoryStaff, setSelectedHistoryStaff] = useState<StaffMember | null>(null);
 
   useEffect(() => {
     if (initialSubModule) setActiveModule(initialSubModule);
@@ -121,7 +124,12 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
     ...(canViewPayroll ? [{ id: 'PAYROLL' as const, label: 'Bảng lương', icon: WalletCards }] : [])
   ];
 
-  const timesheetRows = useMemo(() => staffList.map((staff) => {
+  const principalUid = String(currentUser?.authUid || currentUser?.id || '');
+  const timesheetStaffList = useMemo(() => canManage
+    ? staffList
+    : staffList.filter(staff => staff.id === principalUid || String((staff as any).authUid || '') === principalUid), [canManage, principalUid, staffList]);
+
+  const timesheetRows = useMemo(() => timesheetStaffList.map((staff) => {
     const records = monthAttendance.filter((record) => attendanceMatchesStaff(record, staff));
     const workedDates = new Set(records.filter((record) => Boolean(record.checkInTime)).map((record) => record.date));
     const completedDates = new Set(records.filter((record) => Boolean(record.checkOutTime)).map((record) => record.date));
@@ -137,7 +145,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
     .filter((row) => statusFilter === 'ALL'
       || (statusFilter === 'LATE' && row.lateMinutes > 0)
       || (statusFilter === 'MISSING' && row.missingCheckout > 0)
-      || (statusFilter === 'OT' && row.otMinutes > 0)), [monthAttendance, search, staffList, statusFilter, today]);
+      || (statusFilter === 'OT' && row.otMinutes > 0)), [monthAttendance, search, statusFilter, timesheetStaffList, today]);
 
   const visibleTodayAttendance = useMemo(() => todayAttendance.filter((record) => statusFilter === 'ALL'
     || (statusFilter === 'WORKING' && Boolean(record.checkInTime) && !record.checkOutTime)
@@ -153,6 +161,8 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
       setApprovingId('');
     }
   };
+
+  const staffForRecord = (record: AttendanceRecord) => staffList.find(staff => attendanceMatchesStaff(record, staff)) || null;
 
   return (
     <div className="w-full space-y-4">
@@ -189,7 +199,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
       {activeModule === 'OVERVIEW' && <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
         <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-zinc-100 p-4"><div><h2 className="font-black text-zinc-900">Trạng thái hôm nay</h2><p className="mt-1 text-xs font-semibold text-zinc-500">Dữ liệu chấm công cập nhật trực tiếp từ Firestore.</p></div><span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-[#ff4b16]">{todayAttendance.length} bản ghi</span></div>
-          {visibleTodayAttendance.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Chưa có bản ghi phù hợp bộ lọc.</div> : <div className="divide-y divide-zinc-100">{visibleTodayAttendance.map((record) => <article key={record.id} className="flex items-center justify-between gap-3 p-4"><div className="min-w-0"><div className="truncate text-sm font-black text-zinc-900">{record.staffName}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{record.branchName} · {record.shiftName || 'Chưa có ca'}</div></div><div className="text-right"><div className="text-sm font-black text-zinc-900">{record.checkInTime || '--:--'} → {record.checkOutTime || 'đang làm'}</div><div className={`mt-1 text-[11px] font-black ${Number(record.lateMinutes || 0) > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>{Number(record.lateMinutes || 0) > 0 ? `Trễ ${record.lateMinutes} phút` : 'Đúng giờ'}</div></div></article>)}</div>}
+          {visibleTodayAttendance.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Chưa có bản ghi phù hợp bộ lọc.</div> : <div className="divide-y divide-zinc-100">{visibleTodayAttendance.map((record) => <button type="button" key={record.id} onClick={() => setSelectedHistoryStaff(staffForRecord(record))} className="flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-zinc-50"><div className="min-w-0"><div className="truncate text-sm font-black text-zinc-900">{record.staffName}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{record.branchName} · {record.shiftName || 'Chưa có ca'}</div></div><div className="flex shrink-0 items-center gap-2 text-right"><div><div className="text-sm font-black text-zinc-900">{record.checkInTime || '--:--'} → {record.checkOutTime || 'đang làm'}</div><div className={`mt-1 text-[11px] font-black ${Number(record.lateMinutes || 0) > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>{Number(record.lateMinutes || 0) > 0 ? `Trễ ${record.lateMinutes} phút` : 'Đúng giờ'}</div></div><ChevronRight className="h-4 w-4 text-zinc-300" /></div></button>)}</div>}
         </section>
 
         <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
@@ -202,10 +212,20 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
 
       {activeModule === 'TIMESHEET' && <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
         <div className="border-b border-zinc-100 p-4"><h2 className="font-black text-zinc-900">Bảng công {selectedPeriod}</h2><p className="mt-1 text-xs font-semibold text-zinc-500">Mỗi nhân viên chỉ có một dòng; số ngày được gom theo ngày chấm công thực tế.</p></div>
-        {timesheetRows.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Không có nhân viên phù hợp.</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">{timesheetRows.map((row) => <article key={row.staff.id} className="rounded-2xl border border-zinc-200 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-black text-zinc-900">{row.staff.name}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{row.staff.roleTitle}</div></div><span className="rounded-xl bg-orange-50 px-3 py-2 text-lg font-black text-[#ff4b16]">{row.workDays}</span></div><div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-900">{row.completedDays}</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đủ checkout</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-[#ff4b16]">{row.lateMinutes}p</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đi trễ</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-800">{Math.round(row.otMinutes / 60 * 10) / 10}h</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Tăng ca</div></div></div>{row.missingCheckout > 0 && <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Thiếu checkout {row.missingCheckout} ngày</div>}</article>)}</div>}
+        {timesheetRows.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Không có nhân viên phù hợp.</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">{timesheetRows.map((row) => <button type="button" key={row.staff.id} onClick={() => setSelectedHistoryStaff(row.staff)} className="rounded-2xl border border-zinc-200 p-4 text-left transition hover:border-orange-200 hover:bg-orange-50/30"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-black text-zinc-900">{row.staff.name}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{row.staff.roleTitle}</div></div><div className="flex items-center gap-2"><span className="rounded-xl bg-orange-50 px-3 py-2 text-lg font-black text-[#ff4b16]">{row.workDays}</span><ChevronRight className="h-4 w-4 text-zinc-300" /></div></div><div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-900">{row.completedDays}</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đủ checkout</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-[#ff4b16]">{row.lateMinutes}p</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đi trễ</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-800">{Math.round(row.otMinutes / 60 * 10) / 10}h</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Tăng ca</div></div></div>{row.missingCheckout > 0 && <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Thiếu checkout {row.missingCheckout} ngày</div>}<div className="mt-3 text-[11px] font-black text-[#ff4b16]">Xem lịch sử từng ngày</div></button>)}</div>}
       </section>}
 
       {activeModule === 'PAYROLL' && <MonthlyPayrollTable staffList={staffList} branches={accessibleBranches} attendanceRecords={monthAttendance} selectedMonth={selectedPeriod} selectedBranchId={selectedBranchId} search={search} recordFilter={statusFilter} />}
+
+      <AttendanceHistoryDrawer
+        open={Boolean(selectedHistoryStaff)}
+        staff={selectedHistoryStaff}
+        branchId={selectedBranchId}
+        initialMonth={selectedPeriod}
+        initialRecords={scopedAttendance}
+        canReview={canManage}
+        onClose={() => setSelectedHistoryStaff(null)}
+      />
     </div>
   );
 };

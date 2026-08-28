@@ -1723,7 +1723,7 @@ export interface AttendanceRecord {
   };
 
   // Status & Current Live Activity
-  status: 'ON_TIME' | 'LATE' | 'EARLY_LEAVE' | 'ABSENT' | 'IN_PROGRESS' | 'COMPLETED' | 'PENDING_VERIFICATION';
+  status: 'ON_TIME' | 'LATE' | 'EARLY_LEAVE' | 'ABSENT' | 'IN_PROGRESS' | 'COMPLETED' | 'PENDING_VERIFICATION' | 'REJECTED';
   attendanceStatus?: 'CHECKED_IN' | 'COMPLETED' | 'ABSENT' | 'ON_LEAVE';
   punctualityStatus?: 'ON_TIME' | 'LATE' | 'EARLY';
   verificationStatus?: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED';

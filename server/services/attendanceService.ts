@@ -2,6 +2,7 @@ import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { verifyGeofence, LatLng } from './geofenceService';
 import { assertAttendanceVerificationSession } from './attendanceVerificationService';
 import { getWeekDates, resolveDepartment } from './shiftSchedulingService';
+import { hasPermission, normalizeRole } from '../../shared/permissions';
 
 export function resolveAttendanceRadius(branch: { attendanceRadius?: unknown; allowedGpsRadiusMeters?: unknown } | null | undefined): number {
   const canonical = Number(branch?.attendanceRadius);
@@ -671,9 +672,13 @@ export async function processAttendanceReview(
     throw new Error('MISSING_STAFF_IDENTITY: Thiếu mã hoặc chi nhánh người kiểm duyệt.');
   }
 
-  const isAuthorized = reviewerRole === 'ADMIN' || reviewerRole === 'MANAGER';
+  const canonicalReviewerRole = normalizeRole(reviewerRole);
+  const isAuthorized = hasPermission(canonicalReviewerRole, 'ATTENDANCE_REVIEW');
   if (!isAuthorized) {
     throw new Error('PERMISSION_DENIED: Chỉ Quản lý cửa hàng (Manager) hoặc Quản trị viên (Admin) mới có quyền duyệt chấm công.');
+  }
+  if (decision === 'REJECT' && reason.trim().length < 5) {
+    throw new Error('ATTENDANCE_REVIEW_REASON_REQUIRED: Cần ghi rõ lý do từ chối chấm công.');
   }
 
   const nowIso = new Date().toISOString();
@@ -722,7 +727,7 @@ export async function processAttendanceReview(
     const data = snap.data()! as AttendanceRecordResult;
 
     // Branch Isolation check
-    if (reviewerRole !== 'ADMIN') {
+    if (canonicalReviewerRole !== 'ADMIN' && canonicalReviewerRole !== 'REGIONAL_MANAGER') {
       const allowedBranches = [reviewerBranchId, ...reviewerAssignedBranches];
       if (!allowedBranches.includes(data.branchId)) {
         throw new Error(`BRANCH_FORBIDDEN: Bạn chỉ có quyền duyệt chấm công thuộc chi nhánh phụ trách (${reviewerBranchId}).`);

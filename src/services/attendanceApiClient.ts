@@ -43,6 +43,24 @@ export interface AttendanceApiResponse<T> {
   message?: string;
 }
 
+export interface AttendanceHistorySummary {
+  workDays: number;
+  completedDays: number;
+  lateMinutes: number;
+  earlyMinutes: number;
+  overtimeMinutes: number;
+  missingCheckoutDays: number;
+  pendingReviewDays: number;
+}
+
+export interface AttendanceHistoryResult {
+  staffUid: string;
+  month: string;
+  records: AttendanceRecord[];
+  summary: AttendanceHistorySummary;
+  complete: boolean;
+}
+
 /**
  * Executes an authenticated API request to the backend Attendance service
  */
@@ -86,6 +104,32 @@ async function sendAttendanceApiRequest<T>(
   }
 
   return result.data as T;
+}
+
+export async function requestAttendanceHistory(input: {
+  staffUid?: string;
+  branchId?: string;
+  month: string;
+}): Promise<AttendanceHistoryResult> {
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) throw new Error('UNAUTHENTICATED: Vui lòng đăng nhập lại.');
+  const token = await firebaseUser.getIdToken(false);
+  const params = new URLSearchParams({ month: input.month });
+  if (input.staffUid) params.set('staffUid', input.staffUid);
+  if (input.branchId) params.set('branchId', input.branchId);
+  const response = await fetch(`/api/attendance/history?${params.toString()}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store'
+  });
+  const result: AttendanceApiResponse<AttendanceHistoryResult> = await response.json().catch(() => ({
+    success: false,
+    error: `Lỗi kết nối máy chủ (HTTP ${response.status})`
+  }));
+  if (!response.ok || !result.success || !result.data) {
+    throw new Error(result.error || result.message || 'Không tải được lịch sử chấm công.');
+  }
+  return result.data;
 }
 
 /**

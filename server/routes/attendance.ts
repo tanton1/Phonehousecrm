@@ -7,6 +7,7 @@ import { requireRole } from '../middleware/requireRole';
 import { listShiftBoard, saveShiftBoard, upsertShiftDefinition, upsertShiftDepartmentPolicy } from '../services/shiftSchedulingService';
 import { createAttendanceVerificationSession } from '../services/attendanceVerificationService';
 import { normalizeRole } from '../../shared/permissions';
+import { listAttendanceHistory } from '../services/attendanceHistoryService';
 
 const CHECKLIST_CATEGORIES = new Set(['OPENING', 'MID_SHIFT', 'CLOSING']);
 const CHECKLIST_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'NORMAL']);
@@ -166,6 +167,23 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     }
   });
 
+  // Server-scoped monthly history. Staff can only read their own records;
+  // managers can drill into staff whose attendance belongs to an accessible branch.
+  router.get('/history', authenticateFirebase, async (req: Request, res: Response) => {
+    try {
+      const result = await listAttendanceHistory(db, getActor(req), {
+        staffUid: req.query.staffUid,
+        branchId: req.query.branchId,
+        month: req.query.month
+      });
+      return res.json({ success: true, data: result });
+    } catch (error: any) {
+      const code = String(error?.message || 'ATTENDANCE_HISTORY_FAILED').split(':')[0];
+      const status = code.includes('FORBIDDEN') ? 403 : code.includes('NOT_FOUND') ? 404 : code.includes('NOT_CONFIGURED') ? 503 : 400;
+      return res.status(status).json({ success: false, code, message: 'Không tải được lịch sử chấm công.' });
+    }
+  });
+
   // 2. Authoritative Check-In Endpoint (Requires Firebase Auth Token & Branch Access)
   router.post('/verification-sessions', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
@@ -238,7 +256,7 @@ export function createAttendanceRouter(db: Firestore | null): Router {
   });
 
   // 4. Authoritative Attendance Review Endpoint (Requires Manager/Admin)
-  router.post('/review', authenticateFirebase, async (req: Request, res: Response) => {
+  router.post('/review', authenticateFirebase, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
     try {
       const { attendanceId, decision, reason } = req.body;
 
