@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   ShoppingCart, Search, Smartphone, Users, ChevronRight,
-  RefreshCw, TrendingUp, Bell, Target, ArrowRight, Zap, ScanFace
+  RefreshCw, TrendingUp, Bell, Target, ArrowRight, Zap, Camera
 } from 'lucide-react';
 import { POSSalesView } from './POSSalesView';
 import { EmployeeDashboardView } from './EmployeeDashboardView';
@@ -113,10 +113,10 @@ export const SalesWorkspaceView: React.FC<SalesWorkspaceViewProps> = ({
               }
             }}
             className="bg-white/20 hover:bg-white/30 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-sm backdrop-blur-md transition-all cursor-pointer active:scale-95 border border-white/20 shrink-0"
-            title="Điểm danh khuôn mặt Face ID vào ca"
+            title="Điểm danh GPS và ảnh tại cửa hàng"
           >
-            <ScanFace className="w-4 h-4 text-orange-200 animate-pulse" />
-            <span className="hidden sm:inline">⚡ Điểm Danh Face ID</span>
+            <Camera className="w-4 h-4 text-orange-200" />
+            <span className="hidden sm:inline">⚡ Điểm Danh Vào Ca</span>
             <span className="sm:hidden">Điểm Danh</span>
           </button>
 

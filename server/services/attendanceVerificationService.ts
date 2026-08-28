@@ -22,7 +22,6 @@ export async function createAttendanceVerificationSession(
     uid: input.uid,
     branchId: input.branchId,
     deviceIdHash: hash(input.deviceId),
-    clientIpHash: hash(input.clientIp),
     action: input.action,
     nonceHash: hash(nonce),
     status: 'OPEN',
@@ -34,7 +33,9 @@ export async function createAttendanceVerificationSession(
     nonce,
     expiresAt: new Date(expiresAt).toISOString(),
     action: input.action,
-    requiredEvidence: { gps: true, networkWhenConfigured: true, facePhoto: false, qr: false }
+    requiredEvidence: input.action === 'CHECK_IN'
+      ? { gps: true, photo: true, network: false, faceId: false, qr: false }
+      : { gps: false, photo: false, network: false, faceId: false, qr: false }
   };
 }
 
@@ -49,6 +50,5 @@ export function assertAttendanceVerificationSession(
   if (String(session.branchId || '') !== input.branchId) throw new Error('VERIFICATION_SESSION_BRANCH_MISMATCH');
   if (String(session.action || '') !== input.action) throw new Error('VERIFICATION_SESSION_ACTION_MISMATCH');
   if (String(session.deviceIdHash || '') !== hash(input.deviceId)) throw new Error('VERIFICATION_SESSION_DEVICE_MISMATCH');
-  if (String(session.clientIpHash || '') !== hash(input.clientIp)) throw new Error('VERIFICATION_SESSION_NETWORK_MISMATCH');
   if (String(session.nonceHash || '') !== hash(input.nonce)) throw new Error('VERIFICATION_SESSION_NONCE_INVALID');
 }

@@ -1,6 +1,7 @@
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { verifyGeofence, LatLng } from './geofenceService';
 import { assertAttendanceVerificationSession } from './attendanceVerificationService';
+import { getWeekDates, resolveDepartment } from './shiftSchedulingService';
 
 export function resolveAttendanceRadius(branch: { attendanceRadius?: unknown; allowedGpsRadiusMeters?: unknown } | null | undefined): number {
   const canonical = Number(branch?.attendanceRadius);
@@ -22,6 +23,7 @@ export interface CheckInEvidenceRequest {
   faceSessionId?: string;
   verificationNonce?: string;
   deviceId?: string;
+  photoEvidenceId?: string;
   qrScanned?: boolean;
   clientIp?: string;
   testShiftMock?: ShiftDefinition; // Optional mock for isolated unit testing
@@ -121,6 +123,9 @@ export interface AttendanceRecordResult {
     faceScore?: number;
     networkVerified: boolean;
     qrScanned: boolean;
+    photoCaptured?: boolean;
+    photoEvidenceId?: string;
+    photoCapturedAt?: string;
     serverTimeIso: string;
   };
   reviewData?: {
@@ -230,19 +235,55 @@ export async function resolveShiftAssignment(
     }
   }
 
-  // 3. Fail-closed: No schedule assignment found
+  // 3. Department FIXED policy is an authoritative recurring assignment.
+  // A published day-level schedule above remains the highest-priority override.
+  if (!daySchedule) {
+    const userSnap = await db.collection('users').doc(staffId).get();
+    if (userSnap.exists && userSnap.data()?.active !== false) {
+      const department = resolveDepartment(userSnap.data() || {});
+      const policyId = `POLICY_${branchId}_${department.departmentId.replace(/[^A-Z0-9_-]/g, '_')}`;
+      const policySnap = await db.collection('shiftDepartmentPolicies').doc(policyId).get();
+      const policy = policySnap.exists ? policySnap.data() : null;
+      if (policy?.active !== false && policy?.mode === 'FIXED' && policy?.defaultShiftId) {
+        const weekDayIndex = getWeekDates(weekStart).indexOf(workDate); // 0 = Monday ... 6 = Sunday
+        const workDayIndexes = Array.isArray(policy.workDayIndexes) ? policy.workDayIndexes.map(Number) : [];
+        if (!workDayIndexes.includes(weekDayIndex)) {
+          throw new Error(`OFF_DAY: Hôm nay (${workDate}) là ngày nghỉ theo ca cố định của bộ phận ${policy.departmentName || department.departmentName}.`);
+        }
+        const definitionSnap = await db.collection('shiftDefinitions').doc(String(policy.defaultShiftId)).get();
+        if (!definitionSnap.exists || definitionSnap.data()?.active === false) {
+          throw new Error('SHIFT_DEFINITION_NOT_FOUND: Ca cố định của bộ phận không còn hoạt động.');
+        }
+        const definition = definitionSnap.data() || {};
+        if (definition.branchId && definition.branchId !== 'ALL' && definition.branchId !== branchId) {
+          throw new Error('SHIFT_DEFINITION_BRANCH_MISMATCH: Ca cố định không thuộc chi nhánh chấm công.');
+        }
+        daySchedule = {
+          shiftId: policy.defaultShiftId,
+          shiftName: definition.name || 'Ca cố định',
+          startTime: definition.startTime,
+          endTime: definition.endTime,
+          breakMinutes: Number(definition.breakDurationMinutes ?? definition.breakMinutes ?? 0),
+          status: 'FIXED_POLICY',
+          isOff: false
+        };
+      }
+    }
+  }
+
+  // 4. Fail-closed: no weekly assignment or recurring fixed policy found.
   if (!daySchedule) {
     throw new Error(`SHIFT_NOT_ASSIGNED: Bạn chưa được xếp ca làm việc hôm nay (${workDate}). Vui lòng liên hệ Quản lý cửa hàng để được xếp ca.`);
   }
 
-  // 4. Fail-closed: Day off
+  // 5. Fail-closed: Day off
   const sName = (daySchedule.shiftName || '').trim();
   const sId = (daySchedule.shiftId || '').trim();
   if (sName === 'Nghỉ' || sId === 'OFF' || daySchedule.isOff) {
     throw new Error(`OFF_DAY: Hôm nay (${workDate}) là ngày nghỉ của bạn theo lịch phân ca.`);
   }
 
-  // 5. Match standard shift or custom shift bounds
+  // 6. Match standard shift or custom shift bounds
   const matchedStandard = STANDARD_SHIFTS[sId] || (
     sName === 'Ca sáng' ? STANDARD_SHIFTS.SHIFT_MORNING : 
     sName === 'Ca chiều' ? STANDARD_SHIFTS.SHIFT_AFTERNOON : 
@@ -273,6 +314,7 @@ export async function processServerCheckIn(
     faceSessionId,
     verificationNonce,
     deviceId,
+    photoEvidenceId,
     qrScanned = false,
     clientIp = '127.0.0.1',
     testShiftMock
@@ -289,12 +331,11 @@ export async function processServerCheckIn(
   // 1. Authoritative Store Geofence Lookup from DB with Fail-Closed Safety
   let authoritativeStoreCoords: LatLng;
   let authoritativeRadius = 50; // meters - default geofence for a configured branch
-  let isNetworkAllowed = clientIp === '127.0.0.1' || clientIp === '::1';
+  let authoritativeBranchName = branchName;
 
   if (!db) {
     // In memory / mock test mode
     authoritativeStoreCoords = { latitude: 16.0678, longitude: 108.2208 };
-    isNetworkAllowed = true;
   } else {
     // 1A. Geofence & Network Authority
     const branchDoc = await db.collection('branches').doc(branchId).get();
@@ -303,23 +344,18 @@ export async function processServerCheckIn(
     }
     const bData = branchDoc.data()!;
 
+    if (bData.isActive === false || bData.active === false) {
+      throw new Error(`BRANCH_NOT_ACTIVE: Chi nhánh "${bData.name || branchId}" đã ngừng hoạt động.`);
+    }
+
     if (typeof bData.gpsLatitude !== 'number' || typeof bData.gpsLongitude !== 'number') {
       throw new Error(`BRANCH_GPS_NOT_CONFIGURED: Chi nhánh "${bData.name || branchId}" chưa được cấu hình tọa độ GPS chuẩn.`);
     }
 
     authoritativeStoreCoords = { latitude: bData.gpsLatitude, longitude: bData.gpsLongitude };
     authoritativeRadius = resolveAttendanceRadius(bData);
+    authoritativeBranchName = String(bData.name || bData.branchName || branchName);
 
-    let allowedIps: string[] = [];
-    if (Array.isArray(bData.allowedPublicIps)) {
-      allowedIps = bData.allowedPublicIps;
-    } else if (typeof bData.storePublicIp === 'string') {
-      allowedIps = bData.storePublicIp.split(',').map((s: string) => s.trim()).filter(Boolean);
-    }
-
-    if (allowedIps.includes(clientIp)) {
-      isNetworkAllowed = true;
-    }
   }
 
   // Face capture is supplementary evidence only. Browser-provided embeddings
@@ -367,7 +403,7 @@ export async function processServerCheckIn(
   let punctualityStatus: 'ON_TIME' | 'LATE' | 'EARLY' = 'ON_TIME';
   let verificationStatus: 'VERIFIED' | 'PENDING_REVIEW' | 'REJECTED' = 'VERIFIED';
 
-  if (!geoCheck.isInside || !isNetworkAllowed) {
+  if (!geoCheck.isInside) {
     status = 'PENDING_VERIFICATION';
     verificationStatus = 'PENDING_REVIEW';
   } else if (lateMinutes > 0) {
@@ -385,7 +421,7 @@ export async function processServerCheckIn(
     staffName,
     role,
     branchId,
-    branchName,
+    branchName: authoritativeBranchName,
     date: dateStr,
     checkInTime: timeStr,
     status,
@@ -408,8 +444,10 @@ export async function processServerCheckIn(
       gpsVerified: geoCheck.isInside,
       distanceMeters: geoCheck.distanceMeters,
       faceVerified: isFaceVerified,
-      networkVerified: isNetworkAllowed,
+      networkVerified: false,
       qrScanned,
+      photoCaptured: Boolean(photoEvidenceId),
+      ...(photoEvidenceId ? { photoEvidenceId, photoCapturedAt: serverTimeIso } : {}),
       serverTimeIso
     }
   };
@@ -417,10 +455,16 @@ export async function processServerCheckIn(
   // 6. Persistence with Duplicate Locking
   if (db) {
     const attRef = db.collection('attendance').doc(recordId);
+    if (!photoEvidenceId) throw new Error('CHECKIN_PHOTO_REQUIRED: Cần chụp ảnh tại thời điểm chấm công.');
     if (!faceSessionId || !verificationNonce || !deviceId) throw new Error('VERIFICATION_SESSION_REQUIRED');
     const sessionRef = db.collection('attendanceVerificationSessions').doc(faceSessionId);
+    const photoRef = db.collection('evidenceRecords').doc(photoEvidenceId);
     await db.runTransaction(async (transaction) => {
-      const [sessionSnap, snap] = await Promise.all([transaction.get(sessionRef), transaction.get(attRef)]);
+      const [sessionSnap, snap, photoSnap] = await Promise.all([
+        transaction.get(sessionRef),
+        transaction.get(attRef),
+        transaction.get(photoRef)
+      ]);
       assertAttendanceVerificationSession(sessionSnap.exists ? sessionSnap.data() : null, {
         sessionId: faceSessionId,
         nonce: verificationNonce,
@@ -430,6 +474,12 @@ export async function processServerCheckIn(
         action: 'CHECK_IN',
         clientIp
       });
+      const photo = photoSnap.exists ? photoSnap.data() : null;
+      if (!photo || photo.status !== 'ACTIVE' || photo.resourceType !== 'ATTENDANCE' || photo.resourceId !== recordId) {
+        throw new Error('CHECKIN_PHOTO_INVALID: Ảnh chấm công không hợp lệ hoặc không thuộc ngày hiện tại.');
+      }
+      if (photo.branchId !== branchId || photo.createdByUid !== staffId) throw new Error('CHECKIN_PHOTO_FORBIDDEN');
+      if (photo.linkedAttendanceId && photo.linkedAttendanceId !== recordId) throw new Error('CHECKIN_PHOTO_ALREADY_USED');
       if (snap.exists) {
         const existingData = snap.data()!;
         if (existingData.checkInTime) {
@@ -444,6 +494,10 @@ export async function processServerCheckIn(
         status: 'USED',
         usedAt: FieldValue.serverTimestamp(),
         attendanceId: recordId
+      });
+      transaction.update(photoRef, {
+        linkedAttendanceId: recordId,
+        linkedAt: FieldValue.serverTimestamp()
       });
     });
   }

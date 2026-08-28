@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import {
   Wrench, Package, Search, Bell, CheckCircle2,
   Activity, Zap, Clock, Smartphone, ShieldCheck, RefreshCw,
-  ArrowUpRight, FileText, Check, Filter, Layers, DollarSign, ScanFace
+  ArrowUpRight, FileText, Check, Filter, Layers, DollarSign, Camera
 } from 'lucide-react';
 import { TechKanbanBoard } from './TechKanbanBoard';
 import { StaffHRView } from './StaffHRView';
@@ -333,9 +333,9 @@ export const TechWorkspaceView: React.FC<TechWorkspaceViewProps> = ({
               }
             }}
             className="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 shrink-0"
-            title="Điểm danh Face ID"
+            title="Điểm danh GPS và ảnh tại cửa hàng"
           >
-            <ScanFace className="w-4 h-4" />
+            <Camera className="w-4 h-4" />
             <span className="hidden sm:inline">Điểm Danh</span>
           </button>
 

@@ -309,8 +309,7 @@ export default function App() {
         staffName: currentUser.displayName,
         role: currentUser.role,
         userCoords: recordOrDraft.verification?.userCoords,
-        faceCaptureBase64: recordOrDraft.verification?.snapshotUrl,
-        qrScanned: recordOrDraft.verification?.qrScanned
+        photoFile: recordOrDraft.verification?.snapshotFile
       };
     } else {
       evidencePayload = {
@@ -2067,7 +2066,7 @@ export default function App() {
       )}
 
 
-      {/* GLOBAL FACE ID CHECK-IN MODAL (Accessible across all roles) */}
+      {/* GLOBAL GPS + PHOTO CHECK-IN MODAL (Accessible across all roles) */}
       {isCheckInModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-zinc-950/80 backdrop-blur-sm animate-fadeIn overflow-y-auto">
           <div className="relative w-full max-w-4xl max-h-[95vh] overflow-y-auto bg-zinc-50 rounded-3xl shadow-2xl border border-zinc-700 my-auto">

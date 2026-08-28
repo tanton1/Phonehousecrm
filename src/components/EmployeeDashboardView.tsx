@@ -49,7 +49,7 @@ import {
   Sliders,
   Store,
   Phone,
-  ScanFace
+  Camera
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -578,16 +578,16 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
             </select>
           </div>
 
-          {/* Button: Check-In Face ID */}
+          {/* Button: GPS + photo check-in */}
           {onOpenCheckIn && (
             <div className="self-end">
               <button
                 onClick={onOpenCheckIn}
                 className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-black px-3.5 py-2 rounded-xl flex items-center space-x-1.5 transition-all cursor-pointer shadow-md shadow-orange-500/20 active:scale-95"
-                title="Điểm danh chấm công Face ID vào/ra ca"
+                title="Điểm danh GPS và ảnh tại cửa hàng"
               >
-                <ScanFace className="w-3.5 h-3.5 animate-pulse" />
-                <span>⚡ Điểm Danh Face ID</span>
+                <Camera className="w-3.5 h-3.5" />
+                <span>⚡ Điểm Danh Vào Ca</span>
               </button>
             </div>
           )}

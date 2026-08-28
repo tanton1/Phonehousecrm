@@ -35,7 +35,7 @@ import {
   Wallet, 
   ChevronRight, 
   ArrowUpRight,
-  ScanFace,
+  Camera,
   Target,
   Trophy,
   Check,
@@ -454,10 +454,10 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
             <button
               onClick={onOpenCheckIn}
               className="px-3.5 py-2 rounded-2xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-bold text-xs transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 border border-zinc-200/80"
-              title="Điểm danh khuôn mặt Face ID vào ca"
+              title="Điểm danh GPS và ảnh tại cửa hàng"
             >
-              <ScanFace className="w-3.5 h-3.5 text-[#ff4b16]" />
-              <span className="hidden sm:inline">Face ID Vào Ca</span>
+              <Camera className="w-3.5 h-3.5 text-[#ff4b16]" />
+              <span className="hidden sm:inline">Điểm Danh Vào Ca</span>
             </button>
           )}
 

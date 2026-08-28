@@ -28,8 +28,9 @@ const assertion = {
 };
 
 describe('attendance verification session', () => {
-  it('accepts only the bound user, branch, device, IP and nonce', () => {
+  it('binds the session to user, branch, device and nonce without binding a mobile IP', () => {
     expect(() => assertAttendanceVerificationSession(openSession(), assertion)).not.toThrow();
+    expect(() => assertAttendanceVerificationSession(openSession(), { ...assertion, clientIp: '198.51.100.24' })).not.toThrow();
     expect(() => assertAttendanceVerificationSession(openSession(), { ...assertion, nonce: 'replayed-or-wrong' }))
       .toThrow('VERIFICATION_SESSION_NONCE_INVALID');
     expect(() => assertAttendanceVerificationSession(openSession(), { ...assertion, deviceId: 'other-device' }))

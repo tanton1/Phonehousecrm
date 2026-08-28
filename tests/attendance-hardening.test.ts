@@ -29,7 +29,7 @@ describe('Production Attendance & Shift Hardening Test Suite (P0/P1)', () => {
   });
 
   describe('2. Check-in & Biometric State Engine', () => {
-    it('treats biometric evidence as supplementary when GPS and network are valid', async () => {
+    it('uses GPS as the location authority and does not require the store network', async () => {
       const result = await processServerCheckIn(null, {
         staffId: 'STAFF-TECH-01',
         staffName: 'Trần Kỹ Thuật',
@@ -43,7 +43,7 @@ describe('Production Attendance & Shift Hardening Test Suite (P0/P1)', () => {
       expect(result.verificationStatus).toBe('VERIFIED');
       expect(result.verification.gpsVerified).toBe(true);
       expect(result.verification.faceVerified).toBe(false);
-      expect(result.verification.networkVerified).toBe(true);
+      expect(result.verification.networkVerified).toBe(false);
     });
 
     it('records shift metadata and scheduled bounds in check-in result', async () => {

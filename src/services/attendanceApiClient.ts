@@ -1,5 +1,7 @@
 import { auth } from '../lib/firebase';
 import { AttendanceRecord, DailyShiftChecklistItem, LeaveRequest, ShiftHandoverReport } from '../types';
+import { getVietnamDateString } from '../utils/dateTimeUtils';
+import { uploadEvidenceRecordViaServer } from './evidenceApiClient';
 
 export interface CheckInEvidencePayload {
   branchId: string;
@@ -10,11 +12,28 @@ export interface CheckInEvidencePayload {
     latitude: number;
     longitude: number;
   };
-  faceCaptureBase64?: string;
-  faceSessionId?: string;
-  verificationNonce?: string;
-  deviceId?: string;
-  qrScanned?: boolean;
+  photoFile?: File;
+}
+
+export interface CheckInContext {
+  serverTimeIso: string;
+  serverTimeFormatted: string;
+  serverDateFormatted: string;
+  workDate: string;
+  shift: {
+    shiftId: string;
+    shiftName: string;
+    startTime: string;
+    endTime: string;
+    breakMinutes: number;
+  };
+  branch: {
+    id: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+    radiusMeters: number;
+  };
 }
 
 export interface AttendanceApiResponse<T> {
@@ -28,7 +47,7 @@ export interface AttendanceApiResponse<T> {
  * Executes an authenticated API request to the backend Attendance service
  */
 async function sendAttendanceApiRequest<T>(
-  endpoint: 'check-in' | 'check-out' | 'network-check' | 'review' | 'verification-sessions' | 'leave-requests' | `leave-requests/${string}/review` | `checklists/${string}/save` | `checklists/${string}/review` | 'handovers' | `handovers/${string}/review`,
+  endpoint: 'check-in-context' | 'check-in' | 'check-out' | 'network-check' | 'review' | 'verification-sessions' | 'leave-requests' | `leave-requests/${string}/review` | `checklists/${string}/save` | `checklists/${string}/review` | 'handovers' | `handovers/${string}/review`,
   payload: Record<string, any> = {}
 ): Promise<T> {
   const firebaseUser = auth.currentUser;
@@ -70,28 +89,45 @@ async function sendAttendanceApiRequest<T>(
 }
 
 /**
- * Authoritative Server Check-in with biometric and geofence verification
+ * Authoritative Server Check-in with GPS and a server-stored photo evidence record.
  */
 export async function requestServerCheckIn(evidence: CheckInEvidencePayload): Promise<AttendanceRecord> {
   if (!evidence.branchId) throw new Error('BRANCH_REQUIRED: Cần chọn chi nhánh trước khi chấm công.');
+  if (!evidence.photoFile) throw new Error('CHECKIN_PHOTO_REQUIRED: Hãy chụp ảnh tại cửa hàng trước khi chấm công.');
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) throw new Error('UNAUTHENTICATED: Vui lòng đăng nhập lại.');
   const storageKey = 'phonehouse_attendance_device_id';
   let deviceId = window.sessionStorage.getItem(storageKey) || '';
   if (!deviceId) {
     deviceId = `WEB_${crypto.randomUUID()}`;
     window.sessionStorage.setItem(storageKey, deviceId);
   }
+  const attendanceId = `ATT_${firebaseUser.uid}_${getVietnamDateString().replace(/-/g, '')}`;
+  const photo = await uploadEvidenceRecordViaServer({
+    resourceType: 'ATTENDANCE',
+    resourceId: attendanceId,
+    contextId: 'CHECK_IN',
+    branchId: evidence.branchId,
+    file: evidence.photoFile
+  });
   const session = await sendAttendanceApiRequest<{ sessionId: string; nonce: string }>('verification-sessions', {
     branchId: evidence.branchId,
     deviceId,
     action: 'CHECK_IN'
   });
-  const { faceCaptureBase64: _faceCapture, ...safeEvidence } = evidence;
+  const { photoFile: _photoFile, ...safeEvidence } = evidence;
   return sendAttendanceApiRequest<AttendanceRecord>('check-in', {
     ...safeEvidence,
+    photoEvidenceId: photo.id,
     faceSessionId: session.sessionId,
     verificationNonce: session.nonce,
     deviceId
   });
+}
+
+export async function requestCheckInContext(branchId: string): Promise<CheckInContext> {
+  if (!branchId) throw new Error('BRANCH_REQUIRED: Cần chọn chi nhánh trước khi chấm công.');
+  return sendAttendanceApiRequest<CheckInContext>('check-in-context', { branchId });
 }
 
 /**

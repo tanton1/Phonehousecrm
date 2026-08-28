@@ -21,7 +21,7 @@ import {
   Settings,
   DollarSign,
   Database,
-  ScanFace,
+  Camera,
   Grid3X3
 } from 'lucide-react';
 import React from 'react';
@@ -106,7 +106,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     items: [
       { id: 'hr-attendance', label: 'Nhân Sự & Lương', icon: Clock },
       { id: 'staff-hr', label: 'Bàn Nhân Sự Cá Nhân', icon: CheckSquare },
-      { id: 'checkin-portal', label: 'Điểm Danh Face ID', icon: ScanFace },
+      { id: 'checkin-portal', label: 'Điểm Danh GPS & Ảnh', icon: Camera },
       { id: 'users', label: 'Phân Quyền User RBAC', icon: ShieldCheck, roles: ['ADMIN'] },
       { id: 'store-settings', label: 'Cài Đặt & Khởi Tạo Hệ Thống', icon: Settings, roles: ['ADMIN', 'MANAGER'] }
     ]
@@ -127,7 +127,7 @@ export function getMobilePrimaryTabs(userRole?: string) {
       { id: 'dashboard', label: 'Hôm nay', icon: LayoutDashboard },
       { id: 'crm', label: 'Khách CRM', icon: Users },
       { id: 'omnichannel-chat', label: 'Inbox', icon: MessageSquare },
-      { id: 'checkin-portal', label: 'Điểm danh', icon: ScanFace },
+      { id: 'checkin-portal', label: 'Điểm danh', icon: Camera },
       { id: 'more', label: 'Xem thêm', icon: Settings }
     ];
   }
@@ -147,7 +147,7 @@ export function getMobilePrimaryTabs(userRole?: string) {
       { id: 'tech-workspace', label: 'Việc của tôi', icon: Cpu },
       { id: 'products', label: 'Linh kiện', icon: Package },
       { id: 'transfers', label: 'Chuyển kho', icon: ArrowRightLeft },
-      { id: 'checkin-portal', label: 'Điểm danh', icon: ScanFace },
+      { id: 'checkin-portal', label: 'Điểm danh', icon: Camera },
       { id: 'more', label: 'Xem thêm', icon: Settings }
     ];
   }

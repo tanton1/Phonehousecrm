@@ -14,7 +14,6 @@ import {
   ShieldCheck,
   Printer,
   Save,
-  RefreshCw,
   CreditCard,
   FileText,
   Sparkles,
@@ -48,7 +47,6 @@ import {
 } from '../types';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
-import { apiJson } from '../services/apiClient';
 import { isWarehouseActive, isWarehouseArchived } from '../utils/warehouseLifecycle';
 
 export interface StoreSettingsViewProps {
@@ -137,75 +135,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     allowedGpsRadiusMeters: 50,
     notes: ''
   });
-
-  const [isGettingIp, setIsGettingIp] = useState(false);
-
-  const handleGetDeviceIP = async () => {
-    setIsGettingIp(true);
-    let detectedIp = '';
-    let detectionSource = '';
-
-    // 1. First attempt: Internal Server API
-    try {
-      const data = await apiJson<{ success: boolean; ip: string }>('/api/client-ip');
-      if (data && data.success && data.ip && data.ip !== '127.0.0.1' && data.ip !== '::1') {
-        detectedIp = data.ip.trim();
-        detectionSource = 'Máy chủ PhoneHouse ERP';
-      }
-    } catch (apiErr) {
-      console.warn('[IP Detection] Internal server API unavailable, trying public IP resolver...', apiErr);
-    }
-
-    // 2. Second attempt: Resilient Public IP Resolvers (IPv4/IPv6)
-    if (!detectedIp) {
-      const publicEndpoints = [
-        'https://api64.ipify.org?format=json',
-        'https://api.ipify.org?format=json',
-        'https://ipapi.co/json/'
-      ];
-
-      for (const endpoint of publicEndpoints) {
-        try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 4000);
-          const res = await fetch(endpoint, {
-            headers: { Accept: 'application/json' },
-            signal: controller.signal
-          });
-          clearTimeout(timer);
-          if (res.ok) {
-            const json = await res.json();
-            if (json && typeof json.ip === 'string' && json.ip.trim()) {
-              detectedIp = json.ip.trim();
-              detectionSource = endpoint.includes('ipify') ? 'ipify.org' : 'ipapi.co';
-              break;
-            }
-          }
-        } catch (fetchErr) {
-          console.warn(`[IP Detection] Endpoint ${endpoint} failed:`, fetchErr);
-        }
-      }
-    }
-
-    if (detectedIp) {
-      setBranchForm(prev => {
-        const currentIps = Array.isArray(prev.allowedPublicIps) ? [...prev.allowedPublicIps] : [];
-        if (!currentIps.includes(detectedIp)) {
-          currentIps.push(detectedIp);
-        }
-        return {
-          ...prev,
-          storePublicIp: detectedIp,
-          allowedPublicIps: currentIps
-        };
-      });
-      showToast(`Đã lấy IP Router: ${detectedIp}`, 'success');
-      alert(`Đã tự động lấy IP Router Wi-Fi cửa hàng thành công (qua ${detectionSource}):\n\n📍 Địa chỉ IP: ${detectedIp}\n(${detectedIp.includes(':') ? 'Định dạng IPv6' : 'Định dạng IPv4'})\n\nBấm "Lưu" để cập nhật địa chỉ IP này cho chi nhánh.`);
-    } else {
-      alert('Không thể xác định địa chỉ IP công khai của mạng hiện tại. Vui lòng kiểm tra kết nối Internet hoặc nhập địa chỉ IP Router thủ công.');
-    }
-    setIsGettingIp(false);
-  };
 
   const handleGetDeviceGPS = () => {
     if ('geolocation' in navigator) {
@@ -704,7 +633,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       );
                     })()}
 
-                    {/* GPS & Wi-Fi Chấm Công Info Badge */}
+                    {/* GPS check-in configuration summary */}
                     <div className="space-y-1.5 bg-orange-50/70 border border-orange-200/80 rounded-xl p-3 text-orange-950 mt-2 text-xs">
                       <div className="flex items-center justify-between flex-wrap gap-1">
                         <div className="flex items-center space-x-2">
@@ -712,13 +641,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                           <span>GPS: <strong className="font-mono">{branch.gpsLatitude ?? 'Chưa cài'}, {branch.gpsLongitude ?? 'Chưa cài'}</strong> ({branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50}m)</span>
                         </div>
                         <span className="text-[10px] bg-white border border-orange-200 text-[#ff4b16] font-extrabold px-2 py-0.5 rounded-md">
-                          SSID: {branch.allowedWifiSSID || 'Chưa cài'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-orange-200/60">
-                        <span className="text-zinc-700 font-medium">📶 IP Router Cửa Hàng:</span>
-                        <span className="font-mono font-bold bg-white text-orange-900 px-2 py-0.5 rounded-md border border-orange-200 truncate max-w-[220px]" title={Array.isArray(branch.allowedPublicIps) && branch.allowedPublicIps.length > 0 ? branch.allowedPublicIps.join(', ') : (branch.storePublicIp || 'Chưa cấu hình')}>
-                          {Array.isArray(branch.allowedPublicIps) && branch.allowedPublicIps.length > 0 ? branch.allowedPublicIps.join(', ') : (branch.storePublicIp || 'Chưa cấu hình')}
+                          GPS & ảnh tại chỗ
                         </span>
                       </div>
                     </div>
@@ -1534,12 +1457,12 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 )}
               </div>
 
-              {/* GPS & Wi-Fi Check-in Configuration */}
+              {/* GPS check-in configuration */}
               <div className="p-3.5 bg-orange-50/80 rounded-2xl border border-orange-200 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-black text-orange-950 flex items-center gap-1.5 uppercase tracking-wider">
                     <MapPin className="w-4 h-4 text-[#ff4b16]" />
-                    <span>Tọa Độ GPS & Wi-Fi Chấm Công Hợp Lệ</span>
+                    <span>Tọa Độ GPS Chấm Công</span>
                   </div>
                   <button
                     type="button"
@@ -1575,18 +1498,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-bold text-zinc-700 mb-0.5">SSID Wi-Fi Cửa Hàng</label>
-                    <input
-                      type="text"
-                      placeholder="PH_HAICHAU_5G"
-                      value={branchForm.allowedWifiSSID ?? ''}
-                      onChange={(e) => setBranchForm({ ...branchForm, allowedWifiSSID: e.target.value })}
-                      className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-bold text-zinc-900"
-                    />
-                  </div>
-                  <div>
+                <div>
                     <label className="block text-[11px] font-bold text-zinc-700 mb-0.5">Bán kính GPS (mét)</label>
                     <input
                       type="number"
@@ -1600,34 +1512,6 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       }}
                       className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-bold text-zinc-900"
                     />
-                  </div>
-                </div>
-
-                {/* IP Router Public Verification */}
-                <div className="pt-2 border-t border-orange-200/80 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-[11px] font-bold text-zinc-800">
-                      IP Router Public Cửa Hàng (IPv4 / IPv6)
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleGetDeviceIP}
-                      disabled={isGettingIp}
-                      className="text-[10px] font-bold text-orange-700 bg-white hover:bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-200 transition-colors flex items-center gap-1 cursor-pointer"
-                    >
-                      {isGettingIp ? <RefreshCw className="w-3 h-3 animate-spin" /> : <span>🔍 Lấy IP hiện tại</span>}
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="113.161.45.88 hoặc 2405:4802:95f1:68b0:..."
-                    value={branchForm.storePublicIp ?? ''}
-                    onChange={(e) => setBranchForm({ ...branchForm, storePublicIp: e.target.value })}
-                    className="w-full px-3 py-1.5 bg-white border border-orange-200 rounded-xl text-xs font-mono font-bold text-zinc-900"
-                  />
-                  <span className="text-[10px] text-zinc-500 block">
-                    Bấm "Lấy IP hiện tại" khi thiết bị của bạn đang kết nối Wi-Fi cửa hàng để hệ thống tự quét IP Router.
-                  </span>
                 </div>
               </div>
 

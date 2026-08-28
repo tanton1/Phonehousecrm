@@ -10,6 +10,45 @@ import {
 
 describe('Sprint P0: Shift Engine Fail-Closed & Attendance Domain Suite', () => {
 
+  function fixedPolicyDb(workDayIndexes: number[]) {
+    const documents: Record<string, any> = {
+      'users/TECH_UID': { active: true, role: 'TECHNICIAN' },
+      'shiftDepartmentPolicies/POLICY_CN01_TECHNICAL': {
+        active: true,
+        mode: 'FIXED',
+        departmentId: 'TECHNICAL',
+        departmentName: 'Kỹ thuật',
+        defaultShiftId: 'SHIFT_OFFICE',
+        workDayIndexes
+      },
+      'shiftDefinitions/SHIFT_OFFICE': {
+        active: true,
+        branchId: 'CN01',
+        name: 'Ca hành chính kỹ thuật',
+        startTime: '08:30',
+        endTime: '17:30',
+        breakDurationMinutes: 60
+      }
+    };
+    const collection = (name: string) => {
+      const query: any = {
+        where: () => query,
+        limit: () => query,
+        get: async () => ({ empty: true, docs: [] })
+      };
+      return {
+        ...query,
+        doc: (id: string) => ({
+          get: async () => {
+            const data = documents[`${name}/${id}`];
+            return { exists: Boolean(data), data: () => data };
+          }
+        })
+      };
+    };
+    return { collection } as any;
+  }
+
   describe('1. WeekStart and Time Difference Utilities', () => {
     it('calculates Vietnam Monday week start date accurately', () => {
       // 2026-08-20 is Thursday -> Monday is 2026-08-17
@@ -71,6 +110,30 @@ describe('Sprint P0: Shift Engine Fail-Closed & Attendance Domain Suite', () => 
       expect(shift.startTime).toBe('14:00');
       expect(shift.endTime).toBe('22:00');
       expect(shift.breakMinutes).toBe(45);
+    });
+
+    it('automatically resolves the recurring fixed shift for a technician department', async () => {
+      const shift = await resolveShiftAssignment(fixedPolicyDb([0, 1, 2, 3, 4, 5]), {
+        staffId: 'TECH_UID',
+        branchId: 'CN01',
+        workDate: '2026-08-20'
+      });
+
+      expect(shift).toMatchObject({
+        shiftId: 'SHIFT_OFFICE',
+        shiftName: 'Ca hành chính kỹ thuật',
+        startTime: '08:30',
+        endTime: '17:30',
+        breakMinutes: 60
+      });
+    });
+
+    it('keeps a fixed-policy rest day fail-closed', async () => {
+      await expect(resolveShiftAssignment(fixedPolicyDb([0, 1]), {
+        staffId: 'TECH_UID',
+        branchId: 'CN01',
+        workDate: '2026-08-20'
+      })).rejects.toThrow('OFF_DAY');
     });
   });
 

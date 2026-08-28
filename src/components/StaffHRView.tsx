@@ -4,9 +4,8 @@ import {
   Calendar,
   CheckCircle2,
   AlertCircle,
-  ScanFace,
+  Camera,
   MapPin,
-  Wifi,
   Zap,
   TrendingUp,
   FileText,
@@ -615,10 +614,10 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
               <button
                 onClick={handleSelfCheckIn}
                 className="bg-gradient-to-r from-orange-500 to-orange-500 hover:from-orange-600 hover:to-orange-600 text-white text-xs font-black px-3 py-1.5 rounded-xl flex items-center gap-1.5 shadow-md shadow-orange-500/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
-                title="Điểm danh khuôn mặt Face ID và vị trí GPS"
+                title="Điểm danh GPS và ảnh tại cửa hàng"
               >
-                <ScanFace className="w-3.5 h-3.5" />
-                <span>Face ID Vào Ca</span>
+                <Camera className="w-3.5 h-3.5" />
+                <span>Điểm Danh Vào Ca</span>
               </button>
             )}
 
@@ -796,37 +795,26 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
               <span>Nhật Ký Cảm Biến Điểm Danh Gần Nhất</span>
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
                   <MapPin className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="text-xs font-bold text-zinc-800">Định Vị GPS</div>
-                  <div className={`text-xs font-black ${attendance.verification?.gpsVerified ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.gpsVerified ? `Hợp lệ • ${Math.round(attendance.verification.gpsDistanceMeters || 0)}m` : 'Chưa xác minh GPS'}</div>
+                  <div className={`text-xs font-black ${attendance.verification?.gpsVerified ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.gpsVerified ? `Hợp lệ • ${Math.round(attendance.verification.distanceMeters ?? attendance.verification.gpsDistanceMeters ?? 0)}m` : 'Chưa xác minh GPS'}</div>
                   <div className="text-[10px] text-zinc-400">Dữ liệu từ lần chấm công gần nhất</div>
                 </div>
               </div>
 
               <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
-                  <Wifi className="w-5 h-5" />
+                  <Camera className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-zinc-800">Wi-Fi Showroom</div>
-                  <div className={`text-xs font-black ${attendance.verification?.wifiVerified ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.wifiVerified ? `Đã kết nối ${attendance.verification.wifiSSID || ''}` : 'Chưa xác minh Wi-Fi'}</div>
-                  <div className="text-[10px] text-zinc-400">Không hiển thị BSSID giả định</div>
-                </div>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold">
-                  <ScanFace className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-zinc-800">Face ID Sinh Trắc Học</div>
-                  <div className={`text-xs font-black ${attendance.verification?.faceVerified ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.faceVerified ? 'Đã xác minh' : 'Chưa xác minh Face ID'}</div>
-                  <div className="text-[10px] text-zinc-400">Không hiển thị điểm khớp giả định</div>
+                  <div className="text-xs font-bold text-zinc-800">Ảnh Tại Cửa Hàng</div>
+                  <div className={`text-xs font-black ${attendance.verification?.photoCaptured || attendance.verification?.photoEvidenceId ? 'text-emerald-600' : 'text-zinc-500'}`}>{attendance.verification?.photoCaptured || attendance.verification?.photoEvidenceId ? 'Đã lưu bằng chứng' : 'Chưa có ảnh'}</div>
+                  <div className="text-[10px] text-zinc-400">Ảnh gắn với bản ghi chấm công</div>
                 </div>
               </div>
             </div>

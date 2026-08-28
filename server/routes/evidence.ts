@@ -5,7 +5,7 @@ import { adminBucket } from '../firebaseAdmin';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 
-type EvidenceType = 'CRM' | 'TECHNICAL';
+type EvidenceType = 'CRM' | 'TECHNICAL' | 'ATTENDANCE';
 
 function actorCanAccessBranch(req: Request, branchId: string) {
   const role = String(req.user?.role || '').toUpperCase();
@@ -13,7 +13,13 @@ function actorCanAccessBranch(req: Request, branchId: string) {
 }
 
 function imageLimit(type: EvidenceType) {
-  return type === 'CRM' ? 8 * 1024 * 1024 : 20 * 1024 * 1024;
+  if (type === 'CRM') return 8 * 1024 * 1024;
+  if (type === 'ATTENDANCE') return 12 * 1024 * 1024;
+  return 20 * 1024 * 1024;
+}
+
+function vietnamDateString() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
 function sha256StorageObject(file: any): Promise<string> {
@@ -35,7 +41,24 @@ async function issueEvidenceReadUrl(objectPath: string) {
 async function resolveResource(db: Firestore, req: Request, input: any) {
   const type = String(input.resourceType || '').toUpperCase() as EvidenceType;
   const resourceId = String(input.resourceId || '').trim();
-  if (!['CRM', 'TECHNICAL'].includes(type) || !resourceId) throw new Error('EVIDENCE_RESOURCE_REQUIRED');
+  if (!['CRM', 'TECHNICAL', 'ATTENDANCE'].includes(type) || !resourceId) throw new Error('EVIDENCE_RESOURCE_REQUIRED');
+  if (type === 'ATTENDANCE') {
+    const branchId = String(input.branchId || '').trim();
+    if (!branchId || !actorCanAccessBranch(req, branchId)) throw new Error('BRANCH_ACCESS_DENIED');
+    const snap = await db.collection('attendance').doc(resourceId).get();
+    if (snap.exists) {
+      const data = snap.data() || {};
+      const actualBranchId = String(data.branchId || '');
+      const role = String(req.user?.role || '').toUpperCase();
+      const mayReview = ['ADMIN', 'MANAGER', 'STORE_MANAGER', 'REGIONAL_MANAGER'].includes(role);
+      if (!actualBranchId || !actorCanAccessBranch(req, actualBranchId)) throw new Error('BRANCH_ACCESS_DENIED');
+      if (String(data.staffId || '') !== req.user?.uid && !mayReview) throw new Error('EVIDENCE_ASSIGNMENT_DENIED');
+      return { type, resourceId, branchId: actualBranchId };
+    }
+    const expectedId = `ATT_${req.user!.uid}_${vietnamDateString().replace(/-/g, '')}`;
+    if (resourceId !== expectedId) throw new Error('ATTENDANCE_EVIDENCE_RESOURCE_INVALID');
+    return { type, resourceId, branchId };
+  }
   const collection = type === 'CRM' ? 'leads' : 'technicalWorkOrders';
   const snap = await db.collection(collection).doc(resourceId).get();
   if (!snap.exists) {

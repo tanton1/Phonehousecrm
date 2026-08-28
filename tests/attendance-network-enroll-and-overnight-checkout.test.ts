@@ -6,8 +6,18 @@ const digest = (value: string) => crypto.createHash('sha256').update(value).dige
 const verificationInput = {
   faceSessionId: 'AVS_TEST',
   verificationNonce: 'nonce-test',
-  deviceId: 'device-test-001'
+  deviceId: 'device-test-001',
+  photoEvidenceId: 'EVD_CHECKIN_TEST'
 };
+const todayVietnam = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
+const attendanceId = () => `ATT_STAFF_001_${todayVietnam().replace(/-/g, '')}`;
+const photoEvidence = () => ({
+  status: 'ACTIVE',
+  resourceType: 'ATTENDANCE',
+  resourceId: attendanceId(),
+  branchId: 'CN01',
+  createdByUid: 'STAFF_001'
+});
 
 const openSession = (staffId: string, branchId: string, clientIp: string) => ({
   uid: staffId,
@@ -20,7 +30,7 @@ const openSession = (staffId: string, branchId: string, clientIp: string) => ({
   nonceHash: digest(verificationInput.verificationNonce)
 });
 
-describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Checkout Suite', () => {
+describe('Attendance GPS/photo schema normalization & overnight checkout suite', () => {
 
   const mockShift = {
     shiftId: 'SHIFT_MORNING',
@@ -31,8 +41,8 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
     graceMinutes: 5
   };
 
-  describe('1. Branch Network IP & Radius Schema Normalization', () => {
-    it('accepts check-in with array allowedPublicIps and custom attendanceRadius', async () => {
+  describe('1. Branch GPS radius and photo evidence', () => {
+    it('accepts check-in with a custom attendanceRadius and linked photo', async () => {
       const mockDb: any = {
         collection: (col: string) => ({
           doc: (docId: string) => ({
@@ -84,7 +94,9 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
           const mockTransaction = {
             get: async (ref: any) => ref.col === 'attendanceVerificationSessions'
               ? ({ exists: true, data: () => openSession('STAFF_001', 'CN01', '113.161.45.99') })
-              : ({ exists: false }),
+              : ref.col === 'evidenceRecords'
+                ? ({ exists: true, data: photoEvidence })
+                : ({ exists: false }),
             set: () => {},
             update: () => {}
           };
@@ -101,11 +113,12 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
       });
 
       expect(result.attendanceStatus).toBe('CHECKED_IN');
-      expect(result.verification.networkVerified).toBe(true);
+      expect(result.verification.networkVerified).toBe(false);
       expect(result.verification.gpsVerified).toBe(true);
+      expect(result.verification.photoEvidenceId).toBe('EVD_CHECKIN_TEST');
     });
 
-    it('backward compatibility: parses legacy comma-separated storePublicIp and allowedGpsRadiusMeters', async () => {
+    it('preserves the legacy allowedGpsRadiusMeters fallback without requiring an IP allowlist', async () => {
       const mockDb: any = {
         collection: (col: string) => ({
           doc: (docId: string) => ({
@@ -157,7 +170,9 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
           const mockTransaction = {
             get: async (ref: any) => ref.col === 'attendanceVerificationSessions'
               ? ({ exists: true, data: () => openSession('STAFF_001', 'CN01', '14.232.208.10') })
-              : ({ exists: false }),
+              : ref.col === 'evidenceRecords'
+                ? ({ exists: true, data: photoEvidence })
+                : ({ exists: false }),
             set: () => {},
             update: () => {}
           };
@@ -173,7 +188,8 @@ describe('Attendance Network IP Enrollment, Schema Normalization & Overnight Che
         ,...verificationInput
       });
 
-      expect(result.verification.networkVerified).toBe(true);
+      expect(result.verification.networkVerified).toBe(false);
+      expect(result.verification.photoCaptured).toBe(true);
     });
   });
 

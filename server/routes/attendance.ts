@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
-import { processServerCheckIn, processServerCheckOut } from '../services/attendanceService';
+import { processServerCheckIn, processServerCheckOut, resolveAttendanceRadius, resolveShiftAssignment } from '../services/attendanceService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
 import { requireRole } from '../middleware/requireRole';
@@ -118,6 +118,54 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     });
   });
 
+  // Authoritative context shown before check-in: server time, fixed/published shift and store GPS.
+  router.post('/check-in-context', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
+    try {
+      if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+      const branchId = String(req.body?.branchId || req.user?.branchId || '').trim();
+      if (!branchId) throw new Error('BRANCH_REQUIRED');
+      const branchSnap = await db.collection('branches').doc(branchId).get();
+      if (!branchSnap.exists) throw new Error('BRANCH_NOT_FOUND');
+      const branch = branchSnap.data() || {};
+      if (branch.isActive === false || branch.active === false) throw new Error('BRANCH_NOT_ACTIVE');
+      if (typeof branch.gpsLatitude !== 'number' || typeof branch.gpsLongitude !== 'number') {
+        throw new Error('BRANCH_GPS_NOT_CONFIGURED');
+      }
+      const now = new Date();
+      const workDate = now.toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' });
+      const shift = await resolveShiftAssignment(db, {
+        staffId: req.user!.uid,
+        branchId,
+        workDate
+      });
+      return res.json({
+        success: true,
+        data: {
+          serverTimeIso: now.toISOString(),
+          serverTimeFormatted: now.toLocaleTimeString('vi-VN', {
+            hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Ho_Chi_Minh'
+          }),
+          serverDateFormatted: now.toLocaleDateString('vi-VN', {
+            weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Ho_Chi_Minh'
+          }),
+          workDate,
+          shift,
+          branch: {
+            id: branchId,
+            name: String(branch.name || branch.branchName || branchId),
+            latitude: branch.gpsLatitude,
+            longitude: branch.gpsLongitude,
+            radiusMeters: resolveAttendanceRadius(branch)
+          }
+        }
+      });
+    } catch (error: any) {
+      const code = String(error?.message || 'CHECKIN_CONTEXT_FAILED').split(':')[0];
+      const status = code.includes('NOT_FOUND') ? 404 : code.includes('NOT_CONFIGURED') ? 422 : 400;
+      return res.status(status).json({ success: false, code, message: error?.message || 'Không tải được thông tin ca làm việc.' });
+    }
+  });
+
   // 2. Authoritative Check-In Endpoint (Requires Firebase Auth Token & Branch Access)
   router.post('/verification-sessions', authenticateFirebase, requireBranchAccess(), async (req: Request, res: Response) => {
     try {
@@ -150,6 +198,7 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         faceSessionId: req.body.faceSessionId,
         verificationNonce: req.body.verificationNonce,
         deviceId: req.body.deviceId,
+        photoEvidenceId: req.body.photoEvidenceId,
         qrScanned: Boolean(req.body.qrScanned),
         clientIp: ip
       };

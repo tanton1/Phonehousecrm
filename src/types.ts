@@ -1705,15 +1705,21 @@ export interface AttendanceRecord {
   breakDurationMinutes: number;
   netWorkMinutes: number;
   
-  // 4-Factor Verification Checklist
+  // Check-in evidence. Wi-Fi/Face fields remain optional for historical records only.
   verification: {
     gpsVerified: boolean;
     gpsDistanceMeters?: number;
-    wifiVerified: boolean;
+    distanceMeters?: number;
+    userCoords?: { latitude: number; longitude: number };
+    wifiVerified?: boolean;
     wifiSSID?: string;
-    faceVerified: boolean;
-    qrScanned: boolean;
+    faceVerified?: boolean;
+    qrScanned?: boolean;
     checkInPhoto?: string;
+    photoCaptured?: boolean;
+    photoEvidenceId?: string;
+    photoCapturedAt?: string;
+    serverTimeIso?: string;
   };
 
   // Status & Current Live Activity

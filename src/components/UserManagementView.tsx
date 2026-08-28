@@ -738,7 +738,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-500 leading-snug">
-                  Chọn 1 hoặc nhiều địa điểm cửa hàng mà nhân viên này được phép đến trực ca và thực hiện check-in chấm công GPS/Wi-Fi:
+                  Chọn địa điểm nhân viên được phép trực ca và chấm công bằng GPS kèm ảnh tại chỗ:
                 </p>
 
                 <div className="space-y-1.5 pt-1">
@@ -776,7 +776,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                           {branch.gpsLatitude && branch.gpsLongitude && (
                             <div className="text-[10px] text-zinc-400 font-mono mt-1 flex items-center gap-2">
                               <span>📍 GPS: {branch.gpsLatitude}, {branch.gpsLongitude}</span>
-                              <span className="text-orange-600 font-bold">📶 Wi-Fi: {branch.allowedWifiSSID || 'PH_HAICHAU_5G'}</span>
+                              <span className="text-orange-600 font-bold">Bán kính: {branch.attendanceRadius ?? branch.allowedGpsRadiusMeters ?? 50}m</span>
                             </div>
                           )}
                         </div>
