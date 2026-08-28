@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Partner, StoreBranch, FundAccount, DeviceItem, PurchaseOrder } from '../../../types';
+import { Partner, StoreBranch, FundAccount, DeviceItem, PurchaseOrder, DeviceCondition } from '../../../types';
 import { Button } from '../../../shared/ui/Button/Button';
 import { ShoppingBag, Plus, Trash2, ChevronRight, ChevronLeft, CheckCircle2, AlertCircle, X } from 'lucide-react';
 
@@ -11,6 +11,15 @@ export interface PurchaseOrderWizardProps {
   funds: FundAccount[];
   onCompletePO: (po: PurchaseOrder, newDevices: DeviceItem[], paymentFundId?: string, paidAmount?: number) => Promise<void> | void;
 }
+
+const DEVICE_CONDITION_OPTIONS: DeviceCondition[] = [
+  'New Seal',
+  'Like New',
+  '99% Keng',
+  '98% Cấn Nhẹ',
+  '95% Trầy Xước',
+  'Hàng Cũ Trưng Bày'
+];
 
 export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
   isOpen,
@@ -40,7 +49,7 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
     imei: string;
     buyPrice: number;
     sellPrice: number;
-    condition: 'Like New 99%' | 'New Seal' | '98% Cấn Nhẹ';
+    condition: DeviceCondition;
     batteryHealth: number;
   }[]>([
     {
@@ -342,7 +351,17 @@ export const PurchaseOrderWizard: React.FC<PurchaseOrderWizardProps> = ({
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div>
+                        <span className="text-[10px] text-zinc-400 block">Ngoại hình:</span>
+                        <select
+                          value={row.condition}
+                          onChange={e => handleUpdateRow(row.id, 'condition', e.target.value as DeviceCondition)}
+                          className="w-full h-8 px-2 bg-white border border-zinc-200 font-bold rounded-lg"
+                        >
+                          {DEVICE_CONDITION_OPTIONS.map(condition => <option key={condition} value={condition}>{condition}</option>)}
+                        </select>
+                      </div>
                       <div>
                         <span className="text-[10px] text-zinc-400 block">Giá nhập (VNĐ):</span>
                         <input

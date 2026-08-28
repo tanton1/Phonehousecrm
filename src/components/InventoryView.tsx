@@ -48,6 +48,7 @@ import {
   ShieldCheck,
   UserCheck,
   LayoutGrid,
+  BookOpen,
   Grid3X3,
   Table2,
   Battery,
@@ -72,6 +73,7 @@ import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal
 import { DeviceDetailModal } from './DeviceDetailModal';
 import { ImeiLink } from './GlobalImeiHistory';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
+import { InventoryVisualLedger } from './InventoryVisualLedger';
 import type { InventoryDeviceSummary } from '../services/inventoryApiClient';
 import {
   classifyInventoryCondition,
@@ -196,7 +198,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [copiedImei, setCopiedImei] = useState<string | null>(null);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<'matrix' | 'table' | 'cards'>('matrix');
+  const [viewMode, setViewMode] = useState<'ledger' | 'matrix' | 'table' | 'cards'>('ledger');
   const [showMatrixImeis, setShowMatrixImeis] = useState(true);
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'IN_STOCK_ONLY' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
   const getDeviceCost = (device: DeviceItem): number => Number(device.currentCost ?? device.buyPrice ?? (device as any).costPrice ?? 0);
@@ -318,7 +320,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Condition breakdown
   const conditionStats = useMemo(() => {
     const total = inStockDevices.length || 1;
-    const likeNew = inStockDevices.filter(d => classifyInventoryCondition(d.condition) === 'LIKE_NEW_99').length;
+    const likeNew = inStockDevices.filter(d => ['LIKE_NEW', 'GRADE_99'].includes(classifyInventoryCondition(d.condition))).length;
     const newSeal = inStockDevices.filter(d => classifyInventoryCondition(d.condition) === 'NEW_SEAL').length;
     const other = inStockDevices.length - likeNew - newSeal;
 
@@ -348,8 +350,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         };
       }
       modelMap[modelName].totalCount += 1;
-      if (d.condition === 'New Seal') modelMap[modelName].newSeal += 1;
-      else if (d.condition === 'Like New 99%' || d.condition?.includes('99%')) modelMap[modelName].likeNew += 1;
+      const conditionBucket = classifyInventoryCondition(d.condition);
+      if (conditionBucket === 'NEW_SEAL') modelMap[modelName].newSeal += 1;
+      else if (conditionBucket === 'LIKE_NEW' || conditionBucket === 'GRADE_99') modelMap[modelName].likeNew += 1;
       else modelMap[modelName].otherCondition += 1;
     });
 
@@ -386,7 +389,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
       if (quickFilter === 'IN_STOCK_ONLY' && d.status !== 'in_stock') return false;
       if (quickFilter === 'HIGH_BATTERY' && (d.batteryHealth || 0) < 90) return false;
-      if (quickFilter === 'LIKE_NEW' && classifyInventoryCondition(d.condition) !== 'LIKE_NEW_99') return false;
+      if (quickFilter === 'LIKE_NEW' && !['LIKE_NEW', 'GRADE_99'].includes(classifyInventoryCondition(d.condition))) return false;
       if (quickFilter === 'NEW_ARRIVALS' && (!d.receivedDate || d.receivedDate < sevenDaysAgoStr)) return false;
       if (quickFilter === 'AGING_STOCK' && (!d.receivedDate || d.receivedDate >= thirtyDaysAgoStr)) return false;
 
@@ -453,7 +456,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
     const counts: Record<InventoryConditionBucket, number> = {
       ALL: 0,
       NEW_SEAL: 0,
-      LIKE_NEW_99: 0,
+      LIKE_NEW: 0,
+      GRADE_99: 0,
       GRADE_98: 0,
       GRADE_95: 0,
       DISPLAY: 0,
@@ -750,7 +754,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             <span className="text-xs font-sans text-zinc-400 font-medium">máy</span>
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 font-medium truncate pt-0.5 border-t border-zinc-100">
-            🔥 Seal: <b className="text-zinc-900 font-mono">{conditionStats.newSealCount}</b> • ✨ 99%: <b className="text-zinc-900 font-mono">{conditionStats.likeNewCount}</b>
+            🔥 Seal: <b className="text-zinc-900 font-mono">{conditionStats.newSealCount}</b> • ✨ Like New/99%: <b className="text-zinc-900 font-mono">{conditionStats.likeNewCount}</b>
           </div>
         </div>
 
@@ -896,7 +900,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                         <div className="bg-zinc-900 text-white p-3 rounded-2xl shadow-xl text-xs space-y-1.5">
                           <div className="font-bold text-[#ff4b16] border-b border-zinc-700 pb-1">{d.model} ({d.totalCount} máy)</div>
                           <div>New Seal: <strong className="text-amber-400">{d.newSeal}</strong></div>
-                          <div>Like New 99%: <strong className="text-orange-400">{d.likeNew}</strong></div>
+                          <div>Like New/99%: <strong className="text-orange-400">{d.likeNew}</strong></div>
                           {d.otherCondition > 0 && <div>Khác: <strong>{d.otherCondition}</strong></div>}
                         </div>
                       );
@@ -905,7 +909,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   }}
                 />
                 <Bar name="New Seal" dataKey="newSeal" stackId="a" fill="#f59e0b" cursor="pointer" />
-                <Bar name="Like New 99%" dataKey="likeNew" stackId="a" fill="#ff4b16" cursor="pointer" />
+                <Bar name="Like New/99%" dataKey="likeNew" stackId="a" fill="#ff4b16" cursor="pointer" />
                 <Bar name="Khác" dataKey="otherCondition" stackId="a" fill="#a1a1aa" radius={[4, 4, 0, 0]} cursor="pointer" />
               </BarChart>
             </ResponsiveContainer>
@@ -939,6 +943,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
           {/* View Mode (Grouped Table vs Cards) */}
           <div className="flex items-center bg-white p-0.5 sm:p-1 rounded-xl border border-zinc-200/80 shadow-2xs shrink-0">
+            <button
+              type="button"
+              onClick={() => setViewMode('ledger')}
+              className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-black transition-all sm:px-2.5 sm:py-2 ${
+                viewMode === 'ledger' ? 'bg-[#ff4b16] text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+              }`}
+              title="Xem sổ tồn Máy × Dung lượng × Màu × Ngoại hình"
+            >
+              <BookOpen className="h-4 w-4" />
+              <span className="hidden xl:inline">Sổ tồn</span>
+            </button>
             <button
               type="button"
               onClick={() => setViewMode('matrix')}
@@ -1035,7 +1050,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
             { id: 'ALL', label: 'Tất cả' },
             { id: 'IN_STOCK_ONLY', label: '⚡ Sẵn hàng xuất quầy' },
             { id: 'NEW_ARRIVALS', label: '🔥 Mới về 7 ngày' },
-            { id: 'LIKE_NEW', label: '✨ Like New 99%' },
+            { id: 'LIKE_NEW', label: '✨ Like New/99%' },
             { id: 'HIGH_BATTERY', label: '🔋 Pin Trâu (≥90%)' },
             { id: 'AGING_STOCK', label: '⏳ Tồn lâu (>30N)' }
           ].map((chip) => (
@@ -1089,7 +1104,13 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       </div>
 
       {/* 6. Inventory matrix, grouped list or individual cards. */}
-      {viewMode === 'matrix' ? (
+      {viewMode === 'ledger' ? (
+        <InventoryVisualLedger
+          devices={matrixDevices}
+          catalogItems={catalogItems}
+          scopeLabel={selectedBranchId === 'ALL' ? 'Toàn hệ thống' : branches.find(branch => branch.id === selectedBranchId)?.name || 'Chi nhánh đang chọn'}
+        />
+      ) : viewMode === 'matrix' ? (
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-orange-100 bg-gradient-to-r from-white via-orange-50/60 to-amber-50/70 p-3 shadow-2xs sm:p-4">
             <div className="min-w-0">

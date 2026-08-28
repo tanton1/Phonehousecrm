@@ -363,6 +363,14 @@ export interface InterBranchDebtLedger {
 
 export type PurchaseOrderStatus = 'DRAFT' | 'QC_CHECKING' | 'COMPLETED' | 'CANCELLED';
 export type PurchasePaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID';
+export type DeviceCondition =
+  | 'New Seal'
+  | 'Like New'
+  | 'Like New 99%'
+  | '99% Keng'
+  | '98% Cấn Nhẹ'
+  | '95% Trầy Xước'
+  | 'Hàng Cũ Trưng Bày';
 
 export interface PurchaseOrderItem {
   id: string;
@@ -386,7 +394,7 @@ export interface PurchaseOrderItem {
   modelOrName: string; // e.g. "iPhone 16 Pro Max 256GB Titan Sa Mạc"
   color?: string;
   storage?: string;
-  condition?: 'New Seal' | 'Like New 99%' | '98% Cấn Nhẹ' | '95% Trầy Xước' | 'Hàng Cũ Trưng Bày';
+  condition?: DeviceCondition;
   region?: string; // 'VN/A (Chính hãng)', 'LL/A (Mỹ - eSim)', 'ZA/A (2 Sim vật lý)'...
   batteryHealth?: number;
   imeiList?: string[]; // Danh sách IMEI (15 số) cho thiết bị
@@ -608,7 +616,7 @@ export interface DeviceItem {
   color: string;
   region: string; // VN/A, LL/A, ZA/A, J/A, KH/A
   batteryHealth: number; // e.g. 88%
-  condition: 'New Seal' | 'Like New 99%' | '98% Cấn Nhẹ' | '95% Trầy Xước' | 'Hàng Cũ Trưng Bày';
+  condition: DeviceCondition;
   buyPrice: number;
   sellPrice: number;
   status: 'in_stock' | 'reserved' | 'sold' | 'warranty' | 'repairing' | 'in_repair' | 'in_transit' | 'awaiting_technical';
