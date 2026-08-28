@@ -24,4 +24,16 @@ describe('dedicated IMEI inventory matrix page', () => {
     expect(grid).toContain('<ImeiLink');
     expect(grid).toContain('visibleConditionColumns.map');
   });
+
+  it('keeps mobile filters and matrix controls compact', () => {
+    const page = source('src/components/InventoryMatrixPage.tsx');
+    const grid = source('src/components/InventoryVisualLedger.tsx');
+
+    expect(page).toContain('mobileFiltersOpen');
+    expect(page).toContain('Tìm máy hoặc IMEI…');
+    expect(page).toContain('Xóa bộ lọc');
+    expect(grid).toContain('Vuốt ngang để xem các nhóm ngoại hình');
+    expect(grid).toContain('Máy · GB · Màu');
+    expect(grid).toContain('max-h-[calc(100dvh-235px)]');
+  });
 });

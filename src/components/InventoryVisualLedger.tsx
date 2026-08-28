@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BookOpen, Eye, EyeOff, History, Smartphone } from 'lucide-react';
+import { BookOpen, Check, Eye, EyeOff, History, MoveHorizontal, SlidersHorizontal, Smartphone } from 'lucide-react';
 import { DeviceItem, MasterCatalogItem } from '../types';
 import { catalogApi } from '../services/catalogApiClient';
 import {
@@ -123,8 +123,9 @@ export function buildInventoryVisualLedger(devices: DeviceItem[], catalogItems: 
 
 export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ devices, catalogItems = [], scopeLabel }) => {
   const [showFullImeis, setShowFullImeis] = useState(false);
-  const [hideEmptyColumns, setHideEmptyColumns] = useState(false);
+  const [hideEmptyColumns, setHideEmptyColumns] = useState(true);
   const [showEmptyVariants, setShowEmptyVariants] = useState(false);
+  const [mobileOptionsOpen, setMobileOptionsOpen] = useState(false);
   const [remoteCatalogItems, setRemoteCatalogItems] = useState<MasterCatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
@@ -169,6 +170,7 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
   const visibleConditionColumns = hideEmptyColumns
     ? CONDITION_COLUMNS.filter(column => conditionCounts[column.id] > 0)
     : CONDITION_COLUMNS;
+  const mobileConditionWidth = showFullImeis ? 148 : 96;
 
   const imeiCell = (cellDevices: DeviceItem[]) => {
     if (!cellDevices.length) return <span className="text-zinc-300">—</span>;
@@ -179,7 +181,7 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
             key={device.id}
             imei={device.imei}
             title={`${device.model} · ${device.storage} · ${device.color} · ${device.condition || 'Chưa phân loại'} · Xem lịch sử ${device.imei}`}
-            className="max-w-full bg-transparent px-1 py-0.5 text-[10px] no-underline hover:bg-orange-50 sm:text-[11px]"
+            className="w-full max-w-full justify-start gap-0.5 bg-transparent px-0.5 py-0.5 text-[9px] no-underline hover:bg-orange-50 lg:w-auto lg:gap-1 lg:px-1 lg:text-[11px] [&>svg]:hidden lg:[&>svg]:block"
           >
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(device)}`} />
             <span className="truncate">{shortImei(device.imei, showFullImeis)}</span>
@@ -190,8 +192,8 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
   };
 
   return (
-    <section className="space-y-3">
-      <header className="overflow-hidden rounded-2xl border border-orange-100 bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 text-white shadow-sm">
+    <section className="space-y-2 lg:space-y-3">
+      <header className="hidden overflow-hidden rounded-2xl border border-orange-100 bg-gradient-to-br from-zinc-950 via-zinc-900 to-orange-950 text-white shadow-sm lg:block">
         <div className="flex flex-wrap items-start justify-between gap-3 p-4 sm:p-5">
           <div className="min-w-0">
             <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-orange-300"><BookOpen className="h-4 w-4" /> Sổ tồn trực quan</p>
@@ -219,6 +221,31 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
             </div>
           ))}
         </div>
+      </header>
+
+      <header className="rounded-xl border border-zinc-200 bg-white p-2.5 shadow-2xs lg:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate text-[10px] font-black text-zinc-900">{devices.length} IMEI · {modelCount} dòng máy · {variantCount} biến thể</p>
+            <p className="mt-0.5 truncate text-[9px] font-semibold text-zinc-400">{scopeLabel}</p>
+          </div>
+          <button type="button" onClick={() => setMobileOptionsOpen(value => !value)} className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[9px] font-black ${mobileOptionsOpen ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-zinc-200 text-zinc-600'}`} aria-expanded={mobileOptionsOpen}>
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Tùy chọn
+          </button>
+        </div>
+        {mobileOptionsOpen && (
+          <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-zinc-100 pt-2">
+            <button type="button" onClick={() => setShowFullImeis(value => !value)} className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-[9px] font-black ${showFullImeis ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-zinc-200 bg-zinc-50 text-zinc-600'}`}>
+              {showFullImeis && <Check className="h-3 w-3" />} IMEI đầy đủ
+            </button>
+            <button type="button" onClick={() => setHideEmptyColumns(value => !value)} className={`flex h-8 items-center justify-center gap-1.5 rounded-lg border text-[9px] font-black ${hideEmptyColumns ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-zinc-200 bg-zinc-50 text-zinc-600'}`}>
+              {hideEmptyColumns && <Check className="h-3 w-3" />} Ẩn cột trống
+            </button>
+            <button type="button" disabled={catalogLoading} onClick={() => void toggleEmptyVariants()} className={`col-span-2 flex h-8 items-center justify-center gap-1.5 rounded-lg border text-[9px] font-black disabled:opacity-60 ${showEmptyVariants ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-zinc-200 bg-zinc-50 text-zinc-600'}`}>
+              {showEmptyVariants && <Check className="h-3 w-3" />} {catalogLoading ? 'Đang tải danh mục…' : 'Hiện cả mã hàng đang hết tồn'}
+            </button>
+          </div>
+        )}
       </header>
 
       {catalogError && <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{catalogError}</p>}
@@ -263,41 +290,46 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
             </table>
           </div>
 
-          <div className="max-h-[72dvh] overflow-auto rounded-2xl border border-zinc-300 bg-white shadow-sm lg:hidden">
-            <table className="border-separate border-spacing-0 text-left" style={{ minWidth: 215 + visibleConditionColumns.length * 120 }}>
+          <div className="overflow-hidden rounded-xl border border-zinc-300 bg-white shadow-sm lg:hidden">
+            <div className="flex h-8 items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-2.5 text-[9px] font-bold text-zinc-500">
+              <span className="flex items-center gap-1.5"><MoveHorizontal className="h-3.5 w-3.5 text-orange-500" /> Vuốt ngang để xem các nhóm ngoại hình</span>
+              <span className="shrink-0 font-mono text-zinc-400">{visibleConditionColumns.length} cột</span>
+            </div>
+            <div className="min-h-[320px] max-h-[calc(100dvh-235px)] overflow-auto overscroll-contain">
+            <table className="border-separate border-spacing-0 text-left" style={{ minWidth: 116 + visibleConditionColumns.length * mobileConditionWidth }}>
               <thead className="sticky top-0 z-30 bg-zinc-950 text-white">
                 <tr>
-                  <th className="sticky left-0 z-50 w-[155px] min-w-[155px] border-b border-r border-zinc-700 bg-zinc-950 px-2.5 py-2.5 text-[10px] font-black">Máy / Dung lượng / Màu</th>
+                  <th className="sticky left-0 z-50 w-[116px] min-w-[116px] border-b border-r border-zinc-700 bg-zinc-950 px-2 py-2 text-[9px] font-black">Máy · GB · Màu</th>
                   {visibleConditionColumns.map(column => (
-                    <th key={column.id} className="w-[120px] min-w-[120px] border-b border-r border-zinc-700 px-2 py-2.5 align-bottom">
-                      <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[9px] font-black ${inventoryConditionTone(column.id)}`}>{column.shortLabel}</span>
-                      <p className="mt-1 font-mono text-[8px] text-zinc-400">{conditionCounts[column.id]} IMEI</p>
+                    <th key={column.id} className="border-b border-r border-zinc-700 px-1.5 py-2 align-bottom" style={{ width: mobileConditionWidth, minWidth: mobileConditionWidth }}>
+                      <span className={`inline-flex max-w-full truncate rounded-md border px-1.5 py-0.5 text-[8px] font-black ${inventoryConditionTone(column.id)}`}>{column.shortLabel}</span>
+                      <p className="mt-0.5 font-mono text-[8px] text-zinc-400">{conditionCounts[column.id]} máy</p>
                     </th>
                   ))}
-                  <th className="sticky right-0 z-40 w-[60px] min-w-[60px] border-b border-l border-zinc-700 bg-zinc-950 px-1 py-2.5 text-center text-[9px] font-black">Tổng</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row, index) => (
                   <tr key={row.id} className={index % 2 ? 'bg-zinc-50/70' : 'bg-white'}>
-                    <th className={`sticky left-0 z-20 border-b border-r border-zinc-300 px-2.5 py-2 align-top ${index % 2 ? 'bg-zinc-50' : 'bg-white'}`}>
-                      <p className="text-[10px] font-black leading-tight text-zinc-950">{row.model}</p>
-                      <p className="mt-1 text-[9px] font-bold text-zinc-500">{row.storage} · {row.color}</p>
+                    <th className={`sticky left-0 z-20 border-b border-r border-zinc-300 px-2 py-1.5 align-top ${index % 2 ? 'bg-zinc-50' : 'bg-white'}`}>
+                      <p className="line-clamp-2 text-[9px] font-black leading-tight text-zinc-950">{row.model}</p>
+                      <p className="mt-1 line-clamp-2 text-[8px] font-bold leading-tight text-zinc-500">{row.storage} · {row.color}</p>
+                      <span className="mt-1 inline-flex rounded-md bg-orange-50 px-1.5 py-0.5 font-mono text-[8px] font-black text-orange-700">{row.total} IMEI</span>
                       {row.total === 0 && <span className="mt-1 inline-flex rounded bg-zinc-100 px-1.5 py-0.5 text-[8px] font-bold text-zinc-400">Hết hàng</span>}
                     </th>
                     {visibleConditionColumns.map(column => (
-                      <td key={column.id} className="border-b border-r border-zinc-200 px-1.5 py-2 align-top">{imeiCell(row.cells[column.id] || [])}</td>
+                      <td key={column.id} className={`border-b border-r border-zinc-200 px-1 py-1.5 align-top ${(row.cells[column.id] || []).length ? 'bg-orange-50/20' : ''}`}>{imeiCell(row.cells[column.id] || [])}</td>
                     ))}
-                    <td className={`sticky right-0 z-20 border-b border-l border-zinc-300 px-1 py-2 text-center align-top ${index % 2 ? 'bg-zinc-50' : 'bg-white'}`}><strong className="text-sm font-black text-[#ff4b16]">{row.total}</strong></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </>
       )}
 
-      <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-zinc-400"><History className="h-3.5 w-3.5" /> Bấm vào IMEI để xem toàn bộ lịch sử nhập, chuyển kho, kỹ thuật, giá vốn và bán hàng.</p>
+      <p className="hidden items-center justify-center gap-1.5 text-[10px] font-medium text-zinc-400 sm:flex"><History className="h-3.5 w-3.5" /> Bấm vào IMEI để xem toàn bộ lịch sử nhập, chuyển kho, kỹ thuật, giá vốn và bán hàng.</p>
     </section>
   );
 };
