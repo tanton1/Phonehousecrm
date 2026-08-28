@@ -20,6 +20,8 @@ describe('Production Gate B regression boundaries', () => {
     expect(client).toContain('uploadEvidenceContent');
     expect(server).toContain("router.put('/upload-sessions/:id/content'");
     expect(server).toContain("status: 'UPLOADED'");
+    expect(server).toContain("storageMode: 'INLINE_FIRESTORE'");
+    expect(client).toContain('ATTENDANCE_INLINE_UPLOAD_LIMIT');
   });
 
   it('uses authenticated AI API calls and renders generated content as text', () => {

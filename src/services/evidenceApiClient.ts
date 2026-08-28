@@ -27,9 +27,10 @@ async function evidenceRequest<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 const SAME_ORIGIN_UPLOAD_LIMIT = 3 * 1024 * 1024;
+const ATTENDANCE_INLINE_UPLOAD_LIMIT = 400 * 1024;
 
-async function compressEvidenceImage(file: File): Promise<File> {
-  if (file.size <= SAME_ORIGIN_UPLOAD_LIMIT) return file;
+async function compressEvidenceImage(file: File, maxBytes = SAME_ORIGIN_UPLOAD_LIMIT): Promise<File> {
+  if (file.size <= maxBytes) return file;
 
   const objectUrl = URL.createObjectURL(file);
   try {
@@ -43,7 +44,9 @@ async function compressEvidenceImage(file: File): Promise<File> {
     const attempts = [
       { maxDimension: 2_048, quality: 0.82 },
       { maxDimension: 1_600, quality: 0.72 },
-      { maxDimension: 1_280, quality: 0.64 }
+      { maxDimension: 1_280, quality: 0.64 },
+      { maxDimension: 1_024, quality: 0.56 },
+      { maxDimension: 800, quality: 0.5 }
     ];
 
     for (const attempt of attempts) {
@@ -57,7 +60,7 @@ async function compressEvidenceImage(file: File): Promise<File> {
       if (!context) throw new Error('CHECKIN_PHOTO_PROCESS_FAILED: Không thể xử lý ảnh trên thiết bị này.');
       context.drawImage(image, 0, 0, width, height);
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', attempt.quality));
-      if (blob && blob.size <= SAME_ORIGIN_UPLOAD_LIMIT) {
+      if (blob && blob.size <= maxBytes) {
         return new File([blob], `${file.name.replace(/\.[^.]+$/, '') || 'evidence'}.jpg`, {
           type: 'image/jpeg',
           lastModified: Date.now()
@@ -104,7 +107,10 @@ export async function uploadEvidenceRecordViaServer(input: {
   branchId?: string;
   file: File;
 }): Promise<UploadedEvidenceRecord> {
-  const preparedFile = await compressEvidenceImage(input.file);
+  const preparedFile = await compressEvidenceImage(
+    input.file,
+    input.resourceType === 'ATTENDANCE' ? ATTENDANCE_INLINE_UPLOAD_LIMIT : SAME_ORIGIN_UPLOAD_LIMIT
+  );
   const session = await evidenceRequest<{ sessionId: string; uploadUrl: string; contentUploadUrl?: string; headers: Record<string, string> }>('upload-sessions', {
     method: 'POST',
     body: JSON.stringify({

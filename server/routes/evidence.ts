@@ -137,26 +137,75 @@ export function createEvidenceRouter(db: Firestore | null): Router {
         return res.json({ success: true, data: { sessionId: req.params.id, status: session.status } });
       }
       if (session.status !== 'OPEN' || Number(session.expiresAtMs || 0) <= Date.now()) throw new Error('EVIDENCE_SESSION_EXPIRED');
-      if (!Buffer.isBuffer(req.body) || req.body.length <= 0) throw new Error('EVIDENCE_UPLOAD_BODY_REQUIRED');
+      const uploadBody = Buffer.isBuffer(req.body)
+        ? req.body
+        : req.body instanceof Uint8Array
+          ? Buffer.from(req.body)
+          : req.body?.type === 'Buffer' && Array.isArray(req.body?.data)
+            ? Buffer.from(req.body.data)
+            : null;
+      if (!uploadBody || uploadBody.length <= 0) throw new Error('EVIDENCE_UPLOAD_BODY_REQUIRED');
       const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
       if (contentType !== String(session.contentType || '')) throw new Error('EVIDENCE_UPLOAD_CONTENT_TYPE_MISMATCH');
-      if (req.body.length !== Number(session.expectedSize || 0)) throw new Error('EVIDENCE_UPLOAD_SIZE_MISMATCH');
+      if (uploadBody.length !== Number(session.expectedSize || 0)) throw new Error('EVIDENCE_UPLOAD_SIZE_MISMATCH');
+
+      if (String(session.type || '') === 'ATTENDANCE') {
+        if (uploadBody.length > 450 * 1024) throw new Error('ATTENDANCE_EVIDENCE_TOO_LARGE');
+        const sha256 = crypto.createHash('sha256').update(uploadBody).digest('hex');
+        const record = {
+          id: session.evidenceId,
+          resourceType: session.type,
+          resourceId: session.resourceId,
+          contextId: session.contextId || '',
+          branchId: session.branchId,
+          objectPath: '',
+          storageMode: 'INLINE_FIRESTORE',
+          inlineData: uploadBody,
+          sha256,
+          contentType: session.contentType,
+          size: uploadBody.length,
+          createdByUid: req.user!.uid,
+          status: 'ACTIVE',
+          createdAt: new Date().toISOString()
+        };
+        await db.runTransaction(async transaction => {
+          const latest = await transaction.get(sessionRef);
+          if (latest.data()?.status === 'COMPLETED') return;
+          transaction.create(db.collection('evidenceRecords').doc(record.id), {
+            ...record,
+            createdAtServer: FieldValue.serverTimestamp()
+          });
+          transaction.update(sessionRef, {
+            status: 'COMPLETED',
+            completedAt: FieldValue.serverTimestamp(),
+            uploadedSize: uploadBody.length,
+            sha256,
+            storageMode: record.storageMode
+          });
+        });
+        return res.json({ success: true, data: { sessionId: req.params.id, status: 'COMPLETED' } });
+      }
 
       const file = adminBucket.file(String(session.objectPath || ''));
-      await file.save(req.body, {
-        contentType,
+      await file.save(uploadBody, {
         resumable: false,
         validation: 'crc32c',
-        metadata: { cacheControl: 'private, max-age=0, no-store' }
+        metadata: { contentType, cacheControl: 'private, max-age=0, no-store' }
       });
       await sessionRef.update({
         status: 'UPLOADED',
         uploadedAt: FieldValue.serverTimestamp(),
-        uploadedSize: req.body.length
+        uploadedSize: uploadBody.length
       });
       return res.json({ success: true, data: { sessionId: req.params.id, status: 'UPLOADED' } });
     } catch (error: any) {
       const code = String(error?.message || 'EVIDENCE_CONTENT_UPLOAD_FAILED').split(':')[0];
+      console.error('[Evidence Content Upload Error]', {
+        requestId: req.requestId,
+        code,
+        providerCode: error?.code,
+        errorName: error?.name
+      });
       const status = code.includes('FORBIDDEN') ? 403 : code.includes('TOO_LARGE') ? 413 : 400;
       return res.status(status).json({ success: false, code, message: 'Không thể tải ảnh bằng chứng lên máy chủ.' });
     }
@@ -173,8 +222,13 @@ export function createEvidenceRouter(db: Firestore | null): Router {
       if (session.status === 'COMPLETED') {
         const existing = await db.collection('evidenceRecords').doc(session.evidenceId).get();
         if (!existing.exists || existing.data()?.status !== 'ACTIVE') throw new Error('EVIDENCE_NOT_ACTIVE');
-        const access = await issueEvidenceReadUrl(String(existing.data()?.objectPath || session.objectPath));
-        return res.json({ success: true, data: { ...existing.data(), ...access, urlExpiresAt: access.expiresAt } });
+        const existingData = existing.data()!;
+        const { inlineData: _inlineData, ...publicRecord } = existingData;
+        if (existingData.storageMode === 'INLINE_FIRESTORE') {
+          return res.json({ success: true, data: { ...publicRecord, url: '', urlExpiresAt: null } });
+        }
+        const access = await issueEvidenceReadUrl(String(existingData.objectPath || session.objectPath));
+        return res.json({ success: true, data: { ...publicRecord, ...access, urlExpiresAt: access.expiresAt } });
       }
       if (!['OPEN', 'UPLOADED'].includes(String(session.status || '')) || Number(session.expiresAtMs || 0) <= Date.now()) throw new Error('EVIDENCE_SESSION_EXPIRED');
       const file = adminBucket.file(session.objectPath);
