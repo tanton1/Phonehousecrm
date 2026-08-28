@@ -7,6 +7,7 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  LogOut,
   Loader2,
   LocateFixed,
   MapPin,
@@ -25,6 +26,7 @@ interface StandaloneCheckInViewProps {
   branches?: StoreBranch[];
   attendanceRecords?: AttendanceRecord[];
   onCheckInSuccess?: (record: any) => Promise<any> | void;
+  onCheckOutSuccess?: () => Promise<AttendanceRecord | void> | AttendanceRecord | void;
   onNavigateToHR?: () => void;
   onClose?: () => void;
 }
@@ -65,6 +67,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   branches = [],
   attendanceRecords = [],
   onCheckInSuccess,
+  onCheckOutSuccess,
   onNavigateToHR,
   onClose
 }) => {
@@ -81,6 +84,8 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [completedRecord, setCompletedRecord] = useState<AttendanceRecord | null>(null);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [checkOutError, setCheckOutError] = useState('');
 
   const role = String(currentUser?.role || '').toUpperCase();
   const assignedBranchIds = (currentUser as UserAccount | undefined)?.assignedBranchIds || [];
@@ -109,6 +114,12 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   const authUid = auth.currentUser?.uid || currentUser?.id || '';
   const today = getVietnamDateString();
   const existingAttendance = attendanceRecords.find(record => record.staffId === authUid && record.date === today && record.checkInTime);
+  const activeAttendance = completedRecord || existingAttendance || null;
+  const hasCheckedOut = Boolean(
+    activeAttendance?.checkOutTime
+    || activeAttendance?.attendanceStatus === 'COMPLETED'
+    || activeAttendance?.status === 'COMPLETED'
+  );
 
   const loadContext = async () => {
     if (!selectedBranchId) return;
@@ -208,25 +219,64 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     }
   };
 
-  if (completedRecord || existingAttendance) {
-    const record = completedRecord || existingAttendance!;
+  const checkOut = async () => {
+    if (!onCheckOutSuccess || isCheckingOut) return;
+    if (!window.confirm('Xác nhận kết thúc ca làm việc hiện tại?')) return;
+    setIsCheckingOut(true);
+    setCheckOutError('');
+    try {
+      const result = await onCheckOutSuccess();
+      if (result) setCompletedRecord(result);
+      else setCheckOutError('Chưa nhận được xác nhận kết thúc ca từ máy chủ. Vui lòng thử lại.');
+    } catch (error: any) {
+      setCheckOutError(error?.message || 'Kết thúc ca chưa thành công.');
+    } finally {
+      setIsCheckingOut(false);
+    }
+  };
+
+  if (activeAttendance) {
+    const record = activeAttendance;
     const recordDistance = record.verification?.distanceMeters ?? record.verification?.gpsDistanceMeters;
+    const isWorking = !hasCheckedOut;
     return (
-      <div className="min-h-full bg-white p-4 sm:p-6">
+      <div className={`min-h-full bg-[#fffaf6] p-3 sm:p-6 ${isWorking ? 'pb-36' : 'pb-24'}`}>
         <div className="mx-auto max-w-xl overflow-hidden rounded-[28px] border border-orange-100 bg-white shadow-xl shadow-orange-100/60">
-          <div className="bg-gradient-to-br from-orange-500 via-orange-500 to-amber-400 px-6 py-8 text-white">
-            <CheckCircle2 className="mb-4 h-12 w-12" />
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-orange-100">Chấm công thành công</p>
-            <h1 className="mt-2 text-3xl font-black">{record.checkInTime}</h1>
-            <p className="mt-1 font-semibold">{record.branchName || context?.branch.name}</p>
+          <div className={`bg-gradient-to-br px-5 py-6 text-white ${isWorking ? 'from-orange-600 via-orange-500 to-amber-400' : 'from-emerald-700 via-emerald-600 to-teal-500'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-white/80">{isWorking ? 'Đang trong ca' : 'Đã kết thúc ca'}</p>
+                <h1 className="mt-1 text-2xl font-black">{isWorking ? 'Bước tiếp theo: Ra ca' : 'Chấm công hôm nay hoàn tất'}</h1>
+                <p className="mt-1 text-sm font-semibold text-white/90">{record.branchName || context?.branch.name}</p>
+              </div>
+              {isWorking ? <Clock3 className="h-10 w-10 shrink-0" /> : <CheckCircle2 className="h-10 w-10 shrink-0" />}
+            </div>
+
+            <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-2xl border border-white/20 bg-white/10 p-2.5 backdrop-blur">
+              <AttendanceStep label="1. Vào ca" value={record.checkInTime || '--:--'} state="done" />
+              <span className="text-lg font-black text-white/60">→</span>
+              <AttendanceStep label="2. Ra ca" value={record.checkOutTime || 'Chưa ra ca'} state={isWorking ? 'current' : 'done'} />
+            </div>
           </div>
           <div className="space-y-3 p-5">
             <ResultRow icon={Clock3} label="Ca làm" value={`${record.shiftName || 'Ca làm việc'} · ${record.scheduledStart || '--:--'}–${record.scheduledEnd || '--:--'}`} />
             <ResultRow icon={MapPin} label="GPS" value={record.verification?.gpsVerified ? `Hợp lệ${Number.isFinite(recordDistance) ? ` · cách ${Math.round(Number(recordDistance))}m` : ''}` : 'Chờ quản lý kiểm tra'} />
             <ResultRow icon={Camera} label="Ảnh tại chỗ" value={record.verification?.photoCaptured || record.verification?.photoEvidenceId ? 'Đã lưu an toàn' : 'Đã gửi'} />
-            <button onClick={onClose} className="mt-3 w-full rounded-2xl bg-zinc-950 px-4 py-3.5 text-sm font-black text-white">Đóng</button>
+            {hasCheckedOut && Number(record.workDurationMinutes || 0) > 0 && (
+              <ResultRow icon={ShieldCheck} label="Thời gian làm việc" value={`${Math.floor(Number(record.workDurationMinutes) / 60)} giờ ${Number(record.workDurationMinutes) % 60} phút`} />
+            )}
+            {checkOutError && <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{checkOutError}</div>}
+            {hasCheckedOut && <button onClick={onClose} className="mt-3 w-full rounded-2xl bg-zinc-950 px-4 py-3.5 text-sm font-black text-white">Đóng</button>}
           </div>
         </div>
+
+        {isWorking && (
+          <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] mx-auto max-w-xl rounded-[22px] border border-orange-100 bg-white/95 p-2.5 shadow-2xl shadow-orange-200/70 backdrop-blur sm:static sm:mt-4 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+            <button onClick={checkOut} disabled={!onCheckOutSuccess || isCheckingOut} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-950 px-4 py-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40">
+              {isCheckingOut ? <><Loader2 className="h-5 w-5 animate-spin" /> Đang xác nhận ra ca…</> : <><LogOut className="h-5 w-5" /> Xác nhận ra ca</>}
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -251,6 +301,11 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
               <p className="font-mono text-3xl font-black tabular-nums">{formatVietnamClock(now)}</p>
             </div>
             <p className="max-w-[48%] text-right text-xs font-semibold capitalize text-orange-50">{formatVietnamDate(now)}</p>
+          </div>
+          <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-2xl border border-white/20 bg-white/10 p-2.5 backdrop-blur">
+            <AttendanceStep label="1. Vào ca" value="Đang thực hiện" state="current" />
+            <span className="text-lg font-black text-white/60">→</span>
+            <AttendanceStep label="2. Ra ca" value="Sau giờ làm" state="upcoming" />
           </div>
         </div>
       </header>
@@ -333,7 +388,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
         {onNavigateToHR && <button onClick={onNavigateToHR} className="w-full py-2 text-xs font-bold text-zinc-500">Xem lịch ca & chấm công của tôi</button>}
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-orange-100 bg-white/95 p-3 backdrop-blur sm:static sm:mx-auto sm:mt-4 sm:max-w-3xl sm:border-0 sm:bg-transparent sm:p-0">
+      <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] mx-auto max-w-3xl rounded-[22px] border border-orange-100 bg-white/95 p-2.5 shadow-2xl shadow-orange-200/70 backdrop-blur sm:static sm:mt-4 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
         <button onClick={submit} disabled={!ready} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-orange-600 to-amber-500 px-4 py-4 text-sm font-black text-white shadow-lg shadow-orange-200 disabled:cursor-not-allowed disabled:from-zinc-300 disabled:to-zinc-300 disabled:shadow-none">
           {isSubmitting ? <><Loader2 className="h-5 w-5 animate-spin" /> Đang lưu ảnh & chấm công…</> : <><CheckCircle2 className="h-5 w-5" /> Xác nhận vào ca</>}
         </button>
@@ -341,6 +396,15 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     </div>
   );
 };
+
+function AttendanceStep({ label, value, state }: { label: string; value: string; state: 'done' | 'current' | 'upcoming' }) {
+  return (
+    <div className={`min-w-0 rounded-xl px-3 py-2 ${state === 'current' ? 'bg-white text-zinc-950' : state === 'done' ? 'bg-emerald-500/25 text-white' : 'bg-black/10 text-white/65'}`}>
+      <p className="truncate text-[11px] font-black uppercase tracking-wide">{label}</p>
+      <p className={`mt-0.5 truncate text-xs font-bold ${state === 'current' ? 'text-orange-600' : ''}`}>{value}</p>
+    </div>
+  );
+}
 
 function InfoTile({ icon: Icon, label, value }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }) {
   return <div className="rounded-xl bg-zinc-50 p-3"><Icon className="mb-2 h-4 w-4 text-orange-500" /><p className="truncate text-xs font-black text-zinc-800">{label}</p><p className="mt-0.5 text-xs text-zinc-500">{value}</p></div>;

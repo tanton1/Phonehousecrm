@@ -353,9 +353,11 @@ export default function App() {
           ? completedRecord 
           : a
       ));
+      return completedRecord;
     } catch (err: any) {
       console.error('[Attendance CheckOut Error]:', err);
       alert(`Kết thúc ca chưa thành công: ${err.message || 'Lỗi cập nhật từ máy chủ'}`);
+      return undefined;
     }
   };
 
@@ -1902,6 +1904,7 @@ export default function App() {
             onCheckInSuccess={async (record) => {
               return await handleCheckIn(record);
             }}
+            onCheckOutSuccess={handleCheckOut}
             onClose={() => setActiveTab('dashboard')}
             onNavigateToHR={() => setActiveTab('hr-attendance')}
           />
@@ -2077,6 +2080,7 @@ export default function App() {
               onCheckInSuccess={async (record) => {
                 return await handleCheckIn(record);
               }}
+              onCheckOutSuccess={handleCheckOut}
               onClose={() => setIsCheckInModalOpen(false)}
               onNavigateToHR={() => {
                 setIsCheckInModalOpen(false);
