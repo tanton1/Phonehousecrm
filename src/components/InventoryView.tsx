@@ -48,6 +48,7 @@ import {
   ShieldCheck,
   UserCheck,
   LayoutGrid,
+  Grid3X3,
   Table2,
   Battery,
   Zap,
@@ -72,6 +73,13 @@ import { DeviceDetailModal } from './DeviceDetailModal';
 import { ImeiLink } from './GlobalImeiHistory';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 import type { InventoryDeviceSummary } from '../services/inventoryApiClient';
+import {
+  classifyInventoryCondition,
+  INVENTORY_CONDITION_OPTIONS,
+  InventoryConditionBucket,
+  inventoryConditionLabel,
+  inventoryConditionTone
+} from '../utils/inventoryCondition';
 
 interface InventoryViewProps {
   devices: DeviceItem[];
@@ -98,6 +106,52 @@ interface InventoryViewProps {
   catalogItems?: import('../types').MasterCatalogItem[];
   currentUser?: UserAccount | null;
   serverSummary?: InventoryDeviceSummary;
+}
+
+interface InventoryMatrixColumn {
+  id: string;
+  label: string;
+  shortLabel: string;
+  kind: 'BRANCH' | 'WAREHOUSE' | 'TRANSIT' | 'UNASSIGNED';
+}
+
+interface InventoryMatrixRow {
+  id: string;
+  model: string;
+  storage: string;
+  color: string;
+  conditionBucket: Exclude<InventoryConditionBucket, 'ALL'>;
+  conditionLabel: string;
+  devices: DeviceItem[];
+  cells: Record<string, DeviceItem[]>;
+  availableCount: number;
+  reservedCount: number;
+  technicalCount: number;
+  transitCount: number;
+}
+
+const TECHNICAL_INVENTORY_STATUSES = new Set(['warranty', 'repairing', 'in_repair', 'awaiting_technical']);
+
+function isDeviceInTransit(device: DeviceItem): boolean {
+  return device.status === 'in_transit' || String(device.transferState || '').toUpperCase() === 'IN_TRANSIT';
+}
+
+function inventoryStatusShortLabel(device: DeviceItem): string {
+  if (isDeviceInTransit(device)) return 'Đang chuyển';
+  if (device.status === 'in_stock') return 'Sẵn bán';
+  if (device.status === 'reserved') return 'Đang giữ';
+  if (TECHNICAL_INVENTORY_STATUSES.has(device.status)) return 'Kỹ thuật';
+  if (device.status === 'sold') return 'Đã bán';
+  return device.status || 'Khác';
+}
+
+function inventoryStatusDotClass(device: DeviceItem): string {
+  if (isDeviceInTransit(device)) return 'bg-blue-500';
+  if (device.status === 'in_stock') return 'bg-emerald-500';
+  if (device.status === 'reserved') return 'bg-amber-500';
+  if (TECHNICAL_INVENTORY_STATUSES.has(device.status)) return 'bg-violet-500';
+  if (device.status === 'sold') return 'bg-zinc-400';
+  return 'bg-rose-500';
 }
 
 export const InventoryView: React.FC<InventoryViewProps> = ({
@@ -129,7 +183,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSeries, setSelectedSeries] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
-  const [selectedCondition, setSelectedCondition] = useState('ALL');
+  const [selectedCondition, setSelectedCondition] = useState<InventoryConditionBucket>('ALL');
   const [showCostPrice, setShowCostPrice] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
@@ -142,7 +196,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [copiedImei, setCopiedImei] = useState<string | null>(null);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [viewMode, setViewMode] = useState<'matrix' | 'table' | 'cards'>('matrix');
+  const [showMatrixImeis, setShowMatrixImeis] = useState(true);
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'IN_STOCK_ONLY' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
   const getDeviceCost = (device: DeviceItem): number => Number(device.currentCost ?? device.buyPrice ?? (device as any).costPrice ?? 0);
 
@@ -263,8 +318,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   // Condition breakdown
   const conditionStats = useMemo(() => {
     const total = inStockDevices.length || 1;
-    const likeNew = inStockDevices.filter(d => d.condition === 'Like New 99%' || d.condition?.includes('99%')).length;
-    const newSeal = inStockDevices.filter(d => d.condition === 'New Seal').length;
+    const likeNew = inStockDevices.filter(d => classifyInventoryCondition(d.condition) === 'LIKE_NEW_99').length;
+    const newSeal = inStockDevices.filter(d => classifyInventoryCondition(d.condition) === 'NEW_SEAL').length;
     const other = inStockDevices.length - likeNew - newSeal;
 
     return {
@@ -323,13 +378,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         (selectedSeries === '12' && d.model.includes('12')) ||
         (selectedSeries === 'OTHER' && !['16', '15', '14', '13', '12'].some(v => d.model.includes(v)));
 
-      const matchesStatus = selectedStatus === 'ALL' || d.status === selectedStatus;
-      const matchesCondition = selectedCondition === 'ALL' || d.condition === selectedCondition;
+      const matchesStatus = selectedStatus === 'ALL'
+        || d.status === selectedStatus
+        || (selectedStatus === 'TECHNICAL' && TECHNICAL_INVENTORY_STATUSES.has(d.status));
+      const matchesCondition = selectedCondition === 'ALL' || classifyInventoryCondition(d.condition) === selectedCondition;
       const matchesChartModel = !selectedChartModel || d.model === selectedChartModel;
 
       if (quickFilter === 'IN_STOCK_ONLY' && d.status !== 'in_stock') return false;
       if (quickFilter === 'HIGH_BATTERY' && (d.batteryHealth || 0) < 90) return false;
-      if (quickFilter === 'LIKE_NEW' && !d.condition.includes('99%')) return false;
+      if (quickFilter === 'LIKE_NEW' && classifyInventoryCondition(d.condition) !== 'LIKE_NEW_99') return false;
       if (quickFilter === 'NEW_ARRIVALS' && (!d.receivedDate || d.receivedDate < sevenDaysAgoStr)) return false;
       if (quickFilter === 'AGING_STOCK' && (!d.receivedDate || d.receivedDate >= thirtyDaysAgoStr)) return false;
 
@@ -391,6 +448,137 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
 
     return Object.values(groups).sort((a, b) => b.model.localeCompare(a.model) || b.inStockCount - a.inStockCount);
   }, [filteredDevices, branches, warehouses]);
+
+  const conditionFilterCounts = useMemo(() => {
+    const counts: Record<InventoryConditionBucket, number> = {
+      ALL: 0,
+      NEW_SEAL: 0,
+      LIKE_NEW_99: 0,
+      GRADE_98: 0,
+      GRADE_95: 0,
+      DISPLAY: 0,
+      OTHER: 0
+    };
+    branchScopedDevices.forEach(device => {
+      if (device.status === 'sold') return;
+      counts.ALL += 1;
+      counts[classifyInventoryCondition(device.condition)] += 1;
+    });
+    return counts;
+  }, [branchScopedDevices]);
+
+  // A matrix represents current physical/accountable stock. Sold devices only
+  // appear when the user explicitly selects the sold status for historical review.
+  const matrixDevices = useMemo(
+    () => filteredDevices.filter(device => selectedStatus === 'sold' || device.status !== 'sold'),
+    [filteredDevices, selectedStatus]
+  );
+
+  const matrixColumns = useMemo<InventoryMatrixColumn[]>(() => {
+    const columns: InventoryMatrixColumn[] = [];
+    if (selectedBranchId === 'ALL') {
+      const usedBranches = new Map<string, { label: string; shortLabel: string }>();
+      matrixDevices.forEach(device => {
+        if (isDeviceInTransit(device)) return;
+        const info = getDeviceBranchInfo(device);
+        if (info.id !== 'UNASSIGNED') usedBranches.set(info.id, { label: info.name, shortLabel: info.shortName });
+      });
+      branches
+        .filter(branch => branch.isActive !== false && usedBranches.has(branch.id))
+        .forEach(branch => {
+          const names = usedBranches.get(branch.id)!;
+          columns.push({ id: `BRANCH:${branch.id}`, label: names.label, shortLabel: names.shortLabel, kind: 'BRANCH' });
+          usedBranches.delete(branch.id);
+        });
+      [...usedBranches.entries()]
+        .sort((a, b) => a[1].shortLabel.localeCompare(b[1].shortLabel, 'vi'))
+        .forEach(([branchId, names]) => columns.push({ id: `BRANCH:${branchId}`, label: names.label, shortLabel: names.shortLabel, kind: 'BRANCH' }));
+    } else {
+      activeWarehouses
+        .filter(warehouse => warehouse.branchId === selectedBranchId)
+        .sort((a, b) => {
+          const rank = (warehouse: WarehouseInfo) => warehouse.type === 'RETAIL_STORE' ? 0 : warehouse.type === 'CENTRAL' ? 1 : warehouse.type === 'TECHNICIAN_SUB' ? 2 : 3;
+          return rank(a) - rank(b) || String(a.shortName || a.name).localeCompare(String(b.shortName || b.name), 'vi');
+        })
+        .forEach(warehouse => columns.push({
+          id: `WAREHOUSE:${warehouse.id}`,
+          label: warehouse.name,
+          shortLabel: warehouse.type === 'TECHNICIAN_SUB'
+            ? `KTV · ${warehouse.custodianName || warehouse.technicianName || warehouse.shortName}`
+            : warehouse.shortName || warehouse.name,
+          kind: 'WAREHOUSE'
+        }));
+    }
+
+    if (matrixDevices.some(isDeviceInTransit)) {
+      columns.push({ id: 'TRANSIT', label: 'Đang điều chuyển giữa hai vị trí', shortLabel: 'Đang chuyển', kind: 'TRANSIT' });
+    }
+    const hasUnassigned = matrixDevices.some(device => {
+      if (isDeviceInTransit(device)) return false;
+      if (selectedBranchId === 'ALL') return getDeviceBranchInfo(device).id === 'UNASSIGNED';
+      const locationId = String(device.currentLocationId || device.warehouseId || device.warehouse || '');
+      return !locationId || !activeWarehouses.some(warehouse => warehouse.branchId === selectedBranchId && warehouse.id === locationId);
+    });
+    if (hasUnassigned) columns.push({ id: 'UNASSIGNED', label: 'Thiếu hoặc sai thông tin vị trí', shortLabel: 'Chưa gán kho', kind: 'UNASSIGNED' });
+    return columns;
+  }, [matrixDevices, selectedBranchId, branches, activeWarehouses, warehouses]);
+
+  const matrixRows = useMemo<InventoryMatrixRow[]>(() => {
+    const rows = new Map<string, InventoryMatrixRow>();
+    const columnIds = new Set(matrixColumns.map(column => column.id));
+    const resolveColumnId = (device: DeviceItem): string => {
+      if (isDeviceInTransit(device)) return 'TRANSIT';
+      if (selectedBranchId === 'ALL') {
+        const branchInfo = getDeviceBranchInfo(device);
+        const branchColumn = `BRANCH:${branchInfo.id}`;
+        return branchInfo.id !== 'UNASSIGNED' && columnIds.has(branchColumn) ? branchColumn : 'UNASSIGNED';
+      }
+      const locationId = String(device.currentLocationId || device.warehouseId || device.warehouse || '');
+      const warehouseColumn = `WAREHOUSE:${locationId}`;
+      return locationId && columnIds.has(warehouseColumn) ? warehouseColumn : 'UNASSIGNED';
+    };
+
+    matrixDevices.forEach(device => {
+      const conditionBucket = classifyInventoryCondition(device.condition);
+      const modelKey = String(device.catalogModelId || device.catalogModelCode || device.model || 'UNKNOWN').trim().toUpperCase();
+      const rowId = JSON.stringify([modelKey, device.storage || '—', device.color || '—', conditionBucket]);
+      if (!rows.has(rowId)) {
+        rows.set(rowId, {
+          id: rowId,
+          model: device.model || 'Chưa xác định model',
+          storage: device.storage || '—',
+          color: device.color || '—',
+          conditionBucket,
+          conditionLabel: inventoryConditionLabel(device.condition),
+          devices: [],
+          cells: {},
+          availableCount: 0,
+          reservedCount: 0,
+          technicalCount: 0,
+          transitCount: 0
+        });
+      }
+      const row = rows.get(rowId)!;
+      const columnId = resolveColumnId(device);
+      row.devices.push(device);
+      row.cells[columnId] = [...(row.cells[columnId] || []), device];
+      if (device.status === 'in_stock') row.availableCount += 1;
+      if (device.status === 'reserved') row.reservedCount += 1;
+      if (TECHNICAL_INVENTORY_STATUSES.has(device.status)) row.technicalCount += 1;
+      if (isDeviceInTransit(device)) row.transitCount += 1;
+    });
+
+    return [...rows.values()]
+      .map(row => ({
+        ...row,
+        devices: row.devices.sort((a, b) => a.imei.localeCompare(b.imei)),
+        cells: Object.fromEntries(Object.entries(row.cells).map(([columnId, cellDevices]) => [columnId, cellDevices.sort((a, b) => a.imei.localeCompare(b.imei))]))
+      }))
+      .sort((a, b) => a.model.localeCompare(b.model, 'vi', { numeric: true })
+        || a.storage.localeCompare(b.storage, 'vi', { numeric: true })
+        || a.color.localeCompare(b.color, 'vi')
+        || a.conditionLabel.localeCompare(b.conditionLabel, 'vi'));
+  }, [matrixDevices, matrixColumns, selectedBranchId, branches, warehouses]);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups(prev => 
@@ -753,6 +941,16 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <div className="flex items-center bg-white p-0.5 sm:p-1 rounded-xl border border-zinc-200/80 shadow-2xs shrink-0">
             <button
               type="button"
+              onClick={() => setViewMode('matrix')}
+              className={`p-1.5 sm:p-2 rounded-lg transition-all cursor-pointer ${
+                viewMode === 'matrix' ? 'bg-[#ff4b16] text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
+              }`}
+              title="Xem ma trận Model × Chi nhánh/Kho"
+            >
+              <Grid3X3 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
               onClick={() => setViewMode('table')}
               className={`p-1.5 sm:p-2 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'table' ? 'bg-zinc-950 text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
@@ -785,6 +983,25 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           >
             <SlidersHorizontal className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Normalized appearance groups: legacy names are mapped without rewriting documents. */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5 text-xs scrollbar-none">
+          {INVENTORY_CONDITION_OPTIONS.map(option => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setSelectedCondition(option.id)}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1 font-bold transition-all ${
+                selectedCondition === option.id
+                  ? 'border-orange-500 bg-orange-500 text-white shadow-xs'
+                  : 'border-zinc-200/80 bg-white text-zinc-600 hover:border-orange-200 hover:bg-orange-50'
+              }`}
+            >
+              <span>{option.shortLabel}</span>
+              <span className={`rounded-md px-1.5 py-0.5 font-mono text-[9px] ${selectedCondition === option.id ? 'bg-white/20 text-white' : 'bg-zinc-100 text-zinc-500'}`}>{conditionFilterCounts[option.id]}</span>
+            </button>
+          ))}
         </div>
 
         {/* Series Pill Tabs */}
@@ -850,6 +1067,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                 <option value="ALL">Tất cả trạng thái</option>
                 <option value="in_stock">Sẵn hàng (Trong kho)</option>
                 <option value="reserved">Đã giữ cọc</option>
+                <option value="TECHNICAL">Đang ở kỹ thuật / KTV</option>
+                <option value="in_transit">Đang điều chuyển</option>
                 <option value="sold">Đã xuất bán</option>
                 <option value="warranty">Đang bảo hành / sửa chữa</option>
               </select>
@@ -859,22 +1078,147 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               <label className="block text-[11px] font-bold text-zinc-600 mb-1">Tình trạng ngoại quan</label>
               <select
                 value={selectedCondition}
-                onChange={(e) => setSelectedCondition(e.target.value)}
+                onChange={(e) => setSelectedCondition(e.target.value as InventoryConditionBucket)}
                 className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-2.5 py-1.5 font-bold text-zinc-800 focus:outline-none focus:border-[#ff4b16]"
               >
-                <option value="ALL">Mọi tình trạng</option>
-                <option value="New Seal">New Seal</option>
-                <option value="Like New 99%">Like New 99%</option>
-                <option value="98% Cấn Nhẹ">98% Cấn Nhẹ</option>
-                <option value="95% Trầy Xước">95% Trầy Xước</option>
+                {INVENTORY_CONDITION_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
               </select>
             </div>
           </div>
         )}
       </div>
 
-      {/* 6. List of Devices: Grouped Model View OR Cards Grid View */}
-      {viewMode === 'cards' ? (
+      {/* 6. Inventory matrix, grouped list or individual cards. */}
+      {viewMode === 'matrix' ? (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-orange-100 bg-gradient-to-r from-white via-orange-50/60 to-amber-50/70 p-3 shadow-2xs sm:p-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Grid3X3 className="h-4 w-4 text-[#ff4b16]" />
+                <h2 className="text-sm font-black text-zinc-950">Ma trận Model × {selectedBranchId === 'ALL' ? 'Chi nhánh' : 'Kho & vị trí'}</h2>
+              </div>
+              <p className="mt-1 text-[11px] font-medium text-zinc-500">{matrixRows.length} biến thể · {matrixDevices.length} IMEI hiện tại · mỗi IMEI chỉ nằm tại một ô</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMatrixImeis(current => !current)}
+              className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs font-black transition ${showMatrixImeis ? 'border-orange-200 bg-orange-500 text-white' : 'border-zinc-200 bg-white text-zinc-700'}`}
+            >
+              {showMatrixImeis ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {showMatrixImeis ? 'Ẩn danh sách IMEI' : 'Hiện toàn bộ IMEI'}
+            </button>
+          </div>
+
+          {matrixRows.length === 0 ? (
+            <div className="rounded-3xl border border-zinc-200/80 bg-white p-10 text-center text-xs font-medium text-zinc-400">Không có IMEI phù hợp với bộ lọc ma trận.</div>
+          ) : (
+            <>
+              {/* Desktop: true cross-branch/location matrix with sticky axes. */}
+              <div className="hidden max-h-[72dvh] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-sm lg:block">
+                <table className="border-separate border-spacing-0 text-left" style={{ minWidth: Math.max(920, 330 + matrixColumns.length * 190) }}>
+                  <thead className="sticky top-0 z-30 bg-zinc-950 text-white shadow-sm">
+                    <tr>
+                      <th className="sticky left-0 z-40 w-[300px] min-w-[300px] border-b border-r border-zinc-800 bg-zinc-950 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.15em] text-orange-300">Dòng máy · Ngoại hình</p>
+                        <p className="mt-1 text-xs text-zinc-300">Ghim cố định khi cuộn ngang</p>
+                      </th>
+                      {matrixColumns.map(column => (
+                        <th key={column.id} className="w-[190px] min-w-[190px] border-b border-r border-zinc-800 px-3 py-3 align-bottom last:border-r-0" title={column.label}>
+                          <p className="truncate text-xs font-black">{column.shortLabel}</p>
+                          <p className="mt-1 text-[9px] font-medium uppercase tracking-wide text-zinc-400">{column.kind === 'BRANCH' ? 'Chi nhánh' : column.kind === 'WAREHOUSE' ? 'Kho / người giữ' : 'Đối soát'}</p>
+                        </th>
+                      ))}
+                      <th className="sticky right-0 z-40 w-[115px] min-w-[115px] border-b border-l border-zinc-800 bg-zinc-950 px-3 py-3 text-center text-xs font-black">Tổng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixRows.map((row, rowIndex) => (
+                      <tr key={row.id} className={rowIndex % 2 ? 'bg-zinc-50/60' : 'bg-white'}>
+                        <th className={`sticky left-0 z-20 border-b border-r border-zinc-200 px-4 py-3 align-top ${rowIndex % 2 ? 'bg-zinc-50' : 'bg-white'}`}>
+                          <p className="text-sm font-black text-zinc-950">{row.model}</p>
+                          <p className="mt-1 text-[11px] font-bold text-zinc-500">{row.storage} · {row.color}</p>
+                          <span className={`mt-2 inline-flex rounded-lg border px-2 py-1 text-[10px] font-black ${inventoryConditionTone(row.conditionBucket)}`}>{row.conditionLabel}</span>
+                          <div className="mt-2 flex flex-wrap gap-1 text-[9px] font-bold text-zinc-500">
+                            {row.availableCount > 0 && <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700">Sẵn {row.availableCount}</span>}
+                            {row.reservedCount > 0 && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">Giữ {row.reservedCount}</span>}
+                            {row.technicalCount > 0 && <span className="rounded bg-violet-50 px-1.5 py-0.5 text-violet-700">Kỹ thuật {row.technicalCount}</span>}
+                            {row.transitCount > 0 && <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">Chuyển {row.transitCount}</span>}
+                          </div>
+                        </th>
+                        {matrixColumns.map(column => {
+                          const cellDevices = row.cells[column.id] || [];
+                          return (
+                            <td key={column.id} className="border-b border-r border-zinc-200 p-2 align-top last:border-r-0">
+                              {cellDevices.length === 0 ? <div className="grid min-h-14 place-items-center text-xs text-zinc-300">—</div> : (
+                                <div className="rounded-xl border border-zinc-200 bg-white p-2 shadow-2xs">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-lg font-black text-zinc-950">{cellDevices.length}</span>
+                                    <span className="text-[9px] font-bold text-zinc-400">IMEI</span>
+                                  </div>
+                                  {showMatrixImeis && (
+                                    <div className="mt-1.5 max-h-36 space-y-1 overflow-y-auto pr-1 scrollbar-thin">
+                                      {cellDevices.map(device => (
+                                        <div key={device.id} className="flex min-w-0 items-center gap-1 rounded-lg bg-zinc-50 px-1.5 py-1">
+                                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${inventoryStatusDotClass(device)}`} title={inventoryStatusShortLabel(device)} />
+                                          <ImeiLink imei={device.imei} className="min-w-0 flex-1 truncate bg-transparent text-[10px] text-zinc-800 no-underline" title={`${inventoryStatusShortLabel(device)} · Xem lịch sử IMEI ${device.imei}`}>{device.imei}</ImeiLink>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className={`sticky right-0 z-20 border-b border-l border-zinc-200 px-3 py-3 text-center align-top ${rowIndex % 2 ? 'bg-zinc-50' : 'bg-white'}`}>
+                          <p className="text-xl font-black text-[#ff4b16]">{row.devices.length}</p>
+                          <p className="mt-1 text-[9px] font-bold text-zinc-400">cây máy</p>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile/tablet: the same matrix projected as readable branch/location sections. */}
+              <div className="space-y-2.5 lg:hidden">
+                {matrixRows.map(row => {
+                  const isExpanded = showMatrixImeis || expandedGroups.includes(row.id);
+                  return (
+                    <article key={row.id} className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xs">
+                      <button type="button" onClick={() => toggleGroup(row.id)} className="flex w-full items-start justify-between gap-3 p-3 text-left">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-zinc-950">{row.model}</p>
+                          <p className="mt-1 truncate text-[11px] font-bold text-zinc-500">{row.storage} · {row.color}</p>
+                          <span className={`mt-2 inline-flex rounded-lg border px-2 py-0.5 text-[9px] font-black ${inventoryConditionTone(row.conditionBucket)}`}>{row.conditionLabel}</span>
+                        </div>
+                        <div className="shrink-0 text-right"><p className="text-xl font-black text-[#ff4b16]">{row.devices.length}</p><p className="text-[9px] font-bold text-zinc-400">IMEI</p><ChevronDown className={`ml-auto mt-1 h-4 w-4 text-zinc-400 transition ${isExpanded ? 'rotate-180' : ''}`} /></div>
+                      </button>
+                      {isExpanded && (
+                        <div className="space-y-2 border-t border-zinc-100 bg-zinc-50/60 p-2.5">
+                          {matrixColumns.filter(column => (row.cells[column.id] || []).length > 0).map(column => (
+                            <section key={column.id} className="rounded-xl border border-zinc-200 bg-white p-2.5">
+                              <div className="flex items-center justify-between gap-2"><p className="truncate text-xs font-black text-zinc-800" title={column.label}>{column.shortLabel}</p><span className="rounded-lg bg-orange-50 px-2 py-0.5 text-[10px] font-black text-orange-700">{row.cells[column.id].length} máy</span></div>
+                              <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                                {row.cells[column.id].map(device => (
+                                  <div key={device.id} className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-zinc-50 px-2 py-1.5">
+                                    <ImeiLink imei={device.imei} className="min-w-0 truncate bg-transparent text-[11px] text-zinc-800 no-underline">{device.imei}</ImeiLink>
+                                    <span className="flex shrink-0 items-center gap-1 text-[9px] font-bold text-zinc-500"><span className={`h-1.5 w-1.5 rounded-full ${inventoryStatusDotClass(device)}`} />{inventoryStatusShortLabel(device)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+                          ))}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+      ) : viewMode === 'cards' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filteredDevices.length === 0 ? (
             <div className="col-span-full p-10 text-center bg-white rounded-3xl border border-zinc-200/80 text-zinc-400 text-xs font-medium">
