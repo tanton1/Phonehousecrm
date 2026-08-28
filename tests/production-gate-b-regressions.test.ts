@@ -13,6 +13,15 @@ describe('Production Gate B regression boundaries', () => {
     expect(evidence).toContain('sha256StorageObject');
   });
 
+  it('uploads evidence through the authenticated same-origin endpoint for mobile Safari', () => {
+    const client = source('src/services/evidenceApiClient.ts');
+    const server = source('server/routes/evidence.ts');
+    expect(client).toContain('contentUploadUrl');
+    expect(client).toContain('uploadEvidenceContent');
+    expect(server).toContain("router.put('/upload-sessions/:id/content'");
+    expect(server).toContain("status: 'UPLOADED'");
+  });
+
   it('uses authenticated AI API calls and renders generated content as text', () => {
     const assistant = source('src/components/ExecutiveAIAssistantModal.tsx');
     expect(assistant).toContain("apiJson<{ success: boolean; htmlResponse?: string }>");

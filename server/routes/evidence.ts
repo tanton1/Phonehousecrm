@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, raw } from 'express';
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { adminBucket } from '../firebaseAdmin';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
@@ -106,9 +106,59 @@ export function createEvidenceRouter(db: Firestore | null): Router {
         contextId: String(req.body?.contextId || ''), contentType, expectedSize: size,
         actorUid: req.user!.uid, status: 'OPEN', expiresAtMs, createdAt: FieldValue.serverTimestamp()
       });
-      return res.status(201).json({ success: true, data: { sessionId, evidenceId, uploadUrl, expiresAt: new Date(expiresAtMs).toISOString(), headers: { 'Content-Type': contentType } } });
+      return res.status(201).json({
+        success: true,
+        data: {
+          sessionId,
+          evidenceId,
+          uploadUrl,
+          contentUploadUrl: `/api/evidence/upload-sessions/${encodeURIComponent(sessionId)}/content`,
+          expiresAt: new Date(expiresAtMs).toISOString(),
+          headers: { 'Content-Type': contentType }
+        }
+      });
     } catch (error: any) {
       return res.status(String(error?.message || '').includes('DENIED') ? 403 : 400).json({ success: false, code: String(error?.message || 'EVIDENCE_UPLOAD_SESSION_FAILED').split(':')[0], message: 'Không thể cấp phiên tải bằng chứng.' });
+    }
+  });
+
+  router.put('/upload-sessions/:id/content', raw({
+    type: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
+    limit: '4mb'
+  }), async (req, res) => {
+    try {
+      if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+      const sessionRef = db.collection('evidenceUploadSessions').doc(req.params.id);
+      const sessionSnap = await sessionRef.get();
+      if (!sessionSnap.exists) throw new Error('EVIDENCE_SESSION_NOT_FOUND');
+      const session = sessionSnap.data()!;
+      if (session.actorUid !== req.user!.uid) throw new Error('EVIDENCE_SESSION_FORBIDDEN');
+      if (session.status === 'COMPLETED' || session.status === 'UPLOADED') {
+        return res.json({ success: true, data: { sessionId: req.params.id, status: session.status } });
+      }
+      if (session.status !== 'OPEN' || Number(session.expiresAtMs || 0) <= Date.now()) throw new Error('EVIDENCE_SESSION_EXPIRED');
+      if (!Buffer.isBuffer(req.body) || req.body.length <= 0) throw new Error('EVIDENCE_UPLOAD_BODY_REQUIRED');
+      const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (contentType !== String(session.contentType || '')) throw new Error('EVIDENCE_UPLOAD_CONTENT_TYPE_MISMATCH');
+      if (req.body.length !== Number(session.expectedSize || 0)) throw new Error('EVIDENCE_UPLOAD_SIZE_MISMATCH');
+
+      const file = adminBucket.file(String(session.objectPath || ''));
+      await file.save(req.body, {
+        contentType,
+        resumable: false,
+        validation: 'crc32c',
+        metadata: { cacheControl: 'private, max-age=0, no-store' }
+      });
+      await sessionRef.update({
+        status: 'UPLOADED',
+        uploadedAt: FieldValue.serverTimestamp(),
+        uploadedSize: req.body.length
+      });
+      return res.json({ success: true, data: { sessionId: req.params.id, status: 'UPLOADED' } });
+    } catch (error: any) {
+      const code = String(error?.message || 'EVIDENCE_CONTENT_UPLOAD_FAILED').split(':')[0];
+      const status = code.includes('FORBIDDEN') ? 403 : code.includes('TOO_LARGE') ? 413 : 400;
+      return res.status(status).json({ success: false, code, message: 'Không thể tải ảnh bằng chứng lên máy chủ.' });
     }
   });
 
@@ -126,7 +176,7 @@ export function createEvidenceRouter(db: Firestore | null): Router {
         const access = await issueEvidenceReadUrl(String(existing.data()?.objectPath || session.objectPath));
         return res.json({ success: true, data: { ...existing.data(), ...access, urlExpiresAt: access.expiresAt } });
       }
-      if (session.status !== 'OPEN' || Number(session.expiresAtMs || 0) <= Date.now()) throw new Error('EVIDENCE_SESSION_EXPIRED');
+      if (!['OPEN', 'UPLOADED'].includes(String(session.status || '')) || Number(session.expiresAtMs || 0) <= Date.now()) throw new Error('EVIDENCE_SESSION_EXPIRED');
       const file = adminBucket.file(session.objectPath);
       const [metadata] = await file.getMetadata();
       if (Number(metadata.size || 0) !== Number(session.expectedSize) || String(metadata.contentType || '') !== String(session.contentType)) throw new Error('EVIDENCE_UPLOAD_MISMATCH');
