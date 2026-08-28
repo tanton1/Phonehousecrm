@@ -21,7 +21,8 @@ import {
   Settings,
   DollarSign,
   Database,
-  ScanFace
+  ScanFace,
+  Grid3X3
 } from 'lucide-react';
 import React from 'react';
 import type { Permission } from '../../shared/permissions';
@@ -76,6 +77,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     label: 'Kho & Hàng Hóa',
     items: [
       { id: 'inventory', label: 'Kho IMEI Máy', icon: Package, shortcut: 'Alt+3' },
+      { id: 'inventory-matrix', label: 'Ma Trận Tồn IMEI', icon: Grid3X3 },
       { id: 'purchase-orders', label: 'Nhập Hàng NCC', icon: ShoppingBag, roles: ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] },
       { id: 'transfers', label: 'Điều Chuyển Hàng', icon: ArrowRightLeft, permission: 'INVENTORY_TRANSFER_CREATE' },
       { id: 'products', label: 'Kho Linh Kiện & Phụ Kiện', icon: Store },

@@ -71,7 +71,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               ? 'w-full h-full max-w-none'
               : ['purchase-orders', 'invoices', 'funds', 'cashbook'].includes(activeTab)
                 ? 'w-full max-w-none'
-              : ['chat', 'crm', 'warranty', 'tradein', 'inventory'].includes(activeTab)
+              : ['chat', 'crm', 'warranty', 'tradein', 'inventory', 'inventory-matrix'].includes(activeTab)
                 ? 'w-full max-w-none px-2 sm:px-4'
                 : 'max-w-7xl mx-auto w-full'
           }`}>

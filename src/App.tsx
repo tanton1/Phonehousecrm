@@ -103,6 +103,7 @@ const ReportsPage = React.lazy(() => import('./features/reports/ReportsPage').th
 const StaffHRView = React.lazy(() => import('./components/StaffHRView').then(module => ({ default: module.StaffHRView })));
 const PurchaseOrdersView = React.lazy(() => import('./components/PurchaseOrdersView').then(module => ({ default: module.PurchaseOrdersView })));
 const InventoryView = React.lazy(() => import('./components/InventoryView').then(module => ({ default: module.InventoryView })));
+const InventoryMatrixPage = React.lazy(() => import('./components/InventoryMatrixPage').then(module => ({ default: module.InventoryMatrixPage })));
 const WarehouseTransfersView = React.lazy(() => import('./components/WarehouseTransfersView').then(module => ({ default: module.WarehouseTransfersView })));
 const MasterCatalogView = React.lazy(() => import('./components/MasterCatalogView').then(module => ({ default: module.MasterCatalogView })));
 const PartsInventoryHub = React.lazy(() => import('./components/PartsInventoryHub').then(module => ({ default: module.PartsInventoryHub })));
@@ -1606,6 +1607,16 @@ export default function App() {
             onAddCashTransaction={handleAddCashTransaction}
             onUpdatePartner={handleUpdatePartner}
             onAddPartner={handleAddPartner}
+          />
+        )}
+
+        {activeTab === 'inventory-matrix' && (
+          <InventoryMatrixPage
+            devices={devices}
+            branches={branches}
+            warehouses={warehouses}
+            selectedBranchId={selectedBranchId}
+            onSelectBranchId={setSelectedBranchId}
           />
         )}
 

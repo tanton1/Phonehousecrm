@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BookOpen, ChevronDown, Eye, EyeOff, History, Smartphone } from 'lucide-react';
+import { BookOpen, Eye, EyeOff, History, Smartphone } from 'lucide-react';
 import { DeviceItem, MasterCatalogItem } from '../types';
 import { catalogApi } from '../services/catalogApiClient';
 import {
@@ -128,7 +128,6 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
   const [remoteCatalogItems, setRemoteCatalogItems] = useState<MasterCatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState('');
-  const [collapsedModels, setCollapsedModels] = useState<string[]>([]);
 
   const effectiveCatalogItems = catalogItems.length ? catalogItems : remoteCatalogItems;
 
@@ -170,12 +169,6 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
   const visibleConditionColumns = hideEmptyColumns
     ? CONDITION_COLUMNS.filter(column => conditionCounts[column.id] > 0)
     : CONDITION_COLUMNS;
-
-  const mobileModels = useMemo(() => {
-    const grouped = new Map<string, LedgerRow[]>();
-    rows.forEach(row => grouped.set(row.model, [...(grouped.get(row.model) || []), row]));
-    return [...grouped.entries()];
-  }, [rows]);
 
   const imeiCell = (cellDevices: DeviceItem[]) => {
     if (!cellDevices.length) return <span className="text-zinc-300">—</span>;
@@ -270,36 +263,36 @@ export const InventoryVisualLedger: React.FC<InventoryVisualLedgerProps> = ({ de
             </table>
           </div>
 
-          <div className="space-y-2.5 lg:hidden">
-            {mobileModels.map(([model, modelRows]) => {
-              const collapsed = collapsedModels.includes(model);
-              const total = modelRows.reduce((sum, row) => sum + row.total, 0);
-              return (
-                <article key={model} className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xs">
-                  <button type="button" onClick={() => setCollapsedModels(current => collapsed ? current.filter(value => value !== model) : [...current, model])} className="flex w-full items-center justify-between gap-3 bg-gradient-to-r from-white to-orange-50/70 p-3 text-left">
-                    <div className="min-w-0"><p className="truncate text-sm font-black text-zinc-950">{model}</p><p className="mt-0.5 text-[10px] font-bold text-zinc-500">{modelRows.length} màu/dung lượng · {total} IMEI</p></div>
-                    <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-500 transition ${collapsed ? '' : 'rotate-180'}`} />
-                  </button>
-                  {!collapsed && (
-                    <div className="space-y-2 border-t border-zinc-100 bg-zinc-50/60 p-2.5">
-                      {modelRows.map(row => (
-                        <section key={row.id} className="rounded-xl border border-zinc-200 bg-white p-2.5">
-                          <div className="flex items-center justify-between gap-2 border-b border-zinc-100 pb-2"><p className="text-xs font-black text-zinc-800">{row.storage} · {row.color}</p><span className="rounded-lg bg-orange-50 px-2 py-0.5 text-[10px] font-black text-orange-700">{row.total} máy</span></div>
-                          {row.total === 0 ? <p className="mt-2 rounded-lg border border-dashed border-zinc-200 bg-zinc-50 px-2 py-3 text-center text-[10px] font-bold text-zinc-400">Hết hàng tại phạm vi đang xem</p> : <div className="mt-2 grid grid-cols-2 gap-2">
-                            {visibleConditionColumns.filter(column => (row.cells[column.id] || []).length > 0).map(column => (
-                              <div key={column.id} className={`min-w-0 rounded-lg border p-2 ${inventoryConditionTone(column.id)}`}>
-                                <p className="mb-1 flex items-center justify-between gap-1 text-[9px] font-black"><span>{column.shortLabel}</span><span>{row.cells[column.id].length}</span></p>
-                                {imeiCell(row.cells[column.id])}
-                              </div>
-                            ))}
-                          </div>}
-                        </section>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
+          <div className="max-h-[72dvh] overflow-auto rounded-2xl border border-zinc-300 bg-white shadow-sm lg:hidden">
+            <table className="border-separate border-spacing-0 text-left" style={{ minWidth: 215 + visibleConditionColumns.length * 120 }}>
+              <thead className="sticky top-0 z-30 bg-zinc-950 text-white">
+                <tr>
+                  <th className="sticky left-0 z-50 w-[155px] min-w-[155px] border-b border-r border-zinc-700 bg-zinc-950 px-2.5 py-2.5 text-[10px] font-black">Máy / Dung lượng / Màu</th>
+                  {visibleConditionColumns.map(column => (
+                    <th key={column.id} className="w-[120px] min-w-[120px] border-b border-r border-zinc-700 px-2 py-2.5 align-bottom">
+                      <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[9px] font-black ${inventoryConditionTone(column.id)}`}>{column.shortLabel}</span>
+                      <p className="mt-1 font-mono text-[8px] text-zinc-400">{conditionCounts[column.id]} IMEI</p>
+                    </th>
+                  ))}
+                  <th className="sticky right-0 z-40 w-[60px] min-w-[60px] border-b border-l border-zinc-700 bg-zinc-950 px-1 py-2.5 text-center text-[9px] font-black">Tổng</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={row.id} className={index % 2 ? 'bg-zinc-50/70' : 'bg-white'}>
+                    <th className={`sticky left-0 z-20 border-b border-r border-zinc-300 px-2.5 py-2 align-top ${index % 2 ? 'bg-zinc-50' : 'bg-white'}`}>
+                      <p className="text-[10px] font-black leading-tight text-zinc-950">{row.model}</p>
+                      <p className="mt-1 text-[9px] font-bold text-zinc-500">{row.storage} · {row.color}</p>
+                      {row.total === 0 && <span className="mt-1 inline-flex rounded bg-zinc-100 px-1.5 py-0.5 text-[8px] font-bold text-zinc-400">Hết hàng</span>}
+                    </th>
+                    {visibleConditionColumns.map(column => (
+                      <td key={column.id} className="border-b border-r border-zinc-200 px-1.5 py-2 align-top">{imeiCell(row.cells[column.id] || [])}</td>
+                    ))}
+                    <td className={`sticky right-0 z-20 border-b border-l border-zinc-300 px-1 py-2 text-center align-top ${index % 2 ? 'bg-zinc-50' : 'bg-white'}`}><strong className="text-sm font-black text-[#ff4b16]">{row.total}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}

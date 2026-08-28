@@ -48,7 +48,6 @@ import {
   ShieldCheck,
   UserCheck,
   LayoutGrid,
-  BookOpen,
   Grid3X3,
   Table2,
   Battery,
@@ -73,7 +72,6 @@ import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal
 import { DeviceDetailModal } from './DeviceDetailModal';
 import { ImeiLink } from './GlobalImeiHistory';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
-import { InventoryVisualLedger } from './InventoryVisualLedger';
 import type { InventoryDeviceSummary } from '../services/inventoryApiClient';
 import {
   classifyInventoryCondition,
@@ -198,7 +196,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [copiedImei, setCopiedImei] = useState<string | null>(null);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState<'ledger' | 'matrix' | 'table' | 'cards'>('ledger');
+  const [viewMode, setViewMode] = useState<'matrix' | 'table' | 'cards'>('matrix');
   const [showMatrixImeis, setShowMatrixImeis] = useState(true);
   const [quickFilter, setQuickFilter] = useState<'ALL' | 'IN_STOCK_ONLY' | 'NEW_ARRIVALS' | 'HIGH_BATTERY' | 'AGING_STOCK' | 'LIKE_NEW'>('ALL');
   const getDeviceCost = (device: DeviceItem): number => Number(device.currentCost ?? device.buyPrice ?? (device as any).costPrice ?? 0);
@@ -945,17 +943,6 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           <div className="flex items-center bg-white p-0.5 sm:p-1 rounded-xl border border-zinc-200/80 shadow-2xs shrink-0">
             <button
               type="button"
-              onClick={() => setViewMode('ledger')}
-              className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-black transition-all sm:px-2.5 sm:py-2 ${
-                viewMode === 'ledger' ? 'bg-[#ff4b16] text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
-              }`}
-              title="Xem sổ tồn Máy × Dung lượng × Màu × Ngoại hình"
-            >
-              <BookOpen className="h-4 w-4" />
-              <span className="hidden xl:inline">Sổ tồn</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setViewMode('matrix')}
               className={`p-1.5 sm:p-2 rounded-lg transition-all cursor-pointer ${
                 viewMode === 'matrix' ? 'bg-[#ff4b16] text-white shadow-xs' : 'text-zinc-500 hover:text-zinc-800'
@@ -1104,13 +1091,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       </div>
 
       {/* 6. Inventory matrix, grouped list or individual cards. */}
-      {viewMode === 'ledger' ? (
-        <InventoryVisualLedger
-          devices={matrixDevices}
-          catalogItems={catalogItems}
-          scopeLabel={selectedBranchId === 'ALL' ? 'Toàn hệ thống' : branches.find(branch => branch.id === selectedBranchId)?.name || 'Chi nhánh đang chọn'}
-        />
-      ) : viewMode === 'matrix' ? (
+      {viewMode === 'matrix' ? (
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-orange-100 bg-gradient-to-r from-white via-orange-50/60 to-amber-50/70 p-3 shadow-2xs sm:p-4">
             <div className="min-w-0">

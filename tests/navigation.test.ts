@@ -20,6 +20,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(allItemIds).toContain('purchase-orders');
     expect(allItemIds).toContain('store-settings');
     expect(allItemIds).toContain('master-catalog');
+    expect(allItemIds).toContain('inventory-matrix');
     expect(allItemIds.filter(id => id === 'hr-attendance')).toHaveLength(1);
     expect(allItemIds).not.toContain('payroll');
     expect(allItemIds).not.toContain('shift-scheduling');
@@ -33,6 +34,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(salesItemIds).toContain('pos');
     expect(salesItemIds).toContain('invoices');
     expect(salesItemIds).toContain('inventory');
+    expect(salesItemIds).toContain('inventory-matrix');
     expect(salesItemIds).toContain('crm');
     expect(salesItemIds).toContain('checkin-portal');
     expect(salesItemIds).toContain('warranty');
