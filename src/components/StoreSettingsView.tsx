@@ -50,7 +50,10 @@ import { ExecutiveAIAssistantModal } from './ExecutiveAIAssistantModal';
 import { isWarehouseActive, isWarehouseArchived } from '../utils/warehouseLifecycle';
 import { requestRegisterTelegramWebhook, requestTelegramStatus, requestTelegramTest, TelegramRuntimeStatus } from '../services/telegramApiClient';
 
+export type StoreSettingsTab = 'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty' | 'notifications';
+
 export interface StoreSettingsViewProps {
+  initialTab?: StoreSettingsTab;
   branches: StoreBranch[];
   warehouses: WarehouseInfo[];
   settings: StoreSettings;
@@ -74,6 +77,7 @@ export interface StoreSettingsViewProps {
 }
 
 export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
+  initialTab = 'branches',
   branches,
   warehouses,
   settings,
@@ -94,7 +98,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   onNavigateToCashbook,
   isFirebaseConnected = true
 }) => {
-  const [activeTab, setActiveTab] = useState<'branches' | 'warehouses' | 'company' | 'preview_print' | 'warranty' | 'notifications'>('branches');
+  const [activeTab, setActiveTab] = useState<StoreSettingsTab>(initialTab);
   const [warehouseBranchFilter, setWarehouseBranchFilter] = useState<string>('ALL');
   // Kho chưa phát sinh được xóa vĩnh viễn; dữ liệu lưu trữ cũ không còn hiển thị trong luồng thiết lập.
   const showArchivedWarehouses = false;
@@ -105,6 +109,10 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [telegramStatusLoading, setTelegramStatusLoading] = useState(false);
   const [telegramTestLoading, setTelegramTestLoading] = useState(false);
   const [telegramWebhookLoading, setTelegramWebhookLoading] = useState(false);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const loadTelegramStatus = async () => {
     setTelegramStatusLoading(true);

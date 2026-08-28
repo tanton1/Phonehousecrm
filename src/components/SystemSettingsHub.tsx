@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BadgeCheck,
   Banknote,
+  Bot,
   Building2,
   CheckCircle2,
   ChevronRight,
@@ -38,9 +39,9 @@ import { SOPManagementView } from './SOPManagementView';
 import { StoreSettingsView, StoreSettingsViewProps } from './StoreSettingsView';
 import { deviceModelVariantKey } from '../utils/retailPricing';
 
-type SetupTab = 'overview' | 'organization' | 'finance' | 'sop' | 'technicalTasks' | 'sales' | 'retailPricing' | 'customerCare';
+type SetupTab = 'overview' | 'telegram' | 'organization' | 'finance' | 'sop' | 'technicalTasks' | 'sales' | 'retailPricing' | 'customerCare';
 
-interface SystemSettingsHubProps extends StoreSettingsViewProps {
+interface SystemSettingsHubProps extends Omit<StoreSettingsViewProps, 'initialTab'> {
   initialTab?: SetupTab;
   onNavigate: (tab: string) => void;
   onSetupStatusChange?: (status: SystemSetupStatus) => void;
@@ -61,6 +62,7 @@ const TAB_BY_CHECK: Record<SystemSetupCheck['id'], SetupTab> = {
 
 const tabs: Array<{ id: SetupTab; label: string; icon: React.ElementType }> = [
   { id: 'overview', label: 'Tổng quan', icon: BadgeCheck },
+  { id: 'telegram', label: 'Bot Telegram', icon: Bot },
   { id: 'organization', label: 'Doanh nghiệp, Chi nhánh & Kho', icon: Building2 },
   { id: 'finance', label: 'Tài khoản tài chính', icon: Banknote },
   { id: 'sop', label: 'SOP', icon: ClipboardCheck },
@@ -512,6 +514,7 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
     {activeTab === 'overview' && <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black">Checklist bắt buộc trước vận hành</h2><p className="mb-4 mt-1 text-sm text-zinc-500">Hệ thống chỉ sẵn sàng khi tất cả hạng mục đều hoàn tất.</p><div className="grid gap-3 md:grid-cols-2">{status?.checks.map(check => <button key={check.id} onClick={() => setActiveTab(TAB_BY_CHECK[check.id])} className="flex items-center gap-3 rounded-xl border p-4 text-left hover:border-orange-400"><span className={`rounded-full p-2 ${check.complete ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{check.complete ? <CheckCircle2 className="h-5 w-5" /> : <CircleAlert className="h-5 w-5" />}</span><div className="min-w-0 flex-1"><p className="font-black text-zinc-900">{check.label}</p><p className="text-xs text-zinc-500">{check.detail}</p></div><ChevronRight className="h-4 w-4 text-zinc-400" /></button>)}</div></section>}
     {activeTab === 'organization' && <StoreSettingsView
+      initialTab="branches"
       {...storeProps}
       onAddBranch={async value => { await storeProps.onAddBranch(value); await load(); }}
       onUpdateBranch={async value => { await storeProps.onUpdateBranch(value); await load(); }}
@@ -521,6 +524,19 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
       onDeleteWarehouse={async value => { await storeProps.onDeleteWarehouse(value); await load(); }}
       onRestoreWarehouse={async value => { await storeProps.onRestoreWarehouse(value); await load(); }}
       onSaveSettings={async value => { await storeProps.onSaveSettings(value); await load(); }}
+      onNavigateToCashbook={(branchId) => { if (branchId) sessionStorage.setItem('phonehouse_target_branch', branchId); onNavigate('funds'); }}
+    />}
+    {activeTab === 'telegram' && <StoreSettingsView
+      initialTab="notifications"
+      {...storeProps}
+      onAddBranch={storeProps.onAddBranch}
+      onUpdateBranch={storeProps.onUpdateBranch}
+      onDeleteBranch={storeProps.onDeleteBranch}
+      onAddWarehouse={storeProps.onAddWarehouse}
+      onUpdateWarehouse={storeProps.onUpdateWarehouse}
+      onDeleteWarehouse={storeProps.onDeleteWarehouse}
+      onRestoreWarehouse={storeProps.onRestoreWarehouse}
+      onSaveSettings={storeProps.onSaveSettings}
       onNavigateToCashbook={(branchId) => { if (branchId) sessionStorage.setItem('phonehouse_target_branch', branchId); onNavigate('funds'); }}
     />}
     {activeTab === 'finance' && <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><div className="flex flex-col justify-between gap-4 md:flex-row md:items-center"><div><h2 className="text-lg font-black">Tài khoản tài chính theo chi nhánh</h2><p className="text-sm text-zinc-500">Mỗi quỹ tiền mặt và tài khoản ngân hàng bắt buộc có branchId.</p></div><button onClick={() => onNavigate('funds')} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white">Mở thiết lập tài khoản & Sổ quỹ</button></div><div className="mt-5 grid gap-3 md:grid-cols-2">{storeProps.branches.filter(b => b.isActive !== false).map(branch => { const accounts = (storeProps.funds || []).filter(f => f.branchId === branch.id && (f as any).isArchived !== true); return <div key={branch.id} className="rounded-xl border p-4"><div className="flex items-center gap-2 font-black"><Building2 className="h-4 w-4 text-orange-600" />{branch.name}</div><p className="mt-2 text-sm text-zinc-600">{accounts.length ? `${accounts.length} tài khoản đã định danh` : 'Chưa tạo tài khoản'}</p></div>; })}</div></section>}
