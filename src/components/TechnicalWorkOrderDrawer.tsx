@@ -56,6 +56,7 @@ import {
   DeviceLifecycleTimeline,
   fetchDeviceLifecycleTimeline,
 } from "../services/inventoryApiClient";
+import { ImeiLink } from "./GlobalImeiHistory";
 
 interface TechnicalWorkOrderDrawerProps {
   task: WarrantyTicket | null;
@@ -1053,7 +1054,9 @@ export const TechnicalWorkOrderDrawer: React.FC<
             </div>
             <p className="mt-1 truncate font-mono text-xs text-zinc-300">
               {workOrder.code || task.ticketNumber} · IMEI{" "}
-              {workOrder.imei || task.imei}
+              <ImeiLink imei={workOrder.imei || task.imei} className="text-orange-200 hover:text-white">
+                {workOrder.imei || task.imei}
+              </ImeiLink>
             </p>
             <p className="mt-1 truncate text-xs text-orange-300">
               {workOrder.currentLocationId || "Chưa xác định vị trí"} ·{" "}

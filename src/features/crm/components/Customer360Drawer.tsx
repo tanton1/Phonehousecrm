@@ -117,6 +117,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
     const list: Array<{
       id: string;
       model: string;
+      imei: string;
       imeiMasked: string;
       color?: string;
       storage?: string;
@@ -153,6 +154,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
           list.push({
             id: `${inv.id}-${idx}`,
             model: item.productName || item.model || 'iPhone',
+            imei,
             imeiMasked,
             color: (item as any).color,
             storage: (item as any).storage,
@@ -597,7 +599,7 @@ export const Customer360Drawer: React.FC<Customer360DrawerProps> = ({
                     <div className="grid grid-cols-2 gap-2 text-[11px] text-zinc-600 bg-white p-2.5 rounded-xl border border-zinc-200/60">
                       <div>
                         <span className="text-[10px] text-zinc-400 block">IMEI:</span>
-                        <span className="font-mono font-bold text-zinc-800">{dev.imeiMasked}</span>
+                        <span data-imei-history={dev.imei} title={dev.imei ? `Xem toàn bộ lịch sử IMEI ${dev.imei}` : undefined} className={dev.imei ? 'cursor-pointer font-mono font-bold text-orange-700 underline decoration-dotted underline-offset-2' : 'font-mono font-bold text-zinc-800'}>{dev.imeiMasked}</span>
                       </div>
                       <div>
                         <span className="text-[10px] text-zinc-400 block">Pin lúc bán:</span>

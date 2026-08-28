@@ -315,7 +315,11 @@ export const ProductSearchPanel: React.FC<ProductSearchPanelProps> = ({
                     className="w-full p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-left text-xs flex items-center justify-between transition-colors cursor-pointer font-mono"
                   >
                     <span className="truncate">{dev.model}</span>
-                    <span className="text-amber-400 text-[10px] font-bold">IMEI: ...{dev.imei.slice(-6)}</span>
+                    <span
+                      data-imei-history={dev.imei}
+                      title={`Xem toàn bộ lịch sử IMEI ${dev.imei}`}
+                      className="cursor-pointer text-[10px] font-bold text-amber-400 underline decoration-dotted underline-offset-2"
+                    >IMEI: ...{dev.imei.slice(-6)}</span>
                   </button>
                 ))}
               </div>

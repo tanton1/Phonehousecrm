@@ -69,6 +69,7 @@ import { UniformEntryForm } from './UniformEntryForm';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { WarehouseVsBranchAnalysisModal } from './WarehouseVsBranchAnalysisModal';
 import { DeviceDetailModal } from './DeviceDetailModal';
+import { ImeiLink } from './GlobalImeiHistory';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 import type { InventoryDeviceSummary } from '../services/inventoryApiClient';
 
@@ -923,9 +924,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                       <Battery className="w-3 h-3" />
                       <span>Pin {battery}%</span>
                     </span>
-                    <span className="bg-zinc-100 text-zinc-800 px-2 py-0.5 rounded-md border border-zinc-200 font-mono">
+                    <ImeiLink imei={device.imei} className="bg-zinc-100 px-2 py-0.5 text-zinc-800 no-underline">
                       *{device.imei.slice(-6)}
-                    </span>
+                    </ImeiLink>
                     <span className="bg-orange-50 text-orange-800 px-2 py-0.5 rounded-md border border-orange-200">
                       {device.condition}
                     </span>
@@ -1088,7 +1089,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                                 )}
 
                                 <span className="text-xs font-mono font-bold text-zinc-900">
-                                  IMEI: {device.imei}
+                                  IMEI: <ImeiLink imei={device.imei}>{device.imei}</ImeiLink>
                                 </span>
 
                                 <button

@@ -1002,7 +1002,7 @@ export const WarrantyServiceView: React.FC<WarrantyServiceViewProps> = ({
                   <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-200 text-xs space-y-1">
                     <div className="flex justify-between text-zinc-500">
                       <span>Thiết bị:</span>
-                      <strong className="text-zinc-900 font-mono">{t.model} ({t.imei.slice(-6)})</strong>
+                      <strong data-imei-history={t.imei} title={`Xem toàn bộ lịch sử IMEI ${t.imei}`} className="cursor-pointer font-mono text-orange-700 underline decoration-dotted underline-offset-2">{t.model} ({t.imei.slice(-6)})</strong>
                     </div>
                     <div className="flex justify-between text-zinc-500">
                       <span>Lỗi:</span>

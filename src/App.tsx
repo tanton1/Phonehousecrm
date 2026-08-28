@@ -29,6 +29,7 @@ import { RepairIntakeModal } from './features/warranty/components/RepairIntakeMo
 import { AICopilotModal } from './components/AICopilotModal';
 import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModal';
 import { QuickSearchModal } from './components/QuickSearchModal';
+import { GlobalImeiHistory } from './components/GlobalImeiHistory';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
 
 import { fetchOperationalConfigs, fetchSystemSetupStatus } from './services/configurationApiClient';
@@ -2007,6 +2008,9 @@ export default function App() {
         onSelectWarranty={() => setActiveTab('warranty')}
         onSelectInvoice={() => setActiveTab('invoices')}
       />
+
+      {/* One canonical IMEI timeline, available from every feature/page. */}
+      <GlobalImeiHistory />
 
       {/* AI Assistant Copilot Modal */}
       <AICopilotModal

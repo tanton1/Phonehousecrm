@@ -1,6 +1,7 @@
 import React from 'react';
 import { DeviceItem } from '../../../types';
 import { Smartphone, Battery, ShieldCheck, Tag, Plus, Check, Zap } from 'lucide-react';
+import { ImeiLink } from '../../../components/GlobalImeiHistory';
 
 export interface ProductCardProps {
   device: DeviceItem;
@@ -72,7 +73,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ device, isSelected, on
 
         {/* IMEI 4 digits */}
         <p className="text-[10px] text-zinc-400 font-mono mt-1">
-          IMEI: ...<span className="font-bold text-zinc-700">{device.imei ? device.imei.slice(-6) : 'N/A'}</span>
+          IMEI: {device.imei ? <ImeiLink imei={device.imei}>...{device.imei.slice(-6)}</ImeiLink> : 'N/A'}
         </p>
       </div>
 

@@ -131,7 +131,7 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                     <h4 className="text-xs font-bold text-zinc-900 truncate">{dev.model}</h4>
                   </div>
                   <div className="flex items-center space-x-1.5 text-[10px] text-zinc-500 font-mono mt-1">
-                    <span className="font-bold text-zinc-700">IMEI: ...{dev.imei ? dev.imei.slice(-6) : 'N/A'}</span>
+                    <span data-imei-history={dev.imei} title={dev.imei ? `Xem toàn bộ lịch sử IMEI ${dev.imei}` : undefined} className="cursor-pointer font-bold text-orange-700 underline decoration-dotted underline-offset-2">IMEI: ...{dev.imei ? dev.imei.slice(-6) : 'N/A'}</span>
                     <span>•</span>
                     <span>{dev.color || 'Đen'}</span>
                     <span>•</span>

@@ -2314,7 +2314,7 @@ export const AttendanceStaffMobileView: React.FC<AttendanceStaffMobileViewProps>
                   </div>
                   <div className="text-zinc-800 font-semibold">{c.productName}</div>
                   <div className="text-[10px] text-zinc-400 flex justify-between pt-1 border-t border-zinc-200/50">
-                    <span>IMEI: {c.imei ? c.imei.slice(-6) : 'N/A'}</span>
+                    <span data-imei-history={c.imei} title={c.imei ? `Xem toàn bộ lịch sử IMEI ${c.imei}` : undefined} className={c.imei ? 'cursor-pointer text-orange-700 underline decoration-dotted underline-offset-2' : ''}>IMEI: {c.imei ? c.imei.slice(-6) : 'N/A'}</span>
                     <span>{c.occurredAt}</span>
                   </div>
                 </div>

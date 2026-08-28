@@ -935,7 +935,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
                         <span className="font-bold text-zinc-900 truncate">{dev.model}</span>
                         <span className="text-[9px] font-bold px-1 rounded bg-orange-100 text-[#ff4b16]">Tồn &gt;30d</span>
                       </div>
-                      <p className="text-[11px] text-zinc-500 truncate font-mono mt-0.5">
+                      <p data-imei-history={dev.imei} title={`Xem toàn bộ lịch sử IMEI ${dev.imei}`} className="mt-0.5 cursor-pointer truncate font-mono text-[11px] text-zinc-500 underline decoration-orange-300 decoration-dotted underline-offset-2">
                         IMEI: ...{dev.imei.slice(-4)} • {(dev.sellPrice || 0).toLocaleString('vi-VN')}đ
                       </p>
                     </div>

@@ -1566,7 +1566,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
                   ))}
                   {(selectedInvoicePreview.items || []).map((it, i) => (
                     <div key={`item-${i}`} className="flex justify-between text-zinc-700">
-                      <span>{it.model} ({it.imei})</span>
+                      <span>{it.model} (<span data-imei-history={it.imei} title={`Xem toàn bộ lịch sử IMEI ${it.imei}`} className="cursor-pointer font-mono text-orange-700 underline decoration-dotted underline-offset-2">{it.imei}</span>)</span>
                       <span className="font-mono font-bold">{formatVND(it.price)}</span>
                     </div>
                   ))}

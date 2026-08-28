@@ -9,6 +9,7 @@ import { DateRangeFilter } from './shared/DateRangeFilter';
 import { InventoryMetricCarousel } from './InventoryMetricCarousel';
 import { DEFAULT_DATE_FILTER, matchesDateFilter } from '../utils/dateRangeFilter';
 import { resolveRecordBranch } from '../utils/branchScope';
+import { ImeiLink } from './GlobalImeiHistory';
 import { History,
   FileText,
   Search,
@@ -546,7 +547,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
                     {item.imei && (
                       <span className="font-mono text-orange-700 bg-orange-50 border border-orange-200/80 px-1.5 py-0.2 rounded font-medium">
-                        IMEI: {item.imei}
+                        IMEI: <ImeiLink imei={item.imei}>{item.imei}</ImeiLink>
                       </span>
                     )}
                     {item.color && (
@@ -853,7 +854,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     <div key={i} className="flex justify-between text-[11px]">
                       <div>
                         <div className="font-medium">{it.name}</div>
-                        {it.imei && <div className="text-[10px] text-zinc-600">IMEI: {it.imei}</div>}
+                        {it.imei && <div className="text-[10px] text-zinc-600">IMEI: <ImeiLink imei={it.imei}>{it.imei}</ImeiLink></div>}
                         <div className="text-[10px] text-zinc-500">{formatVnd(it.unitPrice)}đ x {it.quantity || 1}</div>
                       </div>
                       <div className="font-semibold font-mono">

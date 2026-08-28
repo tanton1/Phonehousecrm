@@ -1120,7 +1120,7 @@ export const POSSalesView: React.FC<POSSalesViewProps> = ({
                       <div>
                         <div className="font-bold text-xs sm:text-sm text-zinc-900">{device.model} {device.storage}</div>
                         <div className="text-[11px] text-zinc-500 font-mono flex items-center space-x-1.5 flex-wrap gap-y-0.5">
-                          <span>IMEI: {device.imei.slice(-6)}</span>
+                          <span data-imei-history={device.imei} title={`Xem toàn bộ lịch sử IMEI ${device.imei}`} className="cursor-pointer text-orange-700 underline decoration-dotted underline-offset-2">IMEI: {device.imei.slice(-6)}</span>
                           <span>• Pin {device.batteryHealth}%</span>
                           <span>• {device.condition}</span>
                           <span className="bg-orange-100/80 text-orange-800 text-[9px] font-bold px-1.5 py-0.2 rounded font-sans">
