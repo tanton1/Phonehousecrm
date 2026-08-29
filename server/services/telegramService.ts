@@ -22,6 +22,8 @@ export interface TelegramConfig {
   ownerUserIds: Set<string>;
   alertsEnabled: boolean;
   queriesEnabled: boolean;
+  geminiApiKey?: string;
+  aiModel?: string;
   source?: 'ENVIRONMENT' | 'DATABASE';
 }
 
@@ -29,6 +31,8 @@ export interface TelegramAdminConfiguration {
   source: 'ENVIRONMENT' | 'DATABASE';
   hasBotToken: boolean;
   hasWebhookSecret: boolean;
+  hasGeminiApiKey: boolean;
+  aiModel?: string;
   chatId: string;
   ownerUserIds: string[];
   alertsEnabled: boolean;
@@ -41,6 +45,8 @@ export interface TelegramConfigurationInput {
   ownerUserIds?: unknown;
   alertsEnabled?: unknown;
   queriesEnabled?: unknown;
+  geminiApiKey?: unknown;
+  aiModel?: unknown;
 }
 
 export interface AttendanceTelegramAlertInput {
@@ -102,6 +108,8 @@ function environmentTelegramConfig(): TelegramConfig {
     token: String(process.env.TELEGRAM_BOT_TOKEN || '').trim(),
     chatId: String(process.env.TELEGRAM_CHAT_ID || '').trim(),
     webhookSecret: String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim(),
+    geminiApiKey: String(process.env.GEMINI_API_KEY || '').trim(),
+    aiModel: String(process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim(),
     ownerUserIds: new Set(String(process.env.TELEGRAM_OWNER_USER_IDS || '').split(',').map(value => value.trim()).filter(Boolean)),
     alertsEnabled: boolEnv('TELEGRAM_ALERTS_ENABLED'),
     queriesEnabled: boolEnv('TELEGRAM_QUERIES_ENABLED'),
@@ -130,6 +138,8 @@ function publicTelegramConfiguration(config: TelegramConfig): TelegramAdminConfi
     source: config.source === 'DATABASE' ? 'DATABASE' : 'ENVIRONMENT',
     hasBotToken: Boolean(config.token),
     hasWebhookSecret: Boolean(config.webhookSecret),
+    hasGeminiApiKey: Boolean(config.geminiApiKey || process.env.GEMINI_API_KEY),
+    aiModel: config.aiModel || 'gemini-2.5-flash',
     chatId: config.chatId,
     ownerUserIds: [...config.ownerUserIds],
     alertsEnabled: config.alertsEnabled,
@@ -154,6 +164,8 @@ export async function loadTelegramConfig(db: Firestore | null, force = false): P
       token: decryptChannelSecret(data.encryptedBotToken),
       chatId: String(data.chatId || '').trim(),
       webhookSecret: decryptChannelSecret(data.encryptedWebhookSecret),
+      geminiApiKey: data.encryptedGeminiApiKey ? decryptChannelSecret(data.encryptedGeminiApiKey) : environment.geminiApiKey,
+      aiModel: String(data.aiModel || environment.aiModel || 'gemini-2.5-flash').trim(),
       ownerUserIds: new Set(normalizeOwnerUserIds(data.ownerUserIds)),
       alertsEnabled: data.alertsEnabled !== false,
       queriesEnabled: data.queriesEnabled !== false,
@@ -189,12 +201,17 @@ export async function saveTelegramConfiguration(
   const ownerUserIds = normalizeOwnerUserIds(input.ownerUserIds ?? current.ownerUserIds ?? [...environment.ownerUserIds]);
   const alertsEnabled = typeof input.alertsEnabled === 'boolean' ? input.alertsEnabled : current.alertsEnabled !== false;
   const queriesEnabled = typeof input.queriesEnabled === 'boolean' ? input.queriesEnabled : current.queriesEnabled !== false;
+
+  const suppliedGeminiKey = String(input.geminiApiKey || '').trim();
+  const geminiApiKey = suppliedGeminiKey || (current.encryptedGeminiApiKey ? decryptChannelSecret(current.encryptedGeminiApiKey) : '') || environment.geminiApiKey;
+  const aiModel = String(input.aiModel || current.aiModel || environment.aiModel || 'gemini-2.5-flash').trim();
+
   if (!/^\d{6,20}:[A-Za-z0-9_-]{20,}$/.test(token)) throw new Error('TELEGRAM_BOT_TOKEN_INVALID');
   if (!/^-\d{5,25}$/.test(chatId)) throw new Error('TELEGRAM_GROUP_CHAT_ID_INVALID');
   if (ownerUserIds.some(id => !/^\d{3,25}$/.test(id))) throw new Error('TELEGRAM_OWNER_USER_ID_INVALID');
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(webhookSecret)) throw new Error('TELEGRAM_WEBHOOK_SECRET_INVALID');
   const candidate: TelegramConfig = {
-    token, chatId, webhookSecret, ownerUserIds: new Set(ownerUserIds), alertsEnabled, queriesEnabled, source: 'DATABASE'
+    token, chatId, webhookSecret, geminiApiKey, aiModel, ownerUserIds: new Set(ownerUserIds), alertsEnabled, queriesEnabled, source: 'DATABASE'
   };
   const [bot, chat] = await Promise.all([
     telegramRequest<any>('getMe', undefined, candidate),
@@ -204,6 +221,8 @@ export async function saveTelegramConfiguration(
   await ref.set({
     encryptedBotToken: encryptChannelSecret(token),
     encryptedWebhookSecret: encryptChannelSecret(webhookSecret),
+    ...(geminiApiKey ? { encryptedGeminiApiKey: encryptChannelSecret(geminiApiKey) } : {}),
+    aiModel,
     tokenFingerprint: crypto.createHash('sha256').update(token).digest('hex').slice(0, 12),
     chatId,
     chatTitle: String(chat?.title || '').trim().slice(0, 200),

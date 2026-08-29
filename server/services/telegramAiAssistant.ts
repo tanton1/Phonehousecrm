@@ -3,25 +3,45 @@ import { Firestore } from 'firebase-admin/firestore';
 import { getVietnamDateString } from '../../shared/vietnamTime';
 import { getDeviceLifecycleTimeline } from './deviceLifecycleService';
 import { deriveTechnicalBoardStage } from './technicalService';
-import { getTelegramConfig, escapeTelegramHtml } from './telegramService';
+import { getTelegramConfig, escapeTelegramHtml, TelegramConfig } from './telegramService';
 
-let aiClient: GoogleGenAI | null = null;
+let cachedAiClient: { client: GoogleGenAI; key: string } | null = null;
 
-function getAI(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+export function getAI(configOverride?: TelegramConfig): GoogleGenAI | null {
+  const config = configOverride || getTelegramConfig();
+  const apiKey = String(config.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) return null;
-  if (!aiClient) {
-    try {
-      aiClient = new GoogleGenAI({
-        apiKey,
-        httpOptions: { headers: { 'User-Agent': 'phonehouse-telegram-copilot' } }
-      });
-    } catch (e) {
-      console.warn('[Telegram AI Assistant] Failed to initialize GoogleGenAI:', e);
-      return null;
-    }
+
+  if (cachedAiClient && cachedAiClient.key === apiKey) {
+    return cachedAiClient.client;
   }
-  return aiClient;
+
+  try {
+    const client = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { 'User-Agent': 'phonehouse-telegram-copilot' } }
+    });
+    cachedAiClient = { client, key: apiKey };
+    return client;
+  } catch (e) {
+    console.warn('[Telegram AI Assistant] Failed to initialize GoogleGenAI:', e);
+    return null;
+  }
+}
+
+export async function testGeminiConnection(apiKey?: string): Promise<{ success: boolean; model?: string; error?: string }> {
+  const key = String(apiKey || getTelegramConfig().geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+  if (!key) return { success: false, error: 'GEMINI_API_KEY_EMPTY' };
+  try {
+    const ai = new GoogleGenAI({ apiKey: key });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [{ role: 'user', parts: [{ text: 'Hello, confirm PhoneHouse AI connection in 3 words.' }] }]
+    });
+    return { success: Boolean(response.text), model: 'gemini-2.5-flash' };
+  } catch (err: any) {
+    return { success: false, error: String(err?.message || 'GEMINI_TEST_FAILED') };
+  }
 }
 
 function formatVnd(value: unknown): string {
@@ -436,6 +456,171 @@ export async function toolGetAttendanceToday(
     .join('\n');
 }
 
+export async function toolGetTopSellingProducts(
+  db: Firestore,
+  args: { period?: 'TODAY' | 'WEEK' | 'MONTH'; limit?: number }
+): Promise<string> {
+  const period = args.period || 'TODAY';
+  const today = getVietnamDateString();
+  const base = new Date(`${today}T12:00:00+07:00`);
+  let start = new Date(base);
+  if (period === 'WEEK') {
+    const day = base.getUTCDay();
+    start = new Date(base.getTime() - (day === 0 ? 6 : day - 1) * 86_400_000);
+  } else if (period === 'MONTH') {
+    start = new Date(`${today.slice(0, 7)}-01T12:00:00+07:00`);
+  }
+  const startDateStr = getVietnamDateString(start.getTime());
+
+  const invoicesSnap = await db.collection('invoices')
+    .where('createdAtIso', '>=', `${startDateStr}T00:00:00`)
+    .limit(1000)
+    .get();
+
+  const modelStats: Record<string, { count: number; totalRevenue: number }> = {};
+  invoicesSnap.docs.forEach(doc => {
+    const inv = doc.data() || {};
+    const items = Array.isArray(inv.items) ? inv.items : [];
+    items.forEach((item: any) => {
+      const modelName = String(item.model || item.productName || item.name || 'Sản phẩm khác').trim();
+      if (!modelStats[modelName]) modelStats[modelName] = { count: 0, totalRevenue: 0 };
+      const qty = Number(item.quantity || 1);
+      const price = Number(item.price || item.sellPrice || 0);
+      modelStats[modelName].count += qty;
+      modelStats[modelName].totalRevenue += qty * price;
+    });
+  });
+
+  const topList = Object.entries(modelStats)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, args.limit || 5);
+
+  if (topList.length === 0) {
+    return `📊 Chưa ghi nhận sản phẩm nào bán ra trong ${period === 'TODAY' ? 'hôm nay' : period === 'WEEK' ? 'tuần này' : 'tháng này'}.`;
+  }
+
+  const periodLabel = period === 'TODAY' ? 'HÔM NAY' : period === 'WEEK' ? 'TUẦN NÀY' : 'THÁNG NÀY';
+  return [
+    `<b>🏆 TOP SẢN PHẨM BÁN CHẠY NHẤT · ${periodLabel}</b>`,
+    ...topList.map(([model, stat], index) => {
+      const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '•';
+      return `${medal} <b>${escapeTelegramHtml(model)}</b>: <b>${stat.count} máy</b> (Doanh thu: <code>${formatVnd(stat.totalRevenue)}</code>)`;
+    }),
+    `<i>Dựa trên phân tích hóa đơn bán lẻ thời gian thực.</i>`
+  ].join('\n');
+}
+
+export async function toolGetAgingInventory(
+  db: Firestore,
+  args: { daysThreshold?: number; branchQuery?: string }
+): Promise<string> {
+  const threshold = Number(args.daysThreshold) || 30;
+  const cutoffDate = new Date(Date.now() - threshold * 86_400_000).toISOString();
+  
+  const branches = await fetchActiveBranches(db);
+  const matchedBranch = findBranchMatch(branches, args.branchQuery);
+
+  let query: FirebaseFirestore.Query = db.collection('devices').where('status', '==', 'in_stock');
+  if (matchedBranch) query = query.where('branchId', '==', matchedBranch.id);
+
+  const snap = await query.limit(1000).get();
+  const agingDevices = snap.docs
+    .map(d => ({ id: d.id, ...d.data() } as any))
+    .filter(d => {
+      const entry = String(d.importDate || d.createdAtIso || d.createdAt || '');
+      return entry && entry <= cutoffDate;
+    });
+
+  const grouped: Record<string, number> = {};
+  agingDevices.forEach(d => {
+    const key = `${d.model || 'iPhone'} (${d.storage || ''} ${d.color || ''})`.trim();
+    grouped[key] = (grouped[key] || 0) + 1;
+  });
+
+  const topAging = Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  return [
+    `<b>⚠️ CẢNH BÁO TỒN KHO LÂU NGÀY (> ${threshold} ngày)</b>`,
+    `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(matchedBranch ? matchedBranch.name || matchedBranch.id : 'Toàn hệ thống')}`,
+    `• Tổng số máy tồn > ${threshold} ngày: <b>${agingDevices.length} máy</b>`,
+    topAging.length ? '<b>Danh sách máy đọng vốn:</b>' : '<i>Không có máy nào tồn quá hạn!</i>',
+    ...topAging.map(([name, count]) => `• ${escapeTelegramHtml(name)}: <b>${count} máy</b>`),
+    agingDevices.length > 0 ? '💡 <i>Khuyến nghị: Xem xét giảm giá hoặc chạy Flash Sale xả kho thu hồi vốn.</i>' : ''
+  ].filter(Boolean).join('\n');
+}
+
+export async function toolGetStaffPerformance(
+  db: Firestore,
+  args: { period?: 'TODAY' | 'MONTH'; branchQuery?: string }
+): Promise<string> {
+  const period = args.period || 'TODAY';
+  const today = getVietnamDateString();
+  const prefix = period === 'MONTH' ? today.slice(0, 7) : today;
+
+  const branches = await fetchActiveBranches(db);
+  const matchedBranch = findBranchMatch(branches, args.branchQuery);
+
+  let query: FirebaseFirestore.Query = db.collection('invoices');
+  if (matchedBranch) query = query.where('branchId', '==', matchedBranch.id);
+
+  const snap = await query.limit(1000).get();
+  const staffStats: Record<string, { count: number; revenue: number }> = {};
+
+  snap.docs.forEach(doc => {
+    const inv = doc.data() || {};
+    const dateStr = String(inv.createdAtIso || inv.createdAt || '');
+    if (dateStr.startsWith(prefix)) {
+      const seller = String(inv.sellerName || inv.createdByName || 'Chưa gán').trim();
+      if (!staffStats[seller]) staffStats[seller] = { count: 0, revenue: 0 };
+      staffStats[seller].count += 1;
+      staffStats[seller].revenue += Number(inv.totalAmount || 0);
+    }
+  });
+
+  const rankedStaff = Object.entries(staffStats).sort((a, b) => b[1].revenue - a[1].revenue);
+
+  return [
+    `<b>🎖️ BẢNG XẾP HẠNG HIỆU SUẤT SALE · ${period === 'TODAY' ? 'HÔM NAY' : 'THÁNG NÀY'}</b>`,
+    `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(matchedBranch ? matchedBranch.name || matchedBranch.id : 'Toàn hệ thống')}`,
+    ...rankedStaff.slice(0, 8).map(([name, stat], idx) => {
+      const rankIcon = idx === 0 ? '👑' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
+      return `${rankIcon} <b>${escapeTelegramHtml(name)}</b>: <code>${formatVnd(stat.revenue)}</code> (${stat.count} đơn)`;
+    }),
+    rankedStaff.length === 0 ? '<i>Chưa có đơn hàng phát sinh trong khoảng thời gian này.</i>' : ''
+  ].join('\n');
+}
+
+export async function toolGetDebtReport(
+  db: Firestore,
+  _args: Record<string, unknown>,
+  senderId: string
+): Promise<string> {
+  const config = getTelegramConfig();
+  const isOwner = config.ownerUserIds.has(senderId);
+  if (!isOwner && config.ownerUserIds.size > 0) {
+    return '⛔ Báo cáo công nợ toàn chuỗi chỉ dành riêng cho Chủ hệ thống (Owner).';
+  }
+
+  const snap = await db.collection('customers')
+    .where('debtAmount', '>', 0)
+    .limit(100)
+    .get();
+
+  const debtors = snap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() } as any))
+    .sort((a, b) => Number(b.debtAmount || 0) - Number(a.debtAmount || 0));
+
+  const totalDebt = debtors.reduce((sum, c) => sum + Number(c.debtAmount || 0), 0);
+
+  return [
+    `<b>📑 BÁO CÁO CÔNG NỢ KHÁCH HÀNG CẦN THU HỒI</b>`,
+    `• <b>Tổng công nợ chưa thu:</b> <b style="color:red">${formatVnd(totalDebt)}</b> (${debtors.length} khách nợ)`,
+    debtors.length ? '<b>Top khách nợ cao nhất:</b>' : '',
+    ...debtors.slice(0, 6).map((c, i) => `• ${i + 1}. <b>${escapeTelegramHtml(c.name || 'Khách')}</b> (${escapeTelegramHtml(c.phone || 'N/A')}): <code>${formatVnd(c.debtAmount)}</code>`),
+    debtors.length > 0 ? '📞 <i>Khuyến nghị: Bộ phận CSKH/Kế toán liên hệ nhắc nợ các khoản trên.</i>' : ''
+  ].filter(Boolean).join('\n');
+}
+
 /**
  * 2. Function Declarations for Gemini Tools
  */
@@ -464,13 +649,13 @@ const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'lookup_imei_lifecycle',
-    description: 'Tra cứu thông tin chi tiết thiết bị theo số IMEI 15 chữ số (Model, pin, trạng thái, người giữ, lịch sử luân chuyển).',
+    description: 'Tra cứu toàn bộ vòng đời, lịch sử nhập xuất, sửa chữa, vị trí kho và người giữ máy theo số IMEI 15 chữ số.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         imei: {
           type: Type.STRING,
-          description: 'Số IMEI 15 chữ số của điện thoại.'
+          description: 'Số IMEI 15 chữ số của thiết bị.'
         }
       },
       required: ['imei']
@@ -478,21 +663,21 @@ const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'check_inventory_stock',
-    description: 'Tra cứu tồn kho máy sẵn bán theo dòng máy (iPhone 14, 15, Pro Max...) và theo chi nhánh.',
+    description: 'Tra cứu số lượng máy tồn kho sẵn bán gom nhóm theo từng Model iPhone và Chi nhánh.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         modelQuery: {
           type: Type.STRING,
-          description: 'Tên dòng máy cần tìm (ví dụ: 15 Pro Max, 14 Plus, 13).'
+          description: 'Tên dòng máy iPhone cần tra cứu (ví dụ: 15 Pro Max, 14 Plus, 13 Pro).'
         },
         branchQuery: {
           type: Type.STRING,
-          description: 'Tên chi nhánh cần kiểm tra.'
+          description: 'Tên chi nhánh cần kiểm tra tồn kho.'
         },
         all: {
           type: Type.BOOLEAN,
-          description: 'True nếu kiểm tra toàn bộ chi nhánh.'
+          description: 'True nếu muốn tra cứu trên tất cả chi nhánh.'
         }
       }
     }
@@ -558,37 +743,115 @@ const functionDeclarations: FunctionDeclaration[] = [
         }
       }
     }
+  },
+  {
+    name: 'get_top_selling_products',
+    description: 'Báo cáo top các sản phẩm, model iPhone bán chạy nhất theo doanh số và số lượng.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        period: {
+          type: Type.STRING,
+          enum: ['TODAY', 'WEEK', 'MONTH'],
+          description: 'Khoảng thời gian cần phân tích.'
+        },
+        limit: {
+          type: Type.INTEGER,
+          description: 'Số lượng sản phẩm top cần lấy (mặc định 5).'
+        }
+      }
+    }
+  },
+  {
+    name: 'get_aging_inventory',
+    description: 'Cảnh báo và phân tích danh sách thiết bị tồn kho lâu ngày (> 30 ngày) đọng vốn.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        daysThreshold: {
+          type: Type.INTEGER,
+          description: 'Số ngày tồn kho tối thiểu để coi là tồn lâu (mặc định 30 ngày).'
+        },
+        branchQuery: {
+          type: Type.STRING,
+          description: 'Tên chi nhánh cần kiểm tra tồn kho lâu.'
+        }
+      }
+    }
+  },
+  {
+    name: 'get_staff_sales_performance',
+    description: 'Bảng xếp hạng hiệu suất bán hàng của từng nhân viên theo doanh thu và số lượng đơn.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        period: {
+          type: Type.STRING,
+          enum: ['TODAY', 'MONTH'],
+          description: 'Mốc thời gian TODAY hoặc MONTH.'
+        },
+        branchQuery: {
+          type: Type.STRING,
+          description: 'Tên chi nhánh cần lọc.'
+        }
+      }
+    }
+  },
+  {
+    name: 'get_debt_report',
+    description: 'Báo cáo danh sách khách hàng có công nợ cao cần thu hồi (Bảo mật Owner).',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {}
+    }
   }
 ];
 
+async function executeTool(db: Firestore, name: string, args: any, senderId: string): Promise<string> {
+  if (name === 'get_revenue_report') return toolGetRevenueReport(db, args, senderId);
+  if (name === 'lookup_imei_lifecycle') return toolLookupImei(db, args);
+  if (name === 'check_inventory_stock') return toolCheckInventory(db, args, senderId);
+  if (name === 'get_technical_progress') return toolGetTechnicalProgress(db, args, senderId);
+  if (name === 'lookup_customer_info') return toolLookupCustomer(db, args);
+  if (name === 'get_cashflow_summary') return toolGetCashflowSummary(db, args, senderId);
+  if (name === 'get_attendance_today') return toolGetAttendanceToday(db, args);
+  if (name === 'get_top_selling_products') return toolGetTopSellingProducts(db, args);
+  if (name === 'get_aging_inventory') return toolGetAgingInventory(db, args);
+  if (name === 'get_staff_sales_performance') return toolGetStaffPerformance(db, args);
+  if (name === 'get_debt_report') return toolGetDebtReport(db, args, senderId);
+  return 'Không tìm thấy công cụ tương ứng.';
+}
+
 /**
- * 3. Main AI Copilot Query Processor
+ * 3. Main AI Copilot Query Processor with Multi-Turn Deep Reasoning
  */
 export async function processTelegramAiCopilot(
   db: Firestore,
   userMessage: string,
   senderId: string
 ): Promise<string> {
-  const ai = getAI();
+  const config = getTelegramConfig();
+  const ai = getAI(config);
   if (!ai) {
-    return '🤖 <i>Trợ lý AI chưa được cấu hình GEMINI_API_KEY trên máy chủ. Bạn có thể sử dụng các lệnh trực tiếp như /doanhso, /imei, /tonkho, /kythuat.</i>';
+    return '🤖 <i>Trợ lý AI chưa được cài GEMINI_API_KEY. Quản trị viên vui lòng vào <b>Cài đặt hệ thống ➔ Thông báo Telegram & AI</b> trên Web CRM để nhập API Key.</i>';
   }
 
+  const aiModel = config.aiModel || 'gemini-2.5-flash';
+
   const systemInstruction = `
-Bạn là "PhoneHouse Executive Copilot" - Trợ lý AI toàn năng của Ban Điều Hành chuỗi bán lẻ iPhone & Kỹ thuật PhoneHouse CRM.
-Nhiệm vụ của bạn là hỗ trợ Giám Đốc và các Trưởng Cửa Hàng tra cứu thông tin, phân tích dữ liệu và điều hành chuỗi.
-Quy tắc phản hồi:
-1. Luôn phản hồi bằng tiếng Việt thân thiện, lịch sự, chuyên nghiệp.
-2. Định dạng câu trả lời bằng HTML đơn giản của Telegram: sử dụng <b>, <i>, <code>, các dấu gạch đầu dòng • và icon sinh động (💰, 📱, 📦, 👥, 🔧, ⏰, 💵).
+Bạn là "PhoneHouse Executive AI Copilot" - Cố vấn điều hành và Trợ lý ảo toàn năng trực tiếp hỗ trợ Giám Đốc và các Trưởng Chi Nhánh của chuỗi PhoneHouse CRM (bán lẻ iPhone, bảo hành & sửa chữa).
+Nhiệm vụ của bạn:
+1. Trả lời bằng tiếng Việt lịch sự, thông minh, súc tích và có chiều sâu phân tích quản trị điều hành.
+2. Định dạng câu trả lời bằng HTML Telegram: sử dụng <b>, <i>, <code>, các dấu gạch đầu dòng • và icon sinh động (💰, 📱, 📦, 👥, 🔧, ⏰, 💵, 🏆, ⚠️).
 3. Đơn vị tiền tệ luôn là Việt Nam Đồng (ví dụ: 25.000.000 đ).
-4. Sử dụng công cụ (Function Calling) tương ứng để lấy dữ liệu thực tế chính xác 100% trước khi trả lời. Tuyệt đối không tự bịa đặt số liệu tài chính hoặc số lượng máy tồn kho.
-5. Nếu câu hỏi là trao đổi kiến thức, tư vấn vận hành hoặc mẹo quản trị, hãy trả lời súc tích và hữu ích.
+4. Sử dụng công cụ (Function Calling) để lấy dữ liệu thực tế chính xác 100% trước khi trả lời. Tuyệt đối không tự bịa đặt số liệu.
+5. Khi người dùng hỏi câu hỏi tổng quan hoặc phân tích, bạn hãy tổng hợp dữ liệu từ các công cụ, nhận xét xu hướng (tăng/giảm, điểm nghẽn kỹ thuật, rủi ro tồn kho, công nợ) và đưa ra ĐỀ XUẤT HÀNH ĐỘNG cụ thể.
 `;
 
   try {
-    // 1. Send request with function declarations
+    // 1. Initial Call
     const initialResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: aiModel,
       contents: [
         {
           role: 'user',
@@ -605,30 +868,49 @@ Quy tắc phản hồi:
 
     // 2. If Gemini wants to invoke tools
     if (functionCalls && functionCalls.length > 0) {
-      const call = functionCalls[0];
-      const name = call.name;
-      const args = (call.args || {}) as any;
+      const toolExecutionResults: Array<{ name: string; output: string }> = [];
 
-      let toolResult = '';
-      if (name === 'get_revenue_report') {
-        toolResult = await toolGetRevenueReport(db, args, senderId);
-      } else if (name === 'lookup_imei_lifecycle') {
-        toolResult = await toolLookupImei(db, args);
-      } else if (name === 'check_inventory_stock') {
-        toolResult = await toolCheckInventory(db, args, senderId);
-      } else if (name === 'get_technical_progress') {
-        toolResult = await toolGetTechnicalProgress(db, args, senderId);
-      } else if (name === 'lookup_customer_info') {
-        toolResult = await toolLookupCustomer(db, args);
-      } else if (name === 'get_cashflow_summary') {
-        toolResult = await toolGetCashflowSummary(db, args, senderId);
-      } else if (name === 'get_attendance_today') {
-        toolResult = await toolGetAttendanceToday(db, args);
-      } else {
-        toolResult = 'Không tìm thấy công cụ tương ứng.';
+      for (const call of functionCalls) {
+        const name = call.name;
+        const args = (call.args || {}) as any;
+        const output = await executeTool(db, name, args, senderId);
+        toolExecutionResults.push({ name, output });
       }
 
-      return toolResult;
+      // If only 1 simple tool was called and user asked simple prompt, return directly
+      const isComplexQuery = userMessage.length > 25 || /(tại sao|phân tích|đánh giá|so sánh|lý do|tư vấn|đề xuất|chi tiết|nhận xét|top|xếp hạng)/i.test(userMessage);
+
+      if (!isComplexQuery && toolExecutionResults.length === 1) {
+        return toolExecutionResults[0].output;
+      }
+
+      // Multi-turn synthesis for deep analysis
+      try {
+        const secondTurnResponse = await ai.models.generateContent({
+          model: aiModel,
+          contents: [
+            { role: 'user', parts: [{ text: userMessage }] },
+            initialResponse.candidates?.[0]?.content || { role: 'model', parts: [{ text: 'Đang tra cứu dữ liệu...' }] },
+            {
+              role: 'user',
+              parts: toolExecutionResults.map(r => ({
+                text: `[Dữ liệu thực tế từ hệ thống cho công cụ ${r.name}]:\n${r.output}`
+              }))
+            }
+          ],
+          config: {
+            systemInstruction: `${systemInstruction}\nĐọc kỹ toàn bộ số liệu thực tế vừa tra cứu được. Hãy tổng hợp thành một báo cáo phân tích quản trị hoàn chỉnh, nêu bật các số liệu quan trọng, nhận định và đưa ra đề xuất thực tế hữu ích cho Giám Đốc/Quản lý.`
+          }
+        });
+
+        if (secondTurnResponse.text?.trim()) {
+          return secondTurnResponse.text.trim();
+        }
+      } catch (synthErr) {
+        console.warn('[Telegram AI Multi-turn Synthesis Fallback]:', synthErr);
+      }
+
+      return toolExecutionResults.map(r => r.output).join('\n\n');
     }
 
     // 3. Normal text response
@@ -638,6 +920,6 @@ Quy tắc phản hồi:
     );
   } catch (err: any) {
     console.warn('[Telegram AI Assistant Error]:', err);
-    return `⚠️ Trợ lý AI đang bận hoặc gặp lỗi kết nối: <i>${escapeTelegramHtml(err?.message || 'Timeout')}</i>. Vui lòng thử lại hoặc dùng lệnh trực tiếp.`;
+    return `⚠️ Trợ lý AI đang bận hoặc gặp lỗi kết nối: <i>${escapeTelegramHtml(err?.message || 'Timeout')}</i>. Vui lòng kiểm tra lại API Key hoặc dùng lệnh trực tiếp.`;
   }
 }

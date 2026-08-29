@@ -15,7 +15,12 @@ import {
   toolGetTechnicalProgress,
   toolLookupCustomer,
   toolGetCashflowSummary,
-  toolGetAttendanceToday
+  toolGetAttendanceToday,
+  toolGetTopSellingProducts,
+  toolGetAgingInventory,
+  toolGetStaffPerformance,
+  toolGetDebtReport,
+  testGeminiConnection
 } from '../server/services/telegramAiAssistant';
 
 const ORIGINAL_ENV = {
@@ -232,6 +237,100 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     expect(res).toContain('TÌNH HÌNH CHẤM CÔNG HÔM NAY');
     expect(res).toContain('Trần Văn B');
     expect(res).toContain('Trễ 10 phút');
+  });
+
+  it('generates deep executive insights for top selling products and aging inventory', async () => {
+    const mockDb: any = {
+      collection: vi.fn((col) => {
+        if (col === 'invoices') {
+          return {
+            where: vi.fn(() => ({
+              limit: vi.fn(() => ({
+                get: async () => ({
+                  docs: [
+                    { data: () => ({ items: [{ model: 'iPhone 15 Pro Max 256GB', quantity: 3, price: 30000000 }] }) },
+                    { data: () => ({ items: [{ model: 'iPhone 13 128GB', quantity: 5, price: 12000000 }] }) }
+                  ]
+                })
+              }))
+            })),
+            limit: vi.fn(() => ({
+              get: async () => ({
+                docs: [
+                  { data: () => ({ sellerName: 'Nguyễn Văn A', totalAmount: 90000000, createdAtIso: new Date().toISOString() }) },
+                  { data: () => ({ sellerName: 'Lê Thị B', totalAmount: 60000000, createdAtIso: new Date().toISOString() }) }
+                ]
+              })
+            }))
+          };
+        }
+        if (col === 'devices') {
+          return {
+            where: vi.fn(() => ({
+              limit: vi.fn(() => ({
+                get: async () => ({
+                  docs: [
+                    { id: 'DEV_1', data: () => ({ model: 'iPhone 12', storage: '64GB', color: 'Black', importDate: '2025-01-01T00:00:00Z' }) },
+                    { id: 'DEV_2', data: () => ({ model: 'iPhone 12', storage: '64GB', color: 'Black', importDate: '2025-01-01T00:00:00Z' }) }
+                  ]
+                })
+              }))
+            }))
+          };
+        }
+        if (col === 'customers') {
+          return {
+            where: vi.fn(() => ({
+              limit: vi.fn(() => ({
+                get: async () => ({
+                  docs: [
+                    { id: 'CUST_1', data: () => ({ name: 'Công ty TNHH X', phone: '0912345678', debtAmount: 45000000 }) }
+                  ]
+                })
+              }))
+            }))
+          };
+        }
+        if (col === 'branches') {
+          return {
+            limit: vi.fn(() => ({ get: async () => ({ docs: [] }) }))
+          };
+        }
+        return {
+          limit: vi.fn(() => ({ get: async () => ({ docs: [] }) }))
+        };
+      })
+    };
+
+    // Top selling
+    const topRes = await toolGetTopSellingProducts(mockDb, { period: 'TODAY' });
+    expect(topRes).toContain('TOP SẢN PHẨM BÁN CHẠY NHẤT');
+    expect(topRes).toContain('iPhone 13 128GB');
+
+    // Aging inventory
+    const agingRes = await toolGetAgingInventory(mockDb, { daysThreshold: 30 });
+    expect(agingRes).toContain('CẢNH BÁO TỒN KHO LÂU NGÀY');
+    expect(agingRes).toContain('iPhone 12');
+
+    // Staff performance
+    const staffRes = await toolGetStaffPerformance(mockDb, { period: 'TODAY' });
+    expect(staffRes).toContain('BẢNG XẾP HẠNG HIỆU SUẤT SALE');
+    expect(staffRes).toContain('Nguyễn Văn A');
+
+    // Debt report (Owner)
+    process.env.TELEGRAM_OWNER_USER_IDS = '123456789';
+    clearTelegramConfigCache();
+    const debtRes = await toolGetDebtReport(mockDb, {}, '123456789');
+    expect(debtRes).toContain('BÁO CÁO CÔNG NỢ KHÁCH HÀNG CẦN THU HỒI');
+    expect(debtRes).toContain('Công ty TNHH X');
+  });
+
+  it('validates testGeminiConnection with empty key', async () => {
+    delete process.env.GEMINI_API_KEY;
+    clearTelegramConfigCache();
+    const res = await testGeminiConnection('');
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('GEMINI_API_KEY_EMPTY');
   });
 
   it('handles help and menu answers correctly with replyMarkup', async () => {

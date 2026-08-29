@@ -54,6 +54,7 @@ import {
   requestSaveTelegramConfiguration,
   requestTelegramStatus,
   requestTelegramTest,
+  requestTestGeminiAi,
   TelegramRuntimeStatus
 } from '../services/telegramApiClient';
 
@@ -118,8 +119,15 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
   const [telegramWebhookLoading, setTelegramWebhookLoading] = useState(false);
   const [telegramConfigSaving, setTelegramConfigSaving] = useState(false);
   const [telegramConfigDeleting, setTelegramConfigDeleting] = useState(false);
+  const [geminiTestLoading, setGeminiTestLoading] = useState(false);
   const [telegramForm, setTelegramForm] = useState({
-    botToken: '', chatId: '', ownerUserIds: '', alertsEnabled: true, queriesEnabled: true
+    botToken: '',
+    chatId: '',
+    ownerUserIds: '',
+    alertsEnabled: true,
+    queriesEnabled: true,
+    geminiApiKey: '',
+    aiModel: 'gemini-2.5-flash'
   });
 
   useEffect(() => {
@@ -135,6 +143,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         ...current,
         chatId: nextStatus.chatId || current.chatId,
         ownerUserIds: nextStatus.ownerUserIds?.join(', ') || current.ownerUserIds,
+        aiModel: nextStatus.aiModel || current.aiModel || 'gemini-2.5-flash',
         alertsEnabled: nextStatus.configured ? nextStatus.alertsEnabled !== false : true,
         queriesEnabled: nextStatus.configured ? nextStatus.queriesEnabled !== false : true
       }));
@@ -1281,6 +1290,73 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                 </label>
               </div>
 
+              {/* Gemini AI Deep Reasoning Configuration Section */}
+              <div className="mt-5 pt-4 border-t border-orange-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-orange-600" />
+                    <span className="text-xs font-black text-zinc-900 uppercase tracking-wide">🧠 Cấu Hình Gemini AI Trợ Lý Trả Lời Sâu</span>
+                  </div>
+                  {telegramStatus?.hasGeminiApiKey && (
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Đã kết nối Gemini Key
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-black text-zinc-700">Gemini API Key (Google AI Studio)</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={telegramForm.geminiApiKey}
+                      onChange={event => setTelegramForm(current => ({ ...current, geminiApiKey: event.target.value.trim() }))}
+                      placeholder={telegramStatus?.hasGeminiApiKey ? 'Đã lưu an toàn · để trống nếu không đổi key' : 'AIzaSy...'}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none focus:border-orange-500 font-mono"
+                    />
+                    <p className="text-[11px] text-zinc-500">Key dùng để phân tích số liệu kinh doanh và trả lời tự nhiên có chiều sâu.</p>
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-black text-zinc-700">Mô hình AI (Model)</span>
+                    <select
+                      value={telegramForm.aiModel}
+                      onChange={event => setTelegramForm(current => ({ ...current, aiModel: event.target.value }))}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none focus:border-orange-500 font-medium"
+                    >
+                      <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (Mặc định · Phản hồi nhanh & Siêu chuẩn)</option>
+                      <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (Tư duy điều hành & Phân tích sâu)</option>
+                    </select>
+                    <p className="text-[11px] text-zinc-500">Mô hình xử lý câu hỏi điều hành và multi-turn function calling.</p>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={geminiTestLoading || (!telegramStatus?.hasGeminiApiKey && !telegramForm.geminiApiKey)}
+                    onClick={async () => {
+                      setGeminiTestLoading(true);
+                      try {
+                        const res = await requestTestGeminiAi(telegramForm.geminiApiKey || undefined);
+                        if (res.success) {
+                          showToast(`✅ Kết nối Gemini AI (${res.model}) thành công!`);
+                        }
+                      } catch (err: any) {
+                        showToast(err?.message || 'Không kết nối được Gemini API Key.', 'error');
+                      } finally {
+                        setGeminiTestLoading(false);
+                      }
+                    }}
+                    className="rounded-xl border border-orange-300 bg-white px-3.5 py-2 text-xs font-bold text-orange-700 hover:bg-orange-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-orange-500" />
+                    <span>{geminiTestLoading ? 'Đang kiểm tra API Key…' : 'Kiểm tra kết nối Gemini AI'}</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="mt-4 flex flex-wrap gap-3">
                 <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-bold text-zinc-700">
                   <input type="checkbox" checked={telegramForm.alertsEnabled} onChange={event => setTelegramForm(current => ({ ...current, alertsEnabled: event.target.checked }))} /> Cảnh báo chấm công
@@ -1298,8 +1374,8 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     setTelegramConfigSaving(true);
                     try {
                       await requestSaveTelegramConfiguration(telegramForm);
-                      setTelegramForm(current => ({ ...current, botToken: '' }));
-                      showToast('Đã lưu, xác minh Bot và đăng ký webhook thành công.');
+                      setTelegramForm(current => ({ ...current, botToken: '', geminiApiKey: '' }));
+                      showToast('Đã lưu cấu hình Bot & Gemini AI, xác minh và đồng bộ thành công.');
                       await loadTelegramStatus();
                     } catch (error: any) {
                       showToast(error?.message || 'Không lưu được cấu hình Telegram.', 'error');
@@ -1309,7 +1385,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                   }}
                   className="rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2.5 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {telegramConfigSaving ? 'Đang xác minh & kết nối…' : 'Lưu & kết nối Bot'}
+                  {telegramConfigSaving ? 'Đang xác minh & kết nối…' : 'Lưu cấu hình Bot & AI'}
                 </button>
                 {telegramStatus?.source === 'DATABASE' && <button
                   type="button"
@@ -1319,7 +1395,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     setTelegramConfigDeleting(true);
                     try {
                       await requestDeleteTelegramConfiguration();
-                      setTelegramForm({ botToken: '', chatId: '', ownerUserIds: '', alertsEnabled: true, queriesEnabled: true });
+                      setTelegramForm({ botToken: '', chatId: '', ownerUserIds: '', alertsEnabled: true, queriesEnabled: true, geminiApiKey: '', aiModel: 'gemini-2.5-flash' });
                       showToast('Đã xóa cấu hình Bot Telegram.');
                       await loadTelegramStatus();
                     } catch (error: any) {
