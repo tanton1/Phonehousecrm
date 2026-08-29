@@ -47,6 +47,8 @@ function publicBaseUrl(req: Request): string {
   return configuredUrl || (vercelUrl ? `https://${vercelUrl}` : requestUrl);
 }
 
+let lastAutoWebhookSyncAt = 0;
+
 export function createTelegramRouter(db: Firestore | null): Router {
   const router = Router();
 
@@ -139,17 +141,27 @@ export function createTelegramRouter(db: Firestore | null): Router {
     if (!constantTimeEqual(config.webhookSecret, suppliedSecret)) return errorResponse(res, 401, 'TELEGRAM_WEBHOOK_UNAUTHORIZED', 'Webhook Telegram không hợp lệ.');
     const update = req.body || {};
 
+    // Auto-sync webhook with Telegram to ensure callback_query is enabled
+    if (Date.now() - lastAutoWebhookSyncAt > 1800_000) {
+      lastAutoWebhookSyncAt = Date.now();
+      registerTelegramWebhook(publicBaseUrl(req), config).catch(e => {
+        console.warn('[Auto-Sync Telegram Webhook Error]:', e?.message);
+      });
+    }
+
     // 1. Handle Inline Keyboard Callback Queries (Button Clicks)
     if (update.callback_query) {
       const cb = update.callback_query;
       const cbChatId = String(cb.message?.chat?.id || '');
-      if (cbChatId !== config.chatId) return res.status(200).send('OK');
+      const cbSenderId = String(cb.from?.id || '');
+      const isAuthorizedCb = cbChatId === config.chatId || config.ownerUserIds.has(cbSenderId) || cb.message?.chat?.type === 'private';
+      if (!isAuthorizedCb) return res.status(200).send('OK');
 
       try {
         await handleTelegramCallbackQuery(db, cb, config);
         await db.collection('telegramQueryAudit').add({
           intent: `CALLBACK:${String(cb.data || '')}`,
-          senderFingerprint: senderFingerprint(String(cb.from?.id || '')),
+          senderFingerprint: senderFingerprint(cbSenderId),
           chatFingerprint: senderFingerprint(cbChatId),
           createdAt: FieldValue.serverTimestamp()
         });
@@ -163,7 +175,9 @@ export function createTelegramRouter(db: Firestore | null): Router {
     const message = update.message || update.edited_message;
     if (!message) return res.status(200).send('OK');
     const chatId = String(message.chat?.id || '');
-    if (chatId !== config.chatId) return res.status(200).send('OK');
+    const senderId = String(message.from?.id || '');
+    const isAuthorizedChat = chatId === config.chatId || config.ownerUserIds.has(senderId) || message.chat?.type === 'private';
+    if (!isAuthorizedChat) return res.status(200).send('OK');
     const updateId = String(update.update_id || '');
     if (!updateId) return errorResponse(res, 400, 'TELEGRAM_UPDATE_ID_REQUIRED', 'Thiếu update ID.');
 
@@ -176,7 +190,6 @@ export function createTelegramRouter(db: Firestore | null): Router {
       return errorResponse(res, 503, 'TELEGRAM_DEDUPE_FAILED', 'Tạm thời chưa thể xử lý tin Telegram.');
     }
 
-    const senderId = String(message.from?.id || '');
     const minuteKey = new Date().toISOString().slice(0, 16);
     const rateId = crypto.createHash('sha256').update(`${chatId}:${senderId}:${minuteKey}`).digest('hex');
     try {

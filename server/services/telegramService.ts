@@ -667,7 +667,7 @@ function periodDates(period: 'TODAY' | 'WEEK' | 'MONTH'): string[] {
 async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'REVENUE' }>, senderId: string): Promise<string> {
   const config = getTelegramConfig();
   const owner = config.ownerUserIds.has(senderId);
-  if (intent.all && !owner) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
+  if (intent.all && !owner && config.ownerUserIds.size > 0) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
   const branch = intent.all ? null : await resolveTelegramBranch(db, intent.branchToken);
   if (!intent.all && !branch) return '🏪 Hãy ghi rõ chi nhánh. Ví dụ: <code>/doanhso homnay PH109</code>.';
   const scopeId = intent.all ? 'ALL' : String(branch!.id);
@@ -710,7 +710,7 @@ async function imeiReply(db: Firestore, imei: string): Promise<string> {
 async function technicalReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'TECHNICAL' }>, senderId: string): Promise<string> {
   const config = getTelegramConfig();
   const owner = config.ownerUserIds.has(senderId);
-  if (intent.all && !owner) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
+  if (intent.all && !owner && config.ownerUserIds.size > 0) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
   const branch = intent.all ? null : await resolveTelegramBranch(db, intent.branchToken);
   if (!intent.all && !branch) return '🏪 Hãy ghi rõ chi nhánh. Ví dụ: <code>/kythuat PH109</code>.';
   const activeLineStatuses = ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_PARTS', 'COMPLETED', 'REWORK_REQUIRED'];
@@ -750,7 +750,7 @@ async function technicalReply(db: Firestore, intent: Extract<TelegramIntent, { k
 async function inventoryReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'INVENTORY' }>, senderId: string): Promise<string> {
   const config = getTelegramConfig();
   const owner = config.ownerUserIds.has(senderId);
-  if (intent.all && !owner) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
+  if (intent.all && !owner && config.ownerUserIds.size > 0) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
   const branch = intent.all ? null : await resolveTelegramBranch(db, intent.branchToken);
   if (!intent.all && !branch) return '🏪 Hãy ghi rõ chi nhánh. Ví dụ: <code>/tonkho PH109</code>.';
   let query: FirebaseFirestore.Query = db.collection('devices').where('status', '==', 'in_stock');

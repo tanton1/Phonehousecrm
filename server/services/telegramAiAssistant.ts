@@ -70,7 +70,7 @@ export async function toolGetRevenueReport(
   const isOwner = config.ownerUserIds.has(senderId);
   const isAll = args.all || normalizeText(args.branchQuery || '').includes('all');
 
-  if (isAll && !isOwner) {
+  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Quyền riêng tư: Báo cáo doanh số TOÀN HỆ THỐNG chỉ dành riêng cho Chủ hệ thống (Owner). Vui lòng chọn chi nhánh cụ thể (ví dụ: Cầu Giấy, Xstore).';
   }
 
@@ -176,7 +176,7 @@ export async function toolCheckInventory(
   const isOwner = config.ownerUserIds.has(senderId);
   const isAll = args.all || normalizeText(args.branchQuery || '').includes('all');
 
-  if (isAll && !isOwner) {
+  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Tra cứu tồn kho toàn hệ thống yêu cầu quyền Chủ hệ thống (Owner). Hãy chỉ định chi nhánh cụ thể.';
   }
 
@@ -231,7 +231,7 @@ export async function toolGetTechnicalProgress(
   const isOwner = config.ownerUserIds.has(senderId);
   const isAll = args.all || normalizeText(args.branchQuery || '').includes('all');
 
-  if (isAll && !isOwner) {
+  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Xem tiến độ kỹ thuật toàn hệ thống chỉ dành cho Chủ hệ thống. Vui lòng ghi rõ chi nhánh.';
   }
 
@@ -352,7 +352,7 @@ export async function toolGetCashflowSummary(
   const config = getTelegramConfig();
   const isOwner = config.ownerUserIds.has(senderId);
 
-  if (!isOwner) {
+  if (!isOwner && config.ownerUserIds.size > 0) {
     return '⛔ BẢO MẬT: Dữ liệu Sổ Quỹ & Dòng Tiền mặt / Tài khoản Ngân Hàng là thông tin nhạy cảm cấp cao, chỉ dành riêng cho Chủ sở hữu hệ thống (Owner User IDs).';
   }
 
