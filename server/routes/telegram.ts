@@ -50,9 +50,18 @@ function publicBaseUrl(req: Request): string {
 export function createTelegramRouter(db: Firestore | null): Router {
   const router = Router();
 
-  router.get('/status', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (_req, res) => {
+  router.get('/status', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
     try {
       const data = await getTelegramRuntimeStatus(db);
+      if (data.configured && data.connected) {
+        const allowed = (data as any).allowedUpdates || [];
+        if (!allowed.includes('callback_query')) {
+          const config = await loadTelegramConfig(db, true);
+          await registerTelegramWebhook(publicBaseUrl(req), config).catch(e => {
+            console.warn('[Telegram Webhook Auto-Update Allowed Updates Failed]:', e?.message);
+          });
+        }
+      }
       return res.json({ success: true, data });
     } catch (error: any) {
       return errorResponse(res, 500, String(error?.message || 'TELEGRAM_STATUS_FAILED'), 'Không đọc được cấu hình Telegram đã bảo vệ.');

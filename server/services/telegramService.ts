@@ -341,6 +341,27 @@ export async function answerTelegramCallbackQuery(
   }, conf).catch(() => null);
 }
 
+export async function editTelegramMessageText(
+  text: string,
+  options: {
+    chatId: string;
+    messageId: number | string;
+    replyMarkup?: Record<string, unknown>;
+    config?: TelegramConfig;
+  }
+): Promise<any> {
+  const config = options.config || getTelegramConfig();
+  if (!telegramIsConfigured(config)) throw new Error('TELEGRAM_NOT_CONFIGURED');
+  return telegramRequest('editMessageText', {
+    chat_id: options.chatId,
+    message_id: options.messageId,
+    text: text.slice(0, 4000),
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+    ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {})
+  }, config);
+}
+
 export async function getTelegramRuntimeStatus(db: Firestore | null = null): Promise<Record<string, unknown>> {
   const config = db ? await loadTelegramConfig(db, true) : getTelegramConfig();
   const adminConfiguration = publicTelegramConfiguration(config);
@@ -356,6 +377,7 @@ export async function getTelegramRuntimeStatus(db: Firestore | null = null): Pro
       botUsername: bot?.username || '',
       webhookConfigured: Boolean(webhook?.url),
       pendingUpdateCount: Number(webhook?.pending_update_count || 0),
+      allowedUpdates: webhook?.allowed_updates || [],
       lastWebhookErrorAt: webhook?.last_error_date ? new Date(Number(webhook.last_error_date) * 1000).toISOString() : null,
       lastWebhookErrorMessage: webhook?.last_error_message ? 'Telegram đang báo lỗi webhook. Xem log server để biết chi tiết.' : null,
       alertsEnabled: config.alertsEnabled,
@@ -376,7 +398,7 @@ export async function registerTelegramWebhook(publicBaseUrl: string, configOverr
   await telegramRequest('setWebhook', {
     url,
     secret_token: config.webhookSecret,
-    allowed_updates: ['message', 'edited_message'],
+    allowed_updates: ['message', 'edited_message', 'callback_query'],
     drop_pending_updates: false
   }, config);
   return { url };
@@ -581,6 +603,24 @@ export async function handleTelegramCallbackQuery(
   } else {
     replyText = telegramMenuText();
     replyMarkup = renderMainMenuKeyboard();
+  }
+
+  const messageId = callbackQuery.message?.message_id;
+
+  if (messageId) {
+    try {
+      await editTelegramMessageText(replyText, {
+        chatId,
+        messageId,
+        replyMarkup,
+        config: conf
+      });
+      return;
+    } catch (editErr: any) {
+      const msg = String(editErr?.message || '').toLowerCase();
+      if (msg.includes('message is not modified')) return;
+      // Fallback to sending new message
+    }
   }
 
   await sendTelegramMessage(replyText, {
