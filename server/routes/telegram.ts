@@ -127,13 +127,15 @@ export function createTelegramRouter(db: Firestore | null): Router {
   router.post('/test-ai', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
     try {
       const suppliedApiKey = String(req.body?.geminiApiKey || '').trim();
-      const result = await testGeminiConnection(suppliedApiKey || undefined);
+      const suppliedBaseUrl = String(req.body?.geminiBaseUrl || '').trim();
+      const suppliedModel = String(req.body?.aiModel || '').trim();
+      const result = await testGeminiConnection(suppliedApiKey || undefined, suppliedBaseUrl || undefined, suppliedModel || undefined);
       if (!result.success) {
-        return errorResponse(res, 422, result.error || 'GEMINI_TEST_FAILED', 'Không kết nối được Gemini AI. Vui lòng kiểm tra lại API Key.');
+        return errorResponse(res, 422, result.error || 'GEMINI_TEST_FAILED', `Không kết nối được AI API Key: ${result.error || 'Vui lòng kiểm tra lại API Key và Base URL.'}`);
       }
       return res.json({ success: true, data: result });
     } catch (error: any) {
-      return errorResponse(res, 500, String(error?.message || 'GEMINI_TEST_FAILED'), 'Lỗi kiểm tra kết nối Gemini AI.');
+      return errorResponse(res, 500, String(error?.message || 'GEMINI_TEST_FAILED'), 'Lỗi kiểm tra kết nối AI.');
     }
   });
 

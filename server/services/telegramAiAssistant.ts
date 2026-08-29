@@ -7,6 +7,29 @@ import { getTelegramConfig, escapeTelegramHtml, TelegramConfig } from './telegra
 
 let cachedAiClient: { client: GoogleGenAI; key: string } | null = null;
 
+export function isOpenAiCompatible(apiKey: string, baseUrl?: string): boolean {
+  if (baseUrl && baseUrl.trim().length > 0) return true;
+  if (apiKey.startsWith('sk-') || apiKey.startsWith('fun-') || apiKey.includes('apikey.fun')) return true;
+  return false;
+}
+
+export function resolveBaseUrl(baseUrl?: string): string {
+  const trimmed = String(baseUrl || '').trim();
+  if (trimmed) return trimmed.replace(/\/+$/, '');
+  return 'https://api.apikey.fun/v1';
+}
+
+export function convertGoogleDeclarationsToOpenAiTools(declarations: FunctionDeclaration[]) {
+  return declarations.map(decl => ({
+    type: 'function',
+    function: {
+      name: decl.name,
+      description: decl.description,
+      parameters: decl.parameters || { type: 'object', properties: {} }
+    }
+  }));
+}
+
 export function getAI(configOverride?: TelegramConfig): GoogleGenAI | null {
   const config = configOverride || getTelegramConfig();
   const apiKey = String(config.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
@@ -29,18 +52,65 @@ export function getAI(configOverride?: TelegramConfig): GoogleGenAI | null {
   }
 }
 
-export async function testGeminiConnection(apiKey?: string, modelOverride?: string): Promise<{ success: boolean; model?: string; error?: string }> {
-  const key = String(apiKey || getTelegramConfig().geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+export async function testGeminiConnection(
+  apiKey?: string,
+  baseUrlOverride?: string,
+  modelOverride?: string
+): Promise<{ success: boolean; model?: string; error?: string }> {
+  const config = getTelegramConfig();
+  const key = String(apiKey || config.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+  const baseUrl = String(baseUrlOverride !== undefined ? baseUrlOverride : (config.geminiBaseUrl || process.env.GEMINI_BASE_URL || '')).trim();
+
   if (!key) return { success: false, error: 'GEMINI_API_KEY_EMPTY' };
+
   const candidateModels = [
     modelOverride,
-    getTelegramConfig().aiModel,
+    config.aiModel,
     'gemini-3.7-flash',
     'gemini-3.6-flash',
     'gemini-2.5-flash',
-    'gemini-2.5-pro'
+    'gemini-2.5-pro',
+    'gpt-4o-mini',
+    'gpt-4o'
   ].filter(Boolean) as string[];
 
+  // 1. OpenAI-Compatible Proxy (apikey.fun, OneAPI, NewAPI, etc.)
+  if (isOpenAiCompatible(key, baseUrl)) {
+    const resolvedUrl = resolveBaseUrl(baseUrl);
+    let lastErr = 'PROXY_TEST_FAILED';
+    for (const model of candidateModels) {
+      try {
+        const res = await fetch(`${resolvedUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${key}`
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: 'Hello, confirm PhoneHouse AI connection in 3 words.' }],
+            max_tokens: 50
+          }),
+          signal: AbortSignal.timeout(12000)
+        });
+
+        if (res.ok) {
+          const data: any = await res.json();
+          if (data?.choices?.[0]?.message?.content) {
+            return { success: true, model };
+          }
+        } else {
+          const errText = await res.text().catch(() => '');
+          lastErr = `HTTP ${res.status}: ${errText.slice(0, 150)}`;
+        }
+      } catch (err: any) {
+        lastErr = String(err?.message || 'NETWORK_TIMEOUT');
+      }
+    }
+    return { success: false, error: lastErr };
+  }
+
+  // 2. Native Google AI Studio
   const ai = new GoogleGenAI({ apiKey: key });
   let lastError = 'GEMINI_TEST_FAILED';
 
@@ -848,9 +918,11 @@ export async function processTelegramAiCopilot(
   senderId: string
 ): Promise<string> {
   const config = getTelegramConfig();
-  const ai = getAI(config);
-  if (!ai) {
-    return '🤖 <i>Trợ lý AI chưa được cài GEMINI_API_KEY. Quản trị viên vui lòng vào <b>Cài đặt hệ thống ➔ Thông báo Telegram & AI</b> trên Web CRM để nhập API Key.</i>';
+  const apiKey = String(config.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+  const baseUrl = config.geminiBaseUrl || process.env.GEMINI_BASE_URL || '';
+
+  if (!apiKey) {
+    return '🤖 <i>Trợ lý AI chưa được cài API Key. Quản trị viên vui lòng vào <b>Cài đặt hệ thống ➔ Thông báo Telegram & AI</b> trên Web CRM để nhập API Key (Google AI Studio hoặc API proxy như apikey.fun).</i>';
   }
 
   const aiModel = config.aiModel || 'gemini-3.7-flash';
@@ -864,6 +936,105 @@ Nhiệm vụ của bạn:
 4. Sử dụng công cụ (Function Calling) để lấy dữ liệu thực tế chính xác 100% trước khi trả lời. Tuyệt đối không tự bịa đặt số liệu.
 5. Khi người dùng hỏi câu hỏi tổng quan hoặc phân tích, bạn hãy tổng hợp dữ liệu từ các công cụ, nhận xét xu hướng (tăng/giảm, điểm nghẽn kỹ thuật, rủi ro tồn kho, công nợ) và đưa ra ĐỀ XUẤT HÀNH ĐỘNG cụ thể.
 `;
+
+  // === CASE 1: OPENAI-COMPATIBLE PROXY (apikey.fun, OneAPI, NewAPI, etc.) ===
+  if (isOpenAiCompatible(apiKey, baseUrl)) {
+    const resolvedUrl = resolveBaseUrl(baseUrl);
+    const openAiTools = convertGoogleDeclarationsToOpenAiTools(functionDeclarations);
+    const messages: any[] = [
+      { role: 'system', content: systemInstruction },
+      { role: 'user', content: userMessage }
+    ];
+
+    try {
+      const initialRes = await fetch(`${resolvedUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: aiModel,
+          messages,
+          tools: openAiTools,
+          tool_choice: 'auto'
+        }),
+        signal: AbortSignal.timeout(25000)
+      });
+
+      if (!initialRes.ok) {
+        const errText = await initialRes.text().catch(() => '');
+        throw new Error(`Proxy HTTP ${initialRes.status}: ${errText.slice(0, 150)}`);
+      }
+
+      const initialData: any = await initialRes.json();
+      const assistantMsg = initialData?.choices?.[0]?.message;
+      const toolCalls = assistantMsg?.tool_calls;
+
+      if (toolCalls && Array.isArray(toolCalls) && toolCalls.length > 0) {
+        const toolExecutionResults: Array<{ name: string; output: string }> = [];
+        messages.push(assistantMsg);
+
+        for (const tc of toolCalls) {
+          const name = tc.function?.name;
+          let args = {};
+          try {
+            args = typeof tc.function?.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function?.arguments || {};
+          } catch {
+            args = {};
+          }
+          const output = await executeTool(db, name, args, senderId);
+          toolExecutionResults.push({ name, output });
+          messages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: `[Dữ liệu thực tế từ hệ thống cho công cụ ${name}]:\n${output}`
+          });
+        }
+
+        const isComplexQuery = userMessage.length > 25 || /(tại sao|phân tích|đánh giá|so sánh|lý do|tư vấn|đề xuất|chi tiết|nhận xét|top|xếp hạng)/i.test(userMessage);
+        if (!isComplexQuery && toolExecutionResults.length === 1) {
+          return toolExecutionResults[0].output;
+        }
+
+        try {
+          const secondTurnRes = await fetch(`${resolvedUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: aiModel,
+              messages
+            }),
+            signal: AbortSignal.timeout(25000)
+          });
+
+          if (secondTurnRes.ok) {
+            const secondData: any = await secondTurnRes.json();
+            const text = secondData?.choices?.[0]?.message?.content?.trim();
+            if (text) return text;
+          }
+        } catch (synthErr) {
+          console.warn('[OpenAI Proxy Multi-turn Synthesis Fallback]:', synthErr);
+        }
+
+        return toolExecutionResults.map(r => r.output).join('\n\n');
+      }
+
+      return assistantMsg?.content?.trim() || '🤖 Đã tiếp nhận yêu cầu. Bạn có thể gõ <code>/menu</code> để xem các chức năng hỗ trợ nhanh.';
+    } catch (err: any) {
+      console.warn('[OpenAI Proxy Assistant Error]:', err);
+      return `⚠️ Trợ lý AI Proxy đang bận hoặc gặp lỗi: <i>${escapeTelegramHtml(err?.message || 'Timeout')}</i>. Vui lòng kiểm tra lại API Key / Base URL hoặc dùng lệnh trực tiếp.`;
+    }
+  }
+
+  // === CASE 2: NATIVE GOOGLE AI STUDIO (@google/genai) ===
+  const ai = getAI(config);
+  if (!ai) {
+    return '🤖 <i>Trợ lý AI chưa được cài GEMINI_API_KEY hợp lệ. Quản trị viên vui lòng vào <b>Cài đặt hệ thống ➔ Thông báo Telegram & AI</b> trên Web CRM để nhập API Key.</i>';
+  }
 
   try {
     // 1. Initial Call

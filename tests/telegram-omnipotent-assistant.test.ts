@@ -20,7 +20,9 @@ import {
   toolGetAgingInventory,
   toolGetStaffPerformance,
   toolGetDebtReport,
-  testGeminiConnection
+  testGeminiConnection,
+  isOpenAiCompatible,
+  resolveBaseUrl
 } from '../server/services/telegramAiAssistant';
 
 const ORIGINAL_ENV = {
@@ -331,6 +333,34 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     const res = await testGeminiConnection('');
     expect(res.success).toBe(false);
     expect(res.error).toBe('GEMINI_API_KEY_EMPTY');
+  });
+
+  it('correctly identifies OpenAI-compatible proxy keys like apikey.fun and resolves baseUrls', () => {
+    expect(isOpenAiCompatible('sk-1234567890abcdef')).toBe(true);
+    expect(isOpenAiCompatible('fun-1234567890abcdef')).toBe(true);
+    expect(isOpenAiCompatible('AIzaSyCustomKey', 'https://api.apikey.fun/v1')).toBe(true);
+    expect(isOpenAiCompatible('AIzaSyCustomKey', '')).toBe(false);
+
+    expect(resolveBaseUrl('')).toBe('https://api.apikey.fun/v1');
+    expect(resolveBaseUrl('https://api.apikey.fun/v1/')).toBe('https://api.apikey.fun/v1');
+    expect(resolveBaseUrl('https://custom-proxy.com/v1')).toBe('https://custom-proxy.com/v1');
+  });
+
+  it('tests connection against OpenAI compatible proxy endpoint with fetch mock', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          { message: { content: 'PhoneHouse AI Connected' } }
+        ]
+      })
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const res = await testGeminiConnection('sk-test-apikey-fun', 'https://api.apikey.fun/v1', 'gemini-3.7-flash');
+    expect(res.success).toBe(true);
+    expect(res.model).toBe('gemini-3.7-flash');
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it('handles help and menu answers correctly with replyMarkup', async () => {

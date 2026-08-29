@@ -23,6 +23,7 @@ export interface TelegramConfig {
   alertsEnabled: boolean;
   queriesEnabled: boolean;
   geminiApiKey?: string;
+  geminiBaseUrl?: string;
   aiModel?: string;
   source?: 'ENVIRONMENT' | 'DATABASE';
 }
@@ -32,6 +33,7 @@ export interface TelegramAdminConfiguration {
   hasBotToken: boolean;
   hasWebhookSecret: boolean;
   hasGeminiApiKey: boolean;
+  geminiBaseUrl?: string;
   aiModel?: string;
   chatId: string;
   ownerUserIds: string[];
@@ -46,6 +48,7 @@ export interface TelegramConfigurationInput {
   alertsEnabled?: unknown;
   queriesEnabled?: unknown;
   geminiApiKey?: unknown;
+  geminiBaseUrl?: unknown;
   aiModel?: unknown;
 }
 
@@ -109,6 +112,7 @@ function environmentTelegramConfig(): TelegramConfig {
     chatId: String(process.env.TELEGRAM_CHAT_ID || '').trim(),
     webhookSecret: String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim(),
     geminiApiKey: String(process.env.GEMINI_API_KEY || '').trim(),
+    geminiBaseUrl: String(process.env.GEMINI_BASE_URL || '').trim(),
     aiModel: String(process.env.GEMINI_MODEL || 'gemini-3.7-flash').trim(),
     ownerUserIds: new Set(String(process.env.TELEGRAM_OWNER_USER_IDS || '').split(',').map(value => value.trim()).filter(Boolean)),
     alertsEnabled: boolEnv('TELEGRAM_ALERTS_ENABLED'),
@@ -139,6 +143,7 @@ function publicTelegramConfiguration(config: TelegramConfig): TelegramAdminConfi
     hasBotToken: Boolean(config.token),
     hasWebhookSecret: Boolean(config.webhookSecret),
     hasGeminiApiKey: Boolean(config.geminiApiKey || process.env.GEMINI_API_KEY),
+    geminiBaseUrl: config.geminiBaseUrl || '',
     aiModel: config.aiModel || 'gemini-3.7-flash',
     chatId: config.chatId,
     ownerUserIds: [...config.ownerUserIds],
@@ -165,6 +170,7 @@ export async function loadTelegramConfig(db: Firestore | null, force = false): P
       chatId: String(data.chatId || '').trim(),
       webhookSecret: decryptChannelSecret(data.encryptedWebhookSecret),
       geminiApiKey: data.encryptedGeminiApiKey ? decryptChannelSecret(data.encryptedGeminiApiKey) : environment.geminiApiKey,
+      geminiBaseUrl: String(data.geminiBaseUrl || environment.geminiBaseUrl || '').trim(),
       aiModel: String(data.aiModel || environment.aiModel || 'gemini-3.7-flash').trim(),
       ownerUserIds: new Set(normalizeOwnerUserIds(data.ownerUserIds)),
       alertsEnabled: data.alertsEnabled !== false,
@@ -204,6 +210,7 @@ export async function saveTelegramConfiguration(
 
   const suppliedGeminiKey = String(input.geminiApiKey || '').trim();
   const geminiApiKey = suppliedGeminiKey || (current.encryptedGeminiApiKey ? decryptChannelSecret(current.encryptedGeminiApiKey) : '') || environment.geminiApiKey;
+  const geminiBaseUrl = String(input.geminiBaseUrl !== undefined ? input.geminiBaseUrl : (current.geminiBaseUrl || environment.geminiBaseUrl || '')).trim();
   const aiModel = String(input.aiModel || current.aiModel || environment.aiModel || 'gemini-3.7-flash').trim();
 
   if (!/^\d{6,20}:[A-Za-z0-9_-]{20,}$/.test(token)) throw new Error('TELEGRAM_BOT_TOKEN_INVALID');
@@ -211,7 +218,7 @@ export async function saveTelegramConfiguration(
   if (ownerUserIds.some(id => !/^\d{3,25}$/.test(id))) throw new Error('TELEGRAM_OWNER_USER_ID_INVALID');
   if (!/^[A-Za-z0-9_-]{32,128}$/.test(webhookSecret)) throw new Error('TELEGRAM_WEBHOOK_SECRET_INVALID');
   const candidate: TelegramConfig = {
-    token, chatId, webhookSecret, geminiApiKey, aiModel, ownerUserIds: new Set(ownerUserIds), alertsEnabled, queriesEnabled, source: 'DATABASE'
+    token, chatId, webhookSecret, geminiApiKey, geminiBaseUrl, aiModel, ownerUserIds: new Set(ownerUserIds), alertsEnabled, queriesEnabled, source: 'DATABASE'
   };
   const [bot, chat] = await Promise.all([
     telegramRequest<any>('getMe', undefined, candidate),
@@ -222,6 +229,7 @@ export async function saveTelegramConfiguration(
     encryptedBotToken: encryptChannelSecret(token),
     encryptedWebhookSecret: encryptChannelSecret(webhookSecret),
     ...(geminiApiKey ? { encryptedGeminiApiKey: encryptChannelSecret(geminiApiKey) } : {}),
+    geminiBaseUrl,
     aiModel,
     tokenFingerprint: crypto.createHash('sha256').update(token).digest('hex').slice(0, 12),
     chatId,

@@ -17,6 +17,7 @@ export interface TelegramRuntimeStatus {
   hasBotToken?: boolean;
   hasWebhookSecret?: boolean;
   hasGeminiApiKey?: boolean;
+  geminiBaseUrl?: string;
   aiModel?: string;
   chatId?: string;
   ownerUserIds?: string[];
@@ -29,6 +30,7 @@ export interface TelegramConfigurationInput {
   alertsEnabled: boolean;
   queriesEnabled: boolean;
   geminiApiKey?: string;
+  geminiBaseUrl?: string;
   aiModel?: string;
 }
 
@@ -46,9 +48,9 @@ export async function requestTelegramTest(): Promise<{ messageId?: string | numb
   return response.data;
 }
 
-export async function requestTestGeminiAi(geminiApiKey?: string): Promise<{ success: boolean; model?: string }> {
+export async function requestTestGeminiAi(geminiApiKey?: string, geminiBaseUrl?: string, aiModel?: string): Promise<{ success: boolean; model?: string }> {
   const response = await apiJson<{ success: boolean; data: { success: boolean; model?: string } }>('/api/telegram/test-ai', {
-    method: 'POST', body: JSON.stringify({ geminiApiKey: geminiApiKey || undefined }), timeoutMs: 15_000
+    method: 'POST', body: JSON.stringify({ geminiApiKey: geminiApiKey || undefined, geminiBaseUrl: geminiBaseUrl || undefined, aiModel: aiModel || undefined }), timeoutMs: 15_000
   });
   return response.data;
 }
