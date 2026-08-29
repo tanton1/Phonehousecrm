@@ -523,7 +523,7 @@ function parseTelegramCommandScope(value: string): TelegramCommandScope {
     .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{4})?\b/g, ' ')
     .replace(/\b(thang truoc|tuan truoc|hom qua|homqua|hôm qua|thang nay|thangnay|tuan nay|tuannay|hom nay|homnay|today|yesterday|last month|last week|month|week|thang|tuan)\b/g, ' ')
     .replace(/\b(all|tong he thong|tong|toan he thong|tat ca chi nhanh|tat ca|ca chuoi|toan chuoi|toan bo)\b/g, ' ')
-    .replace(/\b(bao cao|doanh so|ngay)\b/g, ' ')
+    .replace(/\b(bao cao ban hang|bao cao|doanh so|doanh thu|ngay)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim() || undefined;
 
@@ -579,6 +579,32 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
 
   if (['/nhansu', '/chamcong', '/diemdanh'].includes(command)) {
     const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
+  }
+
+  // Deterministic natural-language commands used in Telegram groups. These must
+  // not depend on the AI provider because a proxy outage or a malformed tool call
+  // could otherwise drop branch/date arguments that are present in the message.
+  if (/\b(doanh so|doanh thu|bao cao ban hang)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized);
+    return { kind: 'REVENUE', ...scope };
+  }
+
+  if (/\b(ky thuat|kcs|tien do sua chua|may dang sua)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized
+      .replace(/\b(ky thuat|kcs|tien do sua chua|may dang sua)\b/g, ' '));
+    return { kind: 'TECHNICAL', branchToken: scope.branchToken, all: scope.all };
+  }
+
+  if (/\b(ton kho|con may|may ton)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized
+      .replace(/\b(ton kho|con may|may ton)\b/g, ' '));
+    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all };
+  }
+
+  if (/\b(nhan su|cham cong|diem danh|di tre)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized
+      .replace(/\b(nhan su|cham cong|diem danh|di tre)\b/g, ' '));
     return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
   }
 

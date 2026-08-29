@@ -84,6 +84,24 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
       period: 'LAST_WEEK',
       branchToken: 'xstore'
     });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot doanh số PH 109 tuần này')).toMatchObject({
+      kind: 'REVENUE',
+      period: 'WEEK',
+      branchToken: 'ph 109',
+      all: false
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot doanh số CN-02 tuần này')).toMatchObject({
+      kind: 'REVENUE',
+      period: 'WEEK',
+      branchToken: 'cn-02',
+      all: false
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot doanh thu Xstore ĐN hôm nay')).toMatchObject({
+      kind: 'REVENUE',
+      period: 'TODAY',
+      branchToken: 'xstore dn',
+      all: false
+    });
 
     // IMEI
     expect(parseTelegramIntent('/imei 356789012345678')).toEqual({
