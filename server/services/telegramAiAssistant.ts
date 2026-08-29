@@ -643,7 +643,7 @@ export async function toolLookupImei(db: Firestore, args: { imei: string }): Pro
 
 export async function toolCheckInventory(
   db: Firestore,
-  args: { modelQuery?: string; branchQuery?: string; all?: boolean },
+  args: { modelQuery?: string; branchQuery?: string; all?: boolean; includeImeis?: boolean; limit?: number },
   senderId: string
 ): Promise<string> {
   const config = getTelegramConfig();
@@ -668,7 +668,7 @@ export async function toolCheckInventory(
 
   const devices = snapshot.docs
     .map(doc => doc.data())
-    .filter(d => !modelNeedle || normalizeText(d.model).includes(modelNeedle) || normalizeText(d.storage).includes(modelNeedle));
+    .filter(d => !modelNeedle || normalizeText(`${d.model || ''} ${d.storage || ''}`).includes(modelNeedle));
 
   // Group by model & storage
   const groupCounts: Record<string, number> = {};
@@ -682,6 +682,10 @@ export async function toolCheckInventory(
     .slice(0, 10);
 
   const scopeName = isAll ? 'Toàn hệ thống' : matchedBranch ? matchedBranch.name || matchedBranch.id : 'Chi nhánh';
+  const detailLimit = Math.min(30, Math.max(1, Number(args.limit || 20)));
+  const detailedDevices = args.includeImeis
+    ? devices.slice().sort((a, b) => `${a.model || ''}|${a.storage || ''}|${a.imei || ''}`.localeCompare(`${b.model || ''}|${b.storage || ''}|${b.imei || ''}`, 'vi')).slice(0, detailLimit)
+    : [];
 
   return [
     `<b>📦 TỒN KHO MÁY SẴN BÁN</b>`,
@@ -692,10 +696,139 @@ export async function toolCheckInventory(
     topModels.length < Object.keys(groupCounts).length
       ? `<i>...và ${Object.keys(groupCounts).length - topModels.length} dòng máy khác.</i>`
       : '',
+    detailedDevices.length ? '<b>📱 Danh sách IMEI chi tiết:</b>' : '',
+    ...detailedDevices.map((device: any, index: number) => {
+      const imei = String(device.imei || device.imeiNormalized || device.id || 'N/A');
+      const condition = String(device.condition || device.conditionName || 'Chưa phân loại');
+      const location = String(device.currentLocationName || device.warehouseName || device.currentLocationId || device.warehouseId || 'Chưa rõ kho');
+      return `${index + 1}. <b>${escapeTelegramHtml(`${device.model || 'Thiết bị'} ${device.storage || ''}`.trim())}</b> · <code>${escapeTelegramHtml(imei)}</code>\n   ${escapeTelegramHtml(condition)} · Pin ${Number(device.batteryHealth || 0) || 'N/A'}${device.batteryHealth ? '%' : ''} · ${escapeTelegramHtml(location)} · ${formatVnd(device.sellPrice)}`;
+    }),
+    args.includeImeis && devices.length > detailedDevices.length
+      ? `<i>Đang hiển thị ${detailedDevices.length}/${devices.length} máy. Hãy thêm tên model để lọc ngắn hơn.</i>`
+      : '',
     `<i>Cập nhật lúc ${escapeTelegramHtml(formatVietnamNow())}</i>`
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+const RETAIL_REPAIR_TERMINAL_STATUSES = new Set(['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH', 'CANCELLED', 'CLOSED']);
+
+function retailRepairStatusLabel(status: unknown): string {
+  const labels: Record<string, string> = {
+    ASSIGNED: 'Chờ KTV nhận',
+    ACCEPTED: 'Đã nhận máy',
+    IN_PROGRESS: 'Đang sửa chữa',
+    WAITING_PARTS: 'Chờ linh kiện',
+    TECH_COMPLETED: 'Kỹ thuật đã hoàn thành',
+    COMPLETED: 'Chờ KCS/nghiệm thu',
+    QC_PENDING: 'Chờ KCS',
+    QC_FAILED_REWORK: 'KCS lỗi · Đang làm lại',
+    QC_PASSED: 'KCS đạt · Chờ trả khách',
+    WAITING_DELIVERY: 'Chờ trả khách'
+  };
+  const key = String(status || 'ASSIGNED').toUpperCase();
+  return labels[key] || key;
+}
+
+export async function toolGetRetailRepairQueue(
+  db: Firestore,
+  args: {
+    repairType?: 'ALL' | 'WARRANTY' | 'CUSTOMER_SERVICE' | string;
+    branchQuery?: string;
+    all?: boolean;
+    includeImeis?: boolean;
+    period?: string;
+    date?: string;
+    limit?: number;
+  },
+  senderId: string
+): Promise<string> {
+  const config = getTelegramConfig();
+  const isOwner = config.ownerUserIds.has(senderId);
+  const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
+  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
+    return '⛔ Xem máy bảo hành/sửa lẻ toàn hệ thống yêu cầu quyền Chủ hệ thống. Hãy chọn chi nhánh.';
+  }
+
+  const branches = await fetchActiveBranches(db);
+  const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
+  if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+
+  const requestedType = String(args.repairType || 'ALL').toUpperCase();
+  const acceptedTypes = requestedType === 'WARRANTY'
+    ? ['WARRANTY']
+    : requestedType === 'CUSTOMER_SERVICE'
+      ? ['CUSTOMER_SERVICE']
+      : ['CUSTOMER_SERVICE', 'WARRANTY'];
+
+  let query: FirebaseFirestore.Query = db.collection('technicalWorkOrders');
+  if (matchedBranch) query = query.where('branchId', '==', matchedBranch.id);
+  query = acceptedTypes.length === 1
+    ? query.where('workOrderType', '==', acceptedTypes[0])
+    : query.where('workOrderType', 'in', acceptedTypes);
+  const snapshot = await query.limit(500).get();
+  const dateRange = args.period || args.date ? resolveDateRange({ period: args.period, date: args.date }) : null;
+  const workOrders = snapshot.docs
+    .map(doc => ({ id: doc.id, ...doc.data() } as any))
+    .filter(item => acceptedTypes.includes(String(item.workOrderType || '')))
+    .filter(item => !matchedBranch || String(item.branchId || '') === String(matchedBranch.id))
+    .filter(item => !RETAIL_REPAIR_TERMINAL_STATUSES.has(String(item.status || '')))
+    .filter(item => {
+      if (!dateRange) return true;
+      const receivedAt = item.receivedAt?.toDate?.() || item.receivedAt || item.createdAt?.toDate?.() || item.createdAt || '';
+      if (!receivedAt) return false;
+      try {
+        return dateRange.dates.includes(getVietnamDateString(receivedAt));
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => String(b.receivedAt?.toDate?.()?.toISOString?.() || b.receivedAt || b.createdAt || '').localeCompare(String(a.receivedAt?.toDate?.()?.toISOString?.() || a.receivedAt || a.createdAt || '')));
+
+  const counts = workOrders.reduce((result, item) => {
+    const type = String(item.workOrderType || '');
+    if (type === 'WARRANTY') result.warranty += 1;
+    if (type === 'CUSTOMER_SERVICE') result.service += 1;
+    const status = String(item.status || 'ASSIGNED');
+    if (status === 'WAITING_PARTS') result.waitingParts += 1;
+    if (status.includes('QC') || status === 'COMPLETED') result.waitingQc += 1;
+    return result;
+  }, { warranty: 0, service: 0, waitingParts: 0, waitingQc: 0 });
+
+  const scopeName = isAll ? 'Toàn hệ thống' : matchedBranch!.name || matchedBranch!.id;
+  const typeLabel = requestedType === 'WARRANTY' ? 'BẢO HÀNH' : requestedType === 'CUSTOMER_SERVICE' ? 'SỬA LẺ' : 'BẢO HÀNH & SỬA LẺ';
+  const detailLimit = Math.min(25, Math.max(1, Number(args.limit || 15)));
+  const details = workOrders.slice(0, detailLimit);
+
+  return [
+    `<b>🛠 ${typeLabel} ĐANG XỬ LÝ</b>`,
+    `🏪 <b>Chi nhánh:</b> ${escapeTelegramHtml(scopeName)}`,
+    dateRange ? `📅 <b>Thời gian tiếp nhận:</b> ${escapeTelegramHtml(dateRange.label)}` : '',
+    `• Tổng máy đang mở: <b>${workOrders.length}</b>`,
+    requestedType === 'ALL' ? `• Bảo hành: <b>${counts.warranty}</b> · Sửa lẻ: <b>${counts.service}</b>` : '',
+    `• Chờ linh kiện: <b>${counts.waitingParts}</b> · Chờ KCS/hoàn tất kỹ thuật: <b>${counts.waitingQc}</b>`,
+    details.length ? '<b>📋 Danh sách máy:</b>' : '<i>Không có máy phù hợp.</i>',
+    ...details.map((item: any, index: number) => {
+      const typeIcon = item.workOrderType === 'WARRANTY' ? '🛡' : '🔧';
+      const imei = String(item.imei || 'Chưa có IMEI');
+      const displayImei = args.includeImeis === false ? `…${imei.slice(-6)}` : imei;
+      const customer = String(item.customerName || item.intakeDetails?.customerName || 'Khách lẻ');
+      const custodian = String(item.currentCustodianName || item.technicianAssigned || 'Chưa phân công');
+      const promisedAt = item.customerPromisedAt || item.expectedReturnDate || '';
+      let promisedLabel = '';
+      if (promisedAt) {
+        try {
+          promisedLabel = new Date(promisedAt?.toDate?.() || promisedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+        } catch {
+          promisedLabel = '';
+        }
+      }
+      return `${index + 1}. ${typeIcon} <b>${escapeTelegramHtml(item.model || 'Thiết bị')}</b> · <code>${escapeTelegramHtml(displayImei)}</code>\n   ${escapeTelegramHtml(item.code || item.id)} · <b>${escapeTelegramHtml(retailRepairStatusLabel(item.status))}</b> · ${escapeTelegramHtml(customer)}\n   KTV/giữ máy: ${escapeTelegramHtml(custodian)}${promisedLabel ? ` · Hẹn trả: ${escapeTelegramHtml(promisedLabel)}` : ''}`;
+    }),
+    workOrders.length > details.length ? `<i>Đang hiển thị ${details.length}/${workOrders.length} máy.</i>` : '',
+    `<i>Cập nhật lúc ${escapeTelegramHtml(formatVietnamNow())}</i>`
+  ].filter(Boolean).join('\n');
 }
 
 export async function toolGetTechnicalProgress(
@@ -1168,6 +1301,10 @@ const functionDeclarations: FunctionDeclaration[] = [
         all: {
           type: Type.BOOLEAN,
           description: 'True nếu muốn tra cứu trên tất cả chi nhánh.'
+        },
+        includeImeis: {
+          type: Type.BOOLEAN,
+          description: 'True khi người dùng yêu cầu danh sách chi tiết từng máy hoặc IMEI.'
         }
       }
     }
@@ -1185,6 +1322,41 @@ const functionDeclarations: FunctionDeclaration[] = [
         all: {
           type: Type.BOOLEAN,
           description: 'True nếu xem toàn bộ các chi nhánh.'
+        }
+      }
+    }
+  },
+  {
+    name: 'get_retail_repair_queue',
+    description: 'Tra cứu danh sách máy khách đang bảo hành hoặc sửa lẻ, gồm IMEI, trạng thái và người đang giữ máy.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        repairType: {
+          type: Type.STRING,
+          enum: ['ALL', 'WARRANTY', 'CUSTOMER_SERVICE'],
+          description: 'WARRANTY là bảo hành, CUSTOMER_SERVICE là sửa lẻ/sửa dịch vụ.'
+        },
+        branchQuery: {
+          type: Type.STRING,
+          description: 'Tên hoặc mã chi nhánh.'
+        },
+        includeImeis: {
+          type: Type.BOOLEAN,
+          description: 'True khi cần hiển thị IMEI đầy đủ.'
+        },
+        period: {
+          type: Type.STRING,
+          enum: ['TODAY', 'YESTERDAY', 'WEEK', 'LAST_WEEK', 'MONTH', 'LAST_MONTH'],
+          description: 'Lọc theo thời gian tiếp nhận nếu người dùng có nhắc đến thời gian.'
+        },
+        date: {
+          type: Type.STRING,
+          description: 'Ngày tiếp nhận cụ thể dạng YYYY-MM-DD hoặc DD/MM/YYYY.'
+        },
+        all: {
+          type: Type.BOOLEAN,
+          description: 'True nếu cần xem toàn hệ thống (Owner).'
         }
       }
     }
@@ -1322,6 +1494,7 @@ async function executeTool(db: Firestore, name: string, args: any, senderId: str
   if (name === 'lookup_imei_lifecycle') return toolLookupImei(db, args);
   if (name === 'check_inventory_stock') return toolCheckInventory(db, args, senderId);
   if (name === 'get_technical_progress') return toolGetTechnicalProgress(db, args, senderId);
+  if (name === 'get_retail_repair_queue') return toolGetRetailRepairQueue(db, args, senderId);
   if (name === 'lookup_customer_info') return toolLookupCustomer(db, args);
   if (name === 'get_cashflow_summary') return toolGetCashflowSummary(db, args, senderId);
   if (name === 'get_attendance_today') return toolGetAttendanceToday(db, args);

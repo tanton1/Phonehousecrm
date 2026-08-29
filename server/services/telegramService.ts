@@ -10,6 +10,7 @@ import {
   toolGetRevenueReport,
   toolLookupImei,
   toolGetTechnicalProgress,
+  toolGetRetailRepairQueue,
   toolLookupCustomer,
   toolGetCashflowSummary,
   toolGetAttendanceToday,
@@ -103,7 +104,16 @@ type TelegramIntent =
     }
   | { kind: 'IMEI'; imei: string }
   | { kind: 'TECHNICAL'; branchToken?: string; all: boolean }
-  | { kind: 'INVENTORY'; branchToken?: string; all: boolean; model?: string }
+  | { kind: 'INVENTORY'; branchToken?: string; all: boolean; model?: string; includeImeis?: boolean }
+  | {
+      kind: 'RETAIL_REPAIRS';
+      repairType: 'ALL' | 'WARRANTY' | 'CUSTOMER_SERVICE';
+      branchToken?: string;
+      all: boolean;
+      includeImeis?: boolean;
+      period?: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM';
+      date?: string;
+    }
   | { kind: 'CUSTOMER'; query: string }
   | { kind: 'CASHBOOK'; period?: 'TODAY' | 'MONTH' }
   | { kind: 'ATTENDANCE'; branchToken?: string; all: boolean; date?: string }
@@ -587,6 +597,14 @@ function parseTelegramCommandScope(value: string): TelegramCommandScope {
   return { period, date: dateMatch?.[1], branchToken, all };
 }
 
+function extractInventoryModelQuery(value: string): string | undefined {
+  const normalized = normalizeText(value);
+  const modelMatch = normalized.match(/\b(?:iphone\s*)?((?:1[1-9]|[6-9])(?:\s+(?:pro|max|plus|mini)){0,3})(?:\s+(\d{2,4}\s*(?:gb|tb)))?\b/);
+  if (!modelMatch) return undefined;
+  const model = `${modelMatch[1] || ''} ${modelMatch[2] || ''}`.replace(/\s+/g, ' ').trim();
+  return model || undefined;
+}
+
 export function parseTelegramIntent(rawText: string): TelegramIntent {
   const original = String(rawText || '').trim();
   const normalized = normalizeText(original.replace(/@[A-Za-z0-9_]+/g, ' '));
@@ -622,7 +640,18 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
 
   if (['/tonkho'].includes(command)) {
     const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
-    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all };
+    const includeImeis = /\b(imei|chi tiet|danh sach|tung may|ma may)\b/.test(normalized);
+    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all, includeImeis, model: extractInventoryModelQuery(normalized) };
+  }
+
+  if (['/baohanh', '/sualẻ', '/suale', '/suakhach', '/suachualẻ', '/suachuale'].includes(command)) {
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    const repairType = command === '/baohanh' ? 'WARRANTY' : 'CUSTOMER_SERVICE';
+    const hasTime = /\b(hom nay|homnay|hom qua|homqua|tuan|thang|\d{1,2}\/\d{1,2}|\d{4}-\d{1,2}-\d{1,2})\b/.test(normalized);
+    return {
+      kind: 'RETAIL_REPAIRS', repairType, branchToken: scope.branchToken, all: scope.all,
+      includeImeis: true, period: hasTime ? scope.period : undefined, date: scope.date
+    };
   }
 
   if (['/khachhang', '/lead', '/khach'].includes(command)) {
@@ -657,7 +686,25 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
   if (/\b(ton kho|con may|may ton)\b/.test(normalized)) {
     const scope = parseTelegramCommandScope(normalized
       .replace(/\b(ton kho|con may|may ton)\b/g, ' '));
-    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all };
+    const includeImeis = /\b(imei|chi tiet|danh sach|tung may|ma may)\b/.test(normalized);
+    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all, includeImeis, model: extractInventoryModelQuery(normalized) };
+  }
+
+  if (/\b(bao hanh|sua le|sua khach|sua dich vu|may khach sua|tiep nhan sua)\b/.test(normalized)) {
+    const hasWarranty = /\b(bao hanh)\b/.test(normalized);
+    const hasService = /\b(sua le|sua khach|sua dich vu|may khach sua|tiep nhan sua)\b/.test(normalized);
+    const scope = parseTelegramCommandScope(normalized
+      .replace(/\b(may nhan|may|bao hanh|sua le|sua khach|sua dich vu|may khach sua|tiep nhan sua|dang xu ly|tinh trang|chi tiet|danh sach|imei)\b/g, ' '));
+    const hasTime = /\b(hom nay|homnay|hom qua|homqua|tuan|thang|\d{1,2}\/\d{1,2}|\d{4}-\d{1,2}-\d{1,2})\b/.test(normalized);
+    return {
+      kind: 'RETAIL_REPAIRS',
+      repairType: hasWarranty && !hasService ? 'WARRANTY' : hasService && !hasWarranty ? 'CUSTOMER_SERVICE' : 'ALL',
+      branchToken: scope.branchToken,
+      all: scope.all,
+      includeImeis: /\b(imei|chi tiet|danh sach|tung may)\b/.test(normalized),
+      period: hasTime ? scope.period : undefined,
+      date: scope.date
+    };
   }
 
   if (/\b(nhan su|cham cong|diem danh|di tre)\b/.test(normalized)) {
@@ -724,10 +771,17 @@ function renderPreferredBranchQuickActions() {
       ],
       [
         { text: '📦 Tồn kho', callback_data: 'quick:inventory' },
-        { text: '🔧 Kỹ thuật', callback_data: 'quick:technical' }
+        { text: '📱 IMEI tồn kho', callback_data: 'quick:inventory:imeis' }
       ],
       [
-        { text: '⏰ Chấm công', callback_data: 'quick:attendance' },
+        { text: '🔧 Kỹ thuật', callback_data: 'quick:technical' },
+        { text: '🛡 Bảo hành', callback_data: 'quick:warranty' }
+      ],
+      [
+        { text: '🧰 Sửa lẻ', callback_data: 'quick:service-repairs' },
+        { text: '⏰ Chấm công', callback_data: 'quick:attendance' }
+      ],
+      [
         { text: '🏪 Đổi chi nhánh', callback_data: 'menu:branches' }
       ],
       [{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]
@@ -770,14 +824,14 @@ export async function handleTelegramCallbackQuery(
       replyText = await revenueReply(db, { kind: 'REVENUE', period, branchToken: preference.branchId, all: false }, senderId);
       replyMarkup = data.startsWith('quick:') ? renderPreferredBranchQuickActions() : renderRevenueMenuKeyboard();
     }
-  } else if (['menu:inventory', 'quick:inventory'].includes(data)) {
+  } else if (['menu:inventory', 'quick:inventory', 'quick:inventory:imeis'].includes(data)) {
     const preference = await loadTelegramUserBranchPreference(db, senderId);
     if (!preference) {
       const directory = await branchesReply(db, 'Chọn chi nhánh mặc định trước khi xem tồn kho.');
       replyText = directory.text;
       replyMarkup = directory.replyMarkup;
     } else {
-      replyText = await toolCheckInventory(db, { branchQuery: preference.branchId, all: false }, senderId);
+      replyText = await toolCheckInventory(db, { branchQuery: preference.branchId, all: false, includeImeis: data.endsWith(':imeis') }, senderId);
       replyMarkup = renderPreferredBranchQuickActions();
     }
   } else if (['menu:technical', 'quick:technical'].includes(data)) {
@@ -798,6 +852,20 @@ export async function handleTelegramCallbackQuery(
       replyMarkup = directory.replyMarkup;
     } else {
       replyText = await toolGetAttendanceToday(db, { branchQuery: preference.branchId, all: false });
+      replyMarkup = renderPreferredBranchQuickActions();
+    }
+  } else if (['quick:warranty', 'quick:service-repairs'].includes(data)) {
+    const preference = await loadTelegramUserBranchPreference(db, senderId);
+    if (!preference) {
+      const directory = await branchesReply(db, 'Chọn chi nhánh mặc định trước khi xem máy bảo hành/sửa lẻ.');
+      replyText = directory.text;
+      replyMarkup = directory.replyMarkup;
+    } else {
+      replyText = await toolGetRetailRepairQueue(db, {
+        branchQuery: preference.branchId,
+        repairType: data === 'quick:warranty' ? 'WARRANTY' : 'CUSTOMER_SERVICE',
+        includeImeis: true
+      }, senderId);
       replyMarkup = renderPreferredBranchQuickActions();
     }
   } else if (data === 'menu:cashbook') {
@@ -912,6 +980,21 @@ async function applyPreferredBranchToIntent(db: Firestore, intent: TelegramInten
       const preference = await loadTelegramUserBranchPreference(db, senderId);
       return preference ? { ...intent, branchToken: preference.branchId } : intent;
     }
+    case 'RETAIL_REPAIRS': {
+      if (intent.all) return intent;
+      if (intent.branchToken) {
+        try {
+          const branches = await fetchActiveBranches(db);
+          const branch = findBranchMatch(branches, intent.branchToken);
+          if (branch) await saveTelegramUserBranchPreference(db, senderId, branch);
+        } catch (error: any) {
+          console.warn('[Telegram Branch Preference Auto-Learn Failed]:', String(error?.message || error));
+        }
+        return intent;
+      }
+      const preference = await loadTelegramUserBranchPreference(db, senderId);
+      return preference ? { ...intent, branchToken: preference.branchId } : intent;
+    }
     default:
       return intent;
   }
@@ -943,7 +1026,8 @@ async function inventoryReply(db: Firestore, intent: Extract<TelegramIntent, { k
   return toolCheckInventory(db, {
     modelQuery: intent.model,
     branchQuery: intent.branchToken,
-    all: intent.all
+    all: intent.all,
+    includeImeis: intent.includeImeis
   }, senderId);
 }
 
@@ -985,7 +1069,10 @@ export function telegramHelpText(): string {
     '• <code>/doanhso thang all</code> · Doanh số toàn chuỗi (Owner)',
     '• <code>/imei 355555...</code> · Tra cứu vòng đời 15 số IMEI',
     '• <code>/tonkho PH109</code> · Tồn kho khả dụng',
+    '• <code>/tonkho PH109 chi tiết IMEI</code> · Danh sách từng máy',
     '• <code>/kythuat PH109</code> · Tiến độ sửa chữa & KCS',
+    '• <code>/baohanh PH109</code> · Máy bảo hành đang xử lý',
+    '• <code>/suale PH109</code> · Máy sửa lẻ đang xử lý',
     '• <code>/khachhang 0988xxxxxx</code> · Tra cứu khách/công nợ/Lead',
     '• <code>/nhansu PH109</code> · Tình hình điểm danh & đi trễ',
     '• <code>/soquy homnay</code> · Sổ quỹ & tiền mặt (Owner)',
@@ -1032,6 +1119,19 @@ export async function answerTelegramQuery(
   }
   if (intent.kind === 'INVENTORY') {
     return { intent: intent.kind, reply: await inventoryReply(db, intent, senderId) };
+  }
+  if (intent.kind === 'RETAIL_REPAIRS') {
+    return {
+      intent: intent.kind,
+      reply: await toolGetRetailRepairQueue(db, {
+        repairType: intent.repairType,
+        branchQuery: intent.branchToken,
+        all: intent.all,
+        includeImeis: intent.includeImeis,
+        period: intent.period,
+        date: intent.date
+      }, senderId)
+    };
   }
   if (intent.kind === 'CUSTOMER') {
     return { intent: intent.kind, reply: await toolLookupCustomer(db, { phoneOrName: intent.query }) };

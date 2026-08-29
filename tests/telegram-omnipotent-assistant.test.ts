@@ -12,6 +12,7 @@ import {
   toolGetRevenueReport,
   toolLookupImei,
   toolCheckInventory,
+  toolGetRetailRepairQueue,
   toolGetTechnicalProgress,
   toolLookupCustomer,
   toolGetCashflowSummary,
@@ -104,6 +105,21 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
       period: 'TODAY',
       branchToken: 'xstore dn',
       all: false
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot tồn kho CN-02 chi tiết IMEI')).toMatchObject({
+      kind: 'INVENTORY',
+      branchToken: expect.stringContaining('cn-02'),
+      includeImeis: true,
+      all: false
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot tồn kho iPhone 15 Pro Max 256GB CN-02 danh sách IMEI')).toMatchObject({
+      kind: 'INVENTORY', model: '15 pro max 256gb', includeImeis: true
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot máy bảo hành CN-02 đang xử lý chi tiết IMEI')).toMatchObject({
+      kind: 'RETAIL_REPAIRS', repairType: 'WARRANTY', includeImeis: true, all: false
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot máy sửa lẻ Xstore hôm nay')).toMatchObject({
+      kind: 'RETAIL_REPAIRS', repairType: 'CUSTOMER_SERVICE', period: 'TODAY', all: false
     });
 
     // IMEI
@@ -454,6 +470,49 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     expect(findBranchMatch(productionBranches, '109 Hàm Nghi')?.id).toBe('BR_PH109');
     expect(findBranchMatch(productionBranches, 'Xstore')?.id).toBe('BR_XSTORE');
     expect(findBranchMatch(productionBranches, 'tổng')?.id).toBe('BR_TONG');
+  });
+
+  it('returns detailed inventory IMEIs and canonical warranty/service work orders', async () => {
+    const branches = [{ id: 'BR_PH109', name: 'PH 109', code: 'CN-02', address: '109 Hàm Nghi' }];
+    const query = (docs: any[]) => {
+      const chain: any = {
+        where: vi.fn(() => chain),
+        limit: vi.fn(() => chain),
+        get: async () => ({ docs })
+      };
+      return chain;
+    };
+    const deviceDocs = [
+      { id: 'DEV_1', data: () => ({ imei: '356789012345678', model: 'iPhone 15 Pro Max', storage: '256GB', condition: 'Like New 99%', batteryHealth: 98, sellPrice: 25_000_000, currentLocationName: 'Kho PH 109' }) },
+      { id: 'DEV_2', data: () => ({ imei: '356789012345679', model: 'iPhone 13', storage: '128GB', condition: '98%', batteryHealth: 90, sellPrice: 12_000_000, currentLocationName: 'Kho PH 109' }) }
+    ];
+    const workOrderDocs = [
+      { id: 'WO_WARRANTY', data: () => ({ code: 'WO-001', branchId: 'BR_PH109', workOrderType: 'WARRANTY', status: 'IN_PROGRESS', imei: '356789012345670', model: 'iPhone 14 Pro', customerName: 'Anh A', currentCustodianName: 'KTV Tuấn', receivedAt: '2026-08-29T03:00:00.000Z' }) },
+      { id: 'WO_SERVICE', data: () => ({ code: 'WO-002', branchId: 'BR_PH109', workOrderType: 'CUSTOMER_SERVICE', status: 'WAITING_PARTS', imei: '356789012345671', model: 'iPhone 12', customerName: 'Chị B', currentCustodianName: 'KTV Nam', receivedAt: '2026-08-29T04:00:00.000Z' }) }
+    ];
+    const mockDb: any = {
+      collection: vi.fn((name: string) => {
+        if (name === 'branches') return { limit: () => ({ get: async () => ({ docs: branches.map(branch => ({ id: branch.id, data: () => branch })) }) }) };
+        if (name === 'devices') return query(deviceDocs);
+        if (name === 'technicalWorkOrders') return query(workOrderDocs);
+        throw new Error(`UNEXPECTED_COLLECTION_${name}`);
+      })
+    };
+
+    const inventory = await toolCheckInventory(mockDb, { branchQuery: 'CN-02', modelQuery: '15 pro max 256gb', includeImeis: true }, 'OWNER');
+    expect(inventory).toContain('Danh sách IMEI chi tiết');
+    expect(inventory).toContain('356789012345678');
+    expect(inventory).toContain('Like New 99%');
+    expect(inventory).not.toContain('356789012345679');
+
+    const warranty = await toolGetRetailRepairQueue(mockDb, { branchQuery: 'CN-02', repairType: 'WARRANTY', includeImeis: true }, 'OWNER');
+    expect(warranty).toContain('BẢO HÀNH ĐANG XỬ LÝ');
+    expect(warranty).toContain('356789012345670');
+    expect(warranty).not.toContain('356789012345671');
+
+    const service = await toolGetRetailRepairQueue(mockDb, { branchQuery: 'CN-02', repairType: 'CUSTOMER_SERVICE', includeImeis: true }, 'OWNER');
+    expect(service).toContain('SỬA LẺ ĐANG XỬ LÝ');
+    expect(service).toContain('356789012345671');
   });
 
   it('lists accepted branch aliases and confirms a bare branch code without AI', async () => {
