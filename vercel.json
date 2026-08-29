@@ -14,6 +14,14 @@
     {
       "path": "/api/telegram/scan-operations",
       "schedule": "5 1 * * *"
+    },
+    {
+      "path": "/api/telegram/scan-attendance-afternoon",
+      "schedule": "10 7 * * *"
+    },
+    {
+      "path": "/api/telegram/scan-attendance-evening",
+      "schedule": "10 10 * * *"
     }
   ]
 }

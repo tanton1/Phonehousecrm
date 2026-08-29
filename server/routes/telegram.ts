@@ -320,6 +320,8 @@ export function createTelegramRouter(db: Firestore | null): Router {
   };
   router.post('/scan-attendance', handleAttendanceScan);
   router.get('/scan-attendance', handleAttendanceScan);
+  router.get('/scan-attendance-afternoon', handleAttendanceScan);
+  router.get('/scan-attendance-evening', handleAttendanceScan);
 
   const handleOperationsScan = async (req: Request, res: Response) => {
     if (!internalSecretValid(req)) return errorResponse(res, 401, 'CRON_UNAUTHORIZED', 'Lịch chạy không hợp lệ.');
