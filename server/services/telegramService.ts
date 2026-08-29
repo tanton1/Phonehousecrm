@@ -109,7 +109,7 @@ function environmentTelegramConfig(): TelegramConfig {
     chatId: String(process.env.TELEGRAM_CHAT_ID || '').trim(),
     webhookSecret: String(process.env.TELEGRAM_WEBHOOK_SECRET || '').trim(),
     geminiApiKey: String(process.env.GEMINI_API_KEY || '').trim(),
-    aiModel: String(process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim(),
+    aiModel: String(process.env.GEMINI_MODEL || 'gemini-3.7-flash').trim(),
     ownerUserIds: new Set(String(process.env.TELEGRAM_OWNER_USER_IDS || '').split(',').map(value => value.trim()).filter(Boolean)),
     alertsEnabled: boolEnv('TELEGRAM_ALERTS_ENABLED'),
     queriesEnabled: boolEnv('TELEGRAM_QUERIES_ENABLED'),
@@ -139,7 +139,7 @@ function publicTelegramConfiguration(config: TelegramConfig): TelegramAdminConfi
     hasBotToken: Boolean(config.token),
     hasWebhookSecret: Boolean(config.webhookSecret),
     hasGeminiApiKey: Boolean(config.geminiApiKey || process.env.GEMINI_API_KEY),
-    aiModel: config.aiModel || 'gemini-2.5-flash',
+    aiModel: config.aiModel || 'gemini-3.7-flash',
     chatId: config.chatId,
     ownerUserIds: [...config.ownerUserIds],
     alertsEnabled: config.alertsEnabled,
@@ -165,7 +165,7 @@ export async function loadTelegramConfig(db: Firestore | null, force = false): P
       chatId: String(data.chatId || '').trim(),
       webhookSecret: decryptChannelSecret(data.encryptedWebhookSecret),
       geminiApiKey: data.encryptedGeminiApiKey ? decryptChannelSecret(data.encryptedGeminiApiKey) : environment.geminiApiKey,
-      aiModel: String(data.aiModel || environment.aiModel || 'gemini-2.5-flash').trim(),
+      aiModel: String(data.aiModel || environment.aiModel || 'gemini-3.7-flash').trim(),
       ownerUserIds: new Set(normalizeOwnerUserIds(data.ownerUserIds)),
       alertsEnabled: data.alertsEnabled !== false,
       queriesEnabled: data.queriesEnabled !== false,
@@ -204,7 +204,7 @@ export async function saveTelegramConfiguration(
 
   const suppliedGeminiKey = String(input.geminiApiKey || '').trim();
   const geminiApiKey = suppliedGeminiKey || (current.encryptedGeminiApiKey ? decryptChannelSecret(current.encryptedGeminiApiKey) : '') || environment.geminiApiKey;
-  const aiModel = String(input.aiModel || current.aiModel || environment.aiModel || 'gemini-2.5-flash').trim();
+  const aiModel = String(input.aiModel || current.aiModel || environment.aiModel || 'gemini-3.7-flash').trim();
 
   if (!/^\d{6,20}:[A-Za-z0-9_-]{20,}$/.test(token)) throw new Error('TELEGRAM_BOT_TOKEN_INVALID');
   if (!/^-\d{5,25}$/.test(chatId)) throw new Error('TELEGRAM_GROUP_CHAT_ID_INVALID');

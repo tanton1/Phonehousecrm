@@ -29,19 +29,36 @@ export function getAI(configOverride?: TelegramConfig): GoogleGenAI | null {
   }
 }
 
-export async function testGeminiConnection(apiKey?: string): Promise<{ success: boolean; model?: string; error?: string }> {
+export async function testGeminiConnection(apiKey?: string, modelOverride?: string): Promise<{ success: boolean; model?: string; error?: string }> {
   const key = String(apiKey || getTelegramConfig().geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
   if (!key) return { success: false, error: 'GEMINI_API_KEY_EMPTY' };
-  try {
-    const ai = new GoogleGenAI({ apiKey: key });
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [{ role: 'user', parts: [{ text: 'Hello, confirm PhoneHouse AI connection in 3 words.' }] }]
-    });
-    return { success: Boolean(response.text), model: 'gemini-2.5-flash' };
-  } catch (err: any) {
-    return { success: false, error: String(err?.message || 'GEMINI_TEST_FAILED') };
+  const candidateModels = [
+    modelOverride,
+    getTelegramConfig().aiModel,
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro'
+  ].filter(Boolean) as string[];
+
+  const ai = new GoogleGenAI({ apiKey: key });
+  let lastError = 'GEMINI_TEST_FAILED';
+
+  for (const model of candidateModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{ role: 'user', parts: [{ text: 'Hello, confirm PhoneHouse AI connection in 3 words.' }] }]
+      });
+      if (response.text) {
+        return { success: true, model };
+      }
+    } catch (err: any) {
+      lastError = String(err?.message || 'GEMINI_TEST_FAILED');
+    }
   }
+
+  return { success: false, error: lastError };
 }
 
 function formatVnd(value: unknown): string {
@@ -836,7 +853,7 @@ export async function processTelegramAiCopilot(
     return '🤖 <i>Trợ lý AI chưa được cài GEMINI_API_KEY. Quản trị viên vui lòng vào <b>Cài đặt hệ thống ➔ Thông báo Telegram & AI</b> trên Web CRM để nhập API Key.</i>';
   }
 
-  const aiModel = config.aiModel || 'gemini-2.5-flash';
+  const aiModel = config.aiModel || 'gemini-3.7-flash';
 
   const systemInstruction = `
 Bạn là "PhoneHouse Executive AI Copilot" - Cố vấn điều hành và Trợ lý ảo toàn năng trực tiếp hỗ trợ Giám Đốc và các Trưởng Chi Nhánh của chuỗi PhoneHouse CRM (bán lẻ iPhone, bảo hành & sửa chữa).

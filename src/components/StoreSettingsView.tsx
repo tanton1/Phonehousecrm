@@ -127,7 +127,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
     alertsEnabled: true,
     queriesEnabled: true,
     geminiApiKey: '',
-    aiModel: 'gemini-2.5-flash'
+    aiModel: 'gemini-3.7-flash'
   });
 
   useEffect(() => {
@@ -143,7 +143,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
         ...current,
         chatId: nextStatus.chatId || current.chatId,
         ownerUserIds: nextStatus.ownerUserIds?.join(', ') || current.ownerUserIds,
-        aiModel: nextStatus.aiModel || current.aiModel || 'gemini-2.5-flash',
+        aiModel: nextStatus.aiModel || current.aiModel || 'gemini-3.7-flash',
         alertsEnabled: nextStatus.configured ? nextStatus.alertsEnabled !== false : true,
         queriesEnabled: nextStatus.configured ? nextStatus.queriesEnabled !== false : true
       }));
@@ -1325,7 +1325,9 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                       onChange={event => setTelegramForm(current => ({ ...current, aiModel: event.target.value }))}
                       className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-3 text-sm outline-none focus:border-orange-500 font-medium"
                     >
-                      <option value="gemini-2.5-flash">⚡ Gemini 2.5 Flash (Mặc định · Phản hồi nhanh & Siêu chuẩn)</option>
+                      <option value="gemini-3.7-flash">🚀 Gemini 3.7 Flash (Mô hình cao nhất · Suy luận đỉnh cao & Tốc độ tức thì)</option>
+                      <option value="gemini-3.6-flash">⚡ Gemini 3.6 Flash (Mô hình thế hệ 3.6 Flash)</option>
+                      <option value="gemini-2.5-flash">✨ Gemini 2.5 Flash (Mô hình ổn định)</option>
                       <option value="gemini-2.5-pro">🧠 Gemini 2.5 Pro (Tư duy điều hành & Phân tích sâu)</option>
                     </select>
                     <p className="text-[11px] text-zinc-500">Mô hình xử lý câu hỏi điều hành và multi-turn function calling.</p>
@@ -1395,7 +1397,7 @@ export const StoreSettingsView: React.FC<StoreSettingsViewProps> = ({
                     setTelegramConfigDeleting(true);
                     try {
                       await requestDeleteTelegramConfiguration();
-                      setTelegramForm({ botToken: '', chatId: '', ownerUserIds: '', alertsEnabled: true, queriesEnabled: true, geminiApiKey: '', aiModel: 'gemini-2.5-flash' });
+                      setTelegramForm({ botToken: '', chatId: '', ownerUserIds: '', alertsEnabled: true, queriesEnabled: true, geminiApiKey: '', aiModel: 'gemini-3.7-flash' });
                       showToast('Đã xóa cấu hình Bot Telegram.');
                       await loadTelegramStatus();
                     } catch (error: any) {
