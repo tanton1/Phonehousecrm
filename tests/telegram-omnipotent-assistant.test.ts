@@ -55,6 +55,9 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     // Menu & Help
     expect(parseTelegramIntent('/menu')).toEqual({ kind: 'MENU' });
     expect(parseTelegramIntent('/help')).toEqual({ kind: 'HELP' });
+    expect(parseTelegramIntent('/chinhanh')).toEqual({ kind: 'BRANCHES' });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot chi nhánh')).toEqual({ kind: 'BRANCHES' });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot CN-02')).toEqual({ kind: 'BRANCH_CONFIRM', branchToken: 'cn-02' });
 
     // Revenue
     expect(parseTelegramIntent('/doanhso homnay PH109')).toMatchObject({
@@ -439,6 +442,46 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     expect(findBranchMatch(sampleBranches, 'toàn hệ thống')).toBeNull();
     expect(findBranchMatch(sampleBranches, 'all')).toBeNull();
     expect(findBranchMatch(sampleBranches, 'tất cả chi nhánh')).toBeNull();
+
+    const productionBranches = [
+      { id: 'BR_XSTORE', name: 'Xstore ĐN', code: 'CN-03', address: 'Đà Nẵng' },
+      { id: 'BR_TONG', name: 'TỔNG', code: 'CN-01' },
+      { id: 'BR_PH109', name: 'PH 109', code: 'CN-02', address: '109 Hàm Nghi, Đà Nẵng' }
+    ];
+    expect(findBranchMatch(productionBranches, 'CN-02')?.id).toBe('BR_PH109');
+    expect(findBranchMatch(productionBranches, 'cn2')?.id).toBe('BR_PH109');
+    expect(findBranchMatch(productionBranches, 'PH109')?.id).toBe('BR_PH109');
+    expect(findBranchMatch(productionBranches, '109 Hàm Nghi')?.id).toBe('BR_PH109');
+    expect(findBranchMatch(productionBranches, 'Xstore')?.id).toBe('BR_XSTORE');
+    expect(findBranchMatch(productionBranches, 'tổng')?.id).toBe('BR_TONG');
+  });
+
+  it('lists accepted branch aliases and confirms a bare branch code without AI', async () => {
+    const branches = [
+      { id: 'BR_XSTORE', name: 'Xstore ĐN', code: 'CN-03', address: 'Đà Nẵng' },
+      { id: 'BR_TONG', name: 'TỔNG', code: 'CN-01' },
+      { id: 'BR_PH109', name: 'PH 109', code: 'CN-02', address: '109 Hàm Nghi, Đà Nẵng' }
+    ];
+    const mockDb: any = {
+      collection: vi.fn((name: string) => {
+        expect(name).toBe('branches');
+        return { limit: () => ({ get: async () => ({ docs: branches.map(branch => ({ id: branch.id, data: () => branch })) }) }) };
+      })
+    };
+    const list = await answerTelegramQuery(mockDb, '@trolyAlphonehouse_bot chi nhánh', 'OWNER');
+    expect(list.intent).toBe('BRANCHES');
+    expect(list.reply).toContain('CN-02');
+    expect(list.reply).toContain('PH 109');
+    expect(list.replyMarkup).toEqual(expect.objectContaining({
+      inline_keyboard: expect.arrayContaining([
+        expect.arrayContaining([expect.objectContaining({ callback_data: 'branch:CN-02' })])
+      ])
+    }));
+
+    const confirmation = await answerTelegramQuery(mockDb, '@trolyAlphonehouse_bot CN-02', 'OWNER');
+    expect(confirmation.intent).toBe('BRANCH_CONFIRM');
+    expect(confirmation.reply).toContain('ĐÃ NHẬN DIỆN CHI NHÁNH');
+    expect(confirmation.reply).toContain('PH 109');
   });
 
   it('fails safely when a branch query is ambiguous or unknown', async () => {

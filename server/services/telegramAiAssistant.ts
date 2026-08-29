@@ -157,6 +157,8 @@ type TelegramBranch = {
   code?: string;
   shortName?: string;
   address?: string;
+  aliases?: string[];
+  telegramAliases?: string[];
 };
 
 export type BranchMatchResolution =
@@ -189,6 +191,43 @@ export function isAllBranchQuery(query?: string): boolean {
     || /\b(toan he thong|tat ca chi nhanh|ca chuoi|toan chuoi|toan bo)\b/.test(normalized);
 }
 
+function branchAliases(branch: TelegramBranch): string[] {
+  const configuredAliases = [
+    ...(Array.isArray(branch.aliases) ? branch.aliases : []),
+    ...(Array.isArray(branch.telegramAliases) ? branch.telegramAliases : [])
+  ];
+  const base = [branch.id, branch.code, branch.name, branch.shortName, branch.address, ...configuredAliases]
+    .map(normalizeText)
+    .filter(Boolean);
+  const derived: string[] = [];
+
+  for (const alias of base) {
+    derived.push(alias, compactText(alias));
+    const withoutBrand = alias
+      .replace(/\b(phone house|phonehouse|chi nhanh|cua hang|co so)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (withoutBrand) derived.push(withoutBrand, compactText(withoutBrand));
+
+    const codeMatch = compactText(alias).match(/^([a-z]+)0*(\d+)$/);
+    if (codeMatch) {
+      derived.push(`${codeMatch[1]}${codeMatch[2]}`, `${codeMatch[1]} ${codeMatch[2]}`, `${codeMatch[1]}-${codeMatch[2]}`);
+    }
+  }
+
+  return [...new Set(derived.map(normalizeText).filter(Boolean))];
+}
+
+export function getBranchAcceptedAliases(branch: TelegramBranch): string[] {
+  const preferred = [branch.code, branch.name, branch.shortName]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+  const automatic = branchAliases(branch)
+    .filter(alias => !alias.includes(' ') && alias.length >= 3)
+    .slice(0, 3);
+  return [...new Set([...preferred, ...automatic])].slice(0, 5);
+}
+
 export async function fetchActiveBranches(db: Firestore): Promise<TelegramBranch[]> {
   const snapshot = await db.collection('branches').limit(200).get();
   return snapshot.docs
@@ -207,8 +246,8 @@ export function resolveBranchMatch(branches: TelegramBranch[], query?: string): 
   }))];
 
   const exactCodeMatches = branches.filter(branch => {
-    const aliases = [branch.id, branch.code].filter(Boolean);
-    return aliases.some(alias => raw === normalizeText(alias) || compactRaw === compactText(alias));
+    const aliases = branchAliases(branch);
+    return aliases.some(alias => raw === alias || compactRaw === compactText(alias));
   });
   if (exactCodeMatches.length === 1) {
     return { status: 'MATCHED', branch: exactCodeMatches[0], candidates: exactCodeMatches };
@@ -217,15 +256,23 @@ export function resolveBranchMatch(branches: TelegramBranch[], query?: string): 
     return { status: 'AMBIGUOUS', branch: null, candidates: exactCodeMatches };
   }
 
-  const exactNameMatches = branches.filter(branch => {
-    const aliases = [branch.name, branch.shortName].filter(Boolean);
-    return aliases.some(alias => raw === normalizeText(alias) || compactRaw === compactText(alias));
-  });
-  if (exactNameMatches.length === 1) {
-    return { status: 'MATCHED', branch: exactNameMatches[0], candidates: exactNameMatches };
+  // A unique meaningful token is a valid short alias (for example XSTORE, 109,
+  // HAM NGHI). Generic words are excluded and duplicate tokens stay ambiguous.
+  const tokenOwners = new Map<string, TelegramBranch[]>();
+  for (const branch of branches) {
+    const tokens = [...new Set(branchAliases(branch)
+      .flatMap(alias => alias.split(/\s+/))
+      .filter(token => !BRANCH_STOP_WORDS.has(token) && (/^\d+$/.test(token) ? token.length >= 2 : token.length >= 3)))];
+    for (const token of tokens) tokenOwners.set(token, [...(tokenOwners.get(token) || []), branch]);
   }
-  if (exactNameMatches.length > 1) {
-    return { status: 'AMBIGUOUS', branch: null, candidates: exactNameMatches };
+  const uniqueTokenMatches = [...new Set(queryTokens
+    .flatMap(token => tokenOwners.get(token) || [])
+    .filter(branch => queryTokens.some(token => tokenOwners.get(token)?.length === 1 && tokenOwners.get(token)?.[0].id === branch.id)))];
+  if (uniqueTokenMatches.length === 1) {
+    return { status: 'MATCHED', branch: uniqueTokenMatches[0], candidates: uniqueTokenMatches };
+  }
+  if (uniqueTokenMatches.length > 1) {
+    return { status: 'AMBIGUOUS', branch: null, candidates: uniqueTokenMatches.slice(0, 5) };
   }
 
   const ranked = branches
@@ -304,7 +351,7 @@ function branchSelectionError(branches: TelegramBranch[], query?: string): strin
   const choices = branches.slice(0, 12)
     .map(branch => `<code>${escapeTelegramHtml(branch.code || branch.id)}</code> — ${escapeTelegramHtml(branch.name || branch.id)}`)
     .join('\n• ');
-  return `🏪 Không tìm thấy chi nhánh "<code>${entered}</code>". Hãy dùng mã hoặc tên trong danh sách:\n• ${choices}`;
+  return `🏪 Không tìm thấy chi nhánh "<code>${entered}</code>". Gõ <code>@bot chi nhánh</code> để xem alias, hoặc dùng mã trong danh sách:\n• ${choices}`;
 }
 
 export function formatVietnamNow(value: Date | string | number = new Date()): string {

@@ -14,6 +14,8 @@ import {
   toolGetCashflowSummary,
   toolGetAttendanceToday,
   toolCheckInventory,
+  findBranchMatch,
+  getBranchAcceptedAliases,
   fetchActiveBranches
 } from './telegramAiAssistant';
 
@@ -88,6 +90,8 @@ export interface TelegramOutboxRecord extends AttendanceTelegramAlertInput {
 type TelegramIntent =
   | { kind: 'HELP' }
   | { kind: 'MENU' }
+  | { kind: 'BRANCHES' }
+  | { kind: 'BRANCH_CONFIRM'; branchToken: string }
   | {
       kind: 'REVENUE';
       period: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM';
@@ -539,6 +543,7 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
 
   if (['/help', '/start', '/trogiup'].includes(command)) return { kind: 'HELP' };
   if (['/menu', '/chucnang', '/dashboard'].includes(command)) return { kind: 'MENU' };
+  if (['/chinhanh', '/branches', '/branch'].includes(command)) return { kind: 'BRANCHES' };
 
   if (command === '/ai') {
     return { kind: 'AI', query: original.replace(/^\/ai(@\w+)?\s*/i, '').trim() };
@@ -608,6 +613,11 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
     return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
   }
 
+  if (/^(danh sach |cac |ma )?chi nhanh$/.test(normalized)) return { kind: 'BRANCHES' };
+  if (/^(cn|ph)\s*[-_]?\s*0*\d+$/.test(normalized)) {
+    return { kind: 'BRANCH_CONFIRM', branchToken: normalized };
+  }
+
   // All natural conversational questions route to Gemini Copilot
   return { kind: 'AI', query: original };
 }
@@ -626,6 +636,9 @@ export function renderMainMenuKeyboard() {
       [
         { text: '💵 Sổ Quỹ (Owner)', callback_data: 'menu:cashbook' },
         { text: '❓ Trợ Giúp', callback_data: 'menu:help' }
+      ],
+      [
+        { text: '🏪 Mã & tên chi nhánh', callback_data: 'menu:branches' }
       ]
     ]
   };
@@ -701,6 +714,15 @@ export async function handleTelegramCallbackQuery(
     replyMarkup = {
       inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
     };
+  } else if (data.startsWith('branch:')) {
+    replyText = await branchConfirmationReply(db, data.slice('branch:'.length));
+    replyMarkup = {
+      inline_keyboard: [[{ text: '🏪 Chọn chi nhánh khác', callback_data: 'menu:branches' }]]
+    };
+  } else if (data === 'menu:branches') {
+    const directory = await branchesReply(db);
+    replyText = directory.text;
+    replyMarkup = directory.replyMarkup;
   } else {
     replyText = telegramMenuText();
     replyMarkup = renderMainMenuKeyboard();
@@ -733,6 +755,44 @@ export async function handleTelegramCallbackQuery(
 
 async function activeBranches(db: Firestore): Promise<Array<Record<string, any>>> {
   return fetchActiveBranches(db);
+}
+
+async function branchesReply(db: Firestore): Promise<{ text: string; replyMarkup?: Record<string, unknown> }> {
+  const branches = await fetchActiveBranches(db);
+  if (branches.length === 0) return { text: '🏪 Chưa có chi nhánh đang hoạt động trong CRM.' };
+  const text = [
+    '<b>🏪 DANH MỤC CHI NHÁNH BOT NHẬN DIỆN</b>',
+    ...branches.map(branch => {
+      const aliases = getBranchAcceptedAliases(branch)
+        .filter(alias => normalizeText(alias) !== normalizeText(branch.code || branch.id))
+        .slice(0, 3)
+        .map(escapeTelegramHtml)
+        .join(', ');
+      return `• <code>${escapeTelegramHtml(branch.code || branch.id)}</code> — <b>${escapeTelegramHtml(branch.name || branch.id)}</b>${aliases ? `\n  Gọi bằng: ${aliases}` : ''}`;
+    }),
+    '',
+    'Ví dụ: <code>@trolyAlphonehouse_bot doanh số CN-02 hôm nay</code>'
+  ].join('\n');
+  const buttons = branches.map(branch => ({
+    text: `${branch.code || branch.id} · ${branch.name || branch.id}`.slice(0, 60),
+    callback_data: `branch:${branch.code || branch.id}`.slice(0, 64)
+  }));
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+  for (let index = 0; index < buttons.length; index += 2) rows.push(buttons.slice(index, index + 2));
+  rows.push([{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]);
+  return { text, replyMarkup: { inline_keyboard: rows } };
+}
+
+async function branchConfirmationReply(db: Firestore, branchToken: string): Promise<string> {
+  const branches = await fetchActiveBranches(db);
+  const branch = findBranchMatch(branches, branchToken);
+  if (!branch) return (await branchesReply(db)).text;
+  return [
+    `<b>✅ ĐÃ NHẬN DIỆN CHI NHÁNH</b>`,
+    `• Mã chuẩn: <code>${escapeTelegramHtml(branch.code || branch.id)}</code>`,
+    `• Tên: <b>${escapeTelegramHtml(branch.name || branch.id)}</b>`,
+    `• Hỏi nhanh: <code>doanh số ${escapeTelegramHtml(branch.code || branch.id)} hôm nay</code>`
+  ].join('\n');
 }
 
 async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'REVENUE' }>, senderId: string): Promise<string> {
@@ -794,6 +854,7 @@ export function telegramHelpText(): string {
     '<b>🤖 PHONEHOUSE AI COPILOT & BOT TOÀN NĂNG</b>',
     '<b>1. Bảng điều khiển nhanh:</b>',
     '• <code>/menu</code>: Bật menu tương tác nút bấm',
+    '• <code>/chinhanh</code>: Xem mã và tên chi nhánh bot chấp nhận',
     '',
     '<b>2. Tra cứu nghiệp vụ:</b>',
     '• <code>/doanhso hôm nay PH109</code> · Doanh số hôm nay',
@@ -825,6 +886,13 @@ export async function answerTelegramQuery(
   }
   if (intent.kind === 'MENU') {
     return { intent: intent.kind, reply: telegramMenuText(), replyMarkup: renderMainMenuKeyboard() };
+  }
+  if (intent.kind === 'BRANCHES') {
+    const directory = await branchesReply(db);
+    return { intent: intent.kind, reply: directory.text, replyMarkup: directory.replyMarkup };
+  }
+  if (intent.kind === 'BRANCH_CONFIRM') {
+    return { intent: intent.kind, reply: await branchConfirmationReply(db, intent.branchToken) };
   }
   if (intent.kind === 'REVENUE') {
     return { intent: intent.kind, reply: await revenueReply(db, intent, senderId), replyMarkup: renderRevenueMenuKeyboard() };
