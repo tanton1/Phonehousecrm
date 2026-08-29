@@ -425,6 +425,18 @@ service cloud.firestore {
       allow read, write: if false; // Bot token và webhook secret chỉ được giải mã trong API server.
     }
 
+    match /telegramUserLinks/{linkId} {
+      allow read, write: if false; // Ánh xạ Telegram ↔ CRM chỉ được xử lý trong API server.
+    }
+
+    match /telegramLinkCodes/{codeId} {
+      allow read, write: if false; // Mã dùng một lần, hash và hết hạn ở server.
+    }
+
+    match /telegramUserBindings/{uid} {
+      allow read, write: if false; // Ràng buộc 1 CRM user ↔ 1 Telegram account ở server.
+    }
+
     match /attendanceLocationState/{attendanceId} {
       allow read, write: if false;
     }

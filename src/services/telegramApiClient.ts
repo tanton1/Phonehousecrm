@@ -74,3 +74,29 @@ export async function requestDeleteTelegramConfiguration(): Promise<void> {
     method: 'DELETE', timeoutMs: 12_000
   });
 }
+
+export interface TelegramLinkStatus {
+  linked: boolean;
+  linkedAt?: string;
+  senderFingerprint?: string;
+}
+
+export async function requestTelegramLinkStatus(): Promise<TelegramLinkStatus> {
+  const response = await apiJson<{ success: boolean; data: TelegramLinkStatus }>('/api/telegram/link-status', {
+    method: 'GET', cache: 'no-store', timeoutMs: 12_000
+  });
+  return response.data;
+}
+
+export async function requestTelegramLinkCode(): Promise<{ code: string; expiresAt: string }> {
+  const response = await apiJson<{ success: boolean; data: { code: string; expiresAt: string } }>('/api/telegram/link-code', {
+    method: 'POST', body: JSON.stringify({}), timeoutMs: 12_000
+  });
+  return response.data;
+}
+
+export async function requestUnlinkTelegram(): Promise<void> {
+  await apiJson<{ success: boolean; data: { unlinked: boolean } }>('/api/telegram/link', {
+    method: 'DELETE', timeoutMs: 12_000
+  });
+}

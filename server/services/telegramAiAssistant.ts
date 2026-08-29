@@ -4,8 +4,46 @@ import { getVietnamDateString, getVietnamDayUtcRange } from '../../shared/vietna
 import { getDeviceLifecycleTimeline } from './deviceLifecycleService';
 import { deriveTechnicalBoardStage } from './technicalService';
 import { getTelegramConfig, escapeTelegramHtml, TelegramConfig } from './telegramService';
+import { getCrmCustomer360, getCrmDashboard, getCrmWorkQueue, listCrmLeads } from './crmOperationsService';
+import {
+  TelegramPrincipal,
+  telegramPrincipalCanAccessBranch,
+  telegramPrincipalHasAnyRole,
+  telegramPrincipalHasPermission
+} from './telegramAuthorityService';
 
 let cachedAiClient: { client: GoogleGenAI; key: string } | null = null;
+
+const TELEGRAM_REVENUE_ROLES = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'];
+const TELEGRAM_INVENTORY_ROLES = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER', 'WAREHOUSE', 'SALES', 'SALE_ONLINE', 'TECHNICIAN', 'TECH_LEAD'];
+const TELEGRAM_TECHNICAL_ROLES = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT', 'INVENTORY_MANAGER', 'WAREHOUSE', 'SALES', 'TECHNICIAN', 'TECH_LEAD'];
+const TELEGRAM_CRM_ROLES = ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE_ONLINE', 'CUSTOMER_CARE'];
+
+function principalRoleAllowed(principal: TelegramPrincipal | null | undefined, roles: string[]): boolean {
+  return !principal || telegramPrincipalHasAnyRole(principal, roles);
+}
+
+function principalBranchAllowed(principal: TelegramPrincipal | null | undefined, branchId?: string | null, all = false): boolean {
+  if (!principal) return true;
+  if (all) return principal.isOwner || principal.role === 'ADMIN';
+  return Boolean(branchId && telegramPrincipalCanAccessBranch(principal, branchId));
+}
+
+function principalActor(principal: TelegramPrincipal) {
+  return {
+    uid: principal.uid,
+    role: principal.role,
+    branchId: principal.branchId,
+    assignedBranchIds: principal.assignedBranchIds,
+    name: principal.name
+  };
+}
+
+function maskPhone(value: unknown): string {
+  const phone = String(value || '').replace(/\D/g, '');
+  if (phone.length < 7) return phone || 'N/A';
+  return `${phone.slice(0, 3)}***${phone.slice(-3)}`;
+}
 
 export function isOpenAiCompatible(apiKey: string, baseUrl?: string): boolean {
   if (baseUrl && baseUrl.trim().length > 0) return true;
@@ -537,13 +575,15 @@ export async function toolGetRevenueReport(
     branchQuery?: string;
     all?: boolean;
   },
-  senderId: string
+  senderId: string,
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
   const config = getTelegramConfig();
-  const isOwner = config.ownerUserIds.has(senderId);
+  const isOwner = principal?.isOwner || config.ownerUserIds.has(senderId);
   const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
+  if (!principalRoleAllowed(principal, TELEGRAM_REVENUE_ROLES)) return '⛔ Bạn không có quyền xem báo cáo doanh số.';
 
-  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
+  if (!principal && isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Quyền riêng tư: Báo cáo doanh số TOÀN HỆ THỐNG chỉ dành riêng cho Chủ hệ thống (Owner). Vui lòng chỉ định chi nhánh cụ thể.';
   }
 
@@ -551,6 +591,7 @@ export async function toolGetRevenueReport(
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
 
   if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem dữ liệu của phạm vi chi nhánh này.';
 
   const scopeId = isAll ? 'ALL' : String(matchedBranch!.id);
   const dateRange = resolveDateRange(args);
@@ -599,15 +640,16 @@ export async function toolGetRevenueReport(
   ].join('\n');
 }
 
-export async function toolLookupImei(db: Firestore, args: { imei: string }): Promise<string> {
+export async function toolLookupImei(db: Firestore, args: { imei: string }, principal?: TelegramPrincipal | null): Promise<string> {
   const imei = String(args.imei || '').trim();
   if (!imei) return '⚠️ Thiếu số IMEI cần tra cứu.';
+  if (!principalRoleAllowed(principal, [...TELEGRAM_INVENTORY_ROLES, 'CUSTOMER_CARE'])) return '⛔ Bạn không có quyền tra cứu vòng đời IMEI.';
 
   try {
     const timeline = await getDeviceLifecycleTimeline(
       db,
       { imei },
-      { uid: 'TELEGRAM_COPILOT', role: 'REGIONAL_MANAGER', assignedBranchIds: [] }
+      principal ? principalActor(principal) : { uid: 'TELEGRAM_COPILOT', role: 'REGIONAL_MANAGER', assignedBranchIds: [] }
     );
     const device = timeline.device || {};
     const summary = timeline.summary || {};
@@ -644,19 +686,22 @@ export async function toolLookupImei(db: Firestore, args: { imei: string }): Pro
 export async function toolCheckInventory(
   db: Firestore,
   args: { modelQuery?: string; branchQuery?: string; all?: boolean; includeImeis?: boolean; limit?: number },
-  senderId: string
+  senderId: string,
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
   const config = getTelegramConfig();
-  const isOwner = config.ownerUserIds.has(senderId);
+  const isOwner = principal?.isOwner || config.ownerUserIds.has(senderId);
   const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
+  if (!principalRoleAllowed(principal, TELEGRAM_INVENTORY_ROLES)) return '⛔ Bạn không có quyền tra cứu tồn kho.';
 
-  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
+  if (!principal && isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Tra cứu tồn kho toàn hệ thống yêu cầu quyền Chủ hệ thống (Owner). Hãy chỉ định chi nhánh cụ thể.';
   }
 
   const branches = await fetchActiveBranches(db);
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
   if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem tồn kho của phạm vi này.';
 
   let query: FirebaseFirestore.Query = db.collection('devices').where('status', '==', 'in_stock');
   if (matchedBranch) {
@@ -742,18 +787,21 @@ export async function toolGetRetailRepairQueue(
     date?: string;
     limit?: number;
   },
-  senderId: string
+  senderId: string,
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
   const config = getTelegramConfig();
-  const isOwner = config.ownerUserIds.has(senderId);
+  const isOwner = principal?.isOwner || config.ownerUserIds.has(senderId);
   const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
-  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
+  if (!principalRoleAllowed(principal, TELEGRAM_TECHNICAL_ROLES)) return '⛔ Bạn không có quyền xem danh sách sửa chữa.';
+  if (!principal && isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Xem máy bảo hành/sửa lẻ toàn hệ thống yêu cầu quyền Chủ hệ thống. Hãy chọn chi nhánh.';
   }
 
   const branches = await fetchActiveBranches(db);
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
   if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem sửa chữa của phạm vi này.';
 
   const requestedType = String(args.repairType || 'ALL').toUpperCase();
   const acceptedTypes = requestedType === 'WARRANTY'
@@ -834,19 +882,22 @@ export async function toolGetRetailRepairQueue(
 export async function toolGetTechnicalProgress(
   db: Firestore,
   args: { branchQuery?: string; all?: boolean },
-  senderId: string
+  senderId: string,
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
   const config = getTelegramConfig();
-  const isOwner = config.ownerUserIds.has(senderId);
+  const isOwner = principal?.isOwner || config.ownerUserIds.has(senderId);
   const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
+  if (!principalRoleAllowed(principal, TELEGRAM_TECHNICAL_ROLES)) return '⛔ Bạn không có quyền xem tiến độ kỹ thuật.';
 
-  if (isAll && !isOwner && config.ownerUserIds.size > 0) {
+  if (!principal && isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Xem tiến độ kỹ thuật toàn hệ thống chỉ dành cho Chủ hệ thống. Vui lòng ghi rõ chi nhánh.';
   }
 
   const branches = await fetchActiveBranches(db);
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
   if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem tiến độ của phạm vi này.';
 
   const activeLineStatuses = ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_PARTS', 'COMPLETED', 'REWORK_REQUIRED'];
   let lineQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrderLines').where('status', 'in', activeLineStatuses);
@@ -896,10 +947,50 @@ export async function toolGetTechnicalProgress(
   ].join('\n');
 }
 
-export async function toolLookupCustomer(db: Firestore, args: { phoneOrName: string }): Promise<string> {
+export async function toolLookupCustomer(
+  db: Firestore,
+  args: { phoneOrName: string },
+  principal?: TelegramPrincipal | null
+): Promise<string> {
   const query = String(args.phoneOrName || '').trim();
   if (!query) return '⚠️ Vui lòng nhập số điện thoại hoặc tên khách hàng cần tra cứu.';
 
+  if (principal) {
+    if (!principalRoleAllowed(principal, TELEGRAM_CRM_ROLES)) return '⛔ Bạn không có quyền tra cứu CRM.';
+    try {
+      const actor = principalActor(principal);
+      const branchId = principal.isOwner || principal.role === 'ADMIN' ? 'ALL' : principal.branchId;
+      const result = await listCrmLeads(db, { branchId, search: query, limit: 10 }, actor);
+      const lead: any = result.items[0];
+      if (!lead) return `🔎 Không tìm thấy Lead CRM nào trong phạm vi được phép khớp với <code>${escapeTelegramHtml(query)}</code>.`;
+      const customer360 = await getCrmCustomer360(db, String(lead.id), actor);
+      const phone = principal.isOwner ? String(lead.phone || 'N/A') : maskPhone(lead.phone);
+      const openTasks = (customer360.tasks || []).filter((task: any) => ['PENDING', 'IN_PROGRESS'].includes(String(task.status))).length;
+      const nextAppointment = (customer360.appointments || [])
+        .filter((item: any) => !['COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(String(item.status)))
+        .sort((left: any, right: any) => String(left.scheduledAt || left.appointmentAt || '').localeCompare(String(right.scheduledAt || right.appointmentAt || '')))[0];
+      const latestQuote = (customer360.quotes || []).slice().sort((left: any, right: any) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))[0];
+      return [
+        `<b>👤 HỒ SƠ CRM: ${escapeTelegramHtml(lead.name || 'Khách hàng')}</b>`,
+        `• SĐT: <code>${escapeTelegramHtml(phone)}</code>`,
+        `• Trạng thái Lead: <b>${escapeTelegramHtml(String(lead.status || 'new').toUpperCase())}</b>`,
+        `• Nhu cầu: <b>${escapeTelegramHtml(lead.interestedModel || 'Chưa ghi nhận')}</b>`,
+        `• Phụ trách: <b>${escapeTelegramHtml(lead.assignedStaff || lead.assignedStaffName || 'Chưa gán')}</b>`,
+        `• Công việc CRM đang mở: <b>${openTasks}</b>`,
+        `• Lịch sử chăm sóc: <b>${(customer360.activities || []).length}</b> · Hóa đơn liên kết: <b>${(customer360.invoices || []).length}</b>`,
+        nextAppointment ? `• Lịch hẹn tiếp theo: <b>${escapeTelegramHtml(nextAppointment.scheduledAt || nextAppointment.appointmentAt || nextAppointment.status)}</b>` : '',
+        latestQuote ? `• Báo giá gần nhất: <b>${formatVnd(latestQuote.finalPrice || latestQuote.totalAmount)}</b> · ${escapeTelegramHtml(latestQuote.status || 'DRAFT')}` : '',
+        `<i>Dữ liệu canonical CRM · phạm vi ${escapeTelegramHtml(result.summary?.scope || 'CRM')}</i>`
+      ].filter(Boolean).join('\n');
+    } catch (error: any) {
+      const code = String(error?.message || 'CRM_LOOKUP_FAILED');
+      if (code.includes('FORBIDDEN')) return '⛔ Bạn không có quyền xem Lead CRM này.';
+      return `⚠️ Không thể tra cứu CRM: ${escapeTelegramHtml(code)}`;
+    }
+  }
+
+  // Compatibility path for direct unit consumers. Production Telegram requests
+  // always supply a resolved principal and therefore use the canonical CRM path.
   const isPhone = /^[0-9+ ]{8,15}$/.test(query);
   const customersSnap = await db.collection('customers').limit(100).get();
   
@@ -955,26 +1046,154 @@ export async function toolLookupCustomer(db: Firestore, args: { phoneOrName: str
     .join('\n');
 }
 
+export async function toolGetCrmPipeline(
+  db: Firestore,
+  args: { branchQuery?: string; all?: boolean; period?: string; date?: string },
+  principal?: TelegramPrincipal | null
+): Promise<string> {
+  if (!principal || !principalRoleAllowed(principal, TELEGRAM_CRM_ROLES)) return '⛔ Bạn không có quyền xem báo cáo CRM.';
+  const branches = await fetchActiveBranches(db);
+  const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
+  const branchQuery = args.branchQuery || (!isAll ? principal.branchId : undefined);
+  const matchedBranch = isAll ? null : findBranchMatch(branches, branchQuery);
+  if (!isAll && !matchedBranch) return branchSelectionError(branches, branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem CRM của phạm vi này.';
+  const range = resolveDateRange({ period: args.period || 'MONTH', date: args.date });
+  try {
+    const result = await getCrmDashboard(db, {
+      branchId: isAll ? 'ALL' : matchedBranch!.id,
+      dateFrom: range.startDate,
+      dateTo: range.endDate
+    }, principalActor(principal));
+    const kpi: any = result.kpis || {};
+    const funnel: any = result.funnel || {};
+    return [
+      `<b>📈 CRM PIPELINE · ${escapeTelegramHtml(range.label)}</b>`,
+      `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(isAll ? 'Toàn hệ thống' : matchedBranch!.name || matchedBranch!.id)}`,
+      `• Lead phát sinh: <b>${Number(kpi.leads || 0)}</b> · WON: <b>${Number(kpi.won || 0)}</b> · LOST: <b>${Number(kpi.lost || 0)}</b>`,
+      `• Tỷ lệ chuyển đổi: <b>${Number(kpi.conversionRate || 0)}%</b>`,
+      `• Task quá hạn: <b>${Number(kpi.overdueTasks || 0)}</b> · Lịch hẹn: <b>${Number(kpi.appointments || 0)}</b>`,
+      `• Phản hồi đầu tiên TB: <b>${Number(kpi.averageFirstResponseMinutes || 0)} phút</b>`,
+      '<b>Phễu:</b>',
+      `• Mới ${Number(funnel.new || 0)} → Đã liên hệ ${Number(funnel.contacted || 0)} → Tư vấn ${Number(funnel.consulting || 0)} → Hẹn ${Number(funnel.appointment || 0)} → Cọc ${Number(funnel.deposit || 0)} → Chốt ${Number(funnel.won || 0)}`,
+      `<i>Cập nhật lúc ${escapeTelegramHtml(formatVietnamNow())}</i>`
+    ].join('\n');
+  } catch (error: any) {
+    return `⚠️ Không thể tải CRM Pipeline: ${escapeTelegramHtml(error?.message || 'CRM_DASHBOARD_FAILED')}`;
+  }
+}
+
+export async function toolGetCrmWorkQueue(
+  db: Firestore,
+  args: { branchQuery?: string; all?: boolean; limit?: number },
+  principal?: TelegramPrincipal | null
+): Promise<string> {
+  if (!principal || !principalRoleAllowed(principal, TELEGRAM_CRM_ROLES)) return '⛔ Bạn không có quyền xem hàng đợi CRM.';
+  const branches = await fetchActiveBranches(db);
+  const isManager = telegramPrincipalHasAnyRole(principal, ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER']);
+  const requestedAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
+  const branchQuery = args.branchQuery || principal.branchId;
+  const matchedBranch = requestedAll ? null : findBranchMatch(branches, branchQuery);
+  if (!requestedAll && !matchedBranch) return branchSelectionError(branches, branchQuery);
+  if (requestedAll && !(principal.isOwner || principal.role === 'ADMIN')) return '⛔ Chỉ Admin/Owner được xem hàng đợi CRM toàn hệ thống.';
+  if (!requestedAll && !principalBranchAllowed(principal, matchedBranch?.id, false)) return '⛔ Bạn không có quyền xem CRM của chi nhánh này.';
+  try {
+    const limit = Math.min(20, Math.max(5, Number(args.limit || 10)));
+    const targetBranches = requestedAll ? branches : [matchedBranch!];
+    const queueResults = await Promise.all(targetBranches.map(branch => getCrmWorkQueue(db, {
+      branchId: branch.id,
+      ownerId: isManager ? 'ALL' : principal.uid,
+      limit
+    }, principalActor(principal))));
+    const result = {
+      items: queueResults.flatMap(item => item.items)
+        .sort((left: any, right: any) => Number(right.overdue) - Number(left.overdue) || String(left.task?.dueAt || '').localeCompare(String(right.task?.dueAt || '')))
+        .slice(0, limit),
+      summary: {
+        total: queueResults.reduce((sum, item) => sum + Number(item.summary?.total || 0), 0),
+        overdue: queueResults.reduce((sum, item) => sum + Number(item.summary?.overdue || 0), 0)
+      }
+    };
+    return [
+      `<b>📋 VIỆC CRM CẦN XỬ LÝ</b>`,
+      `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(requestedAll ? 'Toàn hệ thống' : matchedBranch!.name || matchedBranch!.id)}`,
+      `• Tổng việc ưu tiên: <b>${Number(result.summary?.total || 0)}</b> · Quá hạn: <b>${Number(result.summary?.overdue || 0)}</b>`,
+      ...result.items.slice(0, 10).map((item: any, index: number) => {
+        const lead = item.lead || {};
+        const due = String(item.task?.dueAt || '').slice(0, 16).replace('T', ' ');
+        return `${index + 1}. ${item.overdue ? '🔴' : '🟡'} <b>${escapeTelegramHtml(lead.name || item.task?.title || 'Lead')}</b> · ${escapeTelegramHtml(item.task?.type || 'FOLLOW_UP')}\n   ${escapeTelegramHtml(item.task?.assignedStaffName || lead.assignedStaff || principal.name)} · hạn ${escapeTelegramHtml(due || 'chưa đặt')}`;
+      }),
+      result.items.length === 0 ? '<i>Không có công việc CRM đang mở.</i>' : ''
+    ].filter(Boolean).join('\n');
+  } catch (error: any) {
+    return `⚠️ Không thể tải hàng đợi CRM: ${escapeTelegramHtml(error?.message || 'CRM_WORK_QUEUE_FAILED')}`;
+  }
+}
+
 export async function toolGetCashflowSummary(
   db: Firestore,
-  args: { period?: 'TODAY' | 'YESTERDAY' | 'MONTH' | 'LAST_MONTH' | string; date?: string },
-  senderId: string
+  args: { period?: 'TODAY' | 'YESTERDAY' | 'MONTH' | 'LAST_MONTH' | string; date?: string; branchQuery?: string; all?: boolean },
+  senderId: string,
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
   const config = getTelegramConfig();
-  const isOwner = config.ownerUserIds.has(senderId);
+  const isOwner = principal?.isOwner || config.ownerUserIds.has(senderId);
 
-  if (!isOwner && config.ownerUserIds.size > 0) {
+  if (principal && !telegramPrincipalHasPermission(principal, 'FINANCE_VIEW')) {
+    return '⛔ Bạn không có quyền xem Sổ quỹ và dòng tiền.';
+  }
+  if (!principal && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ BẢO MẬT: Dữ liệu Sổ Quỹ & Dòng Tiền mặt / Tài khoản Ngân Hàng là thông tin nhạy cảm cấp cao, chỉ dành riêng cho Chủ sở hữu hệ thống (Owner User IDs).';
   }
 
   const dateRange = resolveDateRange({ period: args.period || 'TODAY', date: args.date });
+  const branches = principal ? await fetchActiveBranches(db) : [];
+  const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery) || Boolean(principal && (principal.isOwner || principal.role === 'ADMIN') && !args.branchQuery);
+  const matchedBranch = principal && !isAll ? findBranchMatch(branches, args.branchQuery || principal.branchId) : null;
+  if (principal && !isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery || principal.branchId);
+  if (principal && !principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem quỹ của phạm vi này.';
 
+  if (!principal) {
+    const [fundsSnap, txSnap] = await Promise.all([
+      db.collection('fundAccounts').where('isActive', '==', true).limit(50).get(),
+      db.collection('cashTransactions').limit(1000).get()
+    ]);
+    const funds = fundsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    let totalIncome = 0;
+    let totalExpense = 0;
+    txSnap.docs.forEach(doc => {
+      const tx = doc.data() || {};
+      const dateStr = String(tx.date || tx.createdAtIso || tx.createdAt || '').slice(0, 10);
+      if (dateRange.dates.includes(dateStr) && (tx.type === 'RECEIPT' || tx.type === 'THU')) totalIncome += Number(tx.amount || 0);
+      if (dateRange.dates.includes(dateStr) && (tx.type === 'PAYMENT' || tx.type === 'CHI')) totalExpense += Number(tx.amount || 0);
+    });
+    return [
+      `<b>💵 BÁO CÁO TÀI CHÍNH & SỔ QUỸ · ${escapeTelegramHtml(dateRange.label)}</b>`,
+      `• <b>Tổng thu:</b> <code>+${formatVnd(totalIncome)}</code>`,
+      `• <b>Tổng chi:</b> <code>-${formatVnd(totalExpense)}</code>`,
+      `• <b>Chênh lệch dòng tiền:</b> <b>${formatVnd(totalIncome - totalExpense)}</b>`,
+      `• <b>Tổng số dư khả dụng (Các quỹ):</b> <code>${formatVnd(funds.reduce((sum, f) => sum + Number(f.currentBalance || 0), 0))}</code>`,
+      ...funds.map(f => `• ${escapeTelegramHtml(f.name || f.bankName || f.id)}: <b>${formatVnd(f.currentBalance)}</b>`)
+    ].join('\n');
+  }
+
+  let fundsQuery: FirebaseFirestore.Query = db.collection('funds');
+  if (matchedBranch) fundsQuery = fundsQuery.where('branchId', '==', matchedBranch.id);
+  const startRange = getVietnamDayUtcRange(dateRange.startDate);
+  const endRange = getVietnamDayUtcRange(dateRange.endDate);
   const [fundsSnap, txSnap] = await Promise.all([
-    db.collection('fundAccounts').where('isActive', '==', true).limit(50).get(),
-    db.collection('cashTransactions').limit(1000).get()
+    fundsQuery.limit(100).get(),
+    db.collection('cashTransactions')
+      .where('createdAtIso', '>=', startRange.startUtc)
+      .where('createdAtIso', '<=', endRange.endUtc)
+      .limit(3000)
+      .get()
   ]);
 
-  const funds = fundsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+  const funds = fundsSnap.docs
+    .map(doc => ({ id: doc.id, ...doc.data() } as any))
+    .filter(fund => fund.isActive !== false && fund.active !== false)
+    .filter(fund => !matchedBranch || String(fund.branchId || '') === matchedBranch.id);
   const totalFundBalance = funds.reduce((sum, f) => sum + Number(f.currentBalance || 0), 0);
 
   let totalIncome = 0;
@@ -982,8 +1201,7 @@ export async function toolGetCashflowSummary(
 
   txSnap.docs.forEach(doc => {
     const tx = doc.data() || {};
-    const dateStr = String(tx.date || tx.createdAtIso || tx.createdAt || '').slice(0, 10);
-    if (dateRange.dates.includes(dateStr)) {
+    if (!matchedBranch || String(tx.branchId || '') === matchedBranch.id) {
       if (tx.type === 'RECEIPT' || tx.type === 'THU') {
         totalIncome += Number(tx.amount || 0);
       } else if (tx.type === 'PAYMENT' || tx.type === 'CHI') {
@@ -994,6 +1212,7 @@ export async function toolGetCashflowSummary(
 
   return [
     `<b>💵 BÁO CÁO TÀI CHÍNH & SỔ QUỸ · ${escapeTelegramHtml(dateRange.label)}</b>`,
+    `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(isAll ? 'Toàn hệ thống' : matchedBranch!.name || matchedBranch!.id)}`,
     `• <b>Tổng thu:</b> <code>+${formatVnd(totalIncome)}</code>`,
     `• <b>Tổng chi:</b> <code>-${formatVnd(totalExpense)}</code>`,
     `• <b>Chênh lệch dòng tiền:</b> <b>${formatVnd(totalIncome - totalExpense)}</b>`,
@@ -1009,14 +1228,18 @@ export async function toolGetCashflowSummary(
 
 export async function toolGetAttendanceToday(
   db: Firestore,
-  args: { branchQuery?: string; all?: boolean; date?: string }
+  args: { branchQuery?: string; all?: boolean; date?: string },
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
+  if (principal && !telegramPrincipalHasPermission(principal, 'ATTENDANCE_REVIEW')) return '⛔ Bạn không có quyền xem chấm công của nhân viên.';
   const today = getVietnamDateString();
   const targetDate = args.date ? normalizeDateInput(args.date, today) : today;
   const branches = await fetchActiveBranches(db);
   const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
-  const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
-  if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  const branchQuery = args.branchQuery || principal?.branchId;
+  const matchedBranch = isAll ? null : findBranchMatch(branches, branchQuery);
+  if (!isAll && !matchedBranch) return branchSelectionError(branches, branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem chấm công của phạm vi này.';
 
   let query: FirebaseFirestore.Query = db.collection('attendance').where('date', '==', targetDate);
   if (matchedBranch) {
@@ -1059,12 +1282,18 @@ export async function toolGetTopSellingProducts(
     endDate?: string;
     branchQuery?: string;
     limit?: number;
-  }
+  },
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
+  if (!principalRoleAllowed(principal, TELEGRAM_REVENUE_ROLES)) return '⛔ Bạn không có quyền xem báo cáo bán hàng.';
   const dateRange = resolveDateRange(args);
   const branches = await fetchActiveBranches(db);
-  const matchedBranch = findBranchMatch(branches, args.branchQuery);
-  if (args.branchQuery && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  const branchQuery = args.branchQuery || principal?.branchId;
+  const wantsAll = isAllBranchQuery(args.branchQuery);
+  const matchedBranch = wantsAll ? null : findBranchMatch(branches, branchQuery);
+  if (branchQuery && !wantsAll && !matchedBranch) return branchSelectionError(branches, branchQuery);
+  const all = !matchedBranch;
+  if (!principalBranchAllowed(principal, matchedBranch?.id, all)) return '⛔ Bạn không có quyền xem báo cáo của phạm vi này.';
 
   const startRange = getVietnamDayUtcRange(dateRange.startDate);
   const endRange = getVietnamDayUtcRange(dateRange.endDate);
@@ -1115,14 +1344,19 @@ export async function toolGetTopSellingProducts(
 
 export async function toolGetAgingInventory(
   db: Firestore,
-  args: { daysThreshold?: number; branchQuery?: string }
+  args: { daysThreshold?: number; branchQuery?: string },
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
+  if (!principalRoleAllowed(principal, TELEGRAM_INVENTORY_ROLES)) return '⛔ Bạn không có quyền xem tồn kho lâu ngày.';
   const threshold = Number(args.daysThreshold) || 30;
   const cutoffDate = new Date(Date.now() - threshold * 86_400_000).toISOString();
   
   const branches = await fetchActiveBranches(db);
-  const matchedBranch = findBranchMatch(branches, args.branchQuery);
-  if (args.branchQuery && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  const branchQuery = args.branchQuery || principal?.branchId;
+  const wantsAll = isAllBranchQuery(args.branchQuery);
+  const matchedBranch = wantsAll ? null : findBranchMatch(branches, branchQuery);
+  if (branchQuery && !wantsAll && !matchedBranch) return branchSelectionError(branches, branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, !matchedBranch)) return '⛔ Bạn không có quyền xem tồn kho của phạm vi này.';
 
   let query: FirebaseFirestore.Query = db.collection('devices').where('status', '==', 'in_stock');
   if (matchedBranch) query = query.where('branchId', '==', matchedBranch.id);
@@ -1161,12 +1395,17 @@ export async function toolGetStaffPerformance(
     startDate?: string;
     endDate?: string;
     branchQuery?: string;
-  }
+  },
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
+  if (!principalRoleAllowed(principal, TELEGRAM_REVENUE_ROLES)) return '⛔ Bạn không có quyền xem hiệu suất bán hàng.';
   const dateRange = resolveDateRange(args);
   const branches = await fetchActiveBranches(db);
-  const matchedBranch = findBranchMatch(branches, args.branchQuery);
-  if (args.branchQuery && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
+  const branchQuery = args.branchQuery || principal?.branchId;
+  const wantsAll = isAllBranchQuery(args.branchQuery);
+  const matchedBranch = wantsAll ? null : findBranchMatch(branches, branchQuery);
+  if (branchQuery && !wantsAll && !matchedBranch) return branchSelectionError(branches, branchQuery);
+  if (!principalBranchAllowed(principal, matchedBranch?.id, !matchedBranch)) return '⛔ Bạn không có quyền xem hiệu suất của phạm vi này.';
 
   const startRange = getVietnamDayUtcRange(dateRange.startDate);
   const endRange = getVietnamDayUtcRange(dateRange.endDate);
@@ -1203,15 +1442,50 @@ export async function toolGetStaffPerformance(
 
 export async function toolGetDebtReport(
   db: Firestore,
-  _args: Record<string, unknown>,
-  senderId: string
+  args: { branchQuery?: string; all?: boolean },
+  senderId: string,
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
   const config = getTelegramConfig();
-  const isOwner = config.ownerUserIds.has(senderId);
-  if (!isOwner && config.ownerUserIds.size > 0) {
+  const isOwner = principal?.isOwner || config.ownerUserIds.has(senderId);
+  if (principal && !telegramPrincipalHasPermission(principal, 'FINANCE_VIEW')) return '⛔ Bạn không có quyền xem công nợ.';
+  if (!principal && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Báo cáo công nợ toàn chuỗi chỉ dành riêng cho Chủ hệ thống (Owner).';
   }
 
+  if (principal) {
+    const branches = await fetchActiveBranches(db);
+    const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery) || Boolean((principal.isOwner || principal.role === 'ADMIN') && !args.branchQuery);
+    const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery || principal.branchId);
+    if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery || principal.branchId);
+    if (!principalBranchAllowed(principal, matchedBranch?.id, isAll)) return '⛔ Bạn không có quyền xem công nợ của phạm vi này.';
+    let accountQuery: FirebaseFirestore.Query = db.collection('branchPartyAccounts');
+    if (matchedBranch) accountQuery = accountQuery.where('branchId', '==', matchedBranch.id);
+    const accountSnapshot = await accountQuery.limit(5000).get();
+    const accounts = accountSnapshot.docs
+      .map(document => ({ id: document.id, ...document.data() } as any))
+      .filter(account => account.status !== 'ARCHIVED' && Number(account.receivableBalance || 0) > 0)
+      .sort((left, right) => Number(right.receivableBalance || 0) - Number(left.receivableBalance || 0));
+    const masterIds = [...new Set(accounts.slice(0, 100).map(account => String(account.partyMasterId || '')).filter(Boolean))];
+    const masterSnapshots = masterIds.length ? await db.getAll(...masterIds.map(id => db.collection('partyMasters').doc(id))) : [];
+    const masters = new Map(masterSnapshots.filter(snapshot => snapshot.exists).map(snapshot => [snapshot.id, snapshot.data() || {}]));
+    const totalDebt = accounts.reduce((sum, account) => sum + Number(account.receivableBalance || 0), 0);
+    return [
+      `<b>📑 CÔNG NỢ PHẢI THU KHÁCH HÀNG</b>`,
+      `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(isAll ? 'Toàn hệ thống' : matchedBranch!.name || matchedBranch!.id)}`,
+      `• <b>Tổng phải thu:</b> <code>${formatVnd(totalDebt)}</code> · <b>${accounts.length}</b> tài khoản`,
+      accounts.length ? '<b>Top khoản cần thu:</b>' : '<i>Không có công nợ phải thu.</i>',
+      ...accounts.slice(0, 8).map((account, index) => {
+        const master: any = masters.get(String(account.partyMasterId || '')) || {};
+        const displayName = master.displayName || account.code || 'Khách hàng';
+        const phone = principal.isOwner ? master.phoneNormalized : maskPhone(master.phoneNormalized);
+        return `• ${index + 1}. <b>${escapeTelegramHtml(displayName)}</b>${phone ? ` · ${escapeTelegramHtml(phone)}` : ''}: <code>${formatVnd(account.receivableBalance)}</code>`;
+      }),
+      '<i>Nguồn: branchPartyAccounts canonical · đối chiếu bởi debt ledger.</i>'
+    ].filter(Boolean).join('\n');
+  }
+
+  // Legacy test-only compatibility. Production always supplies a principal.
   const snap = await db.collection('customers')
     .where('debtAmount', '>', 0)
     .limit(100)
@@ -1376,6 +1650,31 @@ const functionDeclarations: FunctionDeclaration[] = [
     }
   },
   {
+    name: 'get_crm_pipeline',
+    description: 'Báo cáo CRM Pipeline, tỷ lệ chuyển đổi, phễu Lead, task quá hạn và lịch hẹn theo chi nhánh/thời gian.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        branchQuery: { type: Type.STRING, description: 'Tên hoặc mã chi nhánh.' },
+        period: { type: Type.STRING, enum: ['TODAY', 'YESTERDAY', 'WEEK', 'LAST_WEEK', 'MONTH', 'LAST_MONTH'], description: 'Khoảng thời gian báo cáo.' },
+        date: { type: Type.STRING, description: 'Ngày cụ thể YYYY-MM-DD hoặc DD/MM/YYYY.' },
+        all: { type: Type.BOOLEAN, description: 'True nếu Owner/Admin yêu cầu toàn hệ thống.' }
+      }
+    }
+  },
+  {
+    name: 'get_crm_work_queue',
+    description: 'Lấy danh sách công việc CRM, Lead cần chăm sóc, task quá hạn và lịch hẹn cần xử lý.',
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        branchQuery: { type: Type.STRING, description: 'Tên hoặc mã chi nhánh.' },
+        all: { type: Type.BOOLEAN, description: 'True nếu muốn xem toàn hệ thống.' },
+        limit: { type: Type.INTEGER, description: 'Số công việc cần hiển thị, tối đa 20.' }
+      }
+    }
+  },
+  {
     name: 'get_cashflow_summary',
     description: 'Tra cứu tổng thu chi trong ngày/tháng và số dư các tài khoản quỹ tiền mặt / ngân hàng (Bảo mật Owner).',
     parameters: {
@@ -1389,6 +1688,14 @@ const functionDeclarations: FunctionDeclaration[] = [
         date: {
           type: Type.STRING,
           description: 'Ngày cụ thể dạng YYYY-MM-DD hoặc DD/MM/YYYY.'
+        },
+        branchQuery: {
+          type: Type.STRING,
+          description: 'Tên hoặc mã chi nhánh cần xem quỹ.'
+        },
+        all: {
+          type: Type.BOOLEAN,
+          description: 'True nếu Owner/Admin xem toàn hệ thống.'
         }
       }
     }
@@ -1481,27 +1788,32 @@ const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'get_debt_report',
-    description: 'Báo cáo danh sách khách hàng có công nợ cao cần thu hồi (Bảo mật Owner).',
+    description: 'Báo cáo công nợ phải thu khách hàng từ ledger canonical theo chi nhánh.',
     parameters: {
       type: Type.OBJECT,
-      properties: {}
+      properties: {
+        branchQuery: { type: Type.STRING, description: 'Tên hoặc mã chi nhánh.' },
+        all: { type: Type.BOOLEAN, description: 'True nếu Owner/Admin xem toàn hệ thống.' }
+      }
     }
   }
 ];
 
-async function executeTool(db: Firestore, name: string, args: any, senderId: string): Promise<string> {
-  if (name === 'get_revenue_report') return toolGetRevenueReport(db, args, senderId);
-  if (name === 'lookup_imei_lifecycle') return toolLookupImei(db, args);
-  if (name === 'check_inventory_stock') return toolCheckInventory(db, args, senderId);
-  if (name === 'get_technical_progress') return toolGetTechnicalProgress(db, args, senderId);
-  if (name === 'get_retail_repair_queue') return toolGetRetailRepairQueue(db, args, senderId);
-  if (name === 'lookup_customer_info') return toolLookupCustomer(db, args);
-  if (name === 'get_cashflow_summary') return toolGetCashflowSummary(db, args, senderId);
-  if (name === 'get_attendance_today') return toolGetAttendanceToday(db, args);
-  if (name === 'get_top_selling_products') return toolGetTopSellingProducts(db, args);
-  if (name === 'get_aging_inventory') return toolGetAgingInventory(db, args);
-  if (name === 'get_staff_sales_performance') return toolGetStaffPerformance(db, args);
-  if (name === 'get_debt_report') return toolGetDebtReport(db, args, senderId);
+async function executeTool(db: Firestore, name: string, args: any, senderId: string, principal?: TelegramPrincipal | null): Promise<string> {
+  if (name === 'get_revenue_report') return toolGetRevenueReport(db, args, senderId, principal);
+  if (name === 'lookup_imei_lifecycle') return toolLookupImei(db, args, principal);
+  if (name === 'check_inventory_stock') return toolCheckInventory(db, args, senderId, principal);
+  if (name === 'get_technical_progress') return toolGetTechnicalProgress(db, args, senderId, principal);
+  if (name === 'get_retail_repair_queue') return toolGetRetailRepairQueue(db, args, senderId, principal);
+  if (name === 'lookup_customer_info') return toolLookupCustomer(db, args, principal);
+  if (name === 'get_crm_pipeline') return toolGetCrmPipeline(db, args, principal);
+  if (name === 'get_crm_work_queue') return toolGetCrmWorkQueue(db, args, principal);
+  if (name === 'get_cashflow_summary') return toolGetCashflowSummary(db, args, senderId, principal);
+  if (name === 'get_attendance_today') return toolGetAttendanceToday(db, args, principal);
+  if (name === 'get_top_selling_products') return toolGetTopSellingProducts(db, args, principal);
+  if (name === 'get_aging_inventory') return toolGetAgingInventory(db, args, principal);
+  if (name === 'get_staff_sales_performance') return toolGetStaffPerformance(db, args, principal);
+  if (name === 'get_debt_report') return toolGetDebtReport(db, args, senderId, principal);
   return 'Không tìm thấy công cụ tương ứng.';
 }
 
@@ -1511,7 +1823,8 @@ async function executeTool(db: Firestore, name: string, args: any, senderId: str
 export async function processTelegramAiCopilot(
   db: Firestore,
   userMessage: string,
-  senderId: string
+  senderId: string,
+  principal?: TelegramPrincipal | null
 ): Promise<string> {
   const config = getTelegramConfig();
   const apiKey = String(config.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
@@ -1546,6 +1859,12 @@ Bạn là "PhoneHouse Executive AI Copilot" - Cố vấn điều hành và Trợ
 
 [DANH SÁCH CHI NHÁNH CHÍNH THỨC HIỆN CÓ CỦA PHONEHOUSE]:
 ${branchesGuide}
+
+[DANH TÍNH ĐÃ XÁC THỰC]:
+- Người dùng: ${principal ? `${principal.name} (${principal.role})` : 'Chưa liên kết'}
+- Chi nhánh mặc định: ${principal?.branchId || 'Không có'}
+- Phạm vi được cấp: ${principal?.isOwner || principal?.role === 'ADMIN' ? 'Toàn hệ thống' : (principal?.assignedBranchIds || []).join(', ') || 'Không có'}
+- Công cụ phía server sẽ tự từ chối mọi yêu cầu vượt quyền. Không được đề nghị lách hoặc đổi chi nhánh ngoài phạm vi.
 
 [QUY TẮC BẮT BUỘC KHI XỬ LÝ CHI NHÁNH & THỜI GIAN]:
 1. Phân biệt chi nhánh: Khi người dùng nhắc đến bất kỳ chi nhánh hoặc địa điểm nào (ví dụ: "Cầu Giấy", "109", "Xã Đàn", "245", "Trần Đại Nghĩa", "86", "Hà Đông", "PH109"...), bạn PHẢI truyền đúng tên hoặc mã chi nhánh vào tham số \`branchQuery\` của công cụ.
@@ -1603,7 +1922,7 @@ ${branchesGuide}
           } catch {
             args = {};
           }
-          const output = await executeTool(db, name, args, senderId);
+          const output = await executeTool(db, name, args, senderId, principal);
           toolExecutionResults.push({ name, output });
           messages.push({
             role: 'tool',
@@ -1681,7 +2000,7 @@ ${branchesGuide}
       for (const call of functionCalls) {
         const name = call.name;
         const args = (call.args || {}) as any;
-        const output = await executeTool(db, name, args, senderId);
+        const output = await executeTool(db, name, args, senderId, principal);
         toolExecutionResults.push({ name, output });
       }
 

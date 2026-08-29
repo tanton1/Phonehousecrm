@@ -21,6 +21,12 @@ import {
   unregisterTelegramWebhook
 } from '../services/telegramService';
 import { testGeminiConnection } from '../services/telegramAiAssistant';
+import {
+  createTelegramLinkCode,
+  getTelegramLinkStatus,
+  resolveTelegramPrincipal,
+  unlinkTelegramUser
+} from '../services/telegramAuthorityService';
 
 function constantTimeEqual(expectedValue: string, suppliedValue: string): boolean {
   const expected = Buffer.from(expectedValue);
@@ -53,6 +59,41 @@ let lastAutoWebhookSyncAt = 0;
 
 export function createTelegramRouter(db: Firestore | null): Router {
   const router = Router();
+
+  router.get('/link-status', authenticateFirebase, async (req, res) => {
+    if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    try {
+      return res.json({ success: true, data: await getTelegramLinkStatus(db, req.user!.uid) });
+    } catch (error: any) {
+      return errorResponse(res, 500, String(error?.message || 'TELEGRAM_LINK_STATUS_FAILED'), 'Không tải được trạng thái liên kết Telegram.');
+    }
+  });
+
+  router.post('/link-code', authenticateFirebase, async (req, res) => {
+    if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    try {
+      const data = await createTelegramLinkCode(db, {
+        uid: req.user!.uid,
+        role: req.user!.role,
+        branchId: req.user!.branchId,
+        assignedBranchIds: req.user!.assignedBranchIds,
+        name: req.user!.name
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return errorResponse(res, 500, String(error?.message || 'TELEGRAM_LINK_CODE_FAILED'), 'Không tạo được mã liên kết Telegram.');
+    }
+  });
+
+  router.delete('/link', authenticateFirebase, async (req, res) => {
+    if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    try {
+      await unlinkTelegramUser(db, req.user!.uid);
+      return res.json({ success: true, data: { unlinked: true } });
+    } catch (error: any) {
+      return errorResponse(res, 500, String(error?.message || 'TELEGRAM_UNLINK_FAILED'), 'Không hủy được liên kết Telegram.');
+    }
+  });
 
   router.get('/status', authenticateFirebase, requireRole('ADMIN', 'MANAGER'), async (req, res) => {
     try {
@@ -235,11 +276,14 @@ export function createTelegramRouter(db: Firestore | null): Router {
       || isSafeBranchShortcut;
     if (!addressedToBot) return res.status(200).send('OK');
     try {
-      const answer = await answerTelegramQuery(db, text, senderId);
+      const principal = await resolveTelegramPrincipal(db, senderId, config.ownerUserIds).catch(() => null);
+      const answer = await answerTelegramQuery(db, text, senderId, principal);
       await db.collection('telegramQueryAudit').add({
         intent: answer.intent,
         senderFingerprint: senderFingerprint(senderId),
         chatFingerprint: senderFingerprint(chatId),
+        principalUid: principal?.uid || null,
+        principalRole: principal?.role || null,
         createdAt: FieldValue.serverTimestamp()
       });
       await sendTelegramMessage(answer.reply, {

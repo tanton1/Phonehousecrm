@@ -1,7 +1,8 @@
-import React from 'react';
-import { ChevronRight, LogOut, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Bot, ChevronRight, Copy, Link2, LogOut, Sparkles, Unlink } from 'lucide-react';
 import type { DeviceItem, Partner, SalesInvoice, UserAccount } from '../types';
 import { getAuthorizedNavigation } from '../app/permissionNavigation';
+import { requestTelegramLinkCode, requestTelegramLinkStatus, requestUnlinkTelegram, TelegramLinkStatus } from '../services/telegramApiClient';
 
 interface MoreHubViewProps {
   currentUser?: UserAccount | null;
@@ -40,6 +41,27 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
 }) => {
   const role = currentUser?.role || 'SALES';
   const groups = getAuthorizedNavigation(role);
+  const [telegramLink, setTelegramLink] = useState<TelegramLinkStatus | null>(null);
+  const [telegramCode, setTelegramCode] = useState<{ code: string; expiresAt: string } | null>(null);
+  const [telegramBusy, setTelegramBusy] = useState(false);
+  const [telegramError, setTelegramError] = useState('');
+
+  useEffect(() => {
+    if (!currentUser) return;
+    requestTelegramLinkStatus().then(setTelegramLink).catch(() => setTelegramLink({ linked: false }));
+  }, [currentUser?.id]);
+
+  const createTelegramCode = async () => {
+    setTelegramBusy(true);
+    setTelegramError('');
+    try {
+      setTelegramCode(await requestTelegramLinkCode());
+    } catch (error: any) {
+      setTelegramError(error?.message || 'Không tạo được mã liên kết Telegram.');
+    } finally {
+      setTelegramBusy(false);
+    }
+  };
 
   const navigate = (tabId: string) => {
     if (tabId === 'pos') {
@@ -107,6 +129,59 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
             </section>
           ))}
         </div>
+
+        <section className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/70 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-sky-600 p-2 text-white"><Bot className="h-5 w-5" /></div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-black text-zinc-900">Liên kết Telegram với CRM</h2>
+                  <p className="mt-0.5 text-xs text-zinc-600">Bot nhận đúng vai trò và chỉ trả dữ liệu thuộc chi nhánh được cấp.</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${telegramLink?.linked ? 'bg-emerald-100 text-emerald-700' : 'bg-zinc-200 text-zinc-600'}`}>
+                  {telegramLink?.linked ? 'Đã liên kết' : 'Chưa liên kết'}
+                </span>
+              </div>
+
+              {telegramCode && !telegramLink?.linked && (
+                <div className="mt-3 rounded-xl border border-sky-200 bg-white p-3">
+                  <p className="text-[11px] font-bold text-zinc-500">Gửi lệnh sau cho bot Telegram trong 10 phút:</p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 truncate rounded-lg bg-zinc-900 px-3 py-2 text-xs font-black text-white">/lienket {telegramCode.code}</code>
+                    <button type="button" onClick={() => void navigator.clipboard.writeText(`/lienket ${telegramCode.code}`)} className="rounded-lg border border-zinc-200 bg-white p-2 text-zinc-600 hover:text-sky-700" aria-label="Sao chép mã liên kết"><Copy className="h-4 w-4" /></button>
+                  </div>
+                  <p className="mt-2 text-[10px] text-zinc-500">Hết hạn: {new Date(telegramCode.expiresAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+              )}
+
+              {telegramError && <p className="mt-2 text-xs font-bold text-rose-600">{telegramError}</p>}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {!telegramLink?.linked ? (
+                  <button type="button" onClick={() => void createTelegramCode()} disabled={telegramBusy} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+                    <Link2 className="h-4 w-4" /> {telegramBusy ? 'Đang tạo…' : telegramCode ? 'Tạo mã mới' : 'Tạo mã liên kết'}
+                  </button>
+                ) : (
+                  <button type="button" onClick={async () => {
+                    if (!window.confirm('Hủy liên kết Telegram với tài khoản CRM này?')) return;
+                    setTelegramBusy(true);
+                    try {
+                      await requestUnlinkTelegram();
+                      setTelegramLink({ linked: false });
+                      setTelegramCode(null);
+                    } catch (error: any) {
+                      setTelegramError(error?.message || 'Không hủy được liên kết.');
+                    } finally {
+                      setTelegramBusy(false);
+                    }
+                  }} disabled={telegramBusy} className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-xs font-black text-rose-600 disabled:opacity-50">
+                    <Unlink className="h-4 w-4" /> Hủy liên kết
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
 
         <footer className="mt-4 flex items-center justify-between border-t border-zinc-200 py-5">
           <button

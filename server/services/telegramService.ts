@@ -6,11 +6,19 @@ import { deriveTechnicalBoardStage } from './technicalService';
 import { verifyGeofence } from './geofenceService';
 import { decryptChannelSecret, encryptChannelSecret } from './channelConnectionService';
 import {
+  consumeTelegramLinkCode,
+  resolveTelegramPrincipal,
+  TelegramPrincipal,
+  telegramPrincipalCanAccessBranch
+} from './telegramAuthorityService';
+import {
   processTelegramAiCopilot,
   toolGetRevenueReport,
   toolLookupImei,
   toolGetTechnicalProgress,
   toolGetRetailRepairQueue,
+  toolGetCrmPipeline,
+  toolGetCrmWorkQueue,
   toolLookupCustomer,
   toolGetCashflowSummary,
   toolGetAttendanceToday,
@@ -91,6 +99,7 @@ export interface TelegramOutboxRecord extends AttendanceTelegramAlertInput {
 type TelegramIntent =
   | { kind: 'HELP' }
   | { kind: 'MENU' }
+  | { kind: 'LINK'; code: string }
   | { kind: 'BRANCHES' }
   | { kind: 'BRANCH_CONFIRM'; branchToken: string }
   | {
@@ -115,7 +124,9 @@ type TelegramIntent =
       date?: string;
     }
   | { kind: 'CUSTOMER'; query: string }
-  | { kind: 'CASHBOOK'; period?: 'TODAY' | 'MONTH' }
+  | { kind: 'CRM_PIPELINE'; branchToken?: string; all: boolean; period: TelegramCommandScope['period']; date?: string }
+  | { kind: 'CRM_WORK_QUEUE'; branchToken?: string; all: boolean }
+  | { kind: 'CASHBOOK'; period?: 'TODAY' | 'YESTERDAY' | 'MONTH' | 'LAST_MONTH'; branchToken?: string; all?: boolean }
   | { kind: 'ATTENDANCE'; branchToken?: string; all: boolean; date?: string }
   | { kind: 'AI'; query: string }
   | { kind: 'UNKNOWN'; raw: string };
@@ -615,6 +626,9 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
   if (['/help', '/start', '/trogiup'].includes(command)) return { kind: 'HELP' };
   if (['/menu', '/chucnang', '/dashboard'].includes(command)) return { kind: 'MENU' };
   if (['/chinhanh', '/branches', '/branch'].includes(command)) return { kind: 'BRANCHES' };
+  if (['/lienket', '/link'].includes(command)) {
+    return { kind: 'LINK', code: String(tokens[1] || '').toUpperCase() };
+  }
 
   if (command === '/ai') {
     return { kind: 'AI', query: original.replace(/^\/ai(@\w+)?\s*/i, '').trim() };
@@ -660,13 +674,28 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
   }
 
   if (['/soquy', '/quy', '/taichinh'].includes(command)) {
-    const isMonth = /\bthang\b/.test(normalized);
-    return { kind: 'CASHBOOK', period: isMonth ? 'MONTH' : 'TODAY' };
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    const period = ['TODAY', 'YESTERDAY', 'MONTH', 'LAST_MONTH'].includes(scope.period) ? scope.period as 'TODAY' | 'YESTERDAY' | 'MONTH' | 'LAST_MONTH' : 'TODAY';
+    return {
+      kind: 'CASHBOOK', period,
+      ...(scope.branchToken ? { branchToken: scope.branchToken } : {}),
+      ...(scope.all ? { all: true } : {})
+    };
   }
 
   if (['/nhansu', '/chamcong', '/diemdanh'].includes(command)) {
     const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
     return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
+  }
+
+  if (['/crm', '/pipeline'].includes(command)) {
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    return { kind: 'CRM_PIPELINE', branchToken: scope.branchToken, all: scope.all, period: scope.period, date: scope.date };
+  }
+
+  if (['/vieccrm', '/followup', '/chamsoc'].includes(command)) {
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    return { kind: 'CRM_WORK_QUEUE', branchToken: scope.branchToken, all: scope.all };
   }
 
   // Deterministic natural-language commands used in Telegram groups. These must
@@ -711,6 +740,16 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
     const scope = parseTelegramCommandScope(normalized
       .replace(/\b(nhan su|cham cong|diem danh|di tre)\b/g, ' '));
     return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
+  }
+
+  if (/\b(crm pipeline|pipeline crm|bao cao crm|ty le chuyen doi lead)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized.replace(/\b(crm pipeline|pipeline crm|bao cao crm|ty le chuyen doi lead)\b/g, ' '));
+    return { kind: 'CRM_PIPELINE', branchToken: scope.branchToken, all: scope.all, period: scope.period, date: scope.date };
+  }
+
+  if (/\b(viec crm|lead qua han|can cham soc|viec can lam|follow up)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized.replace(/\b(viec crm|lead qua han|can cham soc|viec can lam|follow up)\b/g, ' '));
+    return { kind: 'CRM_WORK_QUEUE', branchToken: scope.branchToken, all: scope.all };
   }
 
   if (/^(danh sach |cac |ma )?chi nhanh$/.test(normalized)) return { kind: 'BRANCHES' };
@@ -798,20 +837,24 @@ export async function handleTelegramCallbackQuery(
   const senderId = String(callbackQuery.from?.id || '');
   const data = String(callbackQuery.data || '');
   const chatId = String(callbackQuery.message?.chat?.id || conf.chatId);
+  const principal = await resolveTelegramPrincipal(db, senderId, conf.ownerUserIds).catch(() => null);
 
   await answerTelegramCallbackQuery(callbackQuery.id, 'Đang tải dữ liệu...', conf);
 
   let replyText = '';
   let replyMarkup: Record<string, unknown> | undefined;
 
-  if (data === 'menu:main') {
+  const publicCallback = ['menu:main', 'menu:help', 'menu:branches'].includes(data) || data.startsWith('branch:');
+  if (!principal && !publicCallback) {
+    replyText = '<b>🔐 Cần liên kết Telegram với PhoneHouseCRM.</b>\nMở mục <b>Xem thêm → Liên kết Telegram</b> trên CRM rồi gửi <code>/lienket MÃ</code>.';
+  } else if (data === 'menu:main') {
     replyText = telegramMenuText();
     replyMarkup = renderMainMenuKeyboard();
   } else if (data === 'menu:revenue') {
     replyText = '📊 <b>CHỌN MỐC THỜI GIAN TRA CỨU DOANH SỐ:</b>';
     replyMarkup = renderRevenueMenuKeyboard();
   } else if (data === 'revenue:today:all') {
-    replyText = await revenueReply(db, { kind: 'REVENUE', period: 'TODAY', all: true }, senderId);
+    replyText = await revenueReply(db, { kind: 'REVENUE', period: 'TODAY', all: true }, senderId, principal);
     replyMarkup = renderRevenueMenuKeyboard();
   } else if (['revenue:today', 'revenue:week', 'revenue:month', 'quick:revenue:today', 'quick:revenue:week'].includes(data)) {
     const preference = await loadTelegramUserBranchPreference(db, senderId);
@@ -821,7 +864,7 @@ export async function handleTelegramCallbackQuery(
       replyMarkup = directory.replyMarkup;
     } else {
       const period = data.endsWith(':week') ? 'WEEK' : data.endsWith(':month') ? 'MONTH' : 'TODAY';
-      replyText = await revenueReply(db, { kind: 'REVENUE', period, branchToken: preference.branchId, all: false }, senderId);
+      replyText = await revenueReply(db, { kind: 'REVENUE', period, branchToken: preference.branchId, all: false }, senderId, principal);
       replyMarkup = data.startsWith('quick:') ? renderPreferredBranchQuickActions() : renderRevenueMenuKeyboard();
     }
   } else if (['menu:inventory', 'quick:inventory', 'quick:inventory:imeis'].includes(data)) {
@@ -831,7 +874,7 @@ export async function handleTelegramCallbackQuery(
       replyText = directory.text;
       replyMarkup = directory.replyMarkup;
     } else {
-      replyText = await toolCheckInventory(db, { branchQuery: preference.branchId, all: false, includeImeis: data.endsWith(':imeis') }, senderId);
+      replyText = await toolCheckInventory(db, { branchQuery: preference.branchId, all: false, includeImeis: data.endsWith(':imeis') }, senderId, principal);
       replyMarkup = renderPreferredBranchQuickActions();
     }
   } else if (['menu:technical', 'quick:technical'].includes(data)) {
@@ -841,7 +884,7 @@ export async function handleTelegramCallbackQuery(
       replyText = directory.text;
       replyMarkup = directory.replyMarkup;
     } else {
-      replyText = await technicalReply(db, { kind: 'TECHNICAL', branchToken: preference.branchId, all: false }, senderId);
+      replyText = await technicalReply(db, { kind: 'TECHNICAL', branchToken: preference.branchId, all: false }, senderId, principal);
       replyMarkup = renderPreferredBranchQuickActions();
     }
   } else if (['menu:attendance', 'quick:attendance'].includes(data)) {
@@ -851,7 +894,7 @@ export async function handleTelegramCallbackQuery(
       replyText = directory.text;
       replyMarkup = directory.replyMarkup;
     } else {
-      replyText = await toolGetAttendanceToday(db, { branchQuery: preference.branchId, all: false });
+      replyText = await toolGetAttendanceToday(db, { branchQuery: preference.branchId, all: false }, principal);
       replyMarkup = renderPreferredBranchQuickActions();
     }
   } else if (['quick:warranty', 'quick:service-repairs'].includes(data)) {
@@ -865,11 +908,11 @@ export async function handleTelegramCallbackQuery(
         branchQuery: preference.branchId,
         repairType: data === 'quick:warranty' ? 'WARRANTY' : 'CUSTOMER_SERVICE',
         includeImeis: true
-      }, senderId);
+      }, senderId, principal);
       replyMarkup = renderPreferredBranchQuickActions();
     }
   } else if (data === 'menu:cashbook') {
-    replyText = await toolGetCashflowSummary(db, { period: 'TODAY' }, senderId);
+    replyText = await toolGetCashflowSummary(db, { period: 'TODAY' }, senderId, principal);
     replyMarkup = {
       inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
     };
@@ -879,7 +922,7 @@ export async function handleTelegramCallbackQuery(
       inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
     };
   } else if (data.startsWith('branch:')) {
-    replyText = await branchConfirmationReply(db, data.slice('branch:'.length), senderId);
+    replyText = await branchConfirmationReply(db, data.slice('branch:'.length), senderId, principal);
     replyMarkup = renderPreferredBranchQuickActions();
   } else if (data === 'menu:branches') {
     const directory = await branchesReply(db);
@@ -946,10 +989,13 @@ async function branchesReply(db: Firestore, intro?: string): Promise<{ text: str
   return { text, replyMarkup: { inline_keyboard: rows } };
 }
 
-async function branchConfirmationReply(db: Firestore, branchToken: string, senderId: string): Promise<string> {
+async function branchConfirmationReply(db: Firestore, branchToken: string, senderId: string, principal?: TelegramPrincipal | null): Promise<string> {
   const branches = await fetchActiveBranches(db);
   const branch = findBranchMatch(branches, branchToken);
   if (!branch) return (await branchesReply(db)).text;
+  if (principal && !telegramPrincipalCanAccessBranch(principal, branch.id)) {
+    return '⛔ Chi nhánh này nằm ngoài phạm vi được cấp cho tài khoản CRM của bạn.';
+  }
   await saveTelegramUserBranchPreference(db, senderId, branch);
   return [
     `<b>✅ ĐÃ CHỌN CHI NHÁNH MẶC ĐỊNH</b>`,
@@ -965,7 +1011,10 @@ async function applyPreferredBranchToIntent(db: Firestore, intent: TelegramInten
     case 'REVENUE':
     case 'TECHNICAL':
     case 'INVENTORY':
-    case 'ATTENDANCE': {
+    case 'ATTENDANCE':
+    case 'CASHBOOK':
+    case 'CRM_PIPELINE':
+    case 'CRM_WORK_QUEUE': {
       if (intent.all) return intent;
       if (intent.branchToken) {
         try {
@@ -1000,7 +1049,7 @@ async function applyPreferredBranchToIntent(db: Firestore, intent: TelegramInten
   }
 }
 
-async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'REVENUE' }>, senderId: string): Promise<string> {
+async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'REVENUE' }>, senderId: string, principal?: TelegramPrincipal | null): Promise<string> {
   return toolGetRevenueReport(db, {
     period: intent.period,
     date: intent.date,
@@ -1008,39 +1057,39 @@ async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kin
     endDate: intent.endDate,
     branchQuery: intent.branchToken,
     all: intent.all
-  }, senderId);
+  }, senderId, principal);
 }
 
-async function imeiReply(db: Firestore, imei: string): Promise<string> {
-  return toolLookupImei(db, { imei });
+async function imeiReply(db: Firestore, imei: string, principal?: TelegramPrincipal | null): Promise<string> {
+  return toolLookupImei(db, { imei }, principal);
 }
 
-async function technicalReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'TECHNICAL' }>, senderId: string): Promise<string> {
+async function technicalReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'TECHNICAL' }>, senderId: string, principal?: TelegramPrincipal | null): Promise<string> {
   return toolGetTechnicalProgress(db, {
     branchQuery: intent.branchToken,
     all: intent.all
-  }, senderId);
+  }, senderId, principal);
 }
 
-async function inventoryReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'INVENTORY' }>, senderId: string): Promise<string> {
+async function inventoryReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'INVENTORY' }>, senderId: string, principal?: TelegramPrincipal | null): Promise<string> {
   return toolCheckInventory(db, {
     modelQuery: intent.model,
     branchQuery: intent.branchToken,
     all: intent.all,
     includeImeis: intent.includeImeis
-  }, senderId);
+  }, senderId, principal);
 }
 
-async function attendanceReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'ATTENDANCE' }>): Promise<string> {
+async function attendanceReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'ATTENDANCE' }>, principal?: TelegramPrincipal | null): Promise<string> {
   return toolGetAttendanceToday(db, {
     branchQuery: intent.branchToken,
     all: intent.all,
     date: intent.date
-  });
+  }, principal);
 }
 
-async function customerReply(db: Firestore, query: string): Promise<string> {
-  return toolLookupCustomer(db, { phoneOrName: query });
+async function customerReply(db: Firestore, query: string, principal?: TelegramPrincipal | null): Promise<string> {
+  return toolLookupCustomer(db, { phoneOrName: query }, principal);
 }
 
 async function cashbookReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'CASHBOOK' }>, senderId: string): Promise<string> {
@@ -1061,6 +1110,7 @@ export function telegramHelpText(): string {
     '<b>1. Bảng điều khiển nhanh:</b>',
     '• <code>/menu</code>: Bật menu tương tác nút bấm',
     '• <code>/chinhanh</code>: Xem mã và tên chi nhánh bot chấp nhận',
+    '• <code>/lienket MÃ</code>: Liên kết Telegram với tài khoản PhoneHouseCRM',
     '',
     '<b>2. Tra cứu nghiệp vụ:</b>',
     '• <code>/doanhso hôm nay PH109</code> · Doanh số hôm nay',
@@ -1074,6 +1124,8 @@ export function telegramHelpText(): string {
     '• <code>/baohanh PH109</code> · Máy bảo hành đang xử lý',
     '• <code>/suale PH109</code> · Máy sửa lẻ đang xử lý',
     '• <code>/khachhang 0988xxxxxx</code> · Tra cứu khách/công nợ/Lead',
+    '• <code>/crm PH109 tháng</code> · Pipeline và tỷ lệ chuyển đổi CRM',
+    '• <code>/vieccrm PH109</code> · Lead/task cần chăm sóc và quá hạn',
     '• <code>/nhansu PH109</code> · Tình hình điểm danh & đi trễ',
     '• <code>/soquy homnay</code> · Sổ quỹ & tiền mặt (Owner)',
     '',
@@ -1086,9 +1138,50 @@ export function telegramHelpText(): string {
 export async function answerTelegramQuery(
   db: Firestore,
   text: string,
-  senderId: string
+  senderId: string,
+  suppliedPrincipal?: TelegramPrincipal | null
 ): Promise<{ intent: string; reply: string; replyMarkup?: Record<string, unknown> }> {
   let intent = parseTelegramIntent(text);
+  if (intent.kind === 'LINK') {
+    try {
+      const principal = await consumeTelegramLinkCode(db, senderId, intent.code);
+      return {
+        intent: intent.kind,
+        reply: [
+          '<b>✅ LIÊN KẾT TELEGRAM THÀNH CÔNG</b>',
+          `• Tài khoản: <b>${escapeTelegramHtml(principal.name)}</b>`,
+          `• Vai trò: <b>${escapeTelegramHtml(principal.role)}</b>`,
+          `• Chi nhánh: <b>${escapeTelegramHtml(principal.branchId || 'Theo phạm vi được cấp')}</b>`,
+          '<i>Từ bây giờ bot sẽ tự giới hạn dữ liệu đúng quyền của tài khoản CRM này.</i>'
+        ].join('\n')
+      };
+    } catch (error: any) {
+      const code = String(error?.message || 'TELEGRAM_LINK_FAILED');
+      const message = code.includes('EXPIRED')
+        ? 'Mã liên kết đã hết hạn. Hãy tạo mã mới trên PhoneHouseCRM.'
+        : code.includes('USER_INACTIVE')
+          ? 'Tài khoản CRM đã ngừng hoạt động.'
+          : 'Mã liên kết không hợp lệ hoặc đã được sử dụng.';
+      return { intent: intent.kind, reply: `⚠️ ${message}` };
+    }
+  }
+
+  const config = getTelegramConfig();
+  const enforcePrincipal = suppliedPrincipal !== undefined;
+  const principal = suppliedPrincipal === undefined
+    ? await resolveTelegramPrincipal(db, senderId, config.ownerUserIds).catch(() => null)
+    : suppliedPrincipal;
+  if (enforcePrincipal && !principal && !['HELP', 'MENU', 'BRANCHES', 'BRANCH_CONFIRM'].includes(intent.kind)) {
+    return {
+      intent: 'LINK_REQUIRED',
+      reply: [
+        '<b>🔐 CẦN LIÊN KẾT TÀI KHOẢN</b>',
+        'Telegram này chưa được gắn với nhân viên PhoneHouseCRM.',
+        'Mở mục <b>Xem thêm → Liên kết Telegram</b> trên CRM để lấy mã, sau đó gửi:',
+        '<code>/lienket MÃ_CỦA_BẠN</code>'
+      ].join('\n')
+    };
+  }
   intent = await applyPreferredBranchToIntent(db, intent, senderId);
 
   if (intent.kind === 'HELP') {
@@ -1104,21 +1197,21 @@ export async function answerTelegramQuery(
   if (intent.kind === 'BRANCH_CONFIRM') {
     return {
       intent: intent.kind,
-      reply: await branchConfirmationReply(db, intent.branchToken, senderId),
+      reply: await branchConfirmationReply(db, intent.branchToken, senderId, principal),
       replyMarkup: renderPreferredBranchQuickActions()
     };
   }
   if (intent.kind === 'REVENUE') {
-    return { intent: intent.kind, reply: await revenueReply(db, intent, senderId), replyMarkup: renderRevenueMenuKeyboard() };
+    return { intent: intent.kind, reply: await revenueReply(db, intent, senderId, principal), replyMarkup: renderRevenueMenuKeyboard() };
   }
   if (intent.kind === 'IMEI') {
-    return { intent: intent.kind, reply: await imeiReply(db, intent.imei) };
+    return { intent: intent.kind, reply: await imeiReply(db, intent.imei, principal) };
   }
   if (intent.kind === 'TECHNICAL') {
-    return { intent: intent.kind, reply: await technicalReply(db, intent, senderId) };
+    return { intent: intent.kind, reply: await technicalReply(db, intent, senderId, principal) };
   }
   if (intent.kind === 'INVENTORY') {
-    return { intent: intent.kind, reply: await inventoryReply(db, intent, senderId) };
+    return { intent: intent.kind, reply: await inventoryReply(db, intent, senderId, principal) };
   }
   if (intent.kind === 'RETAIL_REPAIRS') {
     return {
@@ -1130,20 +1223,32 @@ export async function answerTelegramQuery(
         includeImeis: intent.includeImeis,
         period: intent.period,
         date: intent.date
-      }, senderId)
+      }, senderId, principal)
     };
   }
   if (intent.kind === 'CUSTOMER') {
-    return { intent: intent.kind, reply: await toolLookupCustomer(db, { phoneOrName: intent.query }) };
+    return { intent: intent.kind, reply: await toolLookupCustomer(db, { phoneOrName: intent.query }, principal) };
   }
   if (intent.kind === 'CASHBOOK') {
-    return { intent: intent.kind, reply: await toolGetCashflowSummary(db, { period: intent.period }, senderId) };
+    return { intent: intent.kind, reply: await toolGetCashflowSummary(db, { period: intent.period, branchQuery: intent.branchToken, all: intent.all }, senderId, principal) };
   }
   if (intent.kind === 'ATTENDANCE') {
-    return { intent: intent.kind, reply: await attendanceReply(db, intent) };
+    return { intent: intent.kind, reply: await attendanceReply(db, intent, principal) };
+  }
+  if (intent.kind === 'CRM_PIPELINE') {
+    return {
+      intent: intent.kind,
+      reply: await toolGetCrmPipeline(db, { branchQuery: intent.branchToken, all: intent.all, period: intent.period, date: intent.date }, principal)
+    };
+  }
+  if (intent.kind === 'CRM_WORK_QUEUE') {
+    return {
+      intent: intent.kind,
+      reply: await toolGetCrmWorkQueue(db, { branchQuery: intent.branchToken, all: intent.all }, principal)
+    };
   }
   if (intent.kind === 'AI') {
-    const aiReply = await processTelegramAiCopilot(db, intent.query, senderId);
+    const aiReply = await processTelegramAiCopilot(db, intent.query, senderId, principal);
     return { intent: 'AI', reply: aiReply };
   }
 
