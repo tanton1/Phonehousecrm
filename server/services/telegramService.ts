@@ -5,6 +5,13 @@ import { getDeviceLifecycleTimeline } from './deviceLifecycleService';
 import { deriveTechnicalBoardStage } from './technicalService';
 import { verifyGeofence } from './geofenceService';
 import { decryptChannelSecret, encryptChannelSecret } from './channelConnectionService';
+import {
+  processTelegramAiCopilot,
+  toolLookupCustomer,
+  toolGetCashflowSummary,
+  toolGetAttendanceToday,
+  toolCheckInventory
+} from './telegramAiAssistant';
 
 type TelegramAction = 'CHECK_IN' | 'CHECK_OUT' | 'MISSING_CHECK_IN' | 'SHIFT_LOCATION';
 
@@ -67,11 +74,16 @@ export interface TelegramOutboxRecord extends AttendanceTelegramAlertInput {
 
 type TelegramIntent =
   | { kind: 'HELP' }
+  | { kind: 'MENU' }
   | { kind: 'REVENUE'; period: 'TODAY' | 'WEEK' | 'MONTH'; branchToken?: string; all: boolean }
   | { kind: 'IMEI'; imei: string }
   | { kind: 'TECHNICAL'; branchToken?: string; all: boolean }
   | { kind: 'INVENTORY'; branchToken?: string; all: boolean; model?: string }
-  | { kind: 'UNKNOWN' };
+  | { kind: 'CUSTOMER'; query: string }
+  | { kind: 'CASHBOOK'; period?: 'TODAY' | 'MONTH' }
+  | { kind: 'ATTENDANCE'; branchToken?: string; all: boolean }
+  | { kind: 'AI'; query: string }
+  | { kind: 'UNKNOWN'; raw: string };
 
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH', 'CANCELLED']);
 const TELEGRAM_CONFIGURATION_COLLECTION = 'telegramConfigurations';
@@ -295,7 +307,15 @@ async function telegramRequest<T = any>(method: string, payload?: Record<string,
   return result.result as T;
 }
 
-export async function sendTelegramMessage(text: string, options: { chatId?: string; replyToMessageId?: string | number; config?: TelegramConfig } = {}): Promise<any> {
+export async function sendTelegramMessage(
+  text: string,
+  options: {
+    chatId?: string;
+    replyToMessageId?: string | number;
+    replyMarkup?: Record<string, unknown>;
+    config?: TelegramConfig;
+  } = {}
+): Promise<any> {
   const config = options.config || getTelegramConfig();
   if (!telegramIsConfigured(config)) throw new Error('TELEGRAM_NOT_CONFIGURED');
   return telegramRequest('sendMessage', {
@@ -303,8 +323,22 @@ export async function sendTelegramMessage(text: string, options: { chatId?: stri
     text: text.slice(0, 4000),
     parse_mode: 'HTML',
     disable_web_page_preview: true,
-    ...(options.replyToMessageId ? { reply_to_message_id: options.replyToMessageId } : {})
+    ...(options.replyToMessageId ? { reply_to_message_id: options.replyToMessageId } : {}),
+    ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {})
   }, config);
+}
+
+export async function answerTelegramCallbackQuery(
+  callbackQueryId: string,
+  text?: string,
+  config?: TelegramConfig
+): Promise<any> {
+  const conf = config || getTelegramConfig();
+  if (!telegramIsConfigured(conf)) return;
+  return telegramRequest('answerCallbackQuery', {
+    callback_query_id: callbackQueryId,
+    ...(text ? { text: text.slice(0, 180) } : {})
+  }, conf).catch(() => null);
 }
 
 export async function getTelegramRuntimeStatus(db: Firestore | null = null): Promise<Record<string, unknown>> {
@@ -409,18 +443,151 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
   const tokens = normalized.split(/\s+/).filter(Boolean);
   const rawCommand = tokens[0] || '';
   const command = rawCommand.split('@')[0];
+
   if (['/help', '/start', '/trogiup'].includes(command)) return { kind: 'HELP' };
-  const imeiMatch = normalized.match(/(?:imei|may|sua chua)\s*[:#-]?\s*(\d{5,15})\b/) || (command === '/imei' || command === '/suachua' ? normalized.match(/\b(\d{5,15})\b/) : null);
+  if (['/menu', '/chucnang', '/dashboard'].includes(command)) return { kind: 'MENU' };
+
+  if (command === '/ai') {
+    return { kind: 'AI', query: original.replace(/^\/ai(@\w+)?\s*/i, '').trim() };
+  }
+
+  const imeiMatch = normalized.match(/(?:imei|may|sua chua)\s*[:#-]?\s*(\d{5,15})\b/)
+    || (command === '/imei' || command === '/suachua' ? normalized.match(/\b(\d{5,15})\b/) : null);
   if (imeiMatch) return { kind: 'IMEI', imei: imeiMatch[1] };
+
   const all = /\b(all|toan he thong|tong he thong)\b/.test(normalized);
   const branchToken = tokens.slice(command.startsWith('/') ? 1 : 0).filter(token => !['homnay', 'hom', 'nay', 'tuan', 'thang', 'all'].includes(token)).join(' ') || undefined;
+
   if (['/report', '/baocao', '/doanhso'].includes(command) || /\b(doanh so|bao cao ban hang|ban duoc bao nhieu)\b/.test(normalized)) {
     const period = /\bthang\b/.test(normalized) ? 'MONTH' : /\btuan\b/.test(normalized) ? 'WEEK' : 'TODAY';
     return { kind: 'REVENUE', period, branchToken, all };
   }
-  if (['/kythuat'].includes(command) || /\b(ky thuat|cho kcs|cho linh kien|tien do sua)\b/.test(normalized)) return { kind: 'TECHNICAL', branchToken, all };
-  if (['/tonkho'].includes(command) || /\bton kho\b/.test(normalized)) return { kind: 'INVENTORY', branchToken, all };
-  return { kind: 'UNKNOWN' };
+
+  if (['/kythuat'].includes(command) || /\b(ky thuat|cho kcs|cho linh kien|tien do sua)\b/.test(normalized)) {
+    return { kind: 'TECHNICAL', branchToken, all };
+  }
+
+  if (['/tonkho'].includes(command) || /\bton kho\b/.test(normalized)) {
+    return { kind: 'INVENTORY', branchToken, all };
+  }
+
+  if (['/khachhang', '/lead', '/khach'].includes(command) || /\b(khach hang|tim khach|thong tin khach)\b/.test(normalized)) {
+    const query = original.replace(/^\/(?:khachhang|lead|khach)(?:@\w+)?\s*/i, '').replace(/^(?:khach hang|tim khach)\s*/i, '').trim();
+    return { kind: 'CUSTOMER', query: query || tokens.slice(1).join(' ') };
+  }
+
+  if (['/soquy', '/quy', '/taichinh'].includes(command) || /\b(so quy|tien mat|ngan hang|dong tien)\b/.test(normalized)) {
+    const isMonth = /\bthang\b/.test(normalized);
+    return { kind: 'CASHBOOK', period: isMonth ? 'MONTH' : 'TODAY' };
+  }
+
+  if (['/nhansu', '/chamcong', '/diemdanh'].includes(command) || /\b(cham cong|diem danh|nhan su|di tre|quan so)\b/.test(normalized)) {
+    return { kind: 'ATTENDANCE', branchToken, all };
+  }
+
+  // Fallback to Gemini AI Copilot for natural language understanding
+  return { kind: 'AI', query: original };
+}
+
+export function renderMainMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '💰 Doanh Số', callback_data: 'menu:revenue' },
+        { text: '📦 Tồn Kho', callback_data: 'menu:inventory' }
+      ],
+      [
+        { text: '🔧 Kỹ Thuật & KCS', callback_data: 'menu:technical' },
+        { text: '⏰ Chấm Công', callback_data: 'menu:attendance' }
+      ],
+      [
+        { text: '💵 Sổ Quỹ (Owner)', callback_data: 'menu:cashbook' },
+        { text: '❓ Trợ Giúp', callback_data: 'menu:help' }
+      ]
+    ]
+  };
+}
+
+export function renderRevenueMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '⚡ Hôm Nay', callback_data: 'revenue:today' },
+        { text: '📅 Tuần Này', callback_data: 'revenue:week' },
+        { text: '📊 Tháng Này', callback_data: 'revenue:month' }
+      ],
+      [
+        { text: '🔙 Menu Chính', callback_data: 'menu:main' }
+      ]
+    ]
+  };
+}
+
+export async function handleTelegramCallbackQuery(
+  db: Firestore,
+  callbackQuery: { id: string; from: { id: string | number }; data?: string; message?: { chat: { id: string | number }; message_id: number } },
+  config?: TelegramConfig
+): Promise<void> {
+  const conf = config || getTelegramConfig();
+  const senderId = String(callbackQuery.from?.id || '');
+  const data = String(callbackQuery.data || '');
+  const chatId = String(callbackQuery.message?.chat?.id || conf.chatId);
+
+  await answerTelegramCallbackQuery(callbackQuery.id, 'Đang tải dữ liệu...', conf);
+
+  let replyText = '';
+  let replyMarkup: Record<string, unknown> | undefined;
+
+  if (data === 'menu:main') {
+    replyText = telegramMenuText();
+    replyMarkup = renderMainMenuKeyboard();
+  } else if (data === 'menu:revenue') {
+    replyText = '📊 <b>CHỌN MỐC THỜI GIAN TRA CỨU DOANH SỐ:</b>';
+    replyMarkup = renderRevenueMenuKeyboard();
+  } else if (data === 'revenue:today') {
+    replyText = await revenueReply(db, { kind: 'REVENUE', period: 'TODAY', all: true }, senderId);
+    replyMarkup = renderRevenueMenuKeyboard();
+  } else if (data === 'revenue:week') {
+    replyText = await revenueReply(db, { kind: 'REVENUE', period: 'WEEK', all: true }, senderId);
+    replyMarkup = renderRevenueMenuKeyboard();
+  } else if (data === 'revenue:month') {
+    replyText = await revenueReply(db, { kind: 'REVENUE', period: 'MONTH', all: true }, senderId);
+    replyMarkup = renderRevenueMenuKeyboard();
+  } else if (data === 'menu:inventory') {
+    replyText = await toolCheckInventory(db, { all: true }, senderId);
+    replyMarkup = {
+      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
+    };
+  } else if (data === 'menu:technical') {
+    replyText = await technicalReply(db, { kind: 'TECHNICAL', all: true }, senderId);
+    replyMarkup = {
+      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
+    };
+  } else if (data === 'menu:attendance') {
+    replyText = await toolGetAttendanceToday(db, { all: true });
+    replyMarkup = {
+      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
+    };
+  } else if (data === 'menu:cashbook') {
+    replyText = await toolGetCashflowSummary(db, { period: 'TODAY' }, senderId);
+    replyMarkup = {
+      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
+    };
+  } else if (data === 'menu:help') {
+    replyText = telegramHelpText();
+    replyMarkup = {
+      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
+    };
+  } else {
+    replyText = telegramMenuText();
+    replyMarkup = renderMainMenuKeyboard();
+  }
+
+  await sendTelegramMessage(replyText, {
+    chatId,
+    replyMarkup,
+    config: conf
+  });
 }
 
 async function activeBranches(db: Firestore): Promise<Array<Record<string, any>>> {
@@ -554,28 +721,78 @@ async function inventoryReply(db: Firestore, intent: Extract<TelegramIntent, { k
   return ['<b>📦 TỒN KHO MÁY SẴN BÁN</b>', `🏪 ${escapeTelegramHtml(intent.all ? 'Toàn hệ thống' : branch!.name || branch!.id)}`, `• Số máy: <b>${devices.length}</b>`, snapshot.size >= 1000 ? '<i>⚠️ Kết quả nhanh đã chạm giới hạn; xem Ma trận tồn kho để có số đầy đủ.</i>' : ''].filter(Boolean).join('\n');
 }
 
-export function telegramHelpText(): string {
+export function telegramMenuText(): string {
   return [
-    '<b>🤖 PHONEHOUSE BOT</b>',
-    '<code>/doanhso homnay PH109</code>',
-    '<code>/doanhso tuan PH109</code>',
-    '<code>/doanhso thang all</code> · chỉ chủ hệ thống',
-    '<code>/imei 55555</code>',
-    '<code>/kythuat PH109</code>',
-    '<code>/tonkho PH109</code>',
-    'Có thể hỏi: <i>“@Bot IMEI 12345 đang ở đâu?”</i>',
-    '<i>Bot không trả giá vốn, quỹ, lương, mật mã hoặc dữ liệu khách hàng trong group.</i>'
+    '<b>🤖 BẢNG ĐIỀU KHIỂN PHONEHOUSE AI</b>',
+    'Chào mừng bạn đến với Trợ Lý Toàn Năng.',
+    'Vui lòng chọn chức năng nhanh bên dưới hoặc hỏi trực tiếp bằng tiếng Việt:'
   ].join('\n');
 }
 
-export async function answerTelegramQuery(db: Firestore, text: string, senderId: string): Promise<{ intent: string; reply: string }> {
+export function telegramHelpText(): string {
+  return [
+    '<b>🤖 PHONEHOUSE AI COPILOT & BOT TOÀN NĂNG</b>',
+    '<b>1. Bảng điều khiển nhanh:</b>',
+    '• <code>/menu</code>: Bật menu tương tác nút bấm',
+    '',
+    '<b>2. Tra cứu nghiệp vụ:</b>',
+    '• <code>/doanhso homnay PH109</code> · Doanh số hôm nay',
+    '• <code>/doanhso thang all</code> · Doanh số toàn chuỗi (Owner)',
+    '• <code>/imei 355555...</code> · Tra cứu vòng đời 15 số IMEI',
+    '• <code>/tonkho PH109</code> · Tồn kho khả dụng',
+    '• <code>/kythuat PH109</code> · Tiến độ sửa chữa & KCS',
+    '• <code>/khachhang 0988xxxxxx</code> · Tra cứu khách/công nợ/Lead',
+    '• <code>/nhansu PH109</code> · Tình hình điểm danh & đi trễ',
+    '• <code>/soquy homnay</code> · Sổ quỹ & tiền mặt (Owner)',
+    '',
+    '<b>3. Trợ lý AI Thông Minh:</b>',
+    '• Hỏi tự nhiên: <i>“Hôm nay chi nhánh Cầu Giấy bán được mấy máy?”</i>',
+    '• Hoặc dùng lệnh: <code>/ai tư vấn cách tăng doanh thu phụ kiện</code>'
+  ].join('\n');
+}
+
+export async function answerTelegramQuery(
+  db: Firestore,
+  text: string,
+  senderId: string
+): Promise<{ intent: string; reply: string; replyMarkup?: Record<string, unknown> }> {
   const intent = parseTelegramIntent(text);
-  if (intent.kind === 'HELP') return { intent: intent.kind, reply: telegramHelpText() };
-  if (intent.kind === 'REVENUE') return { intent: intent.kind, reply: await revenueReply(db, intent, senderId) };
-  if (intent.kind === 'IMEI') return { intent: intent.kind, reply: await imeiReply(db, intent.imei) };
-  if (intent.kind === 'TECHNICAL') return { intent: intent.kind, reply: await technicalReply(db, intent, senderId) };
-  if (intent.kind === 'INVENTORY') return { intent: intent.kind, reply: await inventoryReply(db, intent, senderId) };
-  return { intent: 'UNKNOWN', reply: telegramHelpText() };
+
+  if (intent.kind === 'HELP') {
+    return { intent: intent.kind, reply: telegramHelpText(), replyMarkup: renderMainMenuKeyboard() };
+  }
+  if (intent.kind === 'MENU') {
+    return { intent: intent.kind, reply: telegramMenuText(), replyMarkup: renderMainMenuKeyboard() };
+  }
+  if (intent.kind === 'REVENUE') {
+    return { intent: intent.kind, reply: await revenueReply(db, intent, senderId), replyMarkup: renderRevenueMenuKeyboard() };
+  }
+  if (intent.kind === 'IMEI') {
+    return { intent: intent.kind, reply: await imeiReply(db, intent.imei) };
+  }
+  if (intent.kind === 'TECHNICAL') {
+    return { intent: intent.kind, reply: await technicalReply(db, intent, senderId) };
+  }
+  if (intent.kind === 'INVENTORY') {
+    return { intent: intent.kind, reply: await inventoryReply(db, intent, senderId) };
+  }
+  if (intent.kind === 'CUSTOMER') {
+    return { intent: intent.kind, reply: await toolLookupCustomer(db, { phoneOrName: intent.query }) };
+  }
+  if (intent.kind === 'CASHBOOK') {
+    return { intent: intent.kind, reply: await toolGetCashflowSummary(db, { period: intent.period }, senderId) };
+  }
+  if (intent.kind === 'ATTENDANCE') {
+    return { intent: intent.kind, reply: await toolGetAttendanceToday(db, { branchQuery: intent.branchToken, all: intent.all }) };
+  }
+  if (intent.kind === 'AI') {
+    const aiReply = await processTelegramAiCopilot(db, intent.query, senderId);
+    return { intent: 'AI', reply: aiReply };
+  }
+
+  // Fallback to Gemini AI Copilot
+  const aiAnswer = await processTelegramAiCopilot(db, text, senderId);
+  return { intent: 'AI', reply: aiAnswer };
 }
 
 export async function scanMissingAttendanceAlerts(db: Firestore): Promise<{ scanned: number; created: number; eventIds: string[] }> {

@@ -9,6 +9,7 @@ import {
   dispatchPendingTelegramOutbox,
   getTelegramAdminConfiguration,
   getTelegramRuntimeStatus,
+  handleTelegramCallbackQuery,
   loadTelegramConfig,
   registerTelegramWebhook,
   saveTelegramConfiguration,
@@ -128,6 +129,28 @@ export function createTelegramRouter(db: Firestore | null): Router {
     const suppliedSecret = String(req.headers['x-telegram-bot-api-secret-token'] || '');
     if (!constantTimeEqual(config.webhookSecret, suppliedSecret)) return errorResponse(res, 401, 'TELEGRAM_WEBHOOK_UNAUTHORIZED', 'Webhook Telegram không hợp lệ.');
     const update = req.body || {};
+
+    // 1. Handle Inline Keyboard Callback Queries (Button Clicks)
+    if (update.callback_query) {
+      const cb = update.callback_query;
+      const cbChatId = String(cb.message?.chat?.id || '');
+      if (cbChatId !== config.chatId) return res.status(200).send('OK');
+
+      try {
+        await handleTelegramCallbackQuery(db, cb, config);
+        await db.collection('telegramQueryAudit').add({
+          intent: `CALLBACK:${String(cb.data || '')}`,
+          senderFingerprint: senderFingerprint(String(cb.from?.id || '')),
+          chatFingerprint: senderFingerprint(cbChatId),
+          createdAt: FieldValue.serverTimestamp()
+        });
+      } catch (err) {
+        console.error('[Telegram Callback Error]:', err);
+      }
+      return res.status(200).send('OK');
+    }
+
+    // 2. Handle Normal Messages
     const message = update.message || update.edited_message;
     if (!message) return res.status(200).send('OK');
     const chatId = String(message.chat?.id || '');
@@ -178,7 +201,12 @@ export function createTelegramRouter(db: Firestore | null): Router {
         chatFingerprint: senderFingerprint(chatId),
         createdAt: FieldValue.serverTimestamp()
       });
-      await sendTelegramMessage(answer.reply, { chatId, replyToMessageId: message.message_id, config });
+      await sendTelegramMessage(answer.reply, {
+        chatId,
+        replyToMessageId: message.message_id,
+        replyMarkup: answer.replyMarkup,
+        config
+      });
     } catch (error: any) {
       console.error(JSON.stringify({ level: 'error', code: 'TELEGRAM_QUERY_FAILED', requestId: req.requestId, sender: senderFingerprint(senderId) }));
       await sendTelegramMessage('⚠️ Bot chưa thể tải dữ liệu lúc này. Vui lòng thử lại sau.', { chatId, replyToMessageId: message.message_id, config }).catch(() => null);
