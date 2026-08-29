@@ -5,6 +5,7 @@ import {
   createAttendanceTelegramOutboxRecord,
   escapeTelegramHtml,
   getTelegramRuntimeStatus,
+  isTelegramSafeBranchShortcut,
   loadTelegramConfig,
   parseTelegramIntent,
   saveTelegramConfiguration,
@@ -31,6 +32,13 @@ afterEach(() => {
 });
 
 describe('Telegram bot deterministic intent and safety layer', () => {
+  it('accepts only safe standalone branch shortcuts without a bot mention', () => {
+    expect(isTelegramSafeBranchShortcut('CN-02')).toBe(true);
+    expect(isTelegramSafeBranchShortcut('ph 109')).toBe(true);
+    expect(isTelegramSafeBranchShortcut('chi nhánh')).toBe(true);
+    expect(isTelegramSafeBranchShortcut('nói chuyện bình thường trong nhóm')).toBe(false);
+  });
+
   it('recognizes commands and Vietnamese natural-language IMEI questions', () => {
     expect(parseTelegramIntent('/doanhso homnay PH109')).toMatchObject({ kind: 'REVENUE', period: 'TODAY', branchToken: 'ph109' });
     expect(parseTelegramIntent('@PhoneHouseBot IMEI 12345 đang ở đâu?')).toEqual({ kind: 'IMEI', imei: '12345' });

@@ -10,6 +10,7 @@ import {
   getTelegramAdminConfiguration,
   getTelegramRuntimeStatus,
   handleTelegramCallbackQuery,
+  isTelegramSafeBranchShortcut,
   loadTelegramConfig,
   registerTelegramWebhook,
   saveTelegramConfiguration,
@@ -227,9 +228,11 @@ export function createTelegramRouter(db: Firestore | null): Router {
     }
     const text = String(message.text || message.caption || '').trim();
     if (!text) return res.status(200).send('OK');
+    const isSafeBranchShortcut = isTelegramSafeBranchShortcut(text);
     const addressedToBot = text.startsWith('/')
       || (Array.isArray(message.entities) && message.entities.some((entity: any) => ['bot_command', 'mention'].includes(String(entity?.type || ''))))
-      || message.reply_to_message?.from?.is_bot === true;
+      || message.reply_to_message?.from?.is_bot === true
+      || isSafeBranchShortcut;
     if (!addressedToBot) return res.status(200).send('OK');
     try {
       const answer = await answerTelegramQuery(db, text, senderId);

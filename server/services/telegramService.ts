@@ -502,6 +502,12 @@ function normalizeText(value: unknown): string {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9@/_\s-]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+export function isTelegramSafeBranchShortcut(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  return /^(cn|ph)\s*[-_]?\s*0*\d+$/.test(normalized)
+    || /^(danh sach |cac |ma )?chi nhanh$/.test(normalized);
+}
+
 type TelegramCommandScope = {
   period: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM';
   date?: string;
