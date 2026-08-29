@@ -7,10 +7,16 @@ import { verifyGeofence } from './geofenceService';
 import { decryptChannelSecret, encryptChannelSecret } from './channelConnectionService';
 import {
   processTelegramAiCopilot,
+  toolGetRevenueReport,
+  toolLookupImei,
+  toolGetTechnicalProgress,
   toolLookupCustomer,
   toolGetCashflowSummary,
   toolGetAttendanceToday,
-  toolCheckInventory
+  toolCheckInventory,
+  findBranchMatch,
+  resolveDateRange,
+  fetchActiveBranches
 } from './telegramAiAssistant';
 
 type TelegramAction = 'CHECK_IN' | 'CHECK_OUT' | 'MISSING_CHECK_IN' | 'SHIFT_LOCATION';
@@ -500,41 +506,50 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
     return { kind: 'AI', query: original.replace(/^\/ai(@\w+)?\s*/i, '').trim() };
   }
 
+  // Pure IMEI or explicit IMEI query
   const imeiMatch = normalized.match(/(?:imei|may|sua chua)\s*[:#-]?\s*(\d{5,15})\b/)
-    || (command === '/imei' || command === '/suachua' ? normalized.match(/\b(\d{5,15})\b/) : null);
+    || (command === '/imei' || command === '/suachua' ? normalized.match(/\b(\d{5,15})\b/) : null)
+    || (/^\d{10,15}$/.test(normalized) ? [normalized, normalized] : null);
+
   if (imeiMatch) return { kind: 'IMEI', imei: imeiMatch[1] };
 
-  const all = /\b(all|toan he thong|tong he thong)\b/.test(normalized);
-  const branchToken = tokens.slice(command.startsWith('/') ? 1 : 0).filter(token => !['homnay', 'hom', 'nay', 'tuan', 'thang', 'all'].includes(token)).join(' ') || undefined;
-
-  if (['/report', '/baocao', '/doanhso'].includes(command) || /\b(doanh so|bao cao ban hang|ban duoc bao nhieu)\b/.test(normalized)) {
+  // Explicit Slash Commands
+  if (['/report', '/baocao', '/doanhso'].includes(command)) {
+    const isAll = /\b(all|toan he thong|tong)\b/.test(normalized);
     const period = /\bthang\b/.test(normalized) ? 'MONTH' : /\btuan\b/.test(normalized) ? 'WEEK' : 'TODAY';
-    return { kind: 'REVENUE', period, branchToken, all };
+    const branchToken = tokens.slice(1).filter(token => !['homnay', 'hom', 'nay', 'tuan', 'thang', 'all'].includes(token)).join(' ') || undefined;
+    return { kind: 'REVENUE', period, branchToken, all: isAll };
   }
 
-  if (['/kythuat'].includes(command) || /\b(ky thuat|cho kcs|cho linh kien|tien do sua)\b/.test(normalized)) {
-    return { kind: 'TECHNICAL', branchToken, all };
+  if (['/kythuat'].includes(command)) {
+    const isAll = /\b(all|toan he thong)\b/.test(normalized);
+    const branchToken = tokens.slice(1).filter(t => t !== 'all').join(' ') || undefined;
+    return { kind: 'TECHNICAL', branchToken, all: isAll };
   }
 
-  if (['/tonkho'].includes(command) || /\bton kho\b/.test(normalized)) {
-    return { kind: 'INVENTORY', branchToken, all };
+  if (['/tonkho'].includes(command)) {
+    const isAll = /\b(all|toan he thong)\b/.test(normalized);
+    const branchToken = tokens.slice(1).filter(t => t !== 'all').join(' ') || undefined;
+    return { kind: 'INVENTORY', branchToken, all: isAll };
   }
 
-  if (['/khachhang', '/lead', '/khach'].includes(command) || /\b(khach hang|tim khach|thong tin khach)\b/.test(normalized)) {
-    const query = original.replace(/^\/(?:khachhang|lead|khach)(?:@\w+)?\s*/i, '').replace(/^(?:khach hang|tim khach)\s*/i, '').trim();
+  if (['/khachhang', '/lead', '/khach'].includes(command)) {
+    const query = original.replace(/^\/(?:khachhang|lead|khach)(?:@\w+)?\s*/i, '').trim();
     return { kind: 'CUSTOMER', query: query || tokens.slice(1).join(' ') };
   }
 
-  if (['/soquy', '/quy', '/taichinh'].includes(command) || /\b(so quy|tien mat|ngan hang|dong tien)\b/.test(normalized)) {
+  if (['/soquy', '/quy', '/taichinh'].includes(command)) {
     const isMonth = /\bthang\b/.test(normalized);
     return { kind: 'CASHBOOK', period: isMonth ? 'MONTH' : 'TODAY' };
   }
 
-  if (['/nhansu', '/chamcong', '/diemdanh'].includes(command) || /\b(cham cong|diem danh|nhan su|di tre|quan so)\b/.test(normalized)) {
-    return { kind: 'ATTENDANCE', branchToken, all };
+  if (['/nhansu', '/chamcong', '/diemdanh'].includes(command)) {
+    const isAll = /\b(all|toan he thong)\b/.test(normalized);
+    const branchToken = tokens.slice(1).filter(t => t !== 'all').join(' ') || undefined;
+    return { kind: 'ATTENDANCE', branchToken, all: isAll };
   }
 
-  // Fallback to Gemini AI Copilot for natural language understanding
+  // All natural conversational questions route to Gemini Copilot
   return { kind: 'AI', query: original };
 }
 
@@ -658,134 +673,55 @@ export async function handleTelegramCallbackQuery(
 }
 
 async function activeBranches(db: Firestore): Promise<Array<Record<string, any>>> {
-  const snapshot = await db.collection('branches').limit(200).get();
-  return snapshot.docs
-    .map(doc => ({ id: doc.id, ...(doc.data() || {}) } as Record<string, any>))
-    .filter(branch => branch.isActive !== false && branch.active !== false);
-}
-
-function branchAliases(branch: Record<string, any>): string[] {
-  return [branch.id, branch.code, branch.name, branch.shortName].map(normalizeText).filter(value => value.length >= 2);
+  return fetchActiveBranches(db);
 }
 
 async function resolveTelegramBranch(db: Firestore, token: string | undefined): Promise<Record<string, any> | null> {
   if (!token) return null;
-  const needle = normalizeText(token).replace(/^.*?\b(homnay|tuan|thang)\b/g, '').trim();
-  if (!needle || ['all', 'toan he thong', 'tong he thong'].includes(needle)) return null;
   const branches = await activeBranches(db);
-  return branches.find(branch => branchAliases(branch).some(alias => needle === alias || needle.includes(alias) || alias.includes(needle))) || null;
-}
-
-function periodDates(period: 'TODAY' | 'WEEK' | 'MONTH'): string[] {
-  const today = getVietnamDateString();
-  const base = new Date(`${today}T12:00:00+07:00`);
-  let start = new Date(base);
-  if (period === 'WEEK') {
-    const day = base.getUTCDay();
-    start = new Date(base.getTime() - (day === 0 ? 6 : day - 1) * 86_400_000);
-  } else if (period === 'MONTH') {
-    start = new Date(`${today.slice(0, 7)}-01T12:00:00+07:00`);
-  }
-  const dates: string[] = [];
-  for (let cursor = start.getTime(); cursor <= base.getTime(); cursor += 86_400_000) dates.push(getVietnamDateString(cursor));
-  return dates;
+  return findBranchMatch(branches as any, token);
 }
 
 async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'REVENUE' }>, senderId: string): Promise<string> {
-  const config = getTelegramConfig();
-  const owner = config.ownerUserIds.has(senderId);
-  if (intent.all && !owner && config.ownerUserIds.size > 0) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
-  const branch = intent.all ? null : await resolveTelegramBranch(db, intent.branchToken);
-  if (!intent.all && !branch) return '🏪 Hãy ghi rõ chi nhánh. Ví dụ: <code>/doanhso homnay PH109</code>.';
-  const scopeId = intent.all ? 'ALL' : String(branch!.id);
-  const dates = periodDates(intent.period);
-  const snapshots = await db.getAll(...dates.map(date => db.collection('executiveDailyAggregates').doc(`${date}_${scopeId}`)));
-  const totals = snapshots.reduce((acc, snapshot) => {
-    const data = snapshot.exists ? snapshot.data() || {} : {};
-    acc.revenue += Number(data.revenue || 0);
-    acc.invoices += Number(data.invoiceCount || 0);
-    return acc;
-  }, { revenue: 0, invoices: 0 });
-  const periodLabel = intent.period === 'TODAY' ? 'hôm nay' : intent.period === 'WEEK' ? 'tuần này' : 'tháng này';
-  return [`<b>💰 DOANH SỐ ${escapeTelegramHtml(periodLabel.toUpperCase())}</b>`, `🏪 ${escapeTelegramHtml(intent.all ? 'Toàn hệ thống' : branch!.name || branch!.code || branch!.id)}`, `• Doanh thu: <code>${formatVnd(totals.revenue)}</code>`, `• Hóa đơn: <b>${totals.invoices.toLocaleString('vi-VN')}</b>`, `<i>Dữ liệu đến ${escapeTelegramHtml(getVietnamDateString())}, giờ Việt Nam.</i>`].join('\n');
+  return toolGetRevenueReport(db, {
+    period: intent.period,
+    branchQuery: intent.branchToken,
+    all: intent.all
+  }, senderId);
 }
 
 async function imeiReply(db: Firestore, imei: string): Promise<string> {
-  try {
-    const timeline = await getDeviceLifecycleTimeline(db, { imei }, { uid: 'TELEGRAM_GROUP', role: 'REGIONAL_MANAGER', assignedBranchIds: [] });
-    const device = timeline.device || {};
-    const summary = timeline.summary || {};
-    const recent = Array.isArray(timeline.events) ? timeline.events.slice(0, 5) : [];
-    return [
-      `<b>📱 IMEI …${escapeTelegramHtml(String(imei).slice(-6))}</b>`,
-      `• Máy: <b>${escapeTelegramHtml(device.model || 'Chưa xác định')}</b>`,
-      `• Trạng thái: <b>${escapeTelegramHtml(summary.currentStatus || device.status || 'UNKNOWN')}</b>`,
-      `• Chi nhánh: ${escapeTelegramHtml(device.branchName || device.branchId || 'Chưa xác định')}`,
-      `• Vị trí: ${escapeTelegramHtml(summary.currentLocationName || 'Chưa xác định')}`,
-      `• Người giữ: ${escapeTelegramHtml(summary.currentCustodianName || 'Chưa xác định')}`,
-      summary.workOrderCount ? `• Phiếu kỹ thuật: <b>${Number(summary.workOrderCount)}</b> · Rework: ${Number(summary.reworkCount || 0)}` : '',
-      recent.length ? '<b>Mốc gần nhất:</b>' : '',
-      ...recent.map((event: any) => `• ${escapeTelegramHtml(String(event.occurredAt || '').slice(0, 16).replace('T', ' '))} · ${escapeTelegramHtml(event.title || event.eventType)}`)
-    ].filter(Boolean).join('\n');
-  } catch (error: any) {
-    const code = String(error?.message || '');
-    if (code.includes('NOT_FOUND')) return `🔎 Không tìm thấy IMEI <code>${escapeTelegramHtml(imei)}</code> trong dữ liệu máy hoặc phiếu kỹ thuật.`;
-    return '⚠️ Chưa thể tải lịch sử IMEI. Vui lòng thử lại sau.';
-  }
+  return toolLookupImei(db, { imei });
 }
 
 async function technicalReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'TECHNICAL' }>, senderId: string): Promise<string> {
-  const config = getTelegramConfig();
-  const owner = config.ownerUserIds.has(senderId);
-  if (intent.all && !owner && config.ownerUserIds.size > 0) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
-  const branch = intent.all ? null : await resolveTelegramBranch(db, intent.branchToken);
-  if (!intent.all && !branch) return '🏪 Hãy ghi rõ chi nhánh. Ví dụ: <code>/kythuat PH109</code>.';
-  const activeLineStatuses = ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_PARTS', 'COMPLETED', 'REWORK_REQUIRED'];
-  let lineQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrderLines').where('status', 'in', activeLineStatuses);
-  if (branch) lineQuery = lineQuery.where('branchId', '==', branch.id);
-  const lineSnapshot = await lineQuery.limit(1000).get();
-  const lines = lineSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-  const workOrderIds = [...new Set(lines.map(line => String(line.workOrderId || '')).filter(Boolean))].slice(0, 400);
-  const workOrderSnapshots = workOrderIds.length
-    ? await db.getAll(...workOrderIds.map(id => db.collection('technicalWorkOrders').doc(id)))
-    : [];
-  const workOrders = workOrderSnapshots
-    .filter(snapshot => snapshot.exists)
-    .map(snapshot => ({ id: snapshot.id, ...snapshot.data() } as any))
-    .filter(item => !TERMINAL_WORK_ORDER_STATUSES.has(String(item.status || '')) && (!branch || String(item.branchId || '') === String(branch.id)));
-  const linesByWorkOrder = new Map<string, any[]>();
-  lines.forEach(line => linesByWorkOrder.set(String(line.workOrderId || ''), [...(linesByWorkOrder.get(String(line.workOrderId || '')) || []), line]));
-  const stageCounts: Record<string, number> = {};
-  workOrders.forEach(workOrder => {
-    const stage = deriveTechnicalBoardStage(workOrder, linesByWorkOrder.get(workOrder.id) || []);
-    stageCounts[stage] = (stageCounts[stage] || 0) + 1;
-  });
-  return [
-    '<b>🔧 TIẾN ĐỘ KỸ THUẬT</b>',
-    `🏪 ${escapeTelegramHtml(intent.all ? 'Toàn hệ thống' : branch!.name || branch!.id)}`,
-    `• Tổng đang mở: <b>${workOrders.length}</b>`,
-    `• Chờ nhận: ${stageCounts.WAITING_ACCEPTANCE || 0}`,
-    `• Đang xử lý: ${stageCounts.IN_PROGRESS || 0}`,
-    `• Chờ linh kiện: ${stageCounts.WAITING_PARTS || 0}`,
-    `• Chờ KCS: ${stageCounts.WAITING_QC || 0}`,
-    `• Rework: ${stageCounts.REWORK || 0}`,
-    `• Chờ trả máy: ${stageCounts.WAITING_DELIVERY || 0}`,
-    lineSnapshot.size >= 1000 || workOrderIds.length >= 400 ? '<i>⚠️ Dữ liệu vượt giới hạn tức thời; mở webapp để xem báo cáo đầy đủ.</i>' : ''
-  ].filter(Boolean).join('\n');
+  return toolGetTechnicalProgress(db, {
+    branchQuery: intent.branchToken,
+    all: intent.all
+  }, senderId);
 }
 
 async function inventoryReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'INVENTORY' }>, senderId: string): Promise<string> {
-  const config = getTelegramConfig();
-  const owner = config.ownerUserIds.has(senderId);
-  if (intent.all && !owner && config.ownerUserIds.size > 0) return '⛔ Phạm vi <b>toàn hệ thống</b> chỉ dành cho chủ hệ thống đã được cấu hình.';
-  const branch = intent.all ? null : await resolveTelegramBranch(db, intent.branchToken);
-  if (!intent.all && !branch) return '🏪 Hãy ghi rõ chi nhánh. Ví dụ: <code>/tonkho PH109</code>.';
-  let query: FirebaseFirestore.Query = db.collection('devices').where('status', '==', 'in_stock');
-  if (branch) query = query.where('branchId', '==', branch.id);
-  const snapshot = await query.limit(1000).get();
-  const modelNeedle = normalizeText(intent.model || '');
-  const devices = snapshot.docs.map(doc => doc.data()).filter(device => !modelNeedle || normalizeText(device.model).includes(modelNeedle));
-  return ['<b>📦 TỒN KHO MÁY SẴN BÁN</b>', `🏪 ${escapeTelegramHtml(intent.all ? 'Toàn hệ thống' : branch!.name || branch!.id)}`, `• Số máy: <b>${devices.length}</b>`, snapshot.size >= 1000 ? '<i>⚠️ Kết quả nhanh đã chạm giới hạn; xem Ma trận tồn kho để có số đầy đủ.</i>' : ''].filter(Boolean).join('\n');
+  return toolCheckInventory(db, {
+    modelQuery: intent.model,
+    branchQuery: intent.branchToken,
+    all: intent.all
+  }, senderId);
+}
+
+async function attendanceReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'ATTENDANCE' }>): Promise<string> {
+  return toolGetAttendanceToday(db, {
+    branchQuery: intent.branchToken,
+    all: intent.all
+  });
+}
+
+async function customerReply(db: Firestore, query: string): Promise<string> {
+  return toolLookupCustomer(db, { phoneOrName: query });
+}
+
+async function cashbookReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'CASHBOOK' }>, senderId: string): Promise<string> {
+  return toolGetCashflowSummary(db, { period: intent.period || 'TODAY' }, senderId);
 }
 
 export function telegramMenuText(): string {

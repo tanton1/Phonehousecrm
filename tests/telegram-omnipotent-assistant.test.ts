@@ -22,7 +22,9 @@ import {
   toolGetDebtReport,
   testGeminiConnection,
   isOpenAiCompatible,
-  resolveBaseUrl
+  resolveBaseUrl,
+  findBranchMatch,
+  resolveDateRange
 } from '../server/services/telegramAiAssistant';
 
 const ORIGINAL_ENV = {
@@ -236,49 +238,35 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     };
 
     const res = await toolGetAttendanceToday(mockDb, { branchQuery: 'PH109' });
-    expect(res).toContain('TÌNH HÌNH CHẤM CÔNG HÔM NAY');
+    expect(res).toContain('TÌNH HÌNH CHẤM CÔNG');
+    expect(res).toContain('HÔM NAY');
     expect(res).toContain('Trần Văn B');
     expect(res).toContain('Trễ 10 phút');
   });
 
   it('generates deep executive insights for top selling products and aging inventory', async () => {
+    const createQueryChain = (docs: any[]) => {
+      const chain: any = {
+        where: vi.fn(() => chain),
+        limit: vi.fn(() => chain),
+        get: async () => ({ docs, size: docs.length })
+      };
+      return chain;
+    };
+
     const mockDb: any = {
       collection: vi.fn((col) => {
         if (col === 'invoices') {
-          return {
-            where: vi.fn(() => ({
-              limit: vi.fn(() => ({
-                get: async () => ({
-                  docs: [
-                    { data: () => ({ items: [{ model: 'iPhone 15 Pro Max 256GB', quantity: 3, price: 30000000 }] }) },
-                    { data: () => ({ items: [{ model: 'iPhone 13 128GB', quantity: 5, price: 12000000 }] }) }
-                  ]
-                })
-              }))
-            })),
-            limit: vi.fn(() => ({
-              get: async () => ({
-                docs: [
-                  { data: () => ({ sellerName: 'Nguyễn Văn A', totalAmount: 90000000, createdAtIso: new Date().toISOString() }) },
-                  { data: () => ({ sellerName: 'Lê Thị B', totalAmount: 60000000, createdAtIso: new Date().toISOString() }) }
-                ]
-              })
-            }))
-          };
+          return createQueryChain([
+            { data: () => ({ sellerName: 'Nguyễn Văn A', totalAmount: 90000000, items: [{ model: 'iPhone 15 Pro Max 256GB', quantity: 3, price: 30000000 }], createdAtIso: new Date().toISOString() }) },
+            { data: () => ({ sellerName: 'Lê Thị B', totalAmount: 60000000, items: [{ model: 'iPhone 13 128GB', quantity: 5, price: 12000000 }], createdAtIso: new Date().toISOString() }) }
+          ]);
         }
         if (col === 'devices') {
-          return {
-            where: vi.fn(() => ({
-              limit: vi.fn(() => ({
-                get: async () => ({
-                  docs: [
-                    { id: 'DEV_1', data: () => ({ model: 'iPhone 12', storage: '64GB', color: 'Black', importDate: '2025-01-01T00:00:00Z' }) },
-                    { id: 'DEV_2', data: () => ({ model: 'iPhone 12', storage: '64GB', color: 'Black', importDate: '2025-01-01T00:00:00Z' }) }
-                  ]
-                })
-              }))
-            }))
-          };
+          return createQueryChain([
+            { id: 'DEV_1', data: () => ({ model: 'iPhone 12', storage: '64GB', color: 'Black', importDate: '2025-01-01T00:00:00Z' }) },
+            { id: 'DEV_2', data: () => ({ model: 'iPhone 12', storage: '64GB', color: 'Black', importDate: '2025-01-01T00:00:00Z' }) }
+          ]);
         }
         if (col === 'customers') {
           return {
@@ -374,5 +362,70 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     expect(menuRes.intent).toBe('MENU');
     expect(menuRes.reply).toContain('BẢNG ĐIỀU KHIỂN PHONEHOUSE AI');
     expect(menuRes.replyMarkup).toBeDefined();
+  });
+
+  it('accurately resolves branch matching across diverse real-world queries', () => {
+    const sampleBranches = [
+      { id: 'PH109', name: 'PhoneHouse 109 Cầu Giấy', code: 'PH109', shortName: 'Cầu Giấy', address: '109 Cầu Giấy, Quan Hoa, Hà Nội' },
+      { id: 'PH245', name: 'PhoneHouse 245 Xã Đàn', code: 'PH245', shortName: 'Xã Đàn', address: '245 Xã Đàn, Nam Đồng, Đống Đa' },
+      { id: 'PH86', name: 'PhoneHouse 86 Trần Đại Nghĩa', code: 'PH86', shortName: 'Trần Đại Nghĩa', address: '86 Trần Đại Nghĩa, Hai Bà Trưng' },
+      { id: 'PH_HD', name: 'PhoneHouse Hà Đông', code: 'PH_HD', shortName: 'Hà Đông', address: 'Quang Trung, Hà Đông' }
+    ];
+
+    // Exact ID / Code
+    expect(findBranchMatch(sampleBranches, 'PH109')?.id).toBe('PH109');
+    expect(findBranchMatch(sampleBranches, 'ph245')?.id).toBe('PH245');
+
+    // Number tokens
+    expect(findBranchMatch(sampleBranches, '109')?.id).toBe('PH109');
+    expect(findBranchMatch(sampleBranches, '245')?.id).toBe('PH245');
+    expect(findBranchMatch(sampleBranches, '86')?.id).toBe('PH86');
+
+    // Street / Name tokens
+    expect(findBranchMatch(sampleBranches, 'Cầu Giấy')?.id).toBe('PH109');
+    expect(findBranchMatch(sampleBranches, 'Xã Đàn')?.id).toBe('PH245');
+    expect(findBranchMatch(sampleBranches, 'Trần Đại Nghĩa')?.id).toBe('PH86');
+    expect(findBranchMatch(sampleBranches, 'Hà Đông')?.id).toBe('PH_HD');
+
+    // Conversational query
+    expect(findBranchMatch(sampleBranches, 'báo cáo chi nhánh Cầu Giấy hôm nay')?.id).toBe('PH109');
+    expect(findBranchMatch(sampleBranches, 'xem tồn kho bên cơ sở 245 Xã Đàn')?.id).toBe('PH245');
+    expect(findBranchMatch(sampleBranches, 'doanh số của 86 trần đại nghĩa')?.id).toBe('PH86');
+
+    // All system
+    expect(findBranchMatch(sampleBranches, 'toàn hệ thống')).toBeNull();
+    expect(findBranchMatch(sampleBranches, 'all')).toBeNull();
+    expect(findBranchMatch(sampleBranches, 'tất cả chi nhánh')).toBeNull();
+  });
+
+  it('accurately resolves date ranges for yesterday, week, last week, month, and specific dates', () => {
+    // Specific date
+    const spec = resolveDateRange({ date: '2026-08-28' });
+    expect(spec.dates).toEqual(['2026-08-28']);
+    expect(spec.label).toContain('28/08/2026');
+
+    // Yesterday
+    const yest = resolveDateRange({ period: 'YESTERDAY' });
+    expect(yest.dates.length).toBe(1);
+    expect(yest.label).toContain('HÔM QUA');
+
+    // Today
+    const today = resolveDateRange({ period: 'TODAY' });
+    expect(today.dates.length).toBe(1);
+    expect(today.label).toContain('HÔM NAY');
+
+    // This week & last week
+    const week = resolveDateRange({ period: 'WEEK' });
+    expect(week.dates.length).toBeGreaterThanOrEqual(1);
+
+    const lastWeek = resolveDateRange({ period: 'LAST_WEEK' });
+    expect(lastWeek.dates.length).toBe(7);
+
+    // This month & last month
+    const month = resolveDateRange({ period: 'MONTH' });
+    expect(month.dates.length).toBeGreaterThanOrEqual(1);
+
+    const lastMonth = resolveDateRange({ period: 'LAST_MONTH' });
+    expect(lastMonth.dates.length).toBeGreaterThanOrEqual(28);
   });
 });

@@ -147,21 +147,229 @@ function normalizeText(value: unknown): string {
     .trim();
 }
 
-async function fetchActiveBranches(db: Firestore): Promise<Array<{ id: string; name: string; code?: string; shortName?: string }>> {
+export async function fetchActiveBranches(db: Firestore): Promise<Array<{ id: string; name: string; code?: string; shortName?: string; address?: string }>> {
   const snapshot = await db.collection('branches').limit(200).get();
   return snapshot.docs
     .map(doc => ({ id: doc.id, ...(doc.data() || {}) } as any))
     .filter(b => b.isActive !== false && b.active !== false);
 }
 
-function findBranchMatch(branches: Array<{ id: string; name: string; code?: string; shortName?: string }>, query?: string) {
+export function findBranchMatch(
+  branches: Array<{ id: string; name: string; code?: string; shortName?: string; address?: string }>,
+  query?: string
+): { id: string; name: string; code?: string; shortName?: string; address?: string } | null {
   if (!query) return null;
-  const q = normalizeText(query);
-  if (!q || ['all', 'toan he thong', 'tong'].includes(q)) return null;
-  return branches.find(b => {
-    const aliases = [b.id, b.code, b.name, b.shortName].map(normalizeText).filter(Boolean);
-    return aliases.some(alias => q === alias || q.includes(alias) || alias.includes(q));
-  }) || null;
+  const raw = normalizeText(query);
+  if (!raw || ['all', 'toan he thong', 'tat ca', 'tong he thong', 'tat ca chi nhanh', 'ca chuoi', 'toan bo'].includes(raw)) {
+    return null;
+  }
+
+  // Clean conversational filler words
+  const cleaned = raw
+    .replace(/\b(chi nhanh|cua hang|co so|kho|phonehouse|o|tai|ben|khu vuc|dia chi|xem|kiem tra|bao cao|doanh so|ton kho)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  let bestBranch: any = null;
+  let highestScore = 0;
+
+  for (const b of branches) {
+    let score = 0;
+    const bId = normalizeText(b.id);
+    const bCode = normalizeText(b.code);
+    const bName = normalizeText(b.name);
+    const bShort = normalizeText(b.shortName);
+    const bAddr = normalizeText(b.address);
+
+    // 1. Exact ID or Code match (e.g. "ph109", "cn-01", "109")
+    if (raw === bId || raw === bCode || cleaned === bId || cleaned === bCode) {
+      return b;
+    }
+
+    // 2. Exact Name or ShortName match
+    if (raw === bName || cleaned === bName || (bShort && (raw === bShort || cleaned === bShort))) {
+      return b;
+    }
+
+    // 3. Extract core tokens (e.g. "109", "cau giay", "xa dan", "245", "tran dai nghia", "86", "ha dong")
+    const branchDistinctTokens = [bId, bCode, bName, bShort, bAddr]
+      .join(' ')
+      .replace(/\b(phonehouse|chi nhanh|cua hang|co so|ha noi|viet nam|quan|phuong|duong|pho|so)\b/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length >= 2);
+
+    const uniqueBranchTokens = [...new Set(branchDistinctTokens)];
+
+    for (const token of uniqueBranchTokens) {
+      if (raw.includes(token) || cleaned.includes(token)) {
+        score += /^\d+$/.test(token) ? 35 : 20;
+      }
+    }
+
+    const cleanBranchName = bName.replace(/\b(phonehouse|chi nhanh|cua hang)\b/g, '').trim();
+    if (cleanBranchName.length >= 3 && (raw.includes(cleanBranchName) || cleaned.includes(cleanBranchName))) {
+      score += 50;
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestBranch = b;
+    }
+  }
+
+  return highestScore >= 20 ? bestBranch : null;
+}
+
+export interface ResolvedDateRange {
+  dates: string[];
+  startDate: string;
+  endDate: string;
+  label: string;
+}
+
+function normalizeDateInput(dateInput: string, today: string): string {
+  const trimmed = dateInput.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const ddmmyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (ddmmyyyy) {
+    return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}`;
+  }
+  const ddmm = trimmed.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (ddmm) {
+    const year = today.slice(0, 4);
+    return `${year}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`;
+  }
+  return today;
+}
+
+function formatVnDate(isoDate: string): string {
+  const parts = String(isoDate || '').split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return isoDate;
+}
+
+export function resolveDateRange(input: {
+  period?: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM' | string;
+  date?: string;
+  startDate?: string;
+  endDate?: string;
+}): ResolvedDateRange {
+  const today = getVietnamDateString();
+  const base = new Date(`${today}T12:00:00+07:00`);
+
+  // 1. Single exact date
+  if (input.date) {
+    const norm = normalizeDateInput(input.date, today);
+    return {
+      dates: [norm],
+      startDate: norm,
+      endDate: norm,
+      label: `NGÀY ${formatVnDate(norm)}`
+    };
+  }
+
+  // 2. Custom date range
+  if (input.startDate && input.endDate) {
+    const startNorm = normalizeDateInput(input.startDate, today);
+    const endNorm = normalizeDateInput(input.endDate, today);
+    const startMs = new Date(`${startNorm}T12:00:00+07:00`).getTime();
+    const endMs = new Date(`${endNorm}T12:00:00+07:00`).getTime();
+    const dates: string[] = [];
+    for (let c = startMs; c <= endMs; c += 86_400_000) {
+      dates.push(getVietnamDateString(c));
+    }
+    return {
+      dates: dates.length ? dates : [today],
+      startDate: startNorm,
+      endDate: endNorm,
+      label: `TỪ ${formatVnDate(startNorm)} ĐẾN ${formatVnDate(endNorm)}`
+    };
+  }
+
+  const p = String(input.period || 'TODAY').toUpperCase();
+
+  if (p === 'YESTERDAY' || p === 'HOM_QUA') {
+    const yestStr = getVietnamDateString(base.getTime() - 86_400_000);
+    return {
+      dates: [yestStr],
+      startDate: yestStr,
+      endDate: yestStr,
+      label: `HÔM QUA (${formatVnDate(yestStr)})`
+    };
+  }
+
+  if (p === 'WEEK' || p === 'TUAN_NAY') {
+    const day = base.getUTCDay();
+    const startMs = base.getTime() - (day === 0 ? 6 : day - 1) * 86_400_000;
+    const dates: string[] = [];
+    for (let c = startMs; c <= base.getTime(); c += 86_400_000) {
+      dates.push(getVietnamDateString(c));
+    }
+    return {
+      dates,
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+      label: `TUẦN NÀY (${formatVnDate(dates[0])} - HÔM NAY)`
+    };
+  }
+
+  if (p === 'LAST_WEEK' || p === 'TUAN_TRUOC') {
+    const day = base.getUTCDay();
+    const thisWeekStartMs = base.getTime() - (day === 0 ? 6 : day - 1) * 86_400_000;
+    const lastWeekStartMs = thisWeekStartMs - 7 * 86_400_000;
+    const dates: string[] = [];
+    for (let c = lastWeekStartMs; c < thisWeekStartMs; c += 86_400_000) {
+      dates.push(getVietnamDateString(c));
+    }
+    return {
+      dates,
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+      label: `TUẦN TRƯỚC (${formatVnDate(dates[0])} - ${formatVnDate(dates[dates.length - 1])})`
+    };
+  }
+
+  if (p === 'LAST_MONTH' || p === 'THANG_TRUOC') {
+    const [y, m] = today.split('-').map(Number);
+    const prevYear = m === 1 ? y - 1 : y;
+    const prevMonth = m === 1 ? 12 : m - 1;
+    const prevMonthPrefix = `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+    const daysInMonth = new Date(prevYear, prevMonth, 0).getDate();
+    const dates: string[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      dates.push(`${prevMonthPrefix}-${String(d).padStart(2, '0')}`);
+    }
+    return {
+      dates,
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+      label: `THÁNG TRƯỚC (THÁNG ${prevMonth}/${prevYear})`
+    };
+  }
+
+  if (p === 'MONTH' || p === 'THANG_NAY') {
+    const monthPrefix = today.slice(0, 7);
+    const [y, m] = today.split('-').map(Number);
+    const currentDay = Number(today.slice(8, 10));
+    const dates: string[] = [];
+    for (let d = 1; d <= currentDay; d++) {
+      dates.push(`${monthPrefix}-${String(d).padStart(2, '0')}`);
+    }
+    return {
+      dates,
+      startDate: dates[0],
+      endDate: dates[dates.length - 1],
+      label: `THÁNG NÀY (THÁNG ${m}/${y})`
+    };
+  }
+
+  // Default: TODAY
+  return {
+    dates: [today],
+    startDate: today,
+    endDate: today,
+    label: `HÔM NAY (${formatVnDate(today)})`
+  };
 }
 
 /**
@@ -170,7 +378,14 @@ function findBranchMatch(branches: Array<{ id: string; name: string; code?: stri
 
 export async function toolGetRevenueReport(
   db: Firestore,
-  args: { period?: 'TODAY' | 'WEEK' | 'MONTH'; branchQuery?: string; all?: boolean },
+  args: {
+    period?: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM' | string;
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    branchQuery?: string;
+    all?: boolean;
+  },
   senderId: string
 ): Promise<string> {
   const config = getTelegramConfig();
@@ -178,57 +393,58 @@ export async function toolGetRevenueReport(
   const isAll = args.all || normalizeText(args.branchQuery || '').includes('all');
 
   if (isAll && !isOwner && config.ownerUserIds.size > 0) {
-    return '⛔ Quyền riêng tư: Báo cáo doanh số TOÀN HỆ THỐNG chỉ dành riêng cho Chủ hệ thống (Owner). Vui lòng chọn chi nhánh cụ thể (ví dụ: Cầu Giấy, Xstore).';
+    return '⛔ Quyền riêng tư: Báo cáo doanh số TOÀN HỆ THỐNG chỉ dành riêng cho Chủ hệ thống (Owner). Vui lòng chỉ định chi nhánh cụ thể.';
   }
 
   const branches = await fetchActiveBranches(db);
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
 
   if (!isAll && !matchedBranch && branches.length > 0) {
-    return `🏪 Vui lòng ghi rõ tên chi nhánh (Hiện có: ${branches.map(b => b.name || b.id).join(', ')}).`;
+    return `🏪 Không tìm thấy chi nhánh khớp với "<code>${escapeTelegramHtml(args.branchQuery || '')}</code>". Hiện có: ${branches.map(b => b.name || b.id).join(', ')}.`;
   }
 
   const scopeId = isAll ? 'ALL' : String(matchedBranch!.id);
-  const period = args.period || 'TODAY';
-  const today = getVietnamDateString();
-  const base = new Date(`${today}T12:00:00+07:00`);
-  let start = new Date(base);
-
-  if (period === 'WEEK') {
-    const day = base.getUTCDay();
-    start = new Date(base.getTime() - (day === 0 ? 6 : day - 1) * 86_400_000);
-  } else if (period === 'MONTH') {
-    start = new Date(`${today.slice(0, 7)}-01T12:00:00+07:00`);
-  }
-
-  const dates: string[] = [];
-  for (let cursor = start.getTime(); cursor <= base.getTime(); cursor += 86_400_000) {
-    dates.push(getVietnamDateString(cursor));
-  }
+  const dateRange = resolveDateRange(args);
 
   const snapshots = await db.getAll(
-    ...dates.map(date => db.collection('executiveDailyAggregates').doc(`${date}_${scopeId}`))
+    ...dateRange.dates.map(date => db.collection('executiveDailyAggregates').doc(`${date}_${scopeId}`))
   );
 
-  const totals = snapshots.reduce(
-    (acc, snapshot) => {
-      const data = snapshot.exists ? snapshot.data() || {} : {};
-      acc.revenue += Number(data.revenue || 0);
-      acc.invoices += Number(data.invoiceCount || 0);
-      return acc;
-    },
-    { revenue: 0, invoices: 0 }
-  );
+  let totalRevenue = 0;
+  let totalInvoices = 0;
 
-  const periodLabel = period === 'TODAY' ? 'HÔM NAY' : period === 'WEEK' ? 'TUẦN NÀY' : 'THÁNG NÀY';
+  snapshots.forEach(snap => {
+    if (snap.exists) {
+      const data = snap.data() || {};
+      totalRevenue += Number(data.revenue || 0);
+      totalInvoices += Number(data.invoiceCount || 0);
+    }
+  });
+
+  // Fallback to real-time invoices if aggregate was 0 or single date
+  if (totalRevenue === 0 && totalInvoices === 0 && dateRange.dates.length <= 7) {
+    let invQuery: FirebaseFirestore.Query = db.collection('invoices')
+      .where('createdAtIso', '>=', `${dateRange.startDate}T00:00:00`)
+      .where('createdAtIso', '<=', `${dateRange.endDate}T23:59:59.999`);
+    if (matchedBranch) {
+      invQuery = invQuery.where('branchId', '==', matchedBranch.id);
+    }
+    const invSnap = await invQuery.limit(1000).get();
+    invSnap.docs.forEach(doc => {
+      const d = doc.data() || {};
+      totalRevenue += Number(d.totalAmount || d.finalTotal || 0);
+      totalInvoices += 1;
+    });
+  }
+
   const scopeLabel = isAll ? 'Toàn hệ thống' : matchedBranch!.name || matchedBranch!.id;
 
   return [
-    `<b>💰 BÁO CÁO DOANH SỐ · ${escapeTelegramHtml(periodLabel)}</b>`,
+    `<b>💰 BÁO CÁO DOANH SỐ · ${escapeTelegramHtml(dateRange.label)}</b>`,
     `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(scopeLabel)}`,
-    `• <b>Doanh thu:</b> <code>${formatVnd(totals.revenue)}</code>`,
-    `• <b>Số đơn bán:</b> <b>${totals.invoices.toLocaleString('vi-VN')} hóa đơn</b>`,
-    `<i>Dữ liệu cập nhật theo múi giờ Việt Nam.</i>`
+    `• <b>Doanh thu:</b> <code>${formatVnd(totalRevenue)}</code>`,
+    `• <b>Số đơn bán:</b> <b>${totalInvoices.toLocaleString('vi-VN')} hóa đơn</b>`,
+    `<i>Dữ liệu thời gian thực theo múi giờ Việt Nam.</i>`
   ].join('\n');
 }
 
@@ -453,7 +669,7 @@ export async function toolLookupCustomer(db: Firestore, args: { phoneOrName: str
 
 export async function toolGetCashflowSummary(
   db: Firestore,
-  args: { period?: 'TODAY' | 'MONTH' },
+  args: { period?: 'TODAY' | 'YESTERDAY' | 'MONTH' | 'LAST_MONTH' | string; date?: string },
   senderId: string
 ): Promise<string> {
   const config = getTelegramConfig();
@@ -463,9 +679,7 @@ export async function toolGetCashflowSummary(
     return '⛔ BẢO MẬT: Dữ liệu Sổ Quỹ & Dòng Tiền mặt / Tài khoản Ngân Hàng là thông tin nhạy cảm cấp cao, chỉ dành riêng cho Chủ sở hữu hệ thống (Owner User IDs).';
   }
 
-  const today = getVietnamDateString();
-  const isMonth = args.period === 'MONTH';
-  const prefix = isMonth ? today.slice(0, 7) : today;
+  const dateRange = resolveDateRange({ period: args.period || 'TODAY', date: args.date });
 
   const [fundsSnap, txSnap] = await Promise.all([
     db.collection('fundAccounts').where('isActive', '==', true).limit(50).get(),
@@ -480,8 +694,8 @@ export async function toolGetCashflowSummary(
 
   txSnap.docs.forEach(doc => {
     const tx = doc.data() || {};
-    const dateStr = String(tx.date || tx.createdAt || '');
-    if (dateStr.startsWith(prefix)) {
+    const dateStr = String(tx.date || tx.createdAtIso || tx.createdAt || '').slice(0, 10);
+    if (dateRange.dates.includes(dateStr)) {
       if (tx.type === 'RECEIPT' || tx.type === 'THU') {
         totalIncome += Number(tx.amount || 0);
       } else if (tx.type === 'PAYMENT' || tx.type === 'CHI') {
@@ -491,9 +705,9 @@ export async function toolGetCashflowSummary(
   });
 
   return [
-    `<b>💵 BÁO CÁO TÀI CHÍNH & SỔ QUỸ ${isMonth ? 'THÁNG NÀY' : 'HÔM NAY'}</b>`,
-    `• <b>Tổng thu:</b> <code style="color:green">+${formatVnd(totalIncome)}</code>`,
-    `• <b>Tổng chi:</b> <code style="color:red">-${formatVnd(totalExpense)}</code>`,
+    `<b>💵 BÁO CÁO TÀI CHÍNH & SỔ QUỸ · ${escapeTelegramHtml(dateRange.label)}</b>`,
+    `• <b>Tổng thu:</b> <code>+${formatVnd(totalIncome)}</code>`,
+    `• <b>Tổng chi:</b> <code>-${formatVnd(totalExpense)}</code>`,
     `• <b>Chênh lệch dòng tiền:</b> <b>${formatVnd(totalIncome - totalExpense)}</b>`,
     `• <b>Tổng số dư khả dụng (Các quỹ):</b> <code>${formatVnd(totalFundBalance)}</code>`,
     funds.length ? '<b>Số dư theo từng quỹ:</b>' : '',
@@ -507,13 +721,14 @@ export async function toolGetCashflowSummary(
 
 export async function toolGetAttendanceToday(
   db: Firestore,
-  args: { branchQuery?: string; all?: boolean }
+  args: { branchQuery?: string; all?: boolean; date?: string }
 ): Promise<string> {
   const today = getVietnamDateString();
+  const targetDate = args.date ? normalizeDateInput(args.date, today) : today;
   const branches = await fetchActiveBranches(db);
   const matchedBranch = args.all ? null : findBranchMatch(branches, args.branchQuery);
 
-  let query: FirebaseFirestore.Query = db.collection('attendance').where('date', '==', today);
+  let query: FirebaseFirestore.Query = db.collection('attendance').where('date', '==', targetDate);
   if (matchedBranch) {
     query = query.where('branchId', '==', matchedBranch.id);
   }
@@ -526,9 +741,10 @@ export async function toolGetAttendanceToday(
   const completed = records.filter(r => r.attendanceStatus === 'COMPLETED' || r.checkOutTime);
 
   const scopeLabel = matchedBranch ? matchedBranch.name || matchedBranch.id : 'Toàn hệ thống';
+  const dateLabel = targetDate === today ? `HÔM NAY (${formatVnDate(targetDate)})` : `NGÀY ${formatVnDate(targetDate)}`;
 
   return [
-    `<b>⏰ TÌNH HÌNH CHẤM CÔNG HÔM NAY (${escapeTelegramHtml(today)})</b>`,
+    `<b>⏰ TÌNH HÌNH CHẤM CÔNG · ${escapeTelegramHtml(dateLabel)}</b>`,
     `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(scopeLabel)}`,
     `• Tổng lượt chấm công: <b>${records.length} nhân viên</b>`,
     `• Đang trong ca làm việc: <b>${checkedIn.length - completed.length} người</b>`,
@@ -545,24 +761,28 @@ export async function toolGetAttendanceToday(
 
 export async function toolGetTopSellingProducts(
   db: Firestore,
-  args: { period?: 'TODAY' | 'WEEK' | 'MONTH'; limit?: number }
-): Promise<string> {
-  const period = args.period || 'TODAY';
-  const today = getVietnamDateString();
-  const base = new Date(`${today}T12:00:00+07:00`);
-  let start = new Date(base);
-  if (period === 'WEEK') {
-    const day = base.getUTCDay();
-    start = new Date(base.getTime() - (day === 0 ? 6 : day - 1) * 86_400_000);
-  } else if (period === 'MONTH') {
-    start = new Date(`${today.slice(0, 7)}-01T12:00:00+07:00`);
+  args: {
+    period?: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM' | string;
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    branchQuery?: string;
+    limit?: number;
   }
-  const startDateStr = getVietnamDateString(start.getTime());
+): Promise<string> {
+  const dateRange = resolveDateRange(args);
+  const branches = await fetchActiveBranches(db);
+  const matchedBranch = findBranchMatch(branches, args.branchQuery);
 
-  const invoicesSnap = await db.collection('invoices')
-    .where('createdAtIso', '>=', `${startDateStr}T00:00:00`)
-    .limit(1000)
-    .get();
+  let query: FirebaseFirestore.Query = db.collection('invoices')
+    .where('createdAtIso', '>=', `${dateRange.startDate}T00:00:00`)
+    .where('createdAtIso', '<=', `${dateRange.endDate}T23:59:59.999`);
+
+  if (matchedBranch) {
+    query = query.where('branchId', '==', matchedBranch.id);
+  }
+
+  const invoicesSnap = await query.limit(1000).get();
 
   const modelStats: Record<string, { count: number; totalRevenue: number }> = {};
   invoicesSnap.docs.forEach(doc => {
@@ -582,13 +802,15 @@ export async function toolGetTopSellingProducts(
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, args.limit || 5);
 
+  const scopeLabel = matchedBranch ? matchedBranch.name || matchedBranch.id : 'Toàn hệ thống';
+
   if (topList.length === 0) {
-    return `📊 Chưa ghi nhận sản phẩm nào bán ra trong ${period === 'TODAY' ? 'hôm nay' : period === 'WEEK' ? 'tuần này' : 'tháng này'}.`;
+    return `📊 Chưa ghi nhận sản phẩm nào bán ra trong ${dateRange.label} (Phạm vi: ${scopeLabel}).`;
   }
 
-  const periodLabel = period === 'TODAY' ? 'HÔM NAY' : period === 'WEEK' ? 'TUẦN NÀY' : 'THÁNG NÀY';
   return [
-    `<b>🏆 TOP SẢN PHẨM BÁN CHẠY NHẤT · ${periodLabel}</b>`,
+    `<b>🏆 TOP SẢN PHẨM BÁN CHẠY NHẤT · ${escapeTelegramHtml(dateRange.label)}</b>`,
+    `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(scopeLabel)}`,
     ...topList.map(([model, stat], index) => {
       const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '•';
       return `${medal} <b>${escapeTelegramHtml(model)}</b>: <b>${stat.count} máy</b> (Doanh thu: <code>${formatVnd(stat.totalRevenue)}</code>)`;
@@ -638,16 +860,22 @@ export async function toolGetAgingInventory(
 
 export async function toolGetStaffPerformance(
   db: Firestore,
-  args: { period?: 'TODAY' | 'MONTH'; branchQuery?: string }
+  args: {
+    period?: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM' | string;
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    branchQuery?: string;
+  }
 ): Promise<string> {
-  const period = args.period || 'TODAY';
-  const today = getVietnamDateString();
-  const prefix = period === 'MONTH' ? today.slice(0, 7) : today;
-
+  const dateRange = resolveDateRange(args);
   const branches = await fetchActiveBranches(db);
   const matchedBranch = findBranchMatch(branches, args.branchQuery);
 
-  let query: FirebaseFirestore.Query = db.collection('invoices');
+  let query: FirebaseFirestore.Query = db.collection('invoices')
+    .where('createdAtIso', '>=', `${dateRange.startDate}T00:00:00`)
+    .where('createdAtIso', '<=', `${dateRange.endDate}T23:59:59.999`);
+
   if (matchedBranch) query = query.where('branchId', '==', matchedBranch.id);
 
   const snap = await query.limit(1000).get();
@@ -655,20 +883,18 @@ export async function toolGetStaffPerformance(
 
   snap.docs.forEach(doc => {
     const inv = doc.data() || {};
-    const dateStr = String(inv.createdAtIso || inv.createdAt || '');
-    if (dateStr.startsWith(prefix)) {
-      const seller = String(inv.sellerName || inv.createdByName || 'Chưa gán').trim();
-      if (!staffStats[seller]) staffStats[seller] = { count: 0, revenue: 0 };
-      staffStats[seller].count += 1;
-      staffStats[seller].revenue += Number(inv.totalAmount || 0);
-    }
+    const seller = String(inv.sellerName || inv.createdByName || 'Chưa gán').trim();
+    if (!staffStats[seller]) staffStats[seller] = { count: 0, revenue: 0 };
+    staffStats[seller].count += 1;
+    staffStats[seller].revenue += Number(inv.totalAmount || inv.finalTotal || 0);
   });
 
   const rankedStaff = Object.entries(staffStats).sort((a, b) => b[1].revenue - a[1].revenue);
+  const scopeLabel = matchedBranch ? matchedBranch.name || matchedBranch.id : 'Toàn hệ thống';
 
   return [
-    `<b>🎖️ BẢNG XẾP HẠNG HIỆU SUẤT SALE · ${period === 'TODAY' ? 'HÔM NAY' : 'THÁNG NÀY'}</b>`,
-    `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(matchedBranch ? matchedBranch.name || matchedBranch.id : 'Toàn hệ thống')}`,
+    `<b>🎖️ BẢNG XẾP HẠNG HIỆU SUẤT SALE · ${escapeTelegramHtml(dateRange.label)}</b>`,
+    `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(scopeLabel)}`,
     ...rankedStaff.slice(0, 8).map(([name, stat], idx) => {
       const rankIcon = idx === 0 ? '👑' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`;
       return `${rankIcon} <b>${escapeTelegramHtml(name)}</b>: <code>${formatVnd(stat.revenue)}</code> (${stat.count} đơn)`;
@@ -720,12 +946,24 @@ const functionDeclarations: FunctionDeclaration[] = [
       properties: {
         period: {
           type: Type.STRING,
-          enum: ['TODAY', 'WEEK', 'MONTH'],
-          description: 'Khoảng thời gian: TODAY (Hôm nay), WEEK (Tuần này), MONTH (Tháng này).'
+          enum: ['TODAY', 'YESTERDAY', 'WEEK', 'LAST_WEEK', 'MONTH', 'LAST_MONTH', 'CUSTOM'],
+          description: 'Khoảng thời gian: TODAY (Hôm nay), YESTERDAY (Hôm qua), WEEK (Tuần này), LAST_WEEK (Tuần trước), MONTH (Tháng này), LAST_MONTH (Tháng trước).'
+        },
+        date: {
+          type: Type.STRING,
+          description: 'Ngày cụ thể dạng YYYY-MM-DD hoặc DD/MM/YYYY (ví dụ: 2026-08-28 hoặc 28/08).'
+        },
+        startDate: {
+          type: Type.STRING,
+          description: 'Ngày bắt đầu dạng YYYY-MM-DD khi tra cứu khoảng thời gian tùy chỉnh.'
+        },
+        endDate: {
+          type: Type.STRING,
+          description: 'Ngày kết thúc dạng YYYY-MM-DD khi tra cứu khoảng thời gian tùy chỉnh.'
         },
         branchQuery: {
           type: Type.STRING,
-          description: 'Tên hoặc mã chi nhánh (ví dụ: PH109, Cau Giay, Xstore). Để trống hoặc ALL nếu toàn hệ thống.'
+          description: 'Tên hoặc mã chi nhánh cụ thể (ví dụ: PH109, Cau Giay, 109, Xa Dan, 245, Tran Dai Nghia...). Để trống nếu muốn xem toàn hệ thống.'
         },
         all: {
           type: Type.BOOLEAN,
@@ -760,7 +998,7 @@ const functionDeclarations: FunctionDeclaration[] = [
         },
         branchQuery: {
           type: Type.STRING,
-          description: 'Tên chi nhánh cần kiểm tra tồn kho.'
+          description: 'Tên hoặc mã chi nhánh cần kiểm tra tồn kho (ví dụ: Cầu Giấy, 109, Xã Đàn, PH109...).'
         },
         all: {
           type: Type.BOOLEAN,
@@ -777,7 +1015,7 @@ const functionDeclarations: FunctionDeclaration[] = [
       properties: {
         branchQuery: {
           type: Type.STRING,
-          description: 'Tên chi nhánh cần xem tiến độ kỹ thuật.'
+          description: 'Tên hoặc mã chi nhánh cần xem tiến độ kỹ thuật (ví dụ: Cầu Giấy, 109, Xã Đàn, PH109...).'
         },
         all: {
           type: Type.BOOLEAN,
@@ -808,21 +1046,29 @@ const functionDeclarations: FunctionDeclaration[] = [
       properties: {
         period: {
           type: Type.STRING,
-          enum: ['TODAY', 'MONTH'],
-          description: 'Mốc thời gian TODAY (hôm nay) hoặc MONTH (tháng này).'
+          enum: ['TODAY', 'YESTERDAY', 'MONTH', 'LAST_MONTH'],
+          description: 'Mốc thời gian TODAY, YESTERDAY, MONTH (tháng này), LAST_MONTH (tháng trước).'
+        },
+        date: {
+          type: Type.STRING,
+          description: 'Ngày cụ thể dạng YYYY-MM-DD hoặc DD/MM/YYYY.'
         }
       }
     }
   },
   {
     name: 'get_attendance_today',
-    description: 'Báo cáo tình hình nhân sự đi làm hôm nay, ai đang trong ca, ai đi trễ, quân số từng chi nhánh.',
+    description: 'Báo cáo tình hình nhân sự đi làm, ai đang trong ca, ai đi trễ, quân số từng chi nhánh theo ngày.',
     parameters: {
       type: Type.OBJECT,
       properties: {
         branchQuery: {
           type: Type.STRING,
-          description: 'Tên chi nhánh cần xem.'
+          description: 'Tên hoặc mã chi nhánh cần xem (ví dụ: Cầu Giấy, 109, Xã Đàn, PH109...).'
+        },
+        date: {
+          type: Type.STRING,
+          description: 'Ngày cần xem dạng YYYY-MM-DD hoặc DD/MM/YYYY (mặc định là hôm nay).'
         },
         all: {
           type: Type.BOOLEAN,
@@ -839,8 +1085,16 @@ const functionDeclarations: FunctionDeclaration[] = [
       properties: {
         period: {
           type: Type.STRING,
-          enum: ['TODAY', 'WEEK', 'MONTH'],
-          description: 'Khoảng thời gian cần phân tích.'
+          enum: ['TODAY', 'YESTERDAY', 'WEEK', 'LAST_WEEK', 'MONTH', 'LAST_MONTH', 'CUSTOM'],
+          description: 'Khoảng thời gian: TODAY, YESTERDAY, WEEK, LAST_WEEK, MONTH, LAST_MONTH.'
+        },
+        date: {
+          type: Type.STRING,
+          description: 'Ngày cụ thể dạng YYYY-MM-DD hoặc DD/MM/YYYY.'
+        },
+        branchQuery: {
+          type: Type.STRING,
+          description: 'Tên chi nhánh cần lọc.'
         },
         limit: {
           type: Type.INTEGER,
@@ -861,7 +1115,7 @@ const functionDeclarations: FunctionDeclaration[] = [
         },
         branchQuery: {
           type: Type.STRING,
-          description: 'Tên chi nhánh cần kiểm tra tồn kho lâu.'
+          description: 'Tên hoặc mã chi nhánh cần kiểm tra tồn kho lâu.'
         }
       }
     }
@@ -874,12 +1128,16 @@ const functionDeclarations: FunctionDeclaration[] = [
       properties: {
         period: {
           type: Type.STRING,
-          enum: ['TODAY', 'MONTH'],
-          description: 'Mốc thời gian TODAY hoặc MONTH.'
+          enum: ['TODAY', 'YESTERDAY', 'WEEK', 'LAST_WEEK', 'MONTH', 'LAST_MONTH', 'CUSTOM'],
+          description: 'Mốc thời gian: TODAY, YESTERDAY, WEEK, LAST_WEEK, MONTH, LAST_MONTH.'
+        },
+        date: {
+          type: Type.STRING,
+          description: 'Ngày cụ thể dạng YYYY-MM-DD hoặc DD/MM/YYYY.'
         },
         branchQuery: {
           type: Type.STRING,
-          description: 'Tên chi nhánh cần lọc.'
+          description: 'Tên hoặc mã chi nhánh cần lọc (ví dụ: Cầu Giấy, 109, Xã Đàn, PH109...).'
         }
       }
     }
@@ -927,14 +1185,38 @@ export async function processTelegramAiCopilot(
 
   const aiModel = config.aiModel || 'gemini-3.7-flash';
 
+  const activeBranchList = await fetchActiveBranches(db);
+  const now = new Date();
+  const todayVn = getVietnamDateString();
+  const timeVn = now.toLocaleTimeString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit' });
+  const dayOfWeekNames = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  const vnDayOfWeek = dayOfWeekNames[new Date(`${todayVn}T12:00:00+07:00`).getUTCDay()];
+  const yesterdayVn = getVietnamDateString(new Date(`${todayVn}T12:00:00+07:00`).getTime() - 86_400_000);
+
+  const branchesGuide = activeBranchList.length > 0
+    ? activeBranchList.map((b, i) => `${i + 1}. ID: ${b.id} | Tên: ${b.name} | Mã: ${b.code || b.id}${b.address ? ` | ĐC: ${b.address}` : ''}`).join('\n')
+    : 'Chưa có dữ liệu chi nhánh';
+
   const systemInstruction = `
 Bạn là "PhoneHouse Executive AI Copilot" - Cố vấn điều hành và Trợ lý ảo toàn năng trực tiếp hỗ trợ Giám Đốc và các Trưởng Chi Nhánh của chuỗi PhoneHouse CRM (bán lẻ iPhone, bảo hành & sửa chữa).
-Nhiệm vụ của bạn:
-1. Trả lời bằng tiếng Việt lịch sự, thông minh, súc tích và có chiều sâu phân tích quản trị điều hành.
-2. Định dạng câu trả lời bằng HTML Telegram: sử dụng <b>, <i>, <code>, các dấu gạch đầu dòng • và icon sinh động (💰, 📱, 📦, 👥, 🔧, ⏰, 💵, 🏆, ⚠️).
-3. Đơn vị tiền tệ luôn là Việt Nam Đồng (ví dụ: 25.000.000 đ).
-4. Sử dụng công cụ (Function Calling) để lấy dữ liệu thực tế chính xác 100% trước khi trả lời. Tuyệt đối không tự bịa đặt số liệu.
-5. Khi người dùng hỏi câu hỏi tổng quan hoặc phân tích, bạn hãy tổng hợp dữ liệu từ các công cụ, nhận xét xu hướng (tăng/giảm, điểm nghẽn kỹ thuật, rủi ro tồn kho, công nợ) và đưa ra ĐỀ XUẤT HÀNH ĐỘNG cụ thể.
+
+[THỜI GIAN THỰC TẾ HIỆN TẠI (MÚI GIỜ VIỆT NAM GMT+7)]:
+- Thời điểm hiện tại: ${vnDayOfWeek}, ngày ${formatVnDate(todayVn)}, lúc ${timeVn}.
+- Hôm nay (TODAY): ${todayVn}
+- Hôm qua (YESTERDAY): ${yesterdayVn}
+- Tháng này: Tháng ${todayVn.slice(5, 7)}/${todayVn.slice(0, 4)}
+
+[DANH SÁCH CHI NHÁNH CHÍNH THỨC HIỆN CÓ CỦA PHONEHOUSE]:
+${branchesGuide}
+
+[QUY TẮC BẮT BUỘC KHI XỬ LÝ CHI NHÁNH & THỜI GIAN]:
+1. Phân biệt chi nhánh: Khi người dùng nhắc đến bất kỳ chi nhánh hoặc địa điểm nào (ví dụ: "Cầu Giấy", "109", "Xã Đàn", "245", "Trần Đại Nghĩa", "86", "Hà Đông", "PH109"...), bạn PHẢI truyền đúng tên hoặc mã chi nhánh vào tham số \`branchQuery\` của công cụ.
+2. Nếu người dùng hỏi chung, không chỉ đích danh chi nhánh hoặc nói "toàn hệ thống", "tất cả chi nhánh", "cả chuỗi", "tổng", bạn hãy truyền \`all: true\` hoặc để trống \`branchQuery\`.
+3. Phân biệt thời gian: Khi người dùng nói "hôm qua", bạn PHẢI chọn \`period: 'YESTERDAY'\` hoặc \`date: '${yesterdayVn}'\`. Khi nói "hôm nay", chọn \`period: 'TODAY'\`. Khi nói ngày cụ thể (ví dụ 28/08), hãy truyền \`date: 'YYYY-MM-DD'\`.
+4. Định dạng câu trả lời bằng HTML Telegram: sử dụng <b>, <i>, <code>, các dấu gạch đầu dòng • và icon sinh động (💰, 📱, 📦, 👥, 🔧, ⏰, 💵, 🏆, ⚠️).
+5. Đơn vị tiền tệ luôn là Việt Nam Đồng (ví dụ: 25.000.000 đ).
+6. Sử dụng công cụ (Function Calling) để lấy dữ liệu thực tế chính xác 100% trước khi trả lời. Tuyệt đối không tự bịa đặt số liệu.
+7. Khi người dùng hỏi phân tích hoặc so sánh, bạn hãy tổng hợp dữ liệu từ các công cụ, nhận xét xu hướng (tăng/giảm, điểm nghẽn kỹ thuật, rủi ro tồn kho, công nợ) và đưa ra ĐỀ XUẤT HÀNH ĐỘNG cụ thể.
 `;
 
   // === CASE 1: OPENAI-COMPATIBLE PROXY (apikey.fun, OneAPI, NewAPI, etc.) ===
