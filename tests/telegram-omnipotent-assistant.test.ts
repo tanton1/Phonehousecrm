@@ -462,11 +462,22 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
       { id: 'BR_TONG', name: 'TỔNG', code: 'CN-01' },
       { id: 'BR_PH109', name: 'PH 109', code: 'CN-02', address: '109 Hàm Nghi, Đà Nẵng' }
     ];
+    let storedPreference: Record<string, any> | null = null;
     const mockDb: any = {
       collection: vi.fn((name: string) => {
-        expect(name).toBe('branches');
-        return { limit: () => ({ get: async () => ({ docs: branches.map(branch => ({ id: branch.id, data: () => branch })) }) }) };
-      })
+        if (name === 'branches') {
+          return { limit: () => ({ get: async () => ({ docs: branches.map(branch => ({ id: branch.id, data: () => branch })) }) }) };
+        }
+        if (name === 'telegramUserPreferences') {
+          return { doc: () => ({
+            get: async () => ({ exists: Boolean(storedPreference), data: () => storedPreference }),
+            set: async (value: Record<string, any>) => { storedPreference = value; }
+          }) };
+        }
+        if (name === 'executiveDailyAggregates') return { doc: (id: string) => ({ id }) };
+        throw new Error(`UNEXPECTED_COLLECTION_${name}`);
+      }),
+      getAll: async () => [{ exists: true, data: () => ({ revenue: 12_000_000, invoiceCount: 2 }) }]
     };
     const list = await answerTelegramQuery(mockDb, '@trolyAlphonehouse_bot chi nhánh', 'OWNER');
     expect(list.intent).toBe('BRANCHES');
@@ -478,10 +489,20 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
       ])
     }));
 
+    const explicitRevenue = await answerTelegramQuery(mockDb, '/doanhso hôm nay CN-02', 'OWNER');
+    expect(explicitRevenue.reply).toContain('PH 109');
+    expect(storedPreference).toMatchObject({ branchId: 'BR_PH109', branchCode: 'CN-02' });
+
     const confirmation = await answerTelegramQuery(mockDb, '@trolyAlphonehouse_bot CN-02', 'OWNER');
     expect(confirmation.intent).toBe('BRANCH_CONFIRM');
-    expect(confirmation.reply).toContain('ĐÃ NHẬN DIỆN CHI NHÁNH');
+    expect(confirmation.reply).toContain('ĐÃ CHỌN CHI NHÁNH MẶC ĐỊNH');
     expect(confirmation.reply).toContain('PH 109');
+    expect(storedPreference).toMatchObject({ branchId: 'BR_PH109', branchCode: 'CN-02', branchName: 'PH 109' });
+
+    const revenue = await answerTelegramQuery(mockDb, '/doanhso hôm nay', 'OWNER');
+    expect(revenue.intent).toBe('REVENUE');
+    expect(revenue.reply).toContain('PH 109');
+    expect(revenue.reply).toContain('12.000.000 đ');
   });
 
   it('fails safely when a branch query is ambiguous or unknown', async () => {

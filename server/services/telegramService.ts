@@ -113,6 +113,7 @@ type TelegramIntent =
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DELIVERED_TO_CUSTOMER', 'RETURNED_TO_STOCK', 'RETURNED_TO_BRANCH', 'CANCELLED']);
 const TELEGRAM_CONFIGURATION_COLLECTION = 'telegramConfigurations';
 const TELEGRAM_CONFIGURATION_DOCUMENT = 'primary';
+const TELEGRAM_USER_PREFERENCES_COLLECTION = 'telegramUserPreferences';
 const TELEGRAM_CONFIGURATION_CACHE_MS = 60_000;
 let databaseTelegramConfigCache: { config: TelegramConfig; expiresAt: number } | null = null;
 
@@ -146,6 +147,52 @@ export function getTelegramConfig(): TelegramConfig {
 
 export function clearTelegramConfigCache(): void {
   databaseTelegramConfigCache = null;
+}
+
+export type TelegramUserBranchPreference = {
+  branchId: string;
+  branchCode: string;
+  branchName: string;
+};
+
+export function telegramUserPreferenceId(senderId: string): string {
+  return crypto.createHash('sha256').update(`telegram-preference:${String(senderId || '')}`).digest('hex');
+}
+
+export async function loadTelegramUserBranchPreference(
+  db: Firestore,
+  senderId: string
+): Promise<TelegramUserBranchPreference | null> {
+  if (!senderId) return null;
+  const snapshot = await db.collection(TELEGRAM_USER_PREFERENCES_COLLECTION).doc(telegramUserPreferenceId(senderId)).get();
+  if (!snapshot.exists) return null;
+  const data = snapshot.data() || {};
+  const branchId = String(data.branchId || '').trim();
+  if (!branchId) return null;
+  return {
+    branchId,
+    branchCode: String(data.branchCode || branchId).trim(),
+    branchName: String(data.branchName || data.branchCode || branchId).trim()
+  };
+}
+
+async function saveTelegramUserBranchPreference(
+  db: Firestore,
+  senderId: string,
+  branch: { id: string; code?: string; name?: string }
+): Promise<TelegramUserBranchPreference> {
+  const preference: TelegramUserBranchPreference = {
+    branchId: String(branch.id),
+    branchCode: String(branch.code || branch.id),
+    branchName: String(branch.name || branch.code || branch.id)
+  };
+  await db.collection(TELEGRAM_USER_PREFERENCES_COLLECTION).doc(telegramUserPreferenceId(senderId)).set({
+    ...preference,
+    senderFingerprint: telegramUserPreferenceId(senderId).slice(0, 14),
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedAtIso: new Date().toISOString()
+  }, { merge: true });
+  return preference;
 }
 
 function normalizeOwnerUserIds(value: unknown): string[] {
@@ -659,8 +706,31 @@ export function renderRevenueMenuKeyboard() {
         { text: '📊 Tháng Này', callback_data: 'revenue:month' }
       ],
       [
+        { text: '🌐 Toàn hệ thống hôm nay (Owner)', callback_data: 'revenue:today:all' }
+      ],
+      [
         { text: '🔙 Menu Chính', callback_data: 'menu:main' }
       ]
+    ]
+  };
+}
+
+function renderPreferredBranchQuickActions() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '💰 Doanh số hôm nay', callback_data: 'quick:revenue:today' },
+        { text: '📅 Doanh số tuần', callback_data: 'quick:revenue:week' }
+      ],
+      [
+        { text: '📦 Tồn kho', callback_data: 'quick:inventory' },
+        { text: '🔧 Kỹ thuật', callback_data: 'quick:technical' }
+      ],
+      [
+        { text: '⏰ Chấm công', callback_data: 'quick:attendance' },
+        { text: '🏪 Đổi chi nhánh', callback_data: 'menu:branches' }
+      ],
+      [{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]
     ]
   };
 }
@@ -686,30 +756,50 @@ export async function handleTelegramCallbackQuery(
   } else if (data === 'menu:revenue') {
     replyText = '📊 <b>CHỌN MỐC THỜI GIAN TRA CỨU DOANH SỐ:</b>';
     replyMarkup = renderRevenueMenuKeyboard();
-  } else if (data === 'revenue:today') {
+  } else if (data === 'revenue:today:all') {
     replyText = await revenueReply(db, { kind: 'REVENUE', period: 'TODAY', all: true }, senderId);
     replyMarkup = renderRevenueMenuKeyboard();
-  } else if (data === 'revenue:week') {
-    replyText = await revenueReply(db, { kind: 'REVENUE', period: 'WEEK', all: true }, senderId);
-    replyMarkup = renderRevenueMenuKeyboard();
-  } else if (data === 'revenue:month') {
-    replyText = await revenueReply(db, { kind: 'REVENUE', period: 'MONTH', all: true }, senderId);
-    replyMarkup = renderRevenueMenuKeyboard();
-  } else if (data === 'menu:inventory') {
-    replyText = await toolCheckInventory(db, { all: true }, senderId);
-    replyMarkup = {
-      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
-    };
-  } else if (data === 'menu:technical') {
-    replyText = await technicalReply(db, { kind: 'TECHNICAL', all: true }, senderId);
-    replyMarkup = {
-      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
-    };
-  } else if (data === 'menu:attendance') {
-    replyText = await toolGetAttendanceToday(db, { all: true });
-    replyMarkup = {
-      inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
-    };
+  } else if (['revenue:today', 'revenue:week', 'revenue:month', 'quick:revenue:today', 'quick:revenue:week'].includes(data)) {
+    const preference = await loadTelegramUserBranchPreference(db, senderId);
+    if (!preference) {
+      const directory = await branchesReply(db, 'Chọn chi nhánh mặc định trước khi xem doanh số.');
+      replyText = directory.text;
+      replyMarkup = directory.replyMarkup;
+    } else {
+      const period = data.endsWith(':week') ? 'WEEK' : data.endsWith(':month') ? 'MONTH' : 'TODAY';
+      replyText = await revenueReply(db, { kind: 'REVENUE', period, branchToken: preference.branchId, all: false }, senderId);
+      replyMarkup = data.startsWith('quick:') ? renderPreferredBranchQuickActions() : renderRevenueMenuKeyboard();
+    }
+  } else if (['menu:inventory', 'quick:inventory'].includes(data)) {
+    const preference = await loadTelegramUserBranchPreference(db, senderId);
+    if (!preference) {
+      const directory = await branchesReply(db, 'Chọn chi nhánh mặc định trước khi xem tồn kho.');
+      replyText = directory.text;
+      replyMarkup = directory.replyMarkup;
+    } else {
+      replyText = await toolCheckInventory(db, { branchQuery: preference.branchId, all: false }, senderId);
+      replyMarkup = renderPreferredBranchQuickActions();
+    }
+  } else if (['menu:technical', 'quick:technical'].includes(data)) {
+    const preference = await loadTelegramUserBranchPreference(db, senderId);
+    if (!preference) {
+      const directory = await branchesReply(db, 'Chọn chi nhánh mặc định trước khi xem tiến độ kỹ thuật.');
+      replyText = directory.text;
+      replyMarkup = directory.replyMarkup;
+    } else {
+      replyText = await technicalReply(db, { kind: 'TECHNICAL', branchToken: preference.branchId, all: false }, senderId);
+      replyMarkup = renderPreferredBranchQuickActions();
+    }
+  } else if (['menu:attendance', 'quick:attendance'].includes(data)) {
+    const preference = await loadTelegramUserBranchPreference(db, senderId);
+    if (!preference) {
+      const directory = await branchesReply(db, 'Chọn chi nhánh mặc định trước khi xem chấm công.');
+      replyText = directory.text;
+      replyMarkup = directory.replyMarkup;
+    } else {
+      replyText = await toolGetAttendanceToday(db, { branchQuery: preference.branchId, all: false });
+      replyMarkup = renderPreferredBranchQuickActions();
+    }
   } else if (data === 'menu:cashbook') {
     replyText = await toolGetCashflowSummary(db, { period: 'TODAY' }, senderId);
     replyMarkup = {
@@ -721,10 +811,8 @@ export async function handleTelegramCallbackQuery(
       inline_keyboard: [[{ text: '🔙 Menu Chính', callback_data: 'menu:main' }]]
     };
   } else if (data.startsWith('branch:')) {
-    replyText = await branchConfirmationReply(db, data.slice('branch:'.length));
-    replyMarkup = {
-      inline_keyboard: [[{ text: '🏪 Chọn chi nhánh khác', callback_data: 'menu:branches' }]]
-    };
+    replyText = await branchConfirmationReply(db, data.slice('branch:'.length), senderId);
+    replyMarkup = renderPreferredBranchQuickActions();
   } else if (data === 'menu:branches') {
     const directory = await branchesReply(db);
     replyText = directory.text;
@@ -763,11 +851,12 @@ async function activeBranches(db: Firestore): Promise<Array<Record<string, any>>
   return fetchActiveBranches(db);
 }
 
-async function branchesReply(db: Firestore): Promise<{ text: string; replyMarkup?: Record<string, unknown> }> {
+async function branchesReply(db: Firestore, intro?: string): Promise<{ text: string; replyMarkup?: Record<string, unknown> }> {
   const branches = await fetchActiveBranches(db);
   if (branches.length === 0) return { text: '🏪 Chưa có chi nhánh đang hoạt động trong CRM.' };
   const text = [
     '<b>🏪 DANH MỤC CHI NHÁNH BOT NHẬN DIỆN</b>',
+    intro ? `<i>${escapeTelegramHtml(intro)}</i>` : '',
     ...branches.map(branch => {
       const aliases = getBranchAcceptedAliases(branch)
         .filter(alias => normalizeText(alias) !== normalizeText(branch.code || branch.id))
@@ -778,7 +867,7 @@ async function branchesReply(db: Firestore): Promise<{ text: string; replyMarkup
     }),
     '',
     'Ví dụ: <code>@trolyAlphonehouse_bot doanh số CN-02 hôm nay</code>'
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   const buttons = branches.map(branch => ({
     text: `${branch.code || branch.id} · ${branch.name || branch.id}`.slice(0, 60),
     callback_data: `branch:${branch.code || branch.id}`.slice(0, 64)
@@ -789,16 +878,43 @@ async function branchesReply(db: Firestore): Promise<{ text: string; replyMarkup
   return { text, replyMarkup: { inline_keyboard: rows } };
 }
 
-async function branchConfirmationReply(db: Firestore, branchToken: string): Promise<string> {
+async function branchConfirmationReply(db: Firestore, branchToken: string, senderId: string): Promise<string> {
   const branches = await fetchActiveBranches(db);
   const branch = findBranchMatch(branches, branchToken);
   if (!branch) return (await branchesReply(db)).text;
+  await saveTelegramUserBranchPreference(db, senderId, branch);
   return [
-    `<b>✅ ĐÃ NHẬN DIỆN CHI NHÁNH</b>`,
+    `<b>✅ ĐÃ CHỌN CHI NHÁNH MẶC ĐỊNH</b>`,
     `• Mã chuẩn: <code>${escapeTelegramHtml(branch.code || branch.id)}</code>`,
     `• Tên: <b>${escapeTelegramHtml(branch.name || branch.id)}</b>`,
-    `• Hỏi nhanh: <code>doanh số ${escapeTelegramHtml(branch.code || branch.id)} hôm nay</code>`
+    `• Từ giờ chỉ cần hỏi: <code>doanh số hôm nay</code>`,
+    `<i>Cài đặt này chỉ áp dụng cho tài khoản Telegram của bạn.</i>`
   ].join('\n');
+}
+
+async function applyPreferredBranchToIntent(db: Firestore, intent: TelegramIntent, senderId: string): Promise<TelegramIntent> {
+  switch (intent.kind) {
+    case 'REVENUE':
+    case 'TECHNICAL':
+    case 'INVENTORY':
+    case 'ATTENDANCE': {
+      if (intent.all) return intent;
+      if (intent.branchToken) {
+        try {
+          const branches = await fetchActiveBranches(db);
+          const branch = findBranchMatch(branches, intent.branchToken);
+          if (branch) await saveTelegramUserBranchPreference(db, senderId, branch);
+        } catch (error: any) {
+          console.warn('[Telegram Branch Preference Auto-Learn Failed]:', String(error?.message || error));
+        }
+        return intent;
+      }
+      const preference = await loadTelegramUserBranchPreference(db, senderId);
+      return preference ? { ...intent, branchToken: preference.branchId } : intent;
+    }
+    default:
+      return intent;
+  }
 }
 
 async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'REVENUE' }>, senderId: string): Promise<string> {
@@ -885,7 +1001,8 @@ export async function answerTelegramQuery(
   text: string,
   senderId: string
 ): Promise<{ intent: string; reply: string; replyMarkup?: Record<string, unknown> }> {
-  const intent = parseTelegramIntent(text);
+  let intent = parseTelegramIntent(text);
+  intent = await applyPreferredBranchToIntent(db, intent, senderId);
 
   if (intent.kind === 'HELP') {
     return { intent: intent.kind, reply: telegramHelpText(), replyMarkup: renderMainMenuKeyboard() };
@@ -898,7 +1015,11 @@ export async function answerTelegramQuery(
     return { intent: intent.kind, reply: directory.text, replyMarkup: directory.replyMarkup };
   }
   if (intent.kind === 'BRANCH_CONFIRM') {
-    return { intent: intent.kind, reply: await branchConfirmationReply(db, intent.branchToken) };
+    return {
+      intent: intent.kind,
+      reply: await branchConfirmationReply(db, intent.branchToken, senderId),
+      replyMarkup: renderPreferredBranchQuickActions()
+    };
   }
   if (intent.kind === 'REVENUE') {
     return { intent: intent.kind, reply: await revenueReply(db, intent, senderId), replyMarkup: renderRevenueMenuKeyboard() };
