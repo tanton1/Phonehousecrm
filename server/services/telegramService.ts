@@ -14,8 +14,6 @@ import {
   toolGetCashflowSummary,
   toolGetAttendanceToday,
   toolCheckInventory,
-  findBranchMatch,
-  resolveDateRange,
   fetchActiveBranches
 } from './telegramAiAssistant';
 
@@ -90,13 +88,21 @@ export interface TelegramOutboxRecord extends AttendanceTelegramAlertInput {
 type TelegramIntent =
   | { kind: 'HELP' }
   | { kind: 'MENU' }
-  | { kind: 'REVENUE'; period: 'TODAY' | 'WEEK' | 'MONTH'; branchToken?: string; all: boolean }
+  | {
+      kind: 'REVENUE';
+      period: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM';
+      date?: string;
+      startDate?: string;
+      endDate?: string;
+      branchToken?: string;
+      all: boolean;
+    }
   | { kind: 'IMEI'; imei: string }
   | { kind: 'TECHNICAL'; branchToken?: string; all: boolean }
   | { kind: 'INVENTORY'; branchToken?: string; all: boolean; model?: string }
   | { kind: 'CUSTOMER'; query: string }
   | { kind: 'CASHBOOK'; period?: 'TODAY' | 'MONTH' }
-  | { kind: 'ATTENDANCE'; branchToken?: string; all: boolean }
+  | { kind: 'ATTENDANCE'; branchToken?: string; all: boolean; date?: string }
   | { kind: 'AI'; query: string }
   | { kind: 'UNKNOWN'; raw: string };
 
@@ -492,6 +498,38 @@ function normalizeText(value: unknown): string {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9@/_\s-]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+type TelegramCommandScope = {
+  period: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'LAST_WEEK' | 'MONTH' | 'LAST_MONTH' | 'CUSTOM';
+  date?: string;
+  branchToken?: string;
+  all: boolean;
+};
+
+function parseTelegramCommandScope(value: string): TelegramCommandScope {
+  const normalized = normalizeText(value);
+  const all = /\b(all|tong he thong|tong|toan he thong|tat ca chi nhanh|tat ca|ca chuoi|toan chuoi|toan bo)\b/.test(normalized);
+  const dateMatch = normalized.match(/\b(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{4})?)\b/);
+
+  let period: TelegramCommandScope['period'] = 'TODAY';
+  if (dateMatch) period = 'CUSTOM';
+  else if (/\b(thang truoc|last month)\b/.test(normalized)) period = 'LAST_MONTH';
+  else if (/\b(tuan truoc|last week)\b/.test(normalized)) period = 'LAST_WEEK';
+  else if (/\b(hom qua|homqua|yesterday)\b/.test(normalized)) period = 'YESTERDAY';
+  else if (/\b(thang nay|thangnay|thang|month)\b/.test(normalized)) period = 'MONTH';
+  else if (/\b(tuan nay|tuannay|tuan|week)\b/.test(normalized)) period = 'WEEK';
+
+  const branchToken = normalized
+    .replace(/\b\d{4}-\d{1,2}-\d{1,2}\b/g, ' ')
+    .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{4})?\b/g, ' ')
+    .replace(/\b(thang truoc|tuan truoc|hom qua|homqua|hôm qua|thang nay|thangnay|tuan nay|tuannay|hom nay|homnay|today|yesterday|last month|last week|month|week|thang|tuan)\b/g, ' ')
+    .replace(/\b(all|tong he thong|tong|toan he thong|tat ca chi nhanh|tat ca|ca chuoi|toan chuoi|toan bo)\b/g, ' ')
+    .replace(/\b(bao cao|doanh so|ngay)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || undefined;
+
+  return { period, date: dateMatch?.[1], branchToken, all };
+}
+
 export function parseTelegramIntent(rawText: string): TelegramIntent {
   const original = String(rawText || '').trim();
   const normalized = normalizeText(original.replace(/@[A-Za-z0-9_]+/g, ' '));
@@ -515,22 +553,18 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
 
   // Explicit Slash Commands
   if (['/report', '/baocao', '/doanhso'].includes(command)) {
-    const isAll = /\b(all|toan he thong|tong)\b/.test(normalized);
-    const period = /\bthang\b/.test(normalized) ? 'MONTH' : /\btuan\b/.test(normalized) ? 'WEEK' : 'TODAY';
-    const branchToken = tokens.slice(1).filter(token => !['homnay', 'hom', 'nay', 'tuan', 'thang', 'all'].includes(token)).join(' ') || undefined;
-    return { kind: 'REVENUE', period, branchToken, all: isAll };
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    return { kind: 'REVENUE', ...scope };
   }
 
   if (['/kythuat'].includes(command)) {
-    const isAll = /\b(all|toan he thong)\b/.test(normalized);
-    const branchToken = tokens.slice(1).filter(t => t !== 'all').join(' ') || undefined;
-    return { kind: 'TECHNICAL', branchToken, all: isAll };
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    return { kind: 'TECHNICAL', branchToken: scope.branchToken, all: scope.all };
   }
 
   if (['/tonkho'].includes(command)) {
-    const isAll = /\b(all|toan he thong)\b/.test(normalized);
-    const branchToken = tokens.slice(1).filter(t => t !== 'all').join(' ') || undefined;
-    return { kind: 'INVENTORY', branchToken, all: isAll };
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all };
   }
 
   if (['/khachhang', '/lead', '/khach'].includes(command)) {
@@ -544,9 +578,8 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
   }
 
   if (['/nhansu', '/chamcong', '/diemdanh'].includes(command)) {
-    const isAll = /\b(all|toan he thong)\b/.test(normalized);
-    const branchToken = tokens.slice(1).filter(t => t !== 'all').join(' ') || undefined;
-    return { kind: 'ATTENDANCE', branchToken, all: isAll };
+    const scope = parseTelegramCommandScope(tokens.slice(1).join(' '));
+    return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
   }
 
   // All natural conversational questions route to Gemini Copilot
@@ -676,15 +709,12 @@ async function activeBranches(db: Firestore): Promise<Array<Record<string, any>>
   return fetchActiveBranches(db);
 }
 
-async function resolveTelegramBranch(db: Firestore, token: string | undefined): Promise<Record<string, any> | null> {
-  if (!token) return null;
-  const branches = await activeBranches(db);
-  return findBranchMatch(branches as any, token);
-}
-
 async function revenueReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'REVENUE' }>, senderId: string): Promise<string> {
   return toolGetRevenueReport(db, {
     period: intent.period,
+    date: intent.date,
+    startDate: intent.startDate,
+    endDate: intent.endDate,
     branchQuery: intent.branchToken,
     all: intent.all
   }, senderId);
@@ -712,7 +742,8 @@ async function inventoryReply(db: Firestore, intent: Extract<TelegramIntent, { k
 async function attendanceReply(db: Firestore, intent: Extract<TelegramIntent, { kind: 'ATTENDANCE' }>): Promise<string> {
   return toolGetAttendanceToday(db, {
     branchQuery: intent.branchToken,
-    all: intent.all
+    all: intent.all,
+    date: intent.date
   });
 }
 
@@ -739,7 +770,9 @@ export function telegramHelpText(): string {
     '• <code>/menu</code>: Bật menu tương tác nút bấm',
     '',
     '<b>2. Tra cứu nghiệp vụ:</b>',
-    '• <code>/doanhso homnay PH109</code> · Doanh số hôm nay',
+    '• <code>/doanhso hôm nay PH109</code> · Doanh số hôm nay',
+    '• <code>/doanhso hôm qua PH 109</code> · Doanh số hôm qua',
+    '• <code>/doanhso 28/08/2026 109 Hàm Nghi</code> · Doanh số ngày cụ thể',
     '• <code>/doanhso thang all</code> · Doanh số toàn chuỗi (Owner)',
     '• <code>/imei 355555...</code> · Tra cứu vòng đời 15 số IMEI',
     '• <code>/tonkho PH109</code> · Tồn kho khả dụng',
@@ -786,7 +819,7 @@ export async function answerTelegramQuery(
     return { intent: intent.kind, reply: await toolGetCashflowSummary(db, { period: intent.period }, senderId) };
   }
   if (intent.kind === 'ATTENDANCE') {
-    return { intent: intent.kind, reply: await toolGetAttendanceToday(db, { branchQuery: intent.branchToken, all: intent.all }) };
+    return { intent: intent.kind, reply: await attendanceReply(db, intent) };
   }
   if (intent.kind === 'AI') {
     const aiReply = await processTelegramAiCopilot(db, intent.query, senderId);

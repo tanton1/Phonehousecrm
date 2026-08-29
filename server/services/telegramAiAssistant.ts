@@ -1,6 +1,6 @@
 import { GoogleGenAI, FunctionDeclaration, Type } from '@google/genai';
 import { Firestore } from 'firebase-admin/firestore';
-import { getVietnamDateString } from '../../shared/vietnamTime';
+import { getVietnamDateString, getVietnamDayUtcRange } from '../../shared/vietnamTime';
 import { getDeviceLifecycleTimeline } from './deviceLifecycleService';
 import { deriveTechnicalBoardStage } from './technicalService';
 import { getTelegramConfig, escapeTelegramHtml, TelegramConfig } from './telegramService';
@@ -147,77 +147,175 @@ function normalizeText(value: unknown): string {
     .trim();
 }
 
-export async function fetchActiveBranches(db: Firestore): Promise<Array<{ id: string; name: string; code?: string; shortName?: string; address?: string }>> {
+function compactText(value: unknown): string {
+  return normalizeText(value).replace(/[^a-z0-9]/g, '');
+}
+
+type TelegramBranch = {
+  id: string;
+  name: string;
+  code?: string;
+  shortName?: string;
+  address?: string;
+};
+
+export type BranchMatchResolution =
+  | { status: 'MATCHED'; branch: TelegramBranch; candidates: TelegramBranch[] }
+  | { status: 'AMBIGUOUS'; branch: null; candidates: TelegramBranch[] }
+  | { status: 'NOT_FOUND'; branch: null; candidates: TelegramBranch[] };
+
+const ALL_BRANCH_ALIASES = new Set([
+  'all',
+  'toan he thong',
+  'tat ca',
+  'tong he thong',
+  'tat ca chi nhanh',
+  'ca chuoi',
+  'toan bo',
+  'toan chuoi'
+]);
+
+const BRANCH_STOP_WORDS = new Set([
+  'phone', 'house', 'phonehouse', 'chi', 'nhanh', 'cua', 'hang', 'co', 'so', 'kho',
+  'tai', 'ben', 'khu', 'vuc', 'dia', 'chi', 'xem', 'kiem', 'tra', 'bao', 'cao', 'doanh',
+  'thu', 'ton', 'may', 'ky', 'thuat', 'nhan', 'su', 'cham', 'cong', 'hom', 'nay', 'qua',
+  'tuan', 'thang', 'ngay', 'o', 'cua', 'va', 'the', 'shop', 'viet', 'nam', 'tp', 'thanh',
+  'pho', 'quan', 'phuong', 'duong'
+]);
+
+export function isAllBranchQuery(query?: string): boolean {
+  const normalized = normalizeText(query);
+  return ALL_BRANCH_ALIASES.has(normalized)
+    || /\b(toan he thong|tat ca chi nhanh|ca chuoi|toan chuoi|toan bo)\b/.test(normalized);
+}
+
+export async function fetchActiveBranches(db: Firestore): Promise<TelegramBranch[]> {
   const snapshot = await db.collection('branches').limit(200).get();
   return snapshot.docs
     .map(doc => ({ id: doc.id, ...(doc.data() || {}) } as any))
     .filter(b => b.isActive !== false && b.active !== false);
 }
 
-export function findBranchMatch(
-  branches: Array<{ id: string; name: string; code?: string; shortName?: string; address?: string }>,
-  query?: string
-): { id: string; name: string; code?: string; shortName?: string; address?: string } | null {
-  if (!query) return null;
+export function resolveBranchMatch(branches: TelegramBranch[], query?: string): BranchMatchResolution {
   const raw = normalizeText(query);
-  if (!raw || ['all', 'toan he thong', 'tat ca', 'tong he thong', 'tat ca chi nhanh', 'ca chuoi', 'toan bo'].includes(raw)) {
-    return null;
+  if (!raw || isAllBranchQuery(raw)) return { status: 'NOT_FOUND', branch: null, candidates: [] };
+
+  const compactRaw = compactText(raw);
+  const queryTokens = [...new Set(raw.split(/\s+/).filter(token => {
+    if (BRANCH_STOP_WORDS.has(token)) return false;
+    return /^\d+$/.test(token) ? token.length >= 2 : token.length >= 3;
+  }))];
+
+  const exactCodeMatches = branches.filter(branch => {
+    const aliases = [branch.id, branch.code].filter(Boolean);
+    return aliases.some(alias => raw === normalizeText(alias) || compactRaw === compactText(alias));
+  });
+  if (exactCodeMatches.length === 1) {
+    return { status: 'MATCHED', branch: exactCodeMatches[0], candidates: exactCodeMatches };
+  }
+  if (exactCodeMatches.length > 1) {
+    return { status: 'AMBIGUOUS', branch: null, candidates: exactCodeMatches };
   }
 
-  // Clean conversational filler words
-  const cleaned = raw
-    .replace(/\b(chi nhanh|cua hang|co so|kho|phonehouse|o|tai|ben|khu vuc|dia chi|xem|kiem tra|bao cao|doanh so|ton kho)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const exactNameMatches = branches.filter(branch => {
+    const aliases = [branch.name, branch.shortName].filter(Boolean);
+    return aliases.some(alias => raw === normalizeText(alias) || compactRaw === compactText(alias));
+  });
+  if (exactNameMatches.length === 1) {
+    return { status: 'MATCHED', branch: exactNameMatches[0], candidates: exactNameMatches };
+  }
+  if (exactNameMatches.length > 1) {
+    return { status: 'AMBIGUOUS', branch: null, candidates: exactNameMatches };
+  }
 
-  let bestBranch: any = null;
-  let highestScore = 0;
+  const ranked = branches
+    .map(branch => {
+      const id = normalizeText(branch.id);
+      const code = normalizeText(branch.code);
+      const name = normalizeText(branch.name);
+      const shortName = normalizeText(branch.shortName);
+      const address = normalizeText(branch.address);
+      let score = 0;
 
-  for (const b of branches) {
-    let score = 0;
-    const bId = normalizeText(b.id);
-    const bCode = normalizeText(b.code);
-    const bName = normalizeText(b.name);
-    const bShort = normalizeText(b.shortName);
-    const bAddr = normalizeText(b.address);
-
-    // 1. Exact ID or Code match (e.g. "ph109", "cn-01", "109")
-    if (raw === bId || raw === bCode || cleaned === bId || cleaned === bCode) {
-      return b;
-    }
-
-    // 2. Exact Name or ShortName match
-    if (raw === bName || cleaned === bName || (bShort && (raw === bShort || cleaned === bShort))) {
-      return b;
-    }
-
-    // 3. Extract core tokens (e.g. "109", "cau giay", "xa dan", "245", "tran dai nghia", "86", "ha dong")
-    const branchDistinctTokens = [bId, bCode, bName, bShort, bAddr]
-      .join(' ')
-      .replace(/\b(phonehouse|chi nhanh|cua hang|co so|ha noi|viet nam|quan|phuong|duong|pho|so)\b/g, ' ')
-      .split(/\s+/)
-      .filter(t => t.length >= 2);
-
-    const uniqueBranchTokens = [...new Set(branchDistinctTokens)];
-
-    for (const token of uniqueBranchTokens) {
-      if (raw.includes(token) || cleaned.includes(token)) {
-        score += /^\d+$/.test(token) ? 35 : 20;
+      for (const alias of [id, code]) {
+        if (!alias) continue;
+        const compactAlias = compactText(alias);
+        if ((raw.includes(alias) || compactRaw.includes(compactAlias)) && compactAlias.length >= 3) score += 120;
+        const numericCode = compactAlias.match(/\d{2,}/)?.[0];
+        if (numericCode && queryTokens.includes(numericCode)) score += 90;
       }
-    }
 
-    const cleanBranchName = bName.replace(/\b(phonehouse|chi nhanh|cua hang)\b/g, '').trim();
-    if (cleanBranchName.length >= 3 && (raw.includes(cleanBranchName) || cleaned.includes(cleanBranchName))) {
-      score += 50;
-    }
+      for (const alias of [shortName, name, address]) {
+        const compactAlias = compactText(alias);
+        if (compactAlias.length >= 4 && compactRaw.includes(compactAlias)) score += alias === shortName ? 100 : 70;
+      }
 
-    if (score > highestScore) {
-      highestScore = score;
-      bestBranch = b;
-    }
+      const branchTokens = [...new Set([id, code, name, shortName, address]
+        .join(' ')
+        .split(/\s+/)
+        .filter(token => {
+          if (BRANCH_STOP_WORDS.has(token)) return false;
+          return /^\d+$/.test(token) ? token.length >= 2 : token.length >= 3;
+        }))];
+      for (const token of queryTokens) {
+        if (branchTokens.includes(token)) score += /^\d+$/.test(token) ? 55 : 25;
+      }
+
+      // Reward contiguous location phrases such as "109 ham nghi" or "tran dai nghia".
+      const locationAliases = [shortName, name, address]
+        .map(alias => alias.split(/\s+/).filter(token => !BRANCH_STOP_WORDS.has(token)).join(' '))
+        .filter(alias => alias.length >= 4);
+      if (locationAliases.some(alias => raw.includes(alias) || compactRaw.includes(compactText(alias)))) score += 80;
+
+      return { branch, score };
+    })
+    .filter(entry => entry.score >= 50)
+    .sort((a, b) => b.score - a.score || a.branch.name.localeCompare(b.branch.name, 'vi'));
+
+  if (ranked.length === 0) return { status: 'NOT_FOUND', branch: null, candidates: [] };
+  const bestScore = ranked[0].score;
+  const tied = ranked.filter(entry => entry.score === bestScore).map(entry => entry.branch);
+  if (tied.length > 1) return { status: 'AMBIGUOUS', branch: null, candidates: tied.slice(0, 5) };
+
+  // A close second means the text is not specific enough to select a store safely.
+  if (ranked[1] && bestScore - ranked[1].score < 25) {
+    return { status: 'AMBIGUOUS', branch: null, candidates: ranked.slice(0, 5).map(entry => entry.branch) };
   }
+  return { status: 'MATCHED', branch: ranked[0].branch, candidates: [ranked[0].branch] };
+}
 
-  return highestScore >= 20 ? bestBranch : null;
+export function findBranchMatch(branches: TelegramBranch[], query?: string): TelegramBranch | null {
+  const resolution = resolveBranchMatch(branches, query);
+  return resolution.status === 'MATCHED' ? resolution.branch : null;
+}
+
+function branchSelectionError(branches: TelegramBranch[], query?: string): string {
+  if (branches.length === 0) {
+    return '🏪 Chưa có chi nhánh đang hoạt động trong cấu hình CRM. Vui lòng kiểm tra lại mục Cài đặt cửa hàng.';
+  }
+  const resolution = resolveBranchMatch(branches, query);
+  const entered = escapeTelegramHtml(query || '(chưa nhập)');
+  if (resolution.status === 'AMBIGUOUS') {
+    const choices = resolution.candidates
+      .map(branch => `<code>${escapeTelegramHtml(branch.code || branch.id)}</code> — ${escapeTelegramHtml(branch.name || branch.id)}`)
+      .join('\n• ');
+    return `⚠️ Tên chi nhánh "<code>${entered}</code>" đang khớp nhiều nơi. Hãy gửi đúng mã chi nhánh:\n• ${choices}`;
+  }
+  const choices = branches.slice(0, 12)
+    .map(branch => `<code>${escapeTelegramHtml(branch.code || branch.id)}</code> — ${escapeTelegramHtml(branch.name || branch.id)}`)
+    .join('\n• ');
+  return `🏪 Không tìm thấy chi nhánh "<code>${entered}</code>". Hãy dùng mã hoặc tên trong danh sách:\n• ${choices}`;
+}
+
+export function formatVietnamNow(value: Date | string | number = new Date()): string {
+  const date = value instanceof Date ? value : new Date(value);
+  const dateText = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', year: 'numeric'
+  }).format(date);
+  const timeText = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).format(date);
+  return `${timeText} ${dateText} (GMT+7)`;
 }
 
 export interface ResolvedDateRange {
@@ -229,17 +327,23 @@ export interface ResolvedDateRange {
 
 function normalizeDateInput(dateInput: string, today: string): string {
   const trimmed = dateInput.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const isoDate = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoDate) {
+    const normalized = `${isoDate[1]}-${isoDate[2].padStart(2, '0')}-${isoDate[3].padStart(2, '0')}`;
+    const parsed = new Date(`${normalized}T12:00:00+07:00`);
+    if (!Number.isNaN(parsed.getTime()) && getVietnamDateString(parsed) === normalized) return normalized;
+    throw new Error('TELEGRAM_DATE_INVALID');
+  }
   const ddmmyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (ddmmyyyy) {
-    return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}`;
+    return normalizeDateInput(`${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`, today);
   }
   const ddmm = trimmed.match(/^(\d{1,2})\/(\d{1,2})$/);
   if (ddmm) {
     const year = today.slice(0, 4);
-    return `${year}-${ddmm[2].padStart(2, '0')}-${ddmm[1].padStart(2, '0')}`;
+    return normalizeDateInput(`${year}-${ddmm[2]}-${ddmm[1]}`, today);
   }
-  return today;
+  throw new Error('TELEGRAM_DATE_INVALID');
 }
 
 function formatVnDate(isoDate: string): string {
@@ -390,7 +494,7 @@ export async function toolGetRevenueReport(
 ): Promise<string> {
   const config = getTelegramConfig();
   const isOwner = config.ownerUserIds.has(senderId);
-  const isAll = args.all || normalizeText(args.branchQuery || '').includes('all');
+  const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
 
   if (isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Quyền riêng tư: Báo cáo doanh số TOÀN HỆ THỐNG chỉ dành riêng cho Chủ hệ thống (Owner). Vui lòng chỉ định chi nhánh cụ thể.';
@@ -399,9 +503,7 @@ export async function toolGetRevenueReport(
   const branches = await fetchActiveBranches(db);
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
 
-  if (!isAll && !matchedBranch && branches.length > 0) {
-    return `🏪 Không tìm thấy chi nhánh khớp với "<code>${escapeTelegramHtml(args.branchQuery || '')}</code>". Hiện có: ${branches.map(b => b.name || b.id).join(', ')}.`;
-  }
+  if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
 
   const scopeId = isAll ? 'ALL' : String(matchedBranch!.id);
   const dateRange = resolveDateRange(args);
@@ -423,9 +525,11 @@ export async function toolGetRevenueReport(
 
   // Fallback to real-time invoices if aggregate was 0 or single date
   if (totalRevenue === 0 && totalInvoices === 0 && dateRange.dates.length <= 7) {
+    const startRange = getVietnamDayUtcRange(dateRange.startDate);
+    const endRange = getVietnamDayUtcRange(dateRange.endDate);
     let invQuery: FirebaseFirestore.Query = db.collection('invoices')
-      .where('createdAtIso', '>=', `${dateRange.startDate}T00:00:00`)
-      .where('createdAtIso', '<=', `${dateRange.endDate}T23:59:59.999`);
+      .where('createdAtIso', '>=', startRange.startUtc)
+      .where('createdAtIso', '<=', endRange.endUtc);
     if (matchedBranch) {
       invQuery = invQuery.where('branchId', '==', matchedBranch.id);
     }
@@ -444,7 +548,7 @@ export async function toolGetRevenueReport(
     `🏪 <b>Phạm vi:</b> ${escapeTelegramHtml(scopeLabel)}`,
     `• <b>Doanh thu:</b> <code>${formatVnd(totalRevenue)}</code>`,
     `• <b>Số đơn bán:</b> <b>${totalInvoices.toLocaleString('vi-VN')} hóa đơn</b>`,
-    `<i>Dữ liệu thời gian thực theo múi giờ Việt Nam.</i>`
+    `<i>Cập nhật lúc ${escapeTelegramHtml(formatVietnamNow())}</i>`
   ].join('\n');
 }
 
@@ -497,7 +601,7 @@ export async function toolCheckInventory(
 ): Promise<string> {
   const config = getTelegramConfig();
   const isOwner = config.ownerUserIds.has(senderId);
-  const isAll = args.all || normalizeText(args.branchQuery || '').includes('all');
+  const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
 
   if (isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Tra cứu tồn kho toàn hệ thống yêu cầu quyền Chủ hệ thống (Owner). Hãy chỉ định chi nhánh cụ thể.';
@@ -505,6 +609,7 @@ export async function toolCheckInventory(
 
   const branches = await fetchActiveBranches(db);
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
+  if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
 
   let query: FirebaseFirestore.Query = db.collection('devices').where('status', '==', 'in_stock');
   if (matchedBranch) {
@@ -539,7 +644,8 @@ export async function toolCheckInventory(
     ...topModels.map(([model, count]) => `• ${escapeTelegramHtml(model)}: <b>${count} máy</b>`),
     topModels.length < Object.keys(groupCounts).length
       ? `<i>...và ${Object.keys(groupCounts).length - topModels.length} dòng máy khác.</i>`
-      : ''
+      : '',
+    `<i>Cập nhật lúc ${escapeTelegramHtml(formatVietnamNow())}</i>`
   ]
     .filter(Boolean)
     .join('\n');
@@ -552,7 +658,7 @@ export async function toolGetTechnicalProgress(
 ): Promise<string> {
   const config = getTelegramConfig();
   const isOwner = config.ownerUserIds.has(senderId);
-  const isAll = args.all || normalizeText(args.branchQuery || '').includes('all');
+  const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
 
   if (isAll && !isOwner && config.ownerUserIds.size > 0) {
     return '⛔ Xem tiến độ kỹ thuật toàn hệ thống chỉ dành cho Chủ hệ thống. Vui lòng ghi rõ chi nhánh.';
@@ -560,6 +666,7 @@ export async function toolGetTechnicalProgress(
 
   const branches = await fetchActiveBranches(db);
   const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
+  if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
 
   const activeLineStatuses = ['ASSIGNED', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_PARTS', 'COMPLETED', 'REWORK_REQUIRED'];
   let lineQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrderLines').where('status', 'in', activeLineStatuses);
@@ -604,7 +711,8 @@ export async function toolGetTechnicalProgress(
     `• 📦 Chờ linh kiện: <b>${stageCounts.WAITING_PARTS || 0}</b>`,
     `• 🔍 Chờ nghiệm thu KCS: <b>${stageCounts.WAITING_QC || 0}</b>`,
     `• 🔄 Cần Rework / Làm lại: <b>${stageCounts.REWORK || 0}</b>`,
-    `• ✅ Đã xong (Chờ trả khách / Nhập kho): <b>${stageCounts.WAITING_DELIVERY || 0}</b>`
+    `• ✅ Đã xong (Chờ trả khách / Nhập kho): <b>${stageCounts.WAITING_DELIVERY || 0}</b>`,
+    `<i>Cập nhật lúc ${escapeTelegramHtml(formatVietnamNow())}</i>`
   ].join('\n');
 }
 
@@ -726,7 +834,9 @@ export async function toolGetAttendanceToday(
   const today = getVietnamDateString();
   const targetDate = args.date ? normalizeDateInput(args.date, today) : today;
   const branches = await fetchActiveBranches(db);
-  const matchedBranch = args.all ? null : findBranchMatch(branches, args.branchQuery);
+  const isAll = Boolean(args.all) || isAllBranchQuery(args.branchQuery);
+  const matchedBranch = isAll ? null : findBranchMatch(branches, args.branchQuery);
+  if (!isAll && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
 
   let query: FirebaseFirestore.Query = db.collection('attendance').where('date', '==', targetDate);
   if (matchedBranch) {
@@ -740,7 +850,7 @@ export async function toolGetAttendanceToday(
   const late = records.filter(r => (Number(r.lateMinutes) || 0) > 0);
   const completed = records.filter(r => r.attendanceStatus === 'COMPLETED' || r.checkOutTime);
 
-  const scopeLabel = matchedBranch ? matchedBranch.name || matchedBranch.id : 'Toàn hệ thống';
+  const scopeLabel = isAll ? 'Toàn hệ thống' : matchedBranch!.name || matchedBranch!.id;
   const dateLabel = targetDate === today ? `HÔM NAY (${formatVnDate(targetDate)})` : `NGÀY ${formatVnDate(targetDate)}`;
 
   return [
@@ -753,7 +863,8 @@ export async function toolGetAttendanceToday(
     late.length ? '<b>Danh sách đi trễ:</b>' : '',
     ...late.slice(0, 5).map(
       r => `• ${escapeTelegramHtml(r.staffName || 'NV')}: Trễ ${r.lateMinutes} phút (Ca ${escapeTelegramHtml(r.shiftName || '')})`
-    )
+    ),
+    `<i>Cập nhật lúc ${escapeTelegramHtml(formatVietnamNow())}</i>`
   ]
     .filter(Boolean)
     .join('\n');
@@ -773,10 +884,13 @@ export async function toolGetTopSellingProducts(
   const dateRange = resolveDateRange(args);
   const branches = await fetchActiveBranches(db);
   const matchedBranch = findBranchMatch(branches, args.branchQuery);
+  if (args.branchQuery && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
 
+  const startRange = getVietnamDayUtcRange(dateRange.startDate);
+  const endRange = getVietnamDayUtcRange(dateRange.endDate);
   let query: FirebaseFirestore.Query = db.collection('invoices')
-    .where('createdAtIso', '>=', `${dateRange.startDate}T00:00:00`)
-    .where('createdAtIso', '<=', `${dateRange.endDate}T23:59:59.999`);
+    .where('createdAtIso', '>=', startRange.startUtc)
+    .where('createdAtIso', '<=', endRange.endUtc);
 
   if (matchedBranch) {
     query = query.where('branchId', '==', matchedBranch.id);
@@ -828,6 +942,7 @@ export async function toolGetAgingInventory(
   
   const branches = await fetchActiveBranches(db);
   const matchedBranch = findBranchMatch(branches, args.branchQuery);
+  if (args.branchQuery && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
 
   let query: FirebaseFirestore.Query = db.collection('devices').where('status', '==', 'in_stock');
   if (matchedBranch) query = query.where('branchId', '==', matchedBranch.id);
@@ -871,10 +986,13 @@ export async function toolGetStaffPerformance(
   const dateRange = resolveDateRange(args);
   const branches = await fetchActiveBranches(db);
   const matchedBranch = findBranchMatch(branches, args.branchQuery);
+  if (args.branchQuery && !matchedBranch) return branchSelectionError(branches, args.branchQuery);
 
+  const startRange = getVietnamDayUtcRange(dateRange.startDate);
+  const endRange = getVietnamDayUtcRange(dateRange.endDate);
   let query: FirebaseFirestore.Query = db.collection('invoices')
-    .where('createdAtIso', '>=', `${dateRange.startDate}T00:00:00`)
-    .where('createdAtIso', '<=', `${dateRange.endDate}T23:59:59.999`);
+    .where('createdAtIso', '>=', startRange.startUtc)
+    .where('createdAtIso', '<=', endRange.endUtc);
 
   if (matchedBranch) query = query.where('branchId', '==', matchedBranch.id);
 

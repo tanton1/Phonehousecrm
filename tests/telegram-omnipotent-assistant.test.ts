@@ -24,8 +24,11 @@ import {
   isOpenAiCompatible,
   resolveBaseUrl,
   findBranchMatch,
+  resolveBranchMatch,
+  formatVietnamNow,
   resolveDateRange
 } from '../server/services/telegramAiAssistant';
+import { getVietnamDayUtcRange } from '../shared/vietnamTime';
 
 const ORIGINAL_ENV = {
   TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
@@ -63,6 +66,23 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
       kind: 'REVENUE',
       period: 'MONTH',
       all: true
+    });
+    expect(parseTelegramIntent('/doanhso hôm qua PH 109')).toMatchObject({
+      kind: 'REVENUE',
+      period: 'YESTERDAY',
+      branchToken: 'ph 109',
+      all: false
+    });
+    expect(parseTelegramIntent('/doanhso 28/08/2026 Phone House - 109 Hàm Nghi')).toMatchObject({
+      kind: 'REVENUE',
+      period: 'CUSTOM',
+      date: '28/08/2026',
+      branchToken: 'phone house - 109 ham nghi'
+    });
+    expect(parseTelegramIntent('/doanhso tuần trước XStore')).toMatchObject({
+      kind: 'REVENUE',
+      period: 'LAST_WEEK',
+      branchToken: 'xstore'
     });
 
     // IMEI
@@ -375,6 +395,7 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     // Exact ID / Code
     expect(findBranchMatch(sampleBranches, 'PH109')?.id).toBe('PH109');
     expect(findBranchMatch(sampleBranches, 'ph245')?.id).toBe('PH245');
+    expect(findBranchMatch(sampleBranches, 'PH 109')?.id).toBe('PH109');
 
     // Number tokens
     expect(findBranchMatch(sampleBranches, '109')?.id).toBe('PH109');
@@ -386,6 +407,10 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     expect(findBranchMatch(sampleBranches, 'Xã Đàn')?.id).toBe('PH245');
     expect(findBranchMatch(sampleBranches, 'Trần Đại Nghĩa')?.id).toBe('PH86');
     expect(findBranchMatch(sampleBranches, 'Hà Đông')?.id).toBe('PH_HD');
+    expect(findBranchMatch(sampleBranches, 'PhoneHouse - 109 Cầu Giấy')?.id).toBe('PH109');
+    expect(findBranchMatch([
+      { id: 'BR_PH', name: 'PhoneHouse Đà Nẵng - 109 Hàm Nghi', code: 'PH109', address: '109 Hàm Nghi, Đà Nẵng' }
+    ], 'Phone House 109 Hàm Nghi')?.id).toBe('BR_PH');
 
     // Conversational query
     expect(findBranchMatch(sampleBranches, 'báo cáo chi nhánh Cầu Giấy hôm nay')?.id).toBe('PH109');
@@ -396,6 +421,58 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     expect(findBranchMatch(sampleBranches, 'toàn hệ thống')).toBeNull();
     expect(findBranchMatch(sampleBranches, 'all')).toBeNull();
     expect(findBranchMatch(sampleBranches, 'tất cả chi nhánh')).toBeNull();
+  });
+
+  it('fails safely when a branch query is ambiguous or unknown', async () => {
+    const branches = [
+      { id: 'HN_01', name: 'PhoneHouse Nguyễn Trãi Hà Nội', code: 'HN01', shortName: 'Nguyễn Trãi', address: '100 Nguyễn Trãi, Hà Nội' },
+      { id: 'HCM_01', name: 'PhoneHouse Nguyễn Trãi TP.HCM', code: 'HCM01', shortName: 'Nguyễn Trãi', address: '200 Nguyễn Trãi, TP.HCM' }
+    ];
+    const resolution = resolveBranchMatch(branches, 'Nguyễn Trãi');
+    expect(resolution.status).toBe('AMBIGUOUS');
+    expect(resolution.candidates).toHaveLength(2);
+
+    const collection = vi.fn((name: string) => {
+      if (name === 'branches') {
+        return { limit: () => ({ get: async () => ({ docs: branches.map(branch => ({ id: branch.id, data: () => branch })) }) }) };
+      }
+      throw new Error(`UNEXPECTED_COLLECTION_${name}`);
+    });
+    const reply = await toolCheckInventory({ collection } as any, { branchQuery: 'chi nhánh không tồn tại' }, 'OWNER');
+    expect(reply).toContain('Không tìm thấy chi nhánh');
+    expect(collection).not.toHaveBeenCalledWith('devices');
+  });
+
+  it('queries invoice fallback with exact Vietnam UTC day boundaries', async () => {
+    const whereCalls: Array<[string, string, string]> = [];
+    const invoiceQuery: any = {
+      where: vi.fn((field: string, op: string, value: string) => {
+        whereCalls.push([field, op, value]);
+        return invoiceQuery;
+      }),
+      limit: vi.fn(() => invoiceQuery),
+      get: async () => ({ docs: [] })
+    };
+    const mockDb: any = {
+      collection: vi.fn((name: string) => {
+        if (name === 'branches') {
+          return { limit: () => ({ get: async () => ({ docs: [{ id: 'PH109', data: () => ({ name: 'Phone House - 109 Hàm Nghi', code: 'PH 109' }) }] }) }) };
+        }
+        if (name === 'executiveDailyAggregates') return { doc: (id: string) => ({ id }) };
+        if (name === 'invoices') return invoiceQuery;
+        throw new Error(`UNEXPECTED_COLLECTION_${name}`);
+      }),
+      getAll: async () => [{ exists: false }]
+    };
+
+    const reply = await toolGetRevenueReport(mockDb, { date: '29/08/2026', branchQuery: 'PH109' }, 'OWNER');
+    expect(whereCalls).toEqual(expect.arrayContaining([
+      ['createdAtIso', '>=', '2026-08-28T17:00:00.000Z'],
+      ['createdAtIso', '<=', '2026-08-29T16:59:59.999Z'],
+      ['branchId', '==', 'PH109']
+    ]));
+    expect(reply).toContain('29/08/2026');
+    expect(reply).toContain('(GMT+7)');
   });
 
   it('accurately resolves date ranges for yesterday, week, last week, month, and specific dates', () => {
@@ -427,5 +504,11 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
 
     const lastMonth = resolveDateRange({ period: 'LAST_MONTH' });
     expect(lastMonth.dates.length).toBeGreaterThanOrEqual(28);
+    expect(getVietnamDayUtcRange('2026-08-29')).toEqual({
+      startUtc: '2026-08-28T17:00:00.000Z',
+      endUtc: '2026-08-29T16:59:59.999Z'
+    });
+    expect(formatVietnamNow(new Date('2026-08-29T07:32:10.000Z'))).toContain('14:32:10');
+    expect(formatVietnamNow(new Date('2026-08-29T07:32:10.000Z'))).toContain('(GMT+7)');
   });
 });
