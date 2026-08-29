@@ -14,6 +14,7 @@ import {
   loadTelegramConfig,
   registerTelegramWebhook,
   saveTelegramConfiguration,
+  scanCrmDailyDigestAlerts,
   scanMissingAttendanceAlerts,
   sendTelegramMessage,
   telegramHelpText,
@@ -319,6 +320,20 @@ export function createTelegramRouter(db: Firestore | null): Router {
   };
   router.post('/scan-attendance', handleAttendanceScan);
   router.get('/scan-attendance', handleAttendanceScan);
+
+  const handleOperationsScan = async (req: Request, res: Response) => {
+    if (!internalSecretValid(req)) return errorResponse(res, 401, 'CRON_UNAUTHORIZED', 'Lịch chạy không hợp lệ.');
+    if (!db) return errorResponse(res, 503, 'DATABASE_UNAVAILABLE', 'Máy chủ dữ liệu chưa sẵn sàng.');
+    await loadTelegramConfig(db, true);
+    const [attendance, crm] = await Promise.all([
+      scanMissingAttendanceAlerts(db),
+      scanCrmDailyDigestAlerts(db)
+    ]);
+    const dispatch = await dispatchPendingTelegramOutbox(db, 50);
+    return res.json({ success: true, data: { attendance, crm, dispatch } });
+  };
+  router.post('/scan-operations', handleOperationsScan);
+  router.get('/scan-operations', handleOperationsScan);
 
   router.get('/help', (_req, res) => res.json({ success: true, data: { html: telegramHelpText() } }));
 

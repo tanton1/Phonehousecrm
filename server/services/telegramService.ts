@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
-import { getVietnamDateString } from '../../shared/vietnamTime';
+import { getVietnamDateString, getVietnamDayUtcRange } from '../../shared/vietnamTime';
 import { getDeviceLifecycleTimeline } from './deviceLifecycleService';
 import { deriveTechnicalBoardStage } from './technicalService';
 import { verifyGeofence } from './geofenceService';
@@ -83,8 +83,7 @@ export interface AttendanceTelegramAlertInput {
   violations: Array<'LATE' | 'OUTSIDE_GEOFENCE' | 'MISSING_CHECK_IN' | 'RETURNED_INSIDE'>;
 }
 
-export interface TelegramOutboxRecord extends AttendanceTelegramAlertInput {
-  eventType: 'ATTENDANCE_EXCEPTION';
+interface TelegramOutboxBase {
   status: 'PENDING' | 'SENDING' | 'SENT' | 'FAILED';
   attempts: number;
   destination: 'PRIMARY_GROUP';
@@ -95,6 +94,31 @@ export interface TelegramOutboxRecord extends AttendanceTelegramAlertInput {
   providerMessageId?: string | number | null;
   lastErrorCode?: string | null;
 }
+
+export interface AttendanceTelegramOutboxRecord extends AttendanceTelegramAlertInput, TelegramOutboxBase {
+  eventType: 'ATTENDANCE_EXCEPTION';
+}
+
+export interface CrmDailyDigestItem {
+  taskId: string;
+  title: string;
+  assignedStaffName: string;
+  branchName: string;
+  dueAt: string;
+  overdue: boolean;
+}
+
+export interface CrmDailyDigestTelegramOutboxRecord extends TelegramOutboxBase {
+  eventType: 'CRM_DAILY_DIGEST';
+  reportDate: string;
+  overdueCount: number;
+  dueTodayCount: number;
+  activeTaskCount: number;
+  coverageComplete: boolean;
+  items: CrmDailyDigestItem[];
+}
+
+export type TelegramOutboxRecord = AttendanceTelegramOutboxRecord | CrmDailyDigestTelegramOutboxRecord;
 
 type TelegramIntent =
   | { kind: 'HELP' }
@@ -350,7 +374,7 @@ export function attendanceTelegramOutboxId(attendanceId: string, action: Telegra
   return crypto.createHash('sha256').update(`ATTENDANCE:${attendanceId}:${action}:${suffix}`).digest('hex');
 }
 
-export function createAttendanceTelegramOutboxRecord(input: AttendanceTelegramAlertInput): TelegramOutboxRecord {
+export function createAttendanceTelegramOutboxRecord(input: AttendanceTelegramAlertInput): AttendanceTelegramOutboxRecord {
   const record = {
     ...input,
     staffName: String(input.staffName || 'Nhân viên').trim().slice(0, 160),
@@ -367,7 +391,44 @@ export function createAttendanceTelegramOutboxRecord(input: AttendanceTelegramAl
   // Firestore Admin rejects explicit `undefined` values. Legacy attendance
   // records may not contain every optional shift field, so omit those keys
   // structurally instead of relying on a global ignoreUndefined setting.
-  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as unknown as TelegramOutboxRecord;
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined)) as unknown as AttendanceTelegramOutboxRecord;
+}
+
+export function crmDailyDigestOutboxId(reportDate: string): string {
+  return crypto.createHash('sha256').update(`CRM_DAILY_DIGEST:${reportDate}`).digest('hex');
+}
+
+export function createCrmDailyDigestTelegramOutboxRecord(input: {
+  reportDate: string;
+  overdueCount: number;
+  dueTodayCount: number;
+  activeTaskCount: number;
+  coverageComplete: boolean;
+  items: CrmDailyDigestItem[];
+}): CrmDailyDigestTelegramOutboxRecord {
+  return {
+    eventType: 'CRM_DAILY_DIGEST',
+    reportDate: input.reportDate,
+    overdueCount: Math.max(0, Math.trunc(Number(input.overdueCount || 0))),
+    dueTodayCount: Math.max(0, Math.trunc(Number(input.dueTodayCount || 0))),
+    activeTaskCount: Math.max(0, Math.trunc(Number(input.activeTaskCount || 0))),
+    coverageComplete: input.coverageComplete,
+    items: input.items.slice(0, 12).map(item => ({
+      taskId: String(item.taskId || '').slice(0, 120),
+      title: String(item.title || 'Công việc CRM').trim().slice(0, 160),
+      assignedStaffName: String(item.assignedStaffName || 'Chưa phân công').trim().slice(0, 120),
+      branchName: String(item.branchName || 'Chi nhánh').trim().slice(0, 120),
+      dueAt: String(item.dueAt || '').slice(0, 40),
+      overdue: item.overdue === true
+    })),
+    status: 'PENDING',
+    attempts: 0,
+    destination: 'PRIMARY_GROUP',
+    createdAt: FieldValue.serverTimestamp(),
+    createdAtIso: new Date().toISOString(),
+    nextAttemptAt: null,
+    lastErrorCode: null
+  };
 }
 
 export function escapeTelegramHtml(value: unknown): string {
@@ -379,7 +440,7 @@ function formatVnd(value: unknown): string {
   return `${(Number.isFinite(amount) ? Math.round(amount) : 0).toLocaleString('vi-VN')} đ`;
 }
 
-function formatAttendanceAlert(record: TelegramOutboxRecord): string {
+function formatAttendanceAlert(record: AttendanceTelegramOutboxRecord): string {
   const labels: Record<string, string> = {
     CHECK_IN: 'VÀO CA', CHECK_OUT: 'RA CA', MISSING_CHECK_IN: 'CHƯA VÀO CA', SHIFT_LOCATION: 'VỊ TRÍ TRONG CA'
   };
@@ -537,7 +598,7 @@ export async function dispatchTelegramOutboxEvent(db: Firestore, eventId: string
   });
   if (!claimed || !record) return { sent: false, skipped: true };
   try {
-    const provider = await sendTelegramMessage(formatAttendanceAlert(record), { config });
+    const provider = await sendTelegramMessage(formatTelegramOutboxAlert(record), { config });
     await ref.update({ status: 'SENT', sentAt: FieldValue.serverTimestamp(), providerMessageId: provider?.message_id || null, nextAttemptAt: null, lastErrorCode: null });
     return { sent: true };
   } catch (error: any) {
@@ -566,8 +627,113 @@ export async function dispatchPendingTelegramOutbox(db: Firestore, limit = 25): 
   return { processed: ids.length, sent, failed };
 }
 
+function firestoreDateIso(value: any): string {
+  if (!value) return '';
+  if (typeof value === 'string') return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : '';
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : '';
+  if (typeof value?.toDate === 'function') {
+    const date = value.toDate();
+    return date instanceof Date && Number.isFinite(date.getTime()) ? date.toISOString() : '';
+  }
+  const seconds = Number(value?.seconds ?? value?._seconds);
+  return Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : '';
+}
+
+export async function scanCrmDailyDigestAlerts(
+  db: Firestore,
+  nowInput: Date | string | number = new Date()
+): Promise<{
+  scanned: number;
+  created: number;
+  eventId?: string;
+  overdueCount: number;
+  dueTodayCount: number;
+  coverageComplete: boolean;
+}> {
+  const now = nowInput instanceof Date ? new Date(nowInput.getTime()) : new Date(nowInput);
+  if (!Number.isFinite(now.getTime())) throw new Error('CRM_DIGEST_TIME_INVALID');
+  const reportDate = getVietnamDateString(now);
+  const { startUtc, endUtc } = getVietnamDayUtcRange(reportDate);
+  const startMs = Date.parse(startUtc);
+  const endMs = Date.parse(endUtc);
+  const nowMs = now.getTime();
+  const taskLimit = 5000;
+  const [taskSnapshot, branchSnapshot] = await Promise.all([
+    db.collection('crmTasks').where('status', 'in', ['PENDING', 'IN_PROGRESS']).limit(taskLimit).get(),
+    db.collection('branches').limit(500).get()
+  ]);
+  const branchNames = new Map(branchSnapshot.docs.map(document => {
+    const branch = document.data() || {};
+    return [document.id, String(branch.name || branch.code || document.id)] as const;
+  }));
+  const activeTasks = taskSnapshot.docs.map(document => {
+    const task = document.data() || {};
+    const dueAt = firestoreDateIso(task.dueAt || task.nextActionAt || task.followUpDate);
+    const dueMs = dueAt ? Date.parse(dueAt) : Number.NaN;
+    return { id: document.id, task, dueAt, dueMs };
+  });
+  const overdue = activeTasks.filter(item => Number.isFinite(item.dueMs) && item.dueMs < nowMs);
+  const dueToday = activeTasks.filter(item => Number.isFinite(item.dueMs) && item.dueMs >= nowMs && item.dueMs >= startMs && item.dueMs <= endMs);
+  const priorityItems = [...overdue, ...dueToday]
+    .sort((left, right) => left.dueMs - right.dueMs)
+    .slice(0, 12)
+    .map(item => ({
+      taskId: item.id,
+      title: String(item.task.title || item.task.taskType || item.task.type || 'Chăm sóc khách hàng'),
+      assignedStaffName: String(item.task.assignedStaffName || item.task.assignedToName || item.task.assignedStaffId || 'Chưa phân công'),
+      branchName: branchNames.get(String(item.task.branchId || '')) || String(item.task.branchName || item.task.branchId || 'Chi nhánh'),
+      dueAt: item.dueAt,
+      overdue: item.dueMs < nowMs
+    }));
+  const coverageComplete = taskSnapshot.size < taskLimit;
+  if (!overdue.length && !dueToday.length) {
+    return { scanned: taskSnapshot.size, created: 0, overdueCount: 0, dueTodayCount: 0, coverageComplete };
+  }
+  const eventId = crmDailyDigestOutboxId(reportDate);
+  try {
+    await db.collection('telegramOutboxEvents').doc(eventId).create(createCrmDailyDigestTelegramOutboxRecord({
+      reportDate,
+      overdueCount: overdue.length,
+      dueTodayCount: dueToday.length,
+      activeTaskCount: activeTasks.length,
+      coverageComplete,
+      items: priorityItems
+    }));
+    return { scanned: taskSnapshot.size, created: 1, eventId, overdueCount: overdue.length, dueTodayCount: dueToday.length, coverageComplete };
+  } catch (error: any) {
+    const duplicateCode = String(error?.code || error?.message || '').toLowerCase();
+    if (!duplicateCode.includes('already') && Number(error?.code) !== 6) throw error;
+    return { scanned: taskSnapshot.size, created: 0, eventId, overdueCount: overdue.length, dueTodayCount: dueToday.length, coverageComplete };
+  }
+}
+
 function normalizeText(value: unknown): string {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd').replace(/[^a-z0-9@/_\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function formatCrmDailyDigestAlert(record: CrmDailyDigestTelegramOutboxRecord): string {
+  return [
+    `<b>📋 CRM CẦN XỬ LÝ · ${escapeTelegramHtml(record.reportDate)}</b>`,
+    `• Công việc đang mở: <b>${record.activeTaskCount}</b>`,
+    `• 🔴 Quá hạn: <b>${record.overdueCount}</b>`,
+    `• 🟡 Đến hạn hôm nay: <b>${record.dueTodayCount}</b>`,
+    '',
+    ...record.items.map((item, index) => {
+      const dueTimestamp = Date.parse(item.dueAt);
+      const dueTime = Number.isFinite(dueTimestamp)
+        ? new Date(dueTimestamp).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+        : 'chưa đặt';
+      return `${index + 1}. ${item.overdue ? '🔴' : '🟡'} <b>${escapeTelegramHtml(item.title)}</b>\n   ${escapeTelegramHtml(item.assignedStaffName)} · ${escapeTelegramHtml(item.branchName)} · hạn ${escapeTelegramHtml(dueTime)}`;
+    }),
+    record.items.length === 0 ? '<i>Không có task CRM đến hạn cần nhắc.</i>' : '',
+    record.coverageComplete ? '' : '<i>⚠️ Dữ liệu đã chạm giới hạn quét; quản lý nên mở báo cáo CRM để xem đầy đủ.</i>',
+    '<i>Dùng /vieccrm MÃ_CHI_NHÁNH để xem hàng đợi chi tiết.</i>'
+  ].filter(Boolean).join('\n');
+}
+
+function formatTelegramOutboxAlert(record: TelegramOutboxRecord): string {
+  if (record.eventType === 'CRM_DAILY_DIGEST') return formatCrmDailyDigestAlert(record);
+  return formatAttendanceAlert(record);
 }
 
 export function isTelegramSafeBranchShortcut(rawText: string): boolean {
@@ -742,14 +908,19 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
     return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
   }
 
-  if (/\b(crm pipeline|pipeline crm|bao cao crm|ty le chuyen doi lead)\b/.test(normalized)) {
-    const scope = parseTelegramCommandScope(normalized.replace(/\b(crm pipeline|pipeline crm|bao cao crm|ty le chuyen doi lead)\b/g, ' '));
+  if (/\b(crm pipeline|pipeline crm|bao cao crm|ty le chuyen doi lead|ty le chuyen doi crm|lead moi|tong lead|lead hom nay)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized.replace(/\b(crm pipeline|pipeline crm|bao cao crm|ty le chuyen doi lead|ty le chuyen doi crm|lead moi|tong lead|lead hom nay)\b/g, ' '));
     return { kind: 'CRM_PIPELINE', branchToken: scope.branchToken, all: scope.all, period: scope.period, date: scope.date };
   }
 
-  if (/\b(viec crm|lead qua han|can cham soc|viec can lam|follow up)\b/.test(normalized)) {
-    const scope = parseTelegramCommandScope(normalized.replace(/\b(viec crm|lead qua han|can cham soc|viec can lam|follow up)\b/g, ' '));
+  if (/\b(viec crm|lead qua han|can cham soc|viec can lam|follow up|khach can goi lai|khach can goi|can goi lai|lich hen crm|task crm|cong viec crm)\b/.test(normalized)) {
+    const scope = parseTelegramCommandScope(normalized.replace(/\b(viec crm|lead qua han|can cham soc|viec can lam|follow up|khach can goi lai|khach can goi|can goi lai|lich hen crm|task crm|cong viec crm)\b/g, ' '));
     return { kind: 'CRM_WORK_QUEUE', branchToken: scope.branchToken, all: scope.all };
+  }
+
+  const customerPhoneMatch = normalized.match(/\b(0\d{9,10})\b/);
+  if (customerPhoneMatch && /\b(khach|khach hang|lead|customer|tra cuu)\b/.test(normalized)) {
+    return { kind: 'CUSTOMER', query: customerPhoneMatch[1] };
   }
 
   if (/^(danh sach |cac |ma )?chi nhanh$/.test(normalized)) return { kind: 'BRANCHES' };
@@ -769,11 +940,14 @@ export function renderMainMenuKeyboard() {
         { text: '📦 Tồn Kho', callback_data: 'menu:inventory' }
       ],
       [
-        { text: '🔧 Kỹ Thuật & KCS', callback_data: 'menu:technical' },
-        { text: '⏰ Chấm Công', callback_data: 'menu:attendance' }
+        { text: '👥 CRM & Chăm sóc', callback_data: 'menu:crm' },
+        { text: '🔧 Kỹ Thuật & KCS', callback_data: 'menu:technical' }
       ],
       [
-        { text: '💵 Sổ Quỹ (Owner)', callback_data: 'menu:cashbook' },
+        { text: '⏰ Chấm Công', callback_data: 'menu:attendance' },
+        { text: '💵 Sổ Quỹ', callback_data: 'menu:cashbook' }
+      ],
+      [
         { text: '❓ Trợ Giúp', callback_data: 'menu:help' }
       ],
       [
@@ -801,6 +975,24 @@ export function renderRevenueMenuKeyboard() {
   };
 }
 
+export function renderCrmMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '📊 Pipeline hôm nay', callback_data: 'crm:pipeline:today' },
+        { text: '📈 Pipeline tháng', callback_data: 'crm:pipeline:month' }
+      ],
+      [
+        { text: '📋 Việc cần làm & quá hạn', callback_data: 'crm:work-queue' }
+      ],
+      [
+        { text: '🏪 Đổi chi nhánh', callback_data: 'menu:branches' },
+        { text: '🔙 Menu Chính', callback_data: 'menu:main' }
+      ]
+    ]
+  };
+}
+
 function renderPreferredBranchQuickActions() {
   return {
     inline_keyboard: [
@@ -819,6 +1011,10 @@ function renderPreferredBranchQuickActions() {
       [
         { text: '🧰 Sửa lẻ', callback_data: 'quick:service-repairs' },
         { text: '⏰ Chấm công', callback_data: 'quick:attendance' }
+      ],
+      [
+        { text: '👥 CRM pipeline', callback_data: 'crm:pipeline:month' },
+        { text: '📋 Việc CRM', callback_data: 'crm:work-queue' }
       ],
       [
         { text: '🏪 Đổi chi nhánh', callback_data: 'menu:branches' }
@@ -853,6 +1049,30 @@ export async function handleTelegramCallbackQuery(
   } else if (data === 'menu:revenue') {
     replyText = '📊 <b>CHỌN MỐC THỜI GIAN TRA CỨU DOANH SỐ:</b>';
     replyMarkup = renderRevenueMenuKeyboard();
+  } else if (data === 'menu:crm') {
+    replyText = [
+      '<b>👥 CRM & CHĂM SÓC KHÁCH HÀNG</b>',
+      'Chọn báo cáo theo chi nhánh mặc định hoặc dùng:',
+      '<code>/khachhang SỐ_ĐIỆN_THOẠI</code> để mở Customer 360.'
+    ].join('\n');
+    replyMarkup = renderCrmMenuKeyboard();
+  } else if (['crm:pipeline:today', 'crm:pipeline:month', 'crm:work-queue'].includes(data)) {
+    const preference = await loadTelegramUserBranchPreference(db, senderId);
+    if (!preference) {
+      const directory = await branchesReply(db, 'Chọn chi nhánh mặc định trước khi xem CRM.');
+      replyText = directory.text;
+      replyMarkup = directory.replyMarkup;
+    } else if (data === 'crm:work-queue') {
+      replyText = await toolGetCrmWorkQueue(db, { branchQuery: preference.branchId, all: false }, principal);
+      replyMarkup = renderCrmMenuKeyboard();
+    } else {
+      replyText = await toolGetCrmPipeline(db, {
+        branchQuery: preference.branchId,
+        all: false,
+        period: data.endsWith(':month') ? 'MONTH' : 'TODAY'
+      }, principal);
+      replyMarkup = renderCrmMenuKeyboard();
+    }
   } else if (data === 'revenue:today:all') {
     replyText = await revenueReply(db, { kind: 'REVENUE', period: 'TODAY', all: true }, senderId, principal);
     replyMarkup = renderRevenueMenuKeyboard();

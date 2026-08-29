@@ -3,6 +3,7 @@ import {
   answerTelegramQuery,
   clearTelegramConfigCache,
   parseTelegramIntent,
+  renderCrmMenuKeyboard,
   renderMainMenuKeyboard,
   renderRevenueMenuKeyboard,
   telegramHelpText,
@@ -144,6 +145,15 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
       kind: 'CUSTOMER',
       query: '0988123456'
     });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot lead mới CN-02 tháng này')).toMatchObject({
+      kind: 'CRM_PIPELINE', branchToken: 'cn-02', period: 'MONTH'
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot khách cần gọi lại CN-02')).toMatchObject({
+      kind: 'CRM_WORK_QUEUE', branchToken: 'cn-02'
+    });
+    expect(parseTelegramIntent('@trolyAlphonehouse_bot tra cứu khách 0988123456')).toEqual({
+      kind: 'CUSTOMER', query: '0988123456'
+    });
 
     // Cashbook
     expect(parseTelegramIntent('/soquy homnay')).toEqual({
@@ -179,6 +189,16 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
     expect(mainKey.inline_keyboard.length).toBeGreaterThanOrEqual(3);
     expect(mainKey.inline_keyboard[0][0]).toMatchObject({ text: '💰 Doanh Số', callback_data: 'menu:revenue' });
     expect(mainKey.inline_keyboard[0][1]).toMatchObject({ text: '📦 Tồn Kho', callback_data: 'menu:inventory' });
+    expect(mainKey.inline_keyboard.flat()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ callback_data: 'menu:crm' })
+    ]));
+
+    const crmKey = renderCrmMenuKeyboard();
+    expect(crmKey.inline_keyboard.flat()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ callback_data: 'crm:pipeline:today' }),
+      expect.objectContaining({ callback_data: 'crm:pipeline:month' }),
+      expect.objectContaining({ callback_data: 'crm:work-queue' })
+    ]));
 
     const revKey = renderRevenueMenuKeyboard();
     expect(revKey.inline_keyboard[0]).toEqual(
