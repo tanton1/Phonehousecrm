@@ -22,7 +22,8 @@ import {
   DollarSign,
   Database,
   Camera,
-  Grid3X3
+  Grid3X3,
+  FileScan
 } from 'lucide-react';
 import React from 'react';
 import type { Permission } from '../../shared/permissions';
@@ -58,6 +59,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     label: 'Bán Hàng & Thu Cũ',
     items: [
       { id: 'pos', label: 'POS Thu Ngân', icon: ShoppingCart, shortcut: 'F2', permission: 'POS_CHECKOUT' },
+      { id: 'ai-capture', label: 'AI Nhập Liệu', icon: FileScan, roles: ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH', 'CASHIER'] },
       { id: 'invoices', label: 'Quản Lý Hóa Đơn', icon: Receipt, shortcut: 'Alt+2' },
       { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: Repeat },
       { id: 'installments', label: 'Đối Soát Trả Góp', icon: DollarSign, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] }

@@ -21,6 +21,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(allItemIds).toContain('store-settings');
     expect(allItemIds).toContain('master-catalog');
     expect(allItemIds).toContain('inventory-matrix');
+    expect(allItemIds).toContain('ai-capture');
     expect(allItemIds.filter(id => id === 'hr-attendance')).toHaveLength(1);
     expect(allItemIds).not.toContain('payroll');
     expect(allItemIds).not.toContain('shift-scheduling');
@@ -38,6 +39,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(salesItemIds).toContain('crm');
     expect(salesItemIds).toContain('checkin-portal');
     expect(salesItemIds).toContain('warranty');
+    expect(salesItemIds).toContain('ai-capture');
 
     // Blocked for Sales
     expect(salesItemIds).not.toContain('funds');
@@ -63,7 +65,7 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
 
   it('Case 5: CSKH tập trung vào CRM, Inbox và chấm công', () => {
     const ids = getAuthorizedNavigation('CUSTOMER_CARE').flatMap(group => group.items.map(item => item.id));
-    expect(ids).toEqual(expect.arrayContaining(['dashboard', 'crm', 'omnichannel-chat', 'hr-attendance', 'checkin-portal']));
+    expect(ids).toEqual(expect.arrayContaining(['dashboard', 'crm', 'omnichannel-chat', 'ai-capture', 'hr-attendance', 'checkin-portal']));
     expect(ids).not.toEqual(expect.arrayContaining(['pos', 'inventory', 'funds', 'users']));
     expect(getMobilePrimaryTabs('CUSTOMER_CARE').map(item => item.id)).toEqual(['dashboard', 'crm', 'omnichannel-chat', 'checkin-portal', 'more']);
   });

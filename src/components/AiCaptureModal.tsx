@@ -14,6 +14,7 @@ interface AiCaptureModalProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenPOS?: (extraction: SalesSlipExtraction, draftId: string) => void;
+  embedded?: boolean;
 }
 
 function formatMoney(value: number | null | undefined): string {
@@ -26,7 +27,7 @@ function confidenceLabel(value: number): string {
   return 'Thấp';
 }
 
-export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose, onOpenPOS }) => {
+export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose, onOpenPOS, embedded = false }) => {
   const [sourceType, setSourceType] = useState<'SALES_SLIP' | 'CONVERSATION'>('SALES_SLIP');
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<AiCaptureResult | null>(null);
@@ -136,8 +137,8 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
   const conversation = extraction?.sourceType === 'CONVERSATION' ? extraction : null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-zinc-950/70 p-0 backdrop-blur-sm sm:items-center sm:p-4">
-      <div className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-orange-200 bg-white shadow-2xl sm:rounded-3xl">
+    <div className={embedded ? 'w-full' : 'fixed inset-0 z-[70] flex items-end justify-center bg-zinc-950/70 p-0 backdrop-blur-sm sm:items-center sm:p-4'}>
+      <div className={embedded ? 'flex min-h-[calc(100vh-8rem)] w-full flex-col overflow-hidden rounded-3xl border border-orange-200 bg-white shadow-sm' : 'flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-orange-200 bg-white shadow-2xl sm:rounded-3xl'}>
         <header className="flex items-start justify-between gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
             <div className="rounded-2xl bg-orange-600 p-2.5 text-white shadow-lg shadow-orange-600/20"><Sparkles className="h-5 w-5" /></div>
@@ -146,7 +147,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
               <p className="text-[11px] font-semibold text-zinc-500">Đọc phiếu bán hàng hoặc nghe hội thoại · luôn cần nhân viên duyệt</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-xl p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800" aria-label="Đóng"><X className="h-5 w-5" /></button>
+          {!embedded && <button type="button" onClick={onClose} className="rounded-xl p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800" aria-label="Đóng"><X className="h-5 w-5" /></button>}
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-5">

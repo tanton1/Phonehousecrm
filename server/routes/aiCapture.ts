@@ -239,7 +239,7 @@ async function persistCapture(db: Firestore | null, sourceType: AiCaptureSourceT
 
 export function createAiCaptureRouter(db: Firestore | null): Router {
   const router = Router();
-  router.post('/extract', captureRateLimit, authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'), async (req: Request, res: Response) => {
+  router.post('/extract', captureRateLimit, authenticateFirebase, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH', 'CASHIER'), async (req: Request, res: Response) => {
     const sourceType = String(req.body?.sourceType || '').trim().toUpperCase() as AiCaptureSourceType;
     const mimeType = String(req.body?.mimeType || '').trim().toLowerCase();
     const rawBase64 = String(req.body?.data || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s/g, '');
@@ -268,7 +268,7 @@ export function createAiCaptureRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/drafts/:draftId/confirm', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'), async (req: Request, res: Response) => {
+  router.post('/drafts/:draftId/confirm', authenticateFirebase, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH', 'CASHIER'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
     const ref = db.collection('aiCaptureDrafts').doc(String(req.params.draftId || ''));
     try {
@@ -287,7 +287,7 @@ export function createAiCaptureRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/drafts/:draftId/create-lead', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'), async (req: Request, res: Response) => {
+  router.post('/drafts/:draftId/create-lead', authenticateFirebase, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH', 'CASHIER'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
     const ref = db.collection('aiCaptureDrafts').doc(String(req.params.draftId || ''));
     try {

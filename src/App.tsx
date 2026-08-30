@@ -273,7 +273,6 @@ export default function App() {
     }
   }, [currentUser]);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
-  const [isAiCaptureOpen, setIsAiCaptureOpen] = useState(false);
   const [posAiCapture, setPosAiCapture] = useState<{ draftId: string; extraction: SalesSlipExtraction } | null>(null);
   const [isExecutiveAIOpen, setIsExecutiveAIOpen] = useState(false);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
@@ -1931,11 +1930,25 @@ export default function App() {
             }}
             onOpenNewDeviceModal={() => setActiveTab('inventory')}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
-            onOpenAiCapture={() => setIsAiCaptureOpen(true)}
+            onOpenAiCapture={() => setActiveTab('ai-capture')}
             onLogout={handleLogout}
             partners={filteredPartners}
             invoices={filteredInvoices}
             devices={filteredDevices}
+          />
+        )}
+
+        {activeTab === 'ai-capture' && (
+          <AiCaptureModal
+            isOpen
+            embedded
+            onClose={() => setActiveTab('dashboard')}
+            onOpenPOS={(extraction, draftId) => {
+              setPosCustomerContext({ name: extraction.customer.name, phone: extraction.customer.phone });
+              setPosAiCapture({ draftId, extraction });
+              setPosPreSelectedDevice(null);
+              setActiveTab('pos');
+            }}
           />
         )}
 
@@ -2085,18 +2098,6 @@ export default function App() {
       <AICopilotModal
         isOpen={isAICopilotOpen}
         onClose={() => setIsAICopilotOpen(false)}
-      />
-
-      <AiCaptureModal
-        isOpen={isAiCaptureOpen}
-        onClose={() => setIsAiCaptureOpen(false)}
-        onOpenPOS={(extraction, draftId) => {
-          setPosCustomerContext({ name: extraction.customer.name, phone: extraction.customer.phone });
-          setPosAiCapture({ draftId, extraction });
-          setPosPreSelectedDevice(null);
-          setIsAiCaptureOpen(false);
-          setActiveTab('pos');
-        }}
       />
 
       {/* Executive AI Voice Assistant Modal (Idea 1) */}

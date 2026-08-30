@@ -4,7 +4,7 @@ import { hasPermission, normalizeRole } from '../../shared/permissions';
 export function isItemAuthorized(item: NavigationItem, userRole: string = 'SALES'): boolean {
   userRole = normalizeRole(userRole);
   if (userRole === 'CUSTOMER_CARE') {
-    return ['dashboard', 'crm', 'omnichannel-chat', 'hr-attendance', 'staff-hr', 'checkin-portal'].includes(item.id);
+    return ['dashboard', 'crm', 'omnichannel-chat', 'ai-capture', 'hr-attendance', 'staff-hr', 'checkin-portal'].includes(item.id);
   }
   if (item.permission && !hasPermission(userRole, item.permission)) return false;
   if (!item.roles || item.roles.length === 0) return true;
