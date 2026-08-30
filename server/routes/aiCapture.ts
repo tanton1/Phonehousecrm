@@ -71,12 +71,14 @@ const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
 const MAX_TRANSCRIPT_CHARS = 20_000;
 const DEFAULT_CAPTURE_MODEL = String(process.env.GEMINI_CAPTURE_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
+const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const AUDIO_MIME_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/x-m4a'];
 
 const ALLOWED_MIME: Record<AiCaptureSourceType, string[]> = {
-  SALES_SLIP: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
-  CONVERSATION: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/x-m4a'],
-  PURCHASE_RECEIPT: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
-  REPAIR_INTAKE: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/x-m4a']
+  SALES_SLIP: [...IMAGE_MIME_TYPES, ...AUDIO_MIME_TYPES],
+  CONVERSATION: AUDIO_MIME_TYPES,
+  PURCHASE_RECEIPT: [...IMAGE_MIME_TYPES, ...AUDIO_MIME_TYPES],
+  REPAIR_INTAKE: [...IMAGE_MIME_TYPES, ...AUDIO_MIME_TYPES]
 };
 
 const captureRateLimit = createRateLimit({ prefix: 'ai-capture', windowMs: 60_000, maxRequests: 12 });
@@ -239,14 +241,14 @@ function defaultRepairIntake(): RepairIntakeExtraction {
 
 function extractionPrompt(sourceType: AiCaptureSourceType): string {
   if (sourceType === 'SALES_SLIP') {
-    return `Bạn là bộ máy OCR phiếu bán hàng PhoneHouse. Đọc ảnh và chỉ trả về JSON hợp lệ, không markdown, theo đúng cấu trúc:
+    return `Bạn là bộ máy nhập liệu phiếu bán hàng PhoneHouse. File có thể là ảnh phiếu hoặc ghi âm nhân viên đọc thông tin bán hàng. Chỉ trả về JSON hợp lệ, không markdown, theo đúng cấu trúc:
 {"sourceType":"SALES_SLIP","confidence":0.0,"fieldsToReview":[],"customer":{"name":"","phone":""},"saleDate":null,"paymentMethod":null,"discountAmount":null,"totalAmount":null,"notes":"","items":[{"name":"","sku":null,"imei":null,"quantity":1,"unitPrice":null,"totalPrice":null,"confidence":0.0}]}
 Quy tắc: số tiền là số nguyên VNĐ; không đoán dữ liệu bị mờ; thêm tên trường vào fieldsToReview khi không chắc; chuẩn hóa IMEI chỉ gồm số; confidence từ 0 đến 1.`;
   }
   if (sourceType === 'CONVERSATION') return `Bạn là bộ máy nhập liệu hội thoại bán hàng PhoneHouse. Nghe audio tiếng Việt và chỉ trả về JSON hợp lệ, không markdown, theo đúng cấu trúc:
 {"sourceType":"CONVERSATION","confidence":0.0,"fieldsToReview":[],"transcript":"","summary":"","customer":{"name":"","phone":""},"interestedModel":null,"budget":null,"depositAmount":null,"appointmentAt":null,"nextActions":[]}
 Quy tắc: chép đúng lời nói, không bịa; số tiền là số nguyên VNĐ; nếu không nghe rõ hoặc thiếu dữ liệu thì để rỗng/null và thêm fieldsToReview; confidence từ 0 đến 1.`;
-  if (sourceType === 'PURCHASE_RECEIPT') return `Bạn là bộ máy OCR phiếu nhập hàng/hóa đơn nhà cung cấp PhoneHouse. Chỉ trả JSON hợp lệ, không markdown:
+  if (sourceType === 'PURCHASE_RECEIPT') return `Bạn là bộ máy nhập liệu phiếu nhập hàng/hóa đơn nhà cung cấp PhoneHouse. File có thể là ảnh chứng từ hoặc ghi âm nhân viên đọc thông tin nhập hàng. Chỉ trả JSON hợp lệ, không markdown:
 {"sourceType":"PURCHASE_RECEIPT","confidence":0.0,"fieldsToReview":[],"supplier":{"name":"","phone":"","taxCode":""},"documentCode":null,"purchaseDate":null,"paymentMethod":null,"discountAmount":null,"totalAmount":null,"notes":"","items":[{"name":"","sku":null,"imei":null,"quantity":1,"unitPrice":null,"totalPrice":null,"confidence":0.0}]}
 Không đoán IMEI/giá bị mờ; tiền là số nguyên VNĐ; một IMEI một dòng; trường không chắc phải vào fieldsToReview.`;
   return `Bạn là bộ máy nhập liệu tiếp nhận sửa chữa iPhone PhoneHouse. File có thể là ảnh máy/phiếu hoặc ghi âm mô tả lỗi. Chỉ trả JSON hợp lệ:

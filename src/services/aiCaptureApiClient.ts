@@ -109,9 +109,10 @@ export async function requestAiCapture(file: File, sourceType: AiCaptureSourceTy
   if (!file.size || file.size > maxBytes) {
     throw new Error(`Tệp vượt giới hạn ${Math.round(maxBytes / 1024 / 1024)} MB.`);
   }
-  const imageOnly = sourceType === 'SALES_SLIP' || sourceType === 'PURCHASE_RECEIPT';
-  const supported = imageOnly ? file.type.startsWith('image/') : sourceType === 'CONVERSATION' ? file.type.startsWith('audio/') : file.type.startsWith('image/') || file.type.startsWith('audio/');
-  if (!supported) throw new Error(imageOnly ? 'Vui lòng chọn tệp ảnh.' : sourceType === 'CONVERSATION' ? 'Vui lòng chọn tệp ghi âm.' : 'Vui lòng chọn ảnh hoặc tệp ghi âm.');
+  const supported = sourceType === 'CONVERSATION'
+    ? file.type.startsWith('audio/')
+    : file.type.startsWith('image/') || file.type.startsWith('audio/');
+  if (!supported) throw new Error(sourceType === 'CONVERSATION' ? 'Vui lòng chọn tệp ghi âm.' : 'Vui lòng chọn ảnh hoặc tệp ghi âm.');
   const data = await readAsBase64(file);
   const response = await apiJson<{ success: boolean; data: AiCaptureResult }>('/api/ai/capture/extract', {
     method: 'POST',

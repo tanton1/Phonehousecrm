@@ -4,6 +4,8 @@ Tính năng nằm trong **Xem thêm → AI nhập liệu**.
 
 - Bốn luồng: phiếu bán hàng, hội thoại CRM, phiếu nhập hàng và tiếp nhận sửa chữa.
 - Ảnh phiếu: JPG/PNG/WEBP/HEIC, tối đa 3 MB; ghi âm: MP3/WAV/M4A/OGG/WEBM, tối đa 3 MB.
+- Mỗi luồng có nút **Ghi âm trực tiếp**: trình duyệt xin quyền microphone khi nhân viên bấm, hiển thị bộ đếm, cho Dừng/Hủy và tạo bản nghe lại. Mỗi lần ghi tối đa 5 phút và vẫn chịu giới hạn 3 MB.
+- Phiếu bán và phiếu nhập có thể dùng ảnh chứng từ hoặc nhân viên đọc trực tiếp các trường; hội thoại CRM dùng audio; sửa chữa dùng ảnh hoặc audio.
 - Gemini chỉ tạo bản nháp. Nhân viên phải kiểm tra, sửa và bấm **Xác nhận bản nháp**.
 - Với phiếu bán, nút **Mở POS để đối chiếu** tự tìm IMEI/SKU trong tồn kho đang tải; dòng không khớp không được tự tạo.
 - AI không tự ghi hóa đơn, thu tiền, công nợ hoặc lead CRM.

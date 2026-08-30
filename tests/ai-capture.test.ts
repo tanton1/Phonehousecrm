@@ -104,4 +104,17 @@ describe('AI capture normalization', () => {
     expect(purchase).toContain('AI chưa tạo phiếu và chưa tăng tồn');
     expect(repair).toContain('AI chưa tạo phiếu sửa chữa');
   });
+
+  it('offers direct microphone recording with explicit stop, cancel, size and duration controls', () => {
+    const modal = source('src/components/AiCaptureModal.tsx');
+    const route = source('server/routes/aiCapture.ts');
+    expect(modal).toContain('navigator.mediaDevices?.getUserMedia');
+    expect(modal).toContain('new MediaRecorder(stream');
+    expect(modal).toContain('Ghi âm trực tiếp');
+    expect(modal).toContain('Dừng ·');
+    expect(modal).toContain('maxRecordingSeconds = 5 * 60');
+    expect(modal).toContain('maxCaptureBytes = 3 * 1024 * 1024');
+    expect(route).toContain('SALES_SLIP: [...IMAGE_MIME_TYPES, ...AUDIO_MIME_TYPES]');
+    expect(route).toContain('PURCHASE_RECEIPT: [...IMAGE_MIME_TYPES, ...AUDIO_MIME_TYPES]');
+  });
 });

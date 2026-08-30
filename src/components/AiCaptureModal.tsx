@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AudioLines, Check, FileAudio, FileImage, Loader2, PackagePlus, Plus, ScanLine,
-  ShieldCheck, Sparkles, Trash2, Upload, UserPlus, Wrench, X
+  AudioLines, Ban, Check, FileAudio, FileImage, Loader2, Mic, PackagePlus, Plus, ScanLine,
+  ShieldCheck, Sparkles, Square, Trash2, Upload, UserPlus, Wrench, X
 } from 'lucide-react';
 import {
   AiCaptureExtraction,
@@ -28,6 +28,9 @@ interface AiCaptureModalProps {
 }
 
 const imageAccept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
+const audioAccept = 'audio/*';
+const maxCaptureBytes = 3 * 1024 * 1024;
+const maxRecordingSeconds = 5 * 60;
 const issueTypes = [
   'Nguồn / Mất Nguồn', 'Màn Hình / Cảm Ứng', 'Pin / Phù Pin', 'Face ID / Camera',
   'Sóng / Wifi', 'Loa / Mic', 'Ép Kính / Thay Lưng', 'Mainboard / IC Sạc', 'Khác'
@@ -41,9 +44,9 @@ const captureModules: Array<{
   accept: string;
   icon: typeof FileImage;
 }> = [
-  { type: 'SALES_SLIP', label: 'Phiếu bán hàng', shortLabel: 'Phiếu bán', description: 'Ảnh hóa đơn hoặc phiếu bán', accept: imageAccept, icon: FileImage },
-  { type: 'CONVERSATION', label: 'Hội thoại CRM', shortLabel: 'Hội thoại', description: 'Ghi âm tư vấn khách hàng', accept: 'audio/*', icon: FileAudio },
-  { type: 'PURCHASE_RECEIPT', label: 'Phiếu nhập hàng', shortLabel: 'Nhập hàng', description: 'Ảnh phiếu NCC hoặc hóa đơn mua', accept: imageAccept, icon: PackagePlus },
+  { type: 'SALES_SLIP', label: 'Phiếu bán hàng', shortLabel: 'Phiếu bán', description: 'Ảnh phiếu hoặc đọc trực tiếp', accept: `${imageAccept},${audioAccept}`, icon: FileImage },
+  { type: 'CONVERSATION', label: 'Hội thoại CRM', shortLabel: 'Hội thoại', description: 'Thu trực tiếp hoặc chọn audio', accept: audioAccept, icon: FileAudio },
+  { type: 'PURCHASE_RECEIPT', label: 'Phiếu nhập hàng', shortLabel: 'Nhập hàng', description: 'Ảnh phiếu NCC hoặc đọc trực tiếp', accept: `${imageAccept},${audioAccept}`, icon: PackagePlus },
   { type: 'REPAIR_INTAKE', label: 'Tiếp nhận sửa chữa', shortLabel: 'Sửa chữa', description: 'Ảnh phiếu hoặc ghi âm mô tả lỗi', accept: `${imageAccept},audio/*`, icon: Wrench }
 ];
 
@@ -81,7 +84,14 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
   const [leadCreated, setLeadCreated] = useState(false);
   const [leadBusy, setLeadBusy] = useState(false);
   const [error, setError] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<number | null>(null);
+  const discardRecordingRef = useRef(false);
 
   const selectedModule = captureModules.find(module => module.type === sourceType) || captureModules[0];
 
@@ -104,7 +114,40 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  useEffect(() => {
+    if (isOpen) return;
+    discardRecordingRef.current = true;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
+    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = null;
+    setRecording(false);
+  }, [isOpen]);
+
+  useEffect(() => () => {
+    discardRecordingRef.current = true;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+  }, []);
+
+  const cancelDirectRecording = () => {
+    discardRecordingRef.current = true;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
+    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = null;
+    setRecording(false);
+    setRecordingSeconds(0);
+  };
+
   const reset = () => {
+    cancelDirectRecording();
     setFile(null);
     setResult(null);
     setExtraction(null);
@@ -126,6 +169,87 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
     setResult(null);
     setExtraction(null);
     setFile(next);
+  };
+
+  const startDirectRecording = async () => {
+    if (recording || busy) return;
+    setError('');
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        throw new Error('Trình duyệt này chưa hỗ trợ ghi âm trực tiếp. Bạn vẫn có thể chọn tệp ghi âm có sẵn.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      const candidates = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'];
+      const mimeType = candidates.find(candidate => MediaRecorder.isTypeSupported(candidate));
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      recordingStreamRef.current = stream;
+      recorderRef.current = recorder;
+      recordingChunksRef.current = [];
+      discardRecordingRef.current = false;
+      handleFile(null);
+
+      recorder.ondataavailable = event => {
+        if (!event.data.size) return;
+        recordingChunksRef.current.push(event.data);
+        const recordedBytes = recordingChunksRef.current.reduce((sum, chunk) => sum + chunk.size, 0);
+        if (recordedBytes > maxCaptureBytes && recorder.state !== 'inactive') {
+          discardRecordingRef.current = true;
+          setError('Bản ghi đã vượt giới hạn 3 MB. Hãy ghi lại đoạn ngắn hơn.');
+          recorder.stop();
+        }
+      };
+      recorder.onerror = () => setError('Ghi âm bị gián đoạn. Vui lòng thử lại.');
+      recorder.onstop = () => {
+        if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+        stream.getTracks().forEach(track => track.stop());
+        recordingStreamRef.current = null;
+        recorderRef.current = null;
+        setRecording(false);
+        const chunks = recordingChunksRef.current;
+        recordingChunksRef.current = [];
+        if (discardRecordingRef.current) {
+          setRecordingSeconds(0);
+          return;
+        }
+        const normalizedType = String(recorder.mimeType || mimeType || 'audio/webm').split(';')[0];
+        const blob = new Blob(chunks, { type: normalizedType });
+        if (!blob.size) {
+          setError('Không thu được âm thanh. Hãy kiểm tra microphone và thử lại.');
+          return;
+        }
+        if (blob.size > maxCaptureBytes) {
+          setError('Bản ghi vượt giới hạn 3 MB. Hãy ghi lại đoạn ngắn hơn.');
+          return;
+        }
+        const extension = normalizedType.includes('mp4') ? 'm4a' : normalizedType.includes('wav') ? 'wav' : 'webm';
+        handleFile(new File([blob], `ghi-am-${sourceType.toLowerCase()}-${Date.now()}.${extension}`, { type: normalizedType }));
+      };
+
+      recorder.start(1_000);
+      setRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingSeconds(current => {
+          const next = current + 1;
+          if (next >= maxRecordingSeconds && recorder.state !== 'inactive') recorder.stop();
+          return next;
+        });
+      }, 1_000);
+    } catch (recordingError: any) {
+      recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+      recordingStreamRef.current = null;
+      const denied = recordingError?.name === 'NotAllowedError' || recordingError?.name === 'SecurityError';
+      setError(denied ? 'Chưa được cấp quyền microphone. Hãy cho phép microphone trên trình duyệt rồi thử lại.' : recordingError?.message || 'Không thể bắt đầu ghi âm.');
+    }
+  };
+
+  const stopDirectRecording = () => {
+    discardRecordingRef.current = false;
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== 'inactive') recorder.stop();
   };
 
   const runCapture = async () => {
@@ -228,8 +352,11 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
             <p className="mt-1 text-[11px] font-semibold text-zinc-500">{selectedModule.description} · tối đa 3 MB</p>
             <div className="mt-3 flex flex-wrap justify-center gap-2">
               <button type="button" onClick={() => inputRef.current?.click()} className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-xs font-black text-orange-700 hover:bg-orange-50">{file ? 'Chọn tệp khác' : 'Chọn tệp'}</button>
+              {!recording && <button type="button" onClick={() => void startDirectRecording()} disabled={busy} className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Mic className="h-4 w-4" />Ghi âm trực tiếp</button>}
+              {recording && <><button type="button" onClick={stopDirectRecording} className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-xs font-black text-white"><Square className="h-3.5 w-3.5 fill-current" />Dừng · {Math.floor(recordingSeconds / 60)}:{String(recordingSeconds % 60).padStart(2, '0')}</button><button type="button" onClick={cancelDirectRecording} className="inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-xs font-black text-zinc-600"><Ban className="h-4 w-4" />Hủy</button></>}
               <button type="button" onClick={() => void runCapture()} disabled={!file || busy || status?.configured === false} className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}{busy ? 'Đang phân tích…' : 'Phân tích bằng AI'}</button>
             </div>
+            {recording && <p className="mt-3 flex items-center justify-center gap-2 text-xs font-black text-rose-700"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-600" />Đang thu microphone · tối đa 5 phút / 3 MB</p>}
           </div>
 
           {error && <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{error}</div>}
