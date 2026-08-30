@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PhoneHouseLogo } from './PhoneHouseLogo';
 import { UserAccount } from '../types';
 import { 
@@ -14,19 +14,22 @@ import {
 } from 'lucide-react';
 import { loginWithEmail, signInWithGoogle, auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
+import { fetchAuthenticatedUserProfile, getLoginErrorMessage } from '../services/authApiClient';
 
 interface PhoneHouseLoginPageProps {
-  users: UserAccount[];
-  currentUser: UserAccount | null;
   onLoginSuccess: (user: UserAccount) => void;
+  onLoginStart?: () => void;
+  onLoginError?: (message: string) => void;
+  initialError?: string | null;
   onClose?: () => void;
   isModal?: boolean;
 }
 
 export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
-  users,
-  currentUser,
   onLoginSuccess,
+  onLoginStart,
+  onLoginError,
+  initialError = null,
   onClose,
   isModal = false
 }) => {
@@ -34,8 +37,25 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(initialError);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setErrorMessage(initialError);
+  }, [initialError]);
+
+  const reportError = (error: unknown) => {
+    const message = getLoginErrorMessage(error);
+    setErrorMessage(message);
+    onLoginError?.(message);
+  };
+
+  const resolvePhoneHouseProfile = async () => {
+    const profile = await fetchAuthenticatedUserProfile();
+    setSuccessMessage(`Đăng nhập thành công! Chào mừng ${profile.displayName}.`);
+    onLoginSuccess(profile);
+    if (onClose) onClose();
+  };
 
   const handleEmailPasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,42 +70,15 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
 
     setIsLoading(true);
     setErrorMessage(null);
+    setSuccessMessage(null);
+    onLoginStart?.();
 
     try {
-      // 1. Authenticate with Firebase Auth
-      const firebaseUser = await loginWithEmail(email.trim(), password);
-
-      // 2. Find profile from registered users in Firestore matching authenticated email or uid
-      const matchedUser = users.find(
-        u => u.email.toLowerCase() === email.toLowerCase().trim() || u.id === firebaseUser?.uid
-      );
-
-      if (matchedUser) {
-        if (!matchedUser.active) {
-          setErrorMessage('Tài khoản này đã bị tạm khóa. Vui lòng liên hệ Quản trị viên.');
-          await signOut(auth);
-          return;
-        }
-        setSuccessMessage(`Đăng nhập thành công! Chào mừng ${matchedUser.displayName}.`);
-        setTimeout(() => {
-          onLoginSuccess(matchedUser);
-          if (onClose) onClose();
-        }, 400);
-      } else {
-        setErrorMessage('Tài khoản đã xác thực với Firebase nhưng chưa được cấp hồ sơ nhân viên trong hệ thống PhoneHouse.');
-        await signOut(auth);
-        return;
-      }
-    } catch (err: any) {
-      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setErrorMessage('Mật khẩu không chính xác hoặc tài khoản không tồn tại trên hệ thống xác thực.');
-      } else if (err.code === 'auth/user-not-found') {
-        setErrorMessage('Không tìm thấy tài khoản với địa chỉ Email này.');
-      } else if (err.code === 'auth/too-many-requests') {
-        setErrorMessage('Đăng nhập thất bại quá nhiều lần. Vui lòng thử lại sau ít phút.');
-      } else {
-        setErrorMessage(err?.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.');
-      }
+      await loginWithEmail(email.trim().toLowerCase(), password);
+      await resolvePhoneHouseProfile();
+    } catch (err) {
+      reportError(err);
+      await signOut(auth).catch(() => undefined);
     } finally {
       setIsLoading(false);
     }
@@ -94,34 +87,14 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setErrorMessage(null);
+    setSuccessMessage(null);
+    onLoginStart?.();
     try {
-      const googleUser = await signInWithGoogle();
-      if (googleUser && googleUser.email) {
-        const matched = users.find(u => u.email.toLowerCase() === googleUser.email?.toLowerCase() || u.id === googleUser.uid);
-        if (matched) {
-          if (!matched.active) {
-            setErrorMessage('Tài khoản này đã bị tạm khóa. Vui lòng liên hệ Quản trị viên.');
-            await signOut(auth);
-            return;
-          }
-          setSuccessMessage(`Đăng nhập Google thành công!`);
-          setTimeout(() => {
-            onLoginSuccess(matched);
-            if (onClose) onClose();
-          }, 400);
-        } else {
-          setErrorMessage('Tài khoản Google này chưa được cấp hồ sơ nhân viên trong hệ thống PhoneHouse.');
-          await signOut(auth);
-          return;
-        }
-      }
-    } catch (err: any) {
-      console.error('Google sign-in error:', err);
-      if (err?.code === 'auth/popup-blocked' || err?.message?.includes('popup')) {
-        setErrorMessage('Trình duyệt đã chặn cửa sổ Popup. Vui lòng cho phép popup để đăng nhập Google.');
-      } else {
-        setErrorMessage('Không thể kết nối Google Auth. Vui lòng thử lại.');
-      }
+      await signInWithGoogle();
+      await resolvePhoneHouseProfile();
+    } catch (err) {
+      reportError(err);
+      await signOut(auth).catch(() => undefined);
     } finally {
       setIsLoading(false);
     }

@@ -12,6 +12,13 @@ export interface StaffAuthority {
   name?: string;
 }
 
+export class StaffAuthorityLookupError extends Error {
+  constructor(cause?: unknown) {
+    super('AUTH_PROFILE_LOOKUP_FAILED', { cause });
+    this.name = 'StaffAuthorityLookupError';
+  }
+}
+
 export interface AuthenticatedUser {
   uid: string;
   email?: string;
@@ -50,7 +57,7 @@ export async function getStaffAuthority(uid: string, emailFallback?: string, dbI
         userSnap = emailQuery.docs[0];
         // Auto-migrate / link legacy profile doc to authoritative users/{uid}
         try {
-          await adminDb.collection('users').doc(uid).set({
+          await db.collection('users').doc(uid).set({
             ...userSnap.data(),
             id: uid,
             authUid: uid,
@@ -78,7 +85,7 @@ export async function getStaffAuthority(uid: string, emailFallback?: string, dbI
     };
   } catch (err) {
     console.error('[getStaffAuthority Error]:', err);
-    return null;
+    throw new StaffAuthorityLookupError(err);
   }
 }
 
@@ -186,6 +193,13 @@ export async function authenticateFirebase(
     next();
   } catch (error: any) {
     console.error('[Auth Middleware Error]:', error?.message || error);
+    if (error instanceof StaffAuthorityLookupError || error?.message === 'AUTH_PROFILE_LOOKUP_FAILED') {
+      return res.status(503).json({
+        success: false,
+        error: 'AUTH_SERVICE_UNAVAILABLE',
+        message: 'Không thể truy vấn hồ sơ xác thực lúc này.'
+      });
+    }
     return res.status(401).json({
       success: false,
       error: 'INVALID_TOKEN',

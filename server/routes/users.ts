@@ -9,6 +9,76 @@ import { normalizeRole } from '../../shared/permissions';
 export function createUsersRouter(db: Firestore | null): Router {
   const router = Router();
 
+  // Resolve the current Firebase identity to its authoritative PhoneHouse profile.
+  // The authentication middleware also migrates legacy email-keyed profiles to users/{uid}.
+  router.get('/me', authenticateFirebase, async (req: Request, res: Response) => {
+    try {
+      if (!db) {
+        return res.status(503).json({
+          success: false,
+          error: 'AUTH_SERVICE_UNAVAILABLE',
+          message: 'Cơ sở dữ liệu xác thực chưa sẵn sàng.'
+        });
+      }
+      if (!req.user?.uid) {
+        return res.status(401).json({ success: false, error: 'UNAUTHENTICATED' });
+      }
+
+      let snapshot = await db.collection('users').doc(req.user.uid).get();
+      if (!snapshot.exists && req.user.email) {
+        const legacy = await db.collection('users')
+          .where('email', '==', req.user.email.toLowerCase())
+          .limit(1)
+          .get();
+        if (!legacy.empty) snapshot = legacy.docs[0];
+      }
+      if (!snapshot.exists) {
+        return res.status(403).json({
+          success: false,
+          error: 'USER_NOT_PROVISIONED',
+          message: 'Tài khoản Firebase chưa có hồ sơ nhân viên PhoneHouse.'
+        });
+      }
+
+      const data = snapshot.data() || {};
+      const user = {
+        id: req.user.uid,
+        authUid: req.user.uid,
+        email: String(data.email || req.user.email || '').trim().toLowerCase(),
+        displayName: String(data.displayName || data.name || req.user.name || req.user.email || '').trim(),
+        phone: String(data.phone || '').trim(),
+        role: normalizeRole(data.role || req.user.role),
+        branchId: String(data.branchId || req.user.branchId || '').trim(),
+        assignedBranchIds: Array.isArray(data.assignedBranchIds)
+          ? data.assignedBranchIds.map(String)
+          : (req.user.assignedBranchIds || []),
+        workplaceAddresses: Array.isArray(data.workplaceAddresses) ? data.workplaceAddresses.map(String) : [],
+        active: data.active === true,
+        createdAt: data.createdAt || '',
+        avatarUrl: data.avatarUrl || '',
+        facePhotoUrl: data.facePhotoUrl || '',
+        faceEnrollmentStatus: data.faceEnrollmentStatus,
+        lastLogin: data.lastLogin,
+        notes: data.notes || '',
+        kpiTargetRevenue: Number(data.kpiTargetRevenue || 0),
+        kpiTargetOrders: Number(data.kpiTargetOrders || 0),
+        kpiTargetWarranty: Number(data.kpiTargetWarranty || 0),
+        baseSalary: Number(data.baseSalary || 0),
+        departmentId: data.departmentId,
+        departmentName: data.departmentName
+      };
+
+      return res.json({ success: true, user });
+    } catch (error) {
+      console.error('[Current User Profile Error]:', error);
+      return res.status(503).json({
+        success: false,
+        error: 'AUTH_SERVICE_UNAVAILABLE',
+        message: 'Không thể tải hồ sơ người dùng lúc này.'
+      });
+    }
+  });
+
   // 1. Create New Staff Account (Admin Only) via Firebase Admin SDK
   router.post('/create', authenticateFirebase, requireRole('ADMIN'), async (req: Request, res: Response) => {
     let authUserRecord: any = null;

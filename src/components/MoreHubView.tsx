@@ -10,7 +10,6 @@ interface MoreHubViewProps {
   onOpenPOSModal: () => void;
   onOpenNewDeviceModal: () => void;
   onOpenAICopilot: () => void;
-  onOpenLoginModal: () => void;
   onLogout: () => void;
   partners?: Partner[];
   invoices?: SalesInvoice[];

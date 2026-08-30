@@ -33,6 +33,7 @@ import { GlobalImeiHistory } from './components/GlobalImeiHistory';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
 
 import { fetchOperationalConfigs, fetchSystemSetupStatus } from './services/configurationApiClient';
+import { fetchAuthenticatedUserProfile, getLoginErrorMessage } from './services/authApiClient';
 import { testFirestoreConnection, auth } from './lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { 
@@ -216,6 +217,7 @@ export default function App() {
 
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(() => auth.currentUser?.uid || null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [systemSetupStatus, setSystemSetupStatus] = useState<SystemSetupStatus | null>(null);
 
   useEffect(() => {
@@ -268,7 +270,6 @@ export default function App() {
   }, [currentUser]);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
   const [isExecutiveAIOpen, setIsExecutiveAIOpen] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
   const [posPreSelectedDevice, setPosPreSelectedDevice] = useState<DeviceItem | null>(null);
   const [posCustomerContext, setPosCustomerContext] = useState<{ name?: string; phone?: string } | null>(null);
@@ -362,6 +363,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    setAuthError(null);
     try {
       await signOut(auth);
     } catch (e) {
@@ -384,7 +386,8 @@ export default function App() {
     setTransfers([]);
     setPurchaseOrders([]);
     setAttendanceRecords([]);
-    setIsLoginModalOpen(true);
+    setBranches([]);
+    setWarehouses([]);
   };
 
   const attendancePrincipalUid = auth.currentUser?.uid || currentUser?.id;
@@ -557,78 +560,67 @@ export default function App() {
       .filter((s): s is StaffMember => Boolean(s && s.id && s.name));
   }, [users, branches]);
 
-  // Initialize Firebase and subscribe to real-time collections
+  // Resolve Firebase Auth to one authoritative PhoneHouse profile. The profile
+  // API uses users/{uid} and migrates legacy email-keyed documents when needed.
   useEffect(() => {
-    // 1. Test connection to Firestore on boot
-    testFirestoreConnection().then((ok) => {
-      setIsFirebaseConnected(ok);
-    });
-    let unsubLeads = () => {};
-    let unsubTradeIns = () => {};
-    let unsubInvoices = () => {};
-    let unsubUsers = () => {};
-    let unsubPartners = () => {};
-    let unsubFunds = () => {};
-    let unsubCashTxs = () => {};
-    let unsubTransfers = () => {};
-    let unsubProducts = () => {};
-    let unsubBranches = () => {};
-    let unsubWarehouses = () => {};
-    let unsubStoreSettings = () => {};
-    let unsubPurchaseOrders = () => {};
-    let unsubAttendance = () => {};
-
-    // 2. Setup real-time Firestore subscriptions. An empty snapshot is authoritative.
-
-    unsubBranches = subscribeToBranches((remoteBranches) => {
-      if (remoteBranches) {
-        setBranches(remoteBranches);
-      }
-    });
-
-    unsubWarehouses = subscribeToWarehouses((remoteWarehouses) => {
-      setWarehouses(remoteWarehouses || []);
-    });
-
-    unsubStoreSettings = subscribeToStoreSettings((remoteSettings) => {
-      if (remoteSettings) {
-        setStoreSettings(remoteSettings);
-      }
-    });
-
-    const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
+    let active = true;
+    let authAttempt = 0;
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      const attempt = ++authAttempt;
       setFirebaseUid(fbUser?.uid || null);
-      setAuthReady(true);
-      if (fbUser) {
-        unsubUsers();
-        unsubUsers = subscribeToUsers((remoteUsers) => {
-          setUsers(remoteUsers || []);
-          const matched = remoteUsers[0];
-          if (matched) setCurrentUser({ ...matched, id: fbUser.uid, authUid: fbUser.uid });
-          else setCurrentUser(null);
-        }, fbUser.uid);
-      } else {
+      if (!fbUser) {
         setCurrentUser(null);
+        setUsers([]);
+        setAuthReady(true);
+        return;
+      }
+
+      try {
+        const profile = await fetchAuthenticatedUserProfile();
+        if (!active || attempt !== authAttempt) return;
+        setCurrentUser(profile);
+        setUsers([profile]);
+        setAuthError(null);
+      } catch (error) {
+        if (!active || attempt !== authAttempt) return;
+        setCurrentUser(null);
+        setUsers([]);
+        setAuthError(getLoginErrorMessage(error));
+        await signOut(auth).catch(() => undefined);
+      } finally {
+        if (active && attempt === authAttempt) setAuthReady(true);
       }
     });
 
     return () => {
+      active = false;
       unsubAuth();
-      unsubLeads();
-      unsubTradeIns();
-      unsubInvoices();
-      unsubUsers();
-      unsubPartners();
-      unsubFunds();
-      unsubCashTxs();
-      unsubTransfers();
-      unsubProducts();
+    };
+  }, []);
+
+  // Global Firestore data is private. Start these listeners only after both
+  // Firebase and the authoritative PhoneHouse profile have been accepted.
+  useEffect(() => {
+    if (!authReady || !firebaseUid || !currentUser) {
+      setBranches([]);
+      setWarehouses([]);
+      setIsFirebaseConnected(false);
+      return;
+    }
+
+    void testFirestoreConnection().then(setIsFirebaseConnected);
+    const unsubBranches = subscribeToBranches((remoteBranches) => setBranches(remoteBranches || []));
+    const unsubWarehouses = subscribeToWarehouses((remoteWarehouses) => setWarehouses(remoteWarehouses || []));
+    const unsubStoreSettings = subscribeToStoreSettings((remoteSettings) => {
+      if (remoteSettings) setStoreSettings(remoteSettings);
+    });
+
+    return () => {
       unsubBranches();
       unsubWarehouses();
       unsubStoreSettings();
-      unsubPurchaseOrders();
     };
-  }, []);
+  }, [authReady, firebaseUid, currentUser?.id]);
 
   // Dedicated Authoritative Attendance Realtime Subscription (Scoped dynamically to current authenticated user & role)
   useEffect(() => {
@@ -1445,7 +1437,35 @@ export default function App() {
     setDevices(updated);
   };
 
-  const setupRole = String(currentUser?.role || '').toUpperCase();
+  if (!authReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
+        <div className="rounded-2xl border border-orange-100 bg-white px-6 py-5 text-center shadow-sm">
+          <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-orange-100 border-t-[#ff4b16]" />
+          <p className="text-sm font-bold text-zinc-700">Đang kiểm tra phiên đăng nhập…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <PhoneHouseLoginPage
+        initialError={authError}
+        onLoginStart={() => setAuthError(null)}
+        onLoginError={setAuthError}
+        onLoginSuccess={(profile) => {
+          setAuthError(null);
+          setFirebaseUid(profile.id);
+          setCurrentUser(profile);
+          setUsers([profile]);
+          setActiveTab('dashboard');
+        }}
+      />
+    );
+  }
+
+  const setupRole = String(currentUser.role || '').toUpperCase();
   const setupBlockedForStaff = Boolean(
     currentUser && systemSetupStatus && !systemSetupStatus.complete && setupRole !== 'ADMIN' && setupRole !== 'MANAGER'
   );
@@ -1495,17 +1515,6 @@ export default function App() {
         onOpenQuickSearch={() => setIsQuickSearchOpen(true)}
       >
         <React.Suspense fallback={<PageLoadingFallback />}>
-        {activeTab === 'login' && (
-          <PhoneHouseLoginPage
-            users={users}
-            currentUser={currentUser}
-            onLoginSuccess={(loggedUser) => {
-              setCurrentUser(loggedUser);
-              setActiveTab('dashboard');
-            }}
-          />
-        )}
-
         {activeTab === 'dashboard' && (
           <DashboardPage
             invoices={filteredInvoices}
@@ -1882,7 +1891,6 @@ export default function App() {
             }}
             onOpenNewDeviceModal={() => setActiveTab('inventory')}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
-            onOpenLoginModal={() => setIsLoginModalOpen(true)}
             onLogout={handleLogout}
             partners={filteredPartners}
             invoices={filteredInvoices}
@@ -1925,6 +1933,7 @@ export default function App() {
             invoices={filteredInvoices}
             warrantyTickets={filteredWarrantyTickets}
             branches={branches}
+            funds={funds}
             initialSubModule={activeTab === 'shift-scheduling' ? 'SHIFTS' : activeTab === 'payroll' ? 'PAYROLL' : undefined}
             onApproveLeave={handleApproveLeaveRequest}
           />
@@ -2048,32 +2057,6 @@ export default function App() {
         attendanceRecords={attendanceRecords}
         staffMembers={staffMembers}
       />
-
-      {/* Phone House Dedicated Login Modal */}
-      {isLoginModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-950/75 backdrop-blur-sm animate-fadeIn">
-          <div className="relative w-full max-w-xl">
-            <button
-              onClick={() => setIsLoginModalOpen(false)}
-              className="absolute -top-3 -right-3 sm:-top-4 sm:-right-4 w-9 h-9 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full flex items-center justify-center border border-zinc-600 shadow-xl z-20 transition-transform hover:scale-110 cursor-pointer"
-              title="Đóng"
-            >
-              ✕
-            </button>
-            <PhoneHouseLoginPage
-  users={users}
-  currentUser={currentUser}
-  isModal={true}
-  onClose={() => setIsLoginModalOpen(false)}
-              onLoginSuccess={(loggedUser) => {
-                setCurrentUser(loggedUser);
-                setIsLoginModalOpen(false);
-              }}
-            />
-          </div>
-        </div>
-      )}
-
 
       {/* GLOBAL GPS + PHOTO CHECK-IN MODAL (Accessible across all roles) */}
       {isCheckInModalOpen && (

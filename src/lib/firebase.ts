@@ -70,8 +70,10 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Test Connection on boot
 export async function testFirestoreConnection(): Promise<boolean> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return false;
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await getDocFromServer(doc(db, 'users', currentUser.uid));
     console.log('✅ Firestore connection verified with database:', firebaseConfig.firestoreDatabaseId);
     return true;
   } catch (error) {
