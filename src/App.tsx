@@ -31,6 +31,7 @@ import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModa
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { GlobalImeiHistory } from './components/GlobalImeiHistory';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
+import { ForcePasswordChangePage } from './components/ForcePasswordChangePage';
 
 import { fetchOperationalConfigs, fetchSystemSetupStatus } from './services/configurationApiClient';
 import { fetchAuthenticatedUserProfile, getLoginErrorMessage } from './services/authApiClient';
@@ -214,6 +215,7 @@ export default function App() {
 
   // Current Logged-in User Account
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+  const [passwordChangeUser, setPasswordChangeUser] = useState<UserAccount | null>(null);
 
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUid, setFirebaseUid] = useState<string | null>(() => auth.currentUser?.uid || null);
@@ -370,6 +372,7 @@ export default function App() {
       console.warn('[Firebase SignOut Error]:', e);
     }
     setCurrentUser(null);
+    setPasswordChangeUser(null);
     localStorage.removeItem('phonehouse_active_user');
     Object.keys(localStorage).forEach((key) => {
       if (key.startsWith('phonehouse:draft:v1:') || key.startsWith('phonehouse_face_profile_')) {
@@ -570,6 +573,7 @@ export default function App() {
       setFirebaseUid(fbUser?.uid || null);
       if (!fbUser) {
         setCurrentUser(null);
+        setPasswordChangeUser(null);
         setUsers([]);
         setAuthReady(true);
         return;
@@ -578,12 +582,20 @@ export default function App() {
       try {
         const profile = await fetchAuthenticatedUserProfile();
         if (!active || attempt !== authAttempt) return;
-        setCurrentUser(profile);
-        setUsers([profile]);
+        if (profile.mustChangePassword) {
+          setPasswordChangeUser(profile);
+          setCurrentUser(null);
+          setUsers([]);
+        } else {
+          setPasswordChangeUser(null);
+          setCurrentUser(profile);
+          setUsers([profile]);
+        }
         setAuthError(null);
       } catch (error) {
         if (!active || attempt !== authAttempt) return;
         setCurrentUser(null);
+        setPasswordChangeUser(null);
         setUsers([]);
         setAuthError(getLoginErrorMessage(error));
         await signOut(auth).catch(() => undefined);
@@ -1448,6 +1460,21 @@ export default function App() {
     );
   }
 
+  if (passwordChangeUser) {
+    return (
+      <ForcePasswordChangePage
+        user={passwordChangeUser}
+        onLogout={() => void handleLogout()}
+        onComplete={() => {
+          setAuthError(null);
+          setPasswordChangeUser(null);
+          setCurrentUser(null);
+          setUsers([]);
+        }}
+      />
+    );
+  }
+
   if (!currentUser) {
     return (
       <PhoneHouseLoginPage
@@ -1457,9 +1484,16 @@ export default function App() {
         onLoginSuccess={(profile) => {
           setAuthError(null);
           setFirebaseUid(profile.id);
-          setCurrentUser(profile);
-          setUsers([profile]);
-          setActiveTab('dashboard');
+          if (profile.mustChangePassword) {
+            setPasswordChangeUser(profile);
+            setCurrentUser(null);
+            setUsers([]);
+          } else {
+            setPasswordChangeUser(null);
+            setCurrentUser(profile);
+            setUsers([profile]);
+            setActiveTab('dashboard');
+          }
         }}
       />
     );

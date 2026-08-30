@@ -27,7 +27,9 @@ service cloud.firestore {
     }
 
     function isActiveUser() {
-      return userExists() && getUserData().active == true;
+      return userExists() &&
+        getUserData().active == true &&
+        (!('mustChangePassword' in getUserData()) || getUserData().mustChangePassword != true);
     }
 
     function getUserRole() {

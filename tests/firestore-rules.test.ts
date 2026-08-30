@@ -11,6 +11,7 @@ interface SimulatedUserDoc {
   branchId: string;
   assignedBranchIds?: string[];
   active?: boolean;
+  mustChangePassword?: boolean;
 }
 
 class SecurityRulesValidator {
@@ -32,7 +33,7 @@ class SecurityRulesValidator {
   isActiveUser(auth: SimulatedAuth | null): boolean {
     const doc = this.getUserDoc(auth);
     // Strict Active Invariant: active MUST be strictly true (not undefined, not false)
-    return doc !== undefined && doc.active === true;
+    return doc !== undefined && doc.active === true && doc.mustChangePassword !== true;
   }
 
   getUserRole(auth: SimulatedAuth | null): string {
@@ -142,6 +143,14 @@ describe('Firestore Security Rules v4.2 & Authority Invariant Test Suite', () =>
     validator.users.set('INV-MGR-UID', { role: 'INVENTORY_MANAGER', branchId: 'CN01', active: true });
     validator.users.set('INACTIVE-STAFF', { role: 'SALES', branchId: 'CN01', active: false });
     validator.users.set('LEGACY-STAFF-NO-ACTIVE-FIELD', { role: 'SALES', branchId: 'CN01' }); // active is undefined
+    validator.users.set('PASSWORD-CHANGE-REQUIRED', { role: 'SALES', branchId: 'CN01', active: true, mustChangePassword: true });
+  });
+
+  it('Case 3B: Tài khoản bắt buộc đổi mật khẩu chưa được đọc dữ liệu vận hành', () => {
+    const lockedUser = { uid: 'PASSWORD-CHANGE-REQUIRED' };
+    expect(validator.isActiveUser(lockedUser)).toBe(false);
+    expect(validator.canAccessBranch(lockedUser, 'CN01')).toBe(false);
+    expect(validator.canReadConversation(lockedUser, { branchId: 'CN01' })).toBe(false);
   });
 
   it('Case 1: Khóa hoàn toàn quyền Client ghi trực tiếp vào /invoices (Single Writer)', () => {

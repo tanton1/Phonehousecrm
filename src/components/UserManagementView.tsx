@@ -259,43 +259,44 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       } else {
         // 1. Attempt Server Provisioning via Firebase Admin API
         let userCreated = false;
-        try {
-          const token = await auth.currentUser?.getIdToken();
-          if (token) {
-            const resp = await fetch('/api/users/create', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                email: formData.email.trim().toLowerCase(),
-                password: formData.password || 'PhoneHouse@2026',
-                displayName: formData.displayName,
-                phone: formData.phone,
-                role: formData.role,
-                branchId: formData.assignedBranchIds[0] || formData.branchId,
-                assignedBranchIds: formData.assignedBranchIds,
-                workplaceAddresses: selectedAddresses,
-                notes: formData.notes
-              })
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) throw new Error('Phiên quản trị đã hết hạn. Vui lòng đăng nhập lại.');
+        const resp = await fetch('/api/users/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            email: formData.email.trim().toLowerCase(),
+            password: formData.password,
+            displayName: formData.displayName,
+            phone: formData.phone,
+            role: formData.role,
+            branchId: formData.assignedBranchIds[0] || formData.branchId,
+            assignedBranchIds: formData.assignedBranchIds,
+            workplaceAddresses: selectedAddresses,
+            notes: formData.notes
+          })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.success === false) {
+          throw new Error(data.message || data.error || 'Máy chủ không thể tạo tài khoản.');
+        }
+        if (data.user) {
+          await saveEmploymentCompensation(String(data.user.id || data.user.uid), {
+            effectiveFrom: formData.compensationEffectiveFrom,
+            baseSalary: formData.baseSalary,
+            allowance: formData.allowance
+          });
+          onAddUser(data.user);
+          userCreated = true;
+          if (data.passwordSetupRequired) {
+            setSubmitMessage({
+              type: 'success',
+              text: `Đã tạo hồ sơ cho ${formData.displayName}. Nhân viên chọn “Quên mật khẩu” trên trang đăng nhập để tự đặt mật khẩu.`
             });
-
-            if (resp.ok) {
-              const data = await resp.json();
-              if (data.user) {
-                await saveEmploymentCompensation(String(data.user.id || data.user.uid), {
-                  effectiveFrom: formData.compensationEffectiveFrom,
-                  baseSalary: formData.baseSalary,
-                  allowance: formData.allowance
-                });
-                onAddUser(data.user);
-                userCreated = true;
-              }
-            }
           }
-        } catch (apiErr) {
-          console.warn('[User API creation fallback]:', apiErr);
         }
 
         // Server is the only writer. Never create Auth/Firestore users from the browser.
@@ -303,7 +304,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           throw new Error('USER_CREATION_FAILED: Máy chủ không tạo được tài khoản. Không có dữ liệu tạm nào được ghi từ trình duyệt.');
         }
 
-        setSubmitMessage({ type: 'success', text: `Đã tạo tài khoản và cấp phép đăng nhập thành công cho ${formData.displayName}!` });
+        setSubmitMessage(current => current?.type === 'success'
+          ? current
+          : { type: 'success', text: `Đã tạo tài khoản và cấp phép đăng nhập thành công cho ${formData.displayName}!` });
         setTimeout(() => setIsAddModalOpen(false), 800);
       }
     } catch (err: any) {
@@ -842,7 +845,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       type={showPassword ? 'text' : 'password'}
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      placeholder="Nhập mật khẩu (tối thiểu 6 ký tự)"
+                      placeholder="Để trống để nhân viên đặt qua Email"
                       className="w-full px-3 py-2 pr-9 border border-zinc-200 rounded-xl focus:border-orange-500 focus:outline-hidden font-mono"
                     />
                     <button
@@ -853,6 +856,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                       {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
+                  <p className="mt-1.5 text-[10px] font-semibold leading-4 text-zinc-500">
+                    Nếu nhập mật khẩu, cần tối thiểu 8 ký tự và nhân viên sẽ bị yêu cầu đổi ở lần đăng nhập đầu. Nếu để trống, nhân viên dùng “Quên mật khẩu” để tự đặt.
+                  </p>
                 </div>
               )}
 

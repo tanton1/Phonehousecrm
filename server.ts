@@ -3,7 +3,8 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { adminDb } from './server/firebaseAdmin';
-import { apiRateLimit, corsAllowlist, productionErrorHandler, requestContext, securityHeaders } from './server/middleware/security';
+import { apiRateLimit, clientTelemetryRateLimit, corsAllowlist, productionErrorHandler, requestContext, securityHeaders } from './server/middleware/security';
+import { reportOperationalEvent } from './server/observability';
 
 dotenv.config();
 
@@ -82,6 +83,28 @@ app.get('/api/health', (req, res) => {
     appName: 'PhoneHouse CRM & ERP',
     timestamp: new Date().toISOString()
   });
+});
+
+// Public, tightly rate-limited browser crash intake. Payloads are sanitized and
+// forwarded only when OBSERVABILITY_WEBHOOK_URL is configured server-side.
+app.post('/api/telemetry/client-error', clientTelemetryRateLimit, (req, res) => {
+  const message = String(req.body?.message || '').trim().slice(0, 1_000);
+  if (!message) {
+    return res.status(400).json({ success: false, error: 'INVALID_TELEMETRY_EVENT' });
+  }
+  reportOperationalEvent({
+    level: 'error',
+    event: 'client_runtime_error',
+    requestId: req.requestId,
+    code: String(req.body?.name || 'CLIENT_ERROR').slice(0, 100),
+    message,
+    metadata: {
+      path: String(req.body?.path || '').slice(0, 300),
+      stack: String(req.body?.stack || '').slice(0, 4_000),
+      release: String(req.body?.release || '').slice(0, 100)
+    }
+  });
+  return res.status(202).json({ success: true });
 });
 
 // 1B. Readiness check endpoint (Verifies Database Connectivity)

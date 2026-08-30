@@ -1333,6 +1333,7 @@ export interface UserAccount {
   workplaceAddresses?: string[]; // Danh sách các địa chỉ làm việc cụ thể được phân công
   phone?: string;
   active: boolean;
+  mustChangePassword?: boolean;
   createdAt: string;
   avatarUrl?: string;
   facePhotoUrl?: string; // Ảnh mẫu gương mặt đăng ký chuẩn

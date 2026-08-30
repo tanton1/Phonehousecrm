@@ -22,6 +22,8 @@ const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   'auth/account-exists-with-different-credential': 'Email này đã dùng một phương thức đăng nhập khác.',
   'auth/web-storage-unsupported': 'Trình duyệt đang chặn bộ nhớ cần thiết cho đăng nhập. Hãy cho phép cookie và dữ liệu trang web.',
   'auth/operation-not-supported-in-this-environment': 'Trình duyệt hiện tại không hỗ trợ phương thức đăng nhập này.',
+  'auth/requires-recent-login': 'Phiên xác thực đã cũ. Vui lòng đăng nhập lại trước khi đổi mật khẩu.',
+  'auth/weak-password': 'Mật khẩu mới chưa đủ mạnh.',
   UNAUTHENTICATED: 'Phiên Firebase chưa sẵn sàng. Vui lòng đăng nhập lại.',
   USER_NOT_PROVISIONED: 'Tài khoản đã có trên Firebase nhưng chưa có hồ sơ nhân viên trong PhoneHouse. Quản trị viên cần cấp tài khoản bằng đúng Email này.',
   USER_INACTIVE: 'Tài khoản PhoneHouse này đã bị tạm khóa. Vui lòng liên hệ Quản trị viên.',
@@ -29,6 +31,12 @@ const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   BRANCH_NOT_ASSIGNED: 'Tài khoản chưa được gán chi nhánh làm việc.',
   INVALID_TOKEN: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.',
   AUTH_SERVICE_UNAVAILABLE: 'Dịch vụ xác thực PhoneHouse đang tạm thời không khả dụng. Vui lòng thử lại sau.',
+  APP_CHECK_REQUIRED: 'Thiết bị chưa vượt qua bước xác minh ứng dụng. Hãy tải lại trang và thử lại.',
+  APP_CHECK_INVALID: 'Mã xác minh ứng dụng không hợp lệ hoặc đã hết hạn. Hãy tải lại trang.',
+  PASSWORD_NOT_UPDATED: 'Firebase chưa ghi nhận mật khẩu mới. Vui lòng thử lại.',
+  PASSWORD_CHANGE_REQUIRED: 'Bạn cần đổi mật khẩu trước khi sử dụng hệ thống.',
+  RECENT_LOGIN_REQUIRED: 'Phiên xác thực đã cũ. Vui lòng đăng nhập lại trước khi đổi mật khẩu.',
+  WEAK_PASSWORD: 'Mật khẩu mới chưa đáp ứng yêu cầu bảo mật.',
   USER_PROFILE_INVALID: 'Hồ sơ nhân viên không đầy đủ thông tin bắt buộc. Vui lòng liên hệ Quản trị viên.'
 };
 
@@ -71,4 +79,12 @@ export async function fetchAuthenticatedUserProfile(): Promise<UserAccount> {
     timeoutMs: 15000
   });
   return assertValidAuthenticatedProfile(response.user);
+}
+
+export async function changeRequiredPassword(newPassword: string): Promise<void> {
+  await apiJson<{ success: boolean; changed?: boolean }>('/api/users/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ newPassword }),
+    timeoutMs: 15000
+  });
 }

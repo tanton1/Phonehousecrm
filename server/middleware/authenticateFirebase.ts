@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { adminAuth, adminDb } from '../firebaseAdmin';
+import { adminAppCheck, adminAuth, adminDb } from '../firebaseAdmin';
 import { normalizeRole } from '../../shared/permissions';
 
 export interface StaffAuthority {
@@ -10,6 +10,7 @@ export interface StaffAuthority {
   assignedBranchIds?: string[];
   active: boolean;
   name?: string;
+  mustChangePassword?: boolean;
 }
 
 export class StaffAuthorityLookupError extends Error {
@@ -26,6 +27,8 @@ export interface AuthenticatedUser {
   branchId?: string;
   assignedBranchIds?: string[];
   name?: string;
+  mustChangePassword?: boolean;
+  authTime?: number;
 }
 
 declare global {
@@ -81,7 +84,8 @@ export async function getStaffAuthority(uid: string, emailFallback?: string, dbI
       branchId: uData.branchId || (uData.assignedBranchIds && uData.assignedBranchIds[0]) || '',
       assignedBranchIds: uData.assignedBranchIds || [],
       active: uData.active === true,
-      name: uData.displayName || uData.name
+      name: uData.displayName || uData.name,
+      mustChangePassword: uData.mustChangePassword === true
     };
   } catch (err) {
     console.error('[getStaffAuthority Error]:', err);
@@ -124,6 +128,26 @@ export async function authenticateFirebase(
   const token = authHeader.slice(7).trim();
 
   try {
+    if (String(process.env.APP_CHECK_ENFORCED || '').toLowerCase() === 'true') {
+      const appCheckToken = String(req.headers['x-firebase-appcheck'] || '').trim();
+      if (!appCheckToken) {
+        return res.status(401).json({
+          success: false,
+          error: 'APP_CHECK_REQUIRED',
+          message: 'Thiết bị chưa vượt qua bước xác minh ứng dụng.'
+        });
+      }
+      try {
+        await adminAppCheck.verifyToken(appCheckToken);
+      } catch {
+        return res.status(401).json({
+          success: false,
+          error: 'APP_CHECK_INVALID',
+          message: 'Mã xác minh ứng dụng không hợp lệ hoặc đã hết hạn.'
+        });
+      }
+    }
+
     const decoded = await adminAuth.verifyIdToken(token);
     
     // 2. Resolve Role & Branch from Authoritative Firestore User Document (Single Source of Truth)
@@ -166,6 +190,18 @@ export async function authenticateFirebase(
       });
     }
 
+    if (staff.mustChangePassword) {
+      const routePath = `${req.baseUrl || ''}${req.path || ''}`;
+      const passwordLifecycleRoutes = new Set(['/api/users/me', '/api/users/change-password']);
+      if (!passwordLifecycleRoutes.has(routePath)) {
+        return res.status(403).json({
+          success: false,
+          error: 'PASSWORD_CHANGE_REQUIRED',
+          message: 'Bạn cần đổi mật khẩu trước khi sử dụng hệ thống.'
+        });
+      }
+    }
+
     if (!staff.role) {
       return res.status(403).json({
         success: false,
@@ -188,7 +224,8 @@ export async function authenticateFirebase(
       role: staff.role,
       branchId: staff.branchId,
       assignedBranchIds: staff.assignedBranchIds,
-      name: staff.name
+      name: staff.name,
+      authTime: Number(decoded.auth_time || 0)
     };
     next();
   } catch (error: any) {
@@ -200,6 +237,7 @@ export async function authenticateFirebase(
         message: 'Không thể truy vấn hồ sơ xác thực lúc này.'
       });
     }
+
     return res.status(401).json({
       success: false,
       error: 'INVALID_TOKEN',

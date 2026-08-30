@@ -43,5 +43,6 @@ describe('PhoneHouse authentication flow', () => {
 
     expect(html).toContain('Tài khoản PhoneHouse này đã bị tạm khóa.');
     expect(html).toContain('Đăng Nhập Hệ Thống');
+    expect(html).toContain('Quên mật khẩu?');
   });
 });

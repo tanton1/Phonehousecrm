@@ -6,10 +6,12 @@ import {
   signOut,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  updateProfile
+  updateProfile,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import type { AppCheck } from 'firebase/app-check';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App singleton
@@ -20,6 +22,46 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+
+let appCheck: AppCheck | null = null;
+let appCheckInitialization: Promise<AppCheck | null> | null = null;
+const recaptchaSiteKey = String(
+  (import.meta as any).env?.VITE_FIREBASE_APPCHECK_SITE_KEY
+  || firebaseConfig.recaptchaSiteKey
+  || ''
+).trim();
+
+async function resolveAppCheck(): Promise<AppCheck | null> {
+  if (appCheck) return appCheck;
+  if (typeof window === 'undefined' || !recaptchaSiteKey) return null;
+  if (!appCheckInitialization) {
+    appCheckInitialization = import('firebase/app-check')
+      .then(({ ReCaptchaV3Provider, initializeAppCheck }) => {
+        appCheck = initializeAppCheck(app, {
+          provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+          isTokenAutoRefreshEnabled: true
+        });
+        return appCheck;
+      })
+      .catch(error => {
+        console.warn('[Firebase App Check] Không thể khởi tạo:', error);
+        return null;
+      });
+  }
+  return appCheckInitialization;
+}
+
+export async function getPhoneHouseAppCheckToken(): Promise<string | null> {
+  const instance = await resolveAppCheck();
+  if (!instance) return null;
+  try {
+    const { getToken } = await import('firebase/app-check');
+    return (await getToken(instance, false)).token;
+  } catch (error) {
+    console.warn('[Firebase App Check] Không thể lấy token:', error);
+    return null;
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -104,6 +146,15 @@ export async function loginWithEmail(email: string, pass: string) {
   } catch (error: any) {
     throw error;
   }
+}
+
+export async function requestPasswordReset(email: string) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) throw new Error('auth/invalid-email');
+  await sendPasswordResetEmail(auth, normalizedEmail, {
+    url: typeof window !== 'undefined' ? window.location.origin : undefined,
+    handleCodeInApp: false
+  });
 }
 
 export async function registerWithEmail(email: string, pass: string, name: string) {

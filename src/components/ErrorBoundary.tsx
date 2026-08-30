@@ -1,5 +1,6 @@
 import React, { ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { reportClientError } from '../services/observabilityClient';
 
 interface Props {
   children: ReactNode;
@@ -31,6 +32,11 @@ export class ErrorBoundary extends (React.Component as any) {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error caught by ErrorBoundary:', error, errorInfo);
+    reportClientError({
+      name: error.name,
+      message: error.message,
+      stack: `${error.stack || ''}\n${errorInfo.componentStack || ''}`
+    });
     this.setState({ errorInfo });
   }
 

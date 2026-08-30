@@ -23,6 +23,9 @@ export default defineConfig(() => {
         output: {
           manualChunks(id) {
             if (!id.includes('node_modules')) return undefined;
+            // Keep optional App Check on the dynamic-import boundary. Its shared
+            // Firebase primitives remain in the main vendor chunk without a cycle.
+            if (id.includes('@firebase/app-check') || id.includes('firebase/app-check')) return undefined;
             if (id.includes('firebase')) return 'vendor-firebase';
             if (id.includes('lucide-react')) return 'vendor-icons';
             if (id.includes('react')) return 'vendor-react';

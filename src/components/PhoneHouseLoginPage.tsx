@@ -12,7 +12,7 @@ import {
   EyeOff,
   Building2
 } from 'lucide-react';
-import { loginWithEmail, signInWithGoogle, auth } from '../lib/firebase';
+import { loginWithEmail, signInWithGoogle, auth, requestPasswordReset } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
 import { fetchAuthenticatedUserProfile, getLoginErrorMessage } from '../services/authApiClient';
 
@@ -37,6 +37,7 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(initialError);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -100,6 +101,30 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
     }
   };
 
+  const handlePasswordReset = async () => {
+    if (!email.trim()) {
+      setErrorMessage('Nhập địa chỉ Email trước khi yêu cầu đặt lại mật khẩu.');
+      return;
+    }
+    setIsResetting(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      await requestPasswordReset(email);
+      setSuccessMessage('Nếu Email hợp lệ, Firebase đã gửi liên kết đặt lại mật khẩu. Vui lòng kiểm tra cả thư rác.');
+    } catch (error) {
+      const message = getLoginErrorMessage(error);
+      if (/Internet|dịch vụ|Tên miền|phương thức/i.test(message)) {
+        setErrorMessage(message);
+      } else {
+        // Keep the response generic to avoid disclosing registered accounts.
+        setSuccessMessage('Nếu Email hợp lệ, Firebase sẽ gửi liên kết đặt lại mật khẩu.');
+      }
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   return (
     <div className={`w-full ${isModal ? 'p-0' : 'min-h-[90vh] flex items-center justify-center p-4 sm:p-6 bg-zinc-50'}`}>
       <div className="w-full max-w-md mx-auto bg-white rounded-[2rem] shadow-xl shadow-zinc-200/50 border border-zinc-100 overflow-hidden relative">
@@ -158,6 +183,14 @@ export const PhoneHouseLoginPage: React.FC<PhoneHouseLoginPageProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1.5 ml-1 mr-1">
                 <label className="text-xs font-semibold text-zinc-700">Mật khẩu</label>
+                <button
+                  type="button"
+                  onClick={() => void handlePasswordReset()}
+                  disabled={isLoading || isResetting}
+                  className="text-[11px] font-bold text-orange-600 hover:text-orange-700 disabled:opacity-60"
+                >
+                  {isResetting ? 'Đang gửi…' : 'Quên mật khẩu?'}
+                </button>
               </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-400">

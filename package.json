@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && vite build && esbuild server.ts --bundle --platform=node --format=cjs --external:vite --sourcemap --outfile=dist/server.cjs",
+    "build": "tsc --noEmit && vite build && node scripts/build-server.mjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
@@ -18,6 +18,8 @@
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore,storage \"vitest run tests/firebase-emulator-rules.test.ts\"",
     "check:client-writes": "node scripts/check-client-firestore-writes.mjs",
+    "verify:production": "node scripts/verify-production.mjs",
+    "backup:firestore": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-firestore.ps1",
     "test:watch": "vitest",
     "verify": "npm run typecheck && npm run typecheck:strict && npm run lint && npm run test && npm run check:client-writes && npm run build"
   },

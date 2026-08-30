@@ -1,4 +1,4 @@
-import { auth } from '../lib/firebase';
+import { auth, getPhoneHouseAppCheckToken } from '../lib/firebase';
 
 const API_BASE = String((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -26,7 +26,10 @@ export async function apiJson<T>(
   init: ApiRequestInit = {}
 ): Promise<T> {
   const { timeoutMs = 15000, ...requestInit } = init;
-  const token = await auth.currentUser?.getIdToken(false).catch(() => null);
+  const [token, appCheckToken] = await Promise.all([
+    auth.currentUser?.getIdToken(false).catch(() => null),
+    getPhoneHouseAppCheckToken()
+  ]);
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
@@ -41,6 +44,7 @@ export async function apiJson<T>(
         Accept: 'application/json',
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(appCheckToken ? { 'X-Firebase-AppCheck': appCheckToken } : {}),
         ...(requestInit.headers || {})
       }
     });

@@ -1,0 +1,19 @@
+{
+  "name": "PhoneHouse CRM & ERP",
+  "short_name": "PhoneHouse",
+  "description": "Hệ thống vận hành nội bộ PhoneHouse",
+  "lang": "vi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#ff4b16",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

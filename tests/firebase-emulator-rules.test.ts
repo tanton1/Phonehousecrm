@@ -22,6 +22,7 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'users/staff-1'), { role: 'SALES', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'users/tech-1'), { role: 'TECHNICIAN', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'users/accountant-1'), { role: 'ACCOUNTANT', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
+    await setDoc(doc(context.firestore(), 'users/password-locked-1'), { role: 'SALES', active: true, mustChangePassword: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'technicalSecrets/WO-1'), { branchId: 'CN01', encryptedSecret: 'never-browser-readable' });
     await setDoc(doc(context.firestore(), 'catalogItems/SKU-1'), { branchId: 'CN01', lifecycleStatus: 'ACTIVE' });
     await setDoc(doc(context.firestore(), 'branches/CN01'), { id: 'CN01', name: 'PhoneHouse', isActive: true });
@@ -79,6 +80,13 @@ afterAll(async () => { await env?.cleanup(); });
   it('active authenticated users retain explicit safe catalog reads', async () => {
     const db = env.authenticatedContext('admin-1').firestore();
     await assertSucceeds(getDoc(doc(db, 'catalogItems/SKU-1')));
+  });
+
+  it('password-change-required users cannot bypass the application through Firestore', async () => {
+    const db = env.authenticatedContext('password-locked-1').firestore();
+    await assertFails(getDoc(doc(db, 'catalogItems/SKU-1')));
+    await assertFails(getDoc(doc(db, 'branches/CN01')));
+    await assertFails(getDoc(doc(db, 'users/password-locked-1')));
   });
 
   it('shared identities stay server-only while branch accounts, ledgers and products stay branch-scoped', async () => {
