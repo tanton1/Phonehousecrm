@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AudioLines, Check, FileImage, FileAudio, Loader2, ScanLine, ShieldCheck, Sparkles, Upload, X } from 'lucide-react';
+import { AudioLines, Check, FileImage, FileAudio, Loader2, ScanLine, ShieldCheck, Sparkles, Upload, UserPlus, X } from 'lucide-react';
 import {
   AiCaptureExtraction,
   AiCaptureResult,
   ConversationExtraction,
   SalesSlipExtraction,
   confirmAiCaptureDraft,
+  createLeadFromAiCaptureDraft,
   requestAiCapture
 } from '../services/aiCaptureApiClient';
 
@@ -33,6 +34,8 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [leadCreated, setLeadCreated] = useState(false);
+  const [leadBusy, setLeadBusy] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -59,6 +62,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
     setExtraction(null);
     setError('');
     setConfirmed(false);
+    setLeadCreated(false);
     if (inputRef.current) inputRef.current.value = '';
   };
 
@@ -70,6 +74,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
   const handleFile = (next: File | null) => {
     setError('');
     setConfirmed(false);
+    setLeadCreated(false);
     setResult(null);
     setExtraction(null);
     setFile(next);
@@ -80,6 +85,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
     setBusy(true);
     setError('');
     setConfirmed(false);
+    setLeadCreated(false);
     try {
       const captured = await requestAiCapture(file, sourceType);
       setResult(captured);
@@ -106,6 +112,21 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
       setError(confirmError?.message || 'Không thể xác nhận bản nháp.');
     } finally {
       setConfirming(false);
+    }
+  };
+
+  const createLead = async () => {
+    if (!result || !confirmed || leadBusy || leadCreated || !conversation) return;
+    setLeadBusy(true);
+    setError('');
+    try {
+      await createLeadFromAiCaptureDraft(result.draftId);
+      setLeadCreated(true);
+      window.alert('Đã tạo lead CRM và task phản hồi từ bản nháp hội thoại.');
+    } catch (leadError: any) {
+      setError(leadError?.message || 'Không thể tạo lead CRM. Hãy bổ sung tên và số điện thoại 10 số.');
+    } finally {
+      setLeadBusy(false);
     }
   };
 
@@ -196,6 +217,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({ isOpen, onClose,
           <div className="flex gap-2">
             <button type="button" onClick={reset} className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-black text-zinc-600">Làm lại</button>
             {result && extraction && <button type="button" onClick={() => void confirmDraft()} disabled={confirming || confirmed} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-700 disabled:opacity-50"><Check className="h-4 w-4" /> {confirming ? 'Đang lưu…' : confirmed ? 'Đã xác nhận' : 'Xác nhận bản nháp'}</button>}
+            {conversation && confirmed && <button type="button" onClick={() => void createLead()} disabled={leadBusy || leadCreated} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50"><UserPlus className="h-4 w-4" /> {leadBusy ? 'Đang tạo lead…' : leadCreated ? 'Đã tạo lead CRM' : 'Tạo lead CRM'}</button>}
             {sales && onOpenPOS && <button type="button" onClick={() => onOpenPOS(sales, result.draftId)} className="rounded-xl bg-zinc-950 px-3 py-2 text-xs font-black text-white">Mở POS để đối chiếu</button>}
           </div>
         </footer>

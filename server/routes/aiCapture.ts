@@ -6,6 +6,7 @@ import { adminBucket } from '../firebaseAdmin';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { createRateLimit } from '../middleware/security';
+import { processCreateCrmLead } from '../services/crmOperationsService';
 
 export type AiCaptureSourceType = 'SALES_SLIP' | 'CONVERSATION';
 
@@ -283,6 +284,49 @@ export function createAiCaptureRouter(db: Firestore | null): Router {
       return res.json({ success: true, data: { draftId: ref.id, status: 'CONFIRMED' } });
     } catch (error: any) {
       return res.status(400).json({ success: false, code: String(error?.message || 'AI_CAPTURE_CONFIRM_FAILED').split(':')[0] });
+    }
+  });
+
+  router.post('/drafts/:draftId/create-lead', authenticateFirebase, requireRole('ADMIN', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    const ref = db.collection('aiCaptureDrafts').doc(String(req.params.draftId || ''));
+    try {
+      const snapshot = await ref.get();
+      if (!snapshot.exists) return res.status(404).json({ success: false, code: 'AI_CAPTURE_DRAFT_NOT_FOUND' });
+      const draft = snapshot.data()!;
+      if (draft.sourceType !== 'CONVERSATION') return res.status(400).json({ success: false, code: 'AI_CAPTURE_LEAD_SOURCE_INVALID' });
+      if (draft.status !== 'CONFIRMED') return res.status(409).json({ success: false, code: 'AI_CAPTURE_CONFIRM_REQUIRED', message: 'Hãy xác nhận bản nháp trước khi tạo lead CRM.' });
+      if (draft.createdByUid !== req.user!.uid && req.user!.role !== 'ADMIN' && req.user!.role !== 'MANAGER') return res.status(403).json({ success: false, code: 'AI_CAPTURE_DRAFT_FORBIDDEN' });
+      if (draft.crmLeadId) return res.json({ success: true, data: { leadId: draft.crmLeadId, idempotentReplay: true } });
+      const extraction = normalizeConversationExtraction(draft.reviewedExtraction || draft.extraction);
+      if (!extraction.customer.name || !/^0\d{9}$/.test(extraction.customer.phone.replace(/\D/g, ''))) {
+        return res.status(400).json({ success: false, code: 'AI_CAPTURE_LEAD_CONTACT_REQUIRED', message: 'Cần bổ sung tên và số điện thoại 10 số trước khi tạo lead CRM.' });
+      }
+      const created = await processCreateCrmLead(db, {
+        branchId: req.user!.branchId || '',
+        name: extraction.customer.name,
+        phone: extraction.customer.phone.replace(/\D/g, ''),
+        source: 'AI_CAPTURE_CONVERSATION',
+        interestedModel: extraction.interestedModel || '',
+        budget: extraction.budget || 0,
+        notes: [extraction.summary, extraction.transcript ? `Bản chép lời: ${extraction.transcript}` : ''].filter(Boolean).join('\n\n').slice(0, 6_000),
+        nextActionType: extraction.appointmentAt ? 'APPOINTMENT' : 'CALL',
+        nextActionAt: extraction.appointmentAt || undefined,
+        operationKey: `AICAP_LEAD_${ref.id}`
+      } as any, {
+        uid: req.user!.uid,
+        role: req.user!.role,
+        branchId: req.user!.branchId,
+        assignedBranchIds: req.user!.assignedBranchIds,
+        name: req.user!.name || req.user!.email || req.user!.uid
+      });
+      const leadId = String((created as any)?.lead?.id || '');
+      await ref.update({ crmLeadId: leadId, crmCreatedAt: FieldValue.serverTimestamp(), crmCreatedByUid: req.user!.uid });
+      return res.json({ success: true, data: { leadId, lead: (created as any)?.lead || null, task: (created as any)?.task || null, idempotentReplay: Boolean((created as any)?.idempotentReplay) } });
+    } catch (error: any) {
+      const code = String(error?.message || 'AI_CAPTURE_CREATE_LEAD_FAILED').split(':')[0];
+      const status = /FORBIDDEN/.test(code) ? 403 : /INVALID|REQUIRED/.test(code) ? 400 : 409;
+      return res.status(status).json({ success: false, code, message: 'Không thể tạo lead CRM từ bản nháp AI.' });
     }
   });
 

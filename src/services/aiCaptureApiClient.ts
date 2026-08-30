@@ -90,3 +90,13 @@ export async function confirmAiCaptureDraft(draftId: string, extraction?: AiCapt
   if (!response?.success || !response.data) throw new Error('AI_CAPTURE_CONFIRM_FAILED');
   return response.data;
 }
+
+export async function createLeadFromAiCaptureDraft(draftId: string): Promise<{ leadId: string; idempotentReplay?: boolean }> {
+  const response = await apiJson<{ success: boolean; data: { leadId: string; idempotentReplay?: boolean } }>(`/api/ai/capture/drafts/${encodeURIComponent(draftId)}/create-lead`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+    timeoutMs: 20_000
+  });
+  if (!response?.success || !response.data) throw new Error('AI_CAPTURE_CREATE_LEAD_FAILED');
+  return response.data;
+}

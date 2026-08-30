@@ -6,7 +6,8 @@ Tính năng nằm trong **Xem thêm → AI nhập liệu**.
 - Ghi âm: MP3/WAV/M4A/OGG/WEBM, tối đa 3 MB.
 - Gemini chỉ tạo bản nháp. Nhân viên phải kiểm tra, sửa và bấm **Xác nhận bản nháp**.
 - Với phiếu bán, nút **Mở POS để đối chiếu** tự tìm IMEI/SKU trong tồn kho đang tải; dòng không khớp không được tự tạo.
-- Không có bước nào tự ghi hóa đơn, thu tiền, công nợ hoặc lead CRM.
+- AI không tự ghi hóa đơn, thu tiền, công nợ hoặc lead CRM.
+- Với ghi âm hội thoại, sau khi xác nhận và bổ sung đủ tên + số điện thoại 10 số, nhân viên có thể bấm **Tạo lead CRM** để tạo lead và task phản hồi qua API CRM hiện hành.
 
 Máy chủ lưu hash, metadata, kết quả AI và bản đã nhân viên chỉnh sửa trong `aiCaptureDrafts`. File gốc được lưu private trong Cloud Storage tại `ai-captures/{uid}/...` khi Storage đã cấu hình. Nếu Storage tạm thời chưa sẵn sàng, việc phân tích vẫn trả bản nháp nhưng `storageSaved=false` để người vận hành biết.
 
@@ -18,4 +19,3 @@ GEMINI_CAPTURE_MODEL=gemini-2.5-flash
 ```
 
 Các endpoint đều yêu cầu Firebase Auth và vai trò bán hàng/quản lý/CSKH. API có rate limit riêng và giới hạn MIME/kích thước trước khi gửi dữ liệu sang Gemini.
-
