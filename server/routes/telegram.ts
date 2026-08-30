@@ -5,23 +5,28 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import {
   answerTelegramQuery,
+  contextualizeTelegramQuery,
   deleteTelegramConfiguration,
   dispatchPendingTelegramOutbox,
+  downloadTelegramVoice,
+  escapeTelegramHtml,
   getTelegramAdminConfiguration,
   getTelegramRuntimeStatus,
   handleTelegramCallbackQuery,
   isTelegramSafeBranchShortcut,
   loadTelegramConfig,
   registerTelegramWebhook,
+  rememberTelegramConversation,
   saveTelegramConfiguration,
   scanCrmDailyDigestAlerts,
   scanMissingAttendanceAlerts,
   sendTelegramMessage,
+  sendTelegramChatAction,
   telegramHelpText,
   telegramIsConfigured,
   unregisterTelegramWebhook
 } from '../services/telegramService';
-import { testGeminiConnection } from '../services/telegramAiAssistant';
+import { testGeminiConnection, transcribeTelegramVoice } from '../services/telegramAiAssistant';
 import {
   createTelegramLinkCode,
   getTelegramLinkStatus,
@@ -268,25 +273,67 @@ export function createTelegramRouter(db: Firestore | null): Router {
       await sendTelegramMessage('⏸ Chức năng tra cứu dữ liệu Telegram hiện chưa được bật.', { chatId, replyToMessageId: message.message_id, config }).catch(() => null);
       return res.status(200).send('OK');
     }
-    const text = String(message.text || message.caption || '').trim();
-    if (!text) return res.status(200).send('OK');
+    let text = String(message.text || message.caption || '').trim();
+    const audioMessage = message.voice || message.audio;
+    if (!text && !audioMessage) return res.status(200).send('OK');
+    const isPrivateChat = message.chat?.type === 'private';
     const isSafeBranchShortcut = isTelegramSafeBranchShortcut(text);
-    const addressedToBot = text.startsWith('/')
+    const addressedToBot = isPrivateChat
+      || text.startsWith('/')
       || (Array.isArray(message.entities) && message.entities.some((entity: any) => ['bot_command', 'mention'].includes(String(entity?.type || ''))))
       || message.reply_to_message?.from?.is_bot === true
       || isSafeBranchShortcut;
     if (!addressedToBot) return res.status(200).send('OK');
     try {
       const principal = await resolveTelegramPrincipal(db, senderId, config.ownerUserIds).catch(() => null);
-      const answer = await answerTelegramQuery(db, text, senderId, principal);
+      let inputMode: 'TEXT' | 'VOICE' = 'TEXT';
+      let voiceDurationSeconds: number | null = null;
+      if (audioMessage) {
+        inputMode = 'VOICE';
+        voiceDurationSeconds = Number(audioMessage.duration || 0) || null;
+        if (!principal) {
+          const linkAnswer = await answerTelegramQuery(db, 'Tin nhắn thoại', senderId, principal);
+          await sendTelegramMessage(linkAnswer.reply, { chatId, replyToMessageId: message.message_id, config });
+          return res.status(200).send('OK');
+        }
+        if (voiceDurationSeconds && voiceDurationSeconds > 180) {
+          await sendTelegramMessage('⚠️ Voice quá dài. Hãy gửi đoạn tối đa 3 phút, nói ngắn như “doanh số hôm nay 109” hoặc “15 Pro Max còn không”.', { chatId, replyToMessageId: message.message_id, config });
+          return res.status(200).send('OK');
+        }
+        await sendTelegramChatAction(chatId, config);
+        try {
+          const downloaded = await downloadTelegramVoice(String(audioMessage.file_id || ''), Number(audioMessage.file_size || 0), config);
+          const transcript = await transcribeTelegramVoice(downloaded.bytes, downloaded.mimeType, config);
+          await sendTelegramMessage([
+            `🎙️ <b>Mình nghe:</b> ${escapeTelegramHtml(transcript.slice(0, 700))}`,
+            '<i>Đang hiểu ý và đối chiếu dữ liệu CRM… Nếu nghe sai, hãy gửi lại câu ngắn hơn.</i>'
+          ].join('\n'), { chatId, replyToMessageId: message.message_id, config });
+          text = text && !/^\/ai(?:@\w+)?$/i.test(text) ? `${text}. ${transcript}` : transcript;
+        } catch (voiceError: any) {
+          const code = String(voiceError?.message || 'TELEGRAM_VOICE_FAILED');
+          const voiceMessage = code.includes('TOO_LARGE')
+            ? 'Voice vượt giới hạn 5 MB. Hãy gửi đoạn ngắn hơn.'
+            : code.includes('NOT_CONFIGURED')
+              ? 'AI dùng chung chưa được cấu hình nên bot chưa nghe được voice.'
+              : 'Bot chưa nghe rõ voice này. Hãy thử lại ở nơi ít ồn hơn hoặc gửi câu chữ ngắn.';
+          await sendTelegramMessage(`⚠️ ${voiceMessage}`, { chatId, replyToMessageId: message.message_id, config });
+          return res.status(200).send('OK');
+        }
+      }
+      const contextualized = await contextualizeTelegramQuery(db, senderId, text);
+      const answer = await answerTelegramQuery(db, contextualized.query, senderId, principal);
       await db.collection('telegramQueryAudit').add({
         intent: answer.intent,
+        inputMode,
+        contextUsed: contextualized.usedContext,
+        voiceDurationSeconds,
         senderFingerprint: senderFingerprint(senderId),
         chatFingerprint: senderFingerprint(chatId),
         principalUid: principal?.uid || null,
         principalRole: principal?.role || null,
         createdAt: FieldValue.serverTimestamp()
       });
+      await rememberTelegramConversation(db, senderId, contextualized.query, answer.intent);
       await sendTelegramMessage(answer.reply, {
         chatId,
         replyToMessageId: message.message_id,

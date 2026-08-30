@@ -177,10 +177,11 @@ describe('Telegram Omnipotent Assistant Intent Parsing & Tools', () => {
       query: 'Tư vấn cách tối ưu chi phí linh kiện'
     });
 
-    // Natural conversation fallback to AI
-    expect(parseTelegramIntent('Shop Cầu Giấy hôm nay bán được mấy cây iPhone?')).toEqual({
-      kind: 'AI',
-      query: 'Shop Cầu Giấy hôm nay bán được mấy cây iPhone?'
+    // Natural sales questions now route directly to canonical revenue data.
+    expect(parseTelegramIntent('Shop Cầu Giấy hôm nay bán được mấy cây iPhone?')).toMatchObject({
+      kind: 'REVENUE',
+      period: 'TODAY',
+      branchToken: expect.stringContaining('cau giay')
     });
   });
 

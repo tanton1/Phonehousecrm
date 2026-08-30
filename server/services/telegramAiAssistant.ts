@@ -5,6 +5,7 @@ import { getDeviceLifecycleTimeline } from './deviceLifecycleService';
 import { deriveTechnicalBoardStage } from './technicalService';
 import { getTelegramConfig, escapeTelegramHtml, TelegramConfig } from './telegramService';
 import { getCrmCustomer360, getCrmDashboard, getCrmWorkQueue, listCrmLeads } from './crmOperationsService';
+import { phoneHouseTranscriptionPrompt } from './businessSpeech';
 import {
   TelegramPrincipal,
   telegramPrincipalCanAccessBranch,
@@ -183,6 +184,66 @@ function normalizeText(value: unknown): string {
     .replace(/[^a-z0-9@/_\s-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function telegramAudioFormat(mimeType: string): string {
+  if (mimeType.includes('wav')) return 'wav';
+  if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3';
+  if (mimeType.includes('m4a') || mimeType.includes('mp4')) return 'm4a';
+  if (mimeType.includes('webm')) return 'webm';
+  return 'ogg';
+}
+
+export async function transcribeTelegramVoice(
+  audio: Buffer,
+  mimeType = 'audio/ogg',
+  configOverride?: TelegramConfig
+): Promise<string> {
+  const config = configOverride || getTelegramConfig();
+  const apiKey = String(config.geminiApiKey || process.env.GEMINI_API_KEY || '').trim();
+  const baseUrl = config.geminiBaseUrl || process.env.GEMINI_BASE_URL || '';
+  const model = config.aiModel || 'gemini-3.7-flash';
+  if (!apiKey) throw new Error('TELEGRAM_VOICE_AI_NOT_CONFIGURED');
+  if (!audio.length) throw new Error('TELEGRAM_VOICE_EMPTY');
+  const prompt = phoneHouseTranscriptionPrompt('TELEGRAM_QUERY');
+
+  if (isOpenAiCompatible(apiKey, baseUrl)) {
+    const response = await fetch(`${resolveBaseUrl(baseUrl)}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'input_audio', input_audio: { data: audio.toString('base64'), format: telegramAudioFormat(mimeType) } }
+          ]
+        }],
+        temperature: 0
+      }),
+      signal: AbortSignal.timeout(80_000)
+    });
+    if (!response.ok) throw new Error(`TELEGRAM_VOICE_AI_HTTP_${response.status}`);
+    const body: any = await response.json();
+    const transcript = String(body?.choices?.[0]?.message?.content || '').trim();
+    if (!transcript) throw new Error('TELEGRAM_VOICE_TRANSCRIPT_EMPTY');
+    return transcript.slice(0, 4_000);
+  }
+
+  const ai = getAI(config);
+  if (!ai) throw new Error('TELEGRAM_VOICE_AI_NOT_CONFIGURED');
+  const response = await ai.models.generateContent({
+    model,
+    contents: [{ role: 'user', parts: [
+      { inlineData: { mimeType, data: audio.toString('base64') } },
+      { text: prompt }
+    ] }],
+    config: { temperature: 0 }
+  });
+  const transcript = String(response.text || '').trim();
+  if (!transcript) throw new Error('TELEGRAM_VOICE_TRANSCRIPT_EMPTY');
+  return transcript.slice(0, 4_000);
 }
 
 function compactText(value: unknown): string {
@@ -1874,6 +1935,13 @@ ${branchesGuide}
 5. Đơn vị tiền tệ luôn là Việt Nam Đồng (ví dụ: 25.000.000 đ).
 6. Sử dụng công cụ (Function Calling) để lấy dữ liệu thực tế chính xác 100% trước khi trả lời. Tuyệt đối không tự bịa đặt số liệu.
 7. Khi người dùng hỏi phân tích hoặc so sánh, bạn hãy tổng hợp dữ liệu từ các công cụ, nhận xét xu hướng (tăng/giảm, điểm nghẽn kỹ thuật, rủi ro tồn kho, công nợ) và đưa ra ĐỀ XUẤT HÀNH ĐỘNG cụ thể.
+
+[CÁCH HIỂU CÂU NÓI NGẮN / TỰ NHIÊN]:
+- Người dùng không cần dùng lệnh hoặc nói đủ câu. “doanh số nay”, “bán hôm qua 109”, “15pm còn không”, “ai trễ”, “việc cần gọi” đều là yêu cầu hợp lệ.
+- “15pm/15 prm” = iPhone 15 Pro Max; “15p” = iPhone 15 Pro; “256g” = 256GB; “ck” = chuyển khoản; “ds” = doanh số.
+- Câu ngắn không nhắc chi nhánh dùng chi nhánh mặc định của tài khoản. Không tự suy ra “toàn hệ thống”.
+- Nếu có thể chọn đúng một công cụ và các tham số bắt buộc đã đủ, gọi ngay công cụ; không bắt người dùng viết lại thành câu đầy đủ.
+- Nếu thiếu dữ kiện bắt buộc như IMEI/số khách, chỉ hỏi đúng một câu ngắn để bổ sung; không bịa giá trị và không gọi nhầm công cụ.
 `;
 
   // === CASE 1: OPENAI-COMPATIBLE PROXY (apikey.fun, OneAPI, NewAPI, etc.) ===

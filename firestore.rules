@@ -439,6 +439,14 @@ service cloud.firestore {
       allow read, write: if false; // Ràng buộc 1 CRM user ↔ 1 Telegram account ở server.
     }
 
+    match /telegramUserPreferences/{preferenceId} {
+      allow read, write: if false; // Chi nhánh mặc định của bot chỉ do API Telegram quản lý.
+    }
+
+    match /telegramConversationContexts/{contextId} {
+      allow read, write: if false; // Ngữ cảnh ngắn hạn của bot không được lộ cho trình duyệt.
+    }
+
     match /attendanceLocationState/{attendanceId} {
       allow read, write: if false;
     }

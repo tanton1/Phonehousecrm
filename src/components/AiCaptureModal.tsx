@@ -54,23 +54,23 @@ const captureModules: Array<{
 const voiceGuides: Record<AiCaptureSourceType, { fields: string[]; example: string; note: string }> = {
   SALES_SLIP: {
     fields: ['Khách hàng', 'Số điện thoại', 'Sản phẩm', 'SKU', 'IMEI', 'Số lượng', 'Đơn giá', 'Giảm giá', 'Tổng tiền', 'Thanh toán'],
-    example: 'Khách hàng Nguyễn An. Số điện thoại 0901 234 567. Sản phẩm iPhone 15 Pro. SKU IP15P. IMEI 3 5 3... đọc đủ 15 số. Số lượng 1. Đơn giá 25 triệu. Tổng tiền 25 triệu. Thanh toán chuyển khoản.',
-    note: 'Đọc nhãn trước giá trị; đọc IMEI từng số và nói “mặt hàng tiếp theo” trước dòng mới.'
+    example: 'Có thể nói ngắn: “Anh Nam, 0901 234 567, 15 Pro Max 256 đen, IMEI 3 5 3... đủ 15 số, 28 triệu, chuyển khoản”.',
+    note: 'Không cần đọc tên từng trường. Chỉ cần ngắt nhẹ giữa khách, máy, IMEI và giá; với nhiều máy hãy nói “máy tiếp theo”.'
   },
   CONVERSATION: {
     fields: ['Tên khách', 'Số điện thoại', 'Máy quan tâm', 'Ngân sách', 'Tiền cọc', 'Lịch hẹn', 'Việc tiếp theo'],
-    example: 'Có thể ghi hội thoại tự nhiên. Trước khi kết thúc, nhân viên nên nhắc lại: tên khách, số điện thoại, máy quan tâm, ngân sách và lịch hẹn để AI có dữ liệu rõ ràng.',
-    note: 'Đặt điện thoại gần người nói, tránh nhiều người nói chồng lên nhau.'
+    example: 'Nói tự nhiên: “Chị Lan thích 15 Pro 256, tầm 25 triệu, chiều mai ghé, số chị 0901 234 567”.',
+    note: 'Không cần nói theo biểu mẫu. Đặt điện thoại gần người nói và tránh hai người nói chồng lên nhau.'
   },
   PURCHASE_RECEIPT: {
     fields: ['Nhà cung cấp', 'Điện thoại/MST', 'Số chứng từ', 'Ngày nhập', 'Mặt hàng', 'SKU', 'IMEI', 'Số lượng', 'Giá nhập', 'Tổng tiền', 'Thanh toán'],
-    example: 'Nhà cung cấp Công ty A. Mã số thuế 040... Số chứng từ HD 001. Ngày nhập 30 tháng 8 năm 2026. Mặt hàng iPhone 15 Pro. SKU IP15P. IMEI 3 5 3... Giá nhập 20 triệu. Tổng tiền 20 triệu. Ghi nợ nhà cung cấp.',
-    note: 'Một IMEI một dòng đọc; nói “mặt hàng tiếp theo” để AI không trộn giá hoặc IMEI giữa hai máy.'
+    example: 'Có thể nói ngắn: “Nhập của Hoàng Hà, 15 Pro 256, IMEI 3 5 3... đủ 15 số, giá 20 triệu, chưa thanh toán”.',
+    note: 'Không cần đọc tên từng trường. Với nhiều máy, nói “máy tiếp theo” để AI không trộn IMEI và giá.'
   },
   REPAIR_INTAKE: {
     fields: ['Tên khách', 'Số điện thoại', 'IMEI/Serial', 'Model', 'Nhóm lỗi', 'Mô tả lỗi', 'Ngoại hình', 'Phụ kiện', 'Báo giá', 'Hẹn trả'],
-    example: 'Tên khách Trần Bình. Số điện thoại 0905... IMEI 3 5 3... Model iPhone 14 Pro. Nhóm lỗi màn hình cảm ứng. Mô tả sọc xanh sau khi rơi. Ngoại hình cấn góc phải. Phụ kiện máy trần. Báo giá dự kiến 2 triệu. Hẹn trả 17 giờ ngày mai.',
-    note: 'Không đọc mật khẩu hoặc tài khoản iCloud. Trường chưa kiểm tra hãy nói rõ “chưa kiểm tra”.'
+    example: 'Có thể nói ngắn: “Anh Bình 0905..., 14 Pro, IMEI 3 5 3... đủ 15 số, rơi sọc màn, máy trần, cấn góc phải, hẹn chiều mai”.',
+    note: 'Không cần đọc tên từng trường; không đọc mật khẩu hoặc iCloud. Phần chưa biết chỉ cần nói “chưa kiểm tra”.'
   }
 };
 
@@ -399,9 +399,9 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
           </div>
 
           <details open className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/70 p-3">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-black text-sky-900"><ListChecks className="h-4 w-4" />Mẫu đọc để AI điền đúng {selectedModule.label.toLowerCase()}</summary>
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-black text-sky-900"><ListChecks className="h-4 w-4" />Chỉ cần nói tự nhiên · AI tự hiểu {selectedModule.label.toLowerCase()}</summary>
             <div className="mt-2 flex flex-wrap gap-1.5">{voiceGuide.fields.map(field => <span key={field} className="rounded-full border border-sky-200 bg-white px-2 py-1 text-[10px] font-bold text-sky-800">{field}</span>)}</div>
-            <p className="mt-2 text-[11px] font-semibold leading-5 text-sky-950"><b>Ví dụ:</b> “{voiceGuide.example}”</p>
+            <p className="mt-2 text-[11px] font-semibold leading-5 text-sky-950"><b>Ví dụ:</b> {voiceGuide.example}</p>
             <p className="mt-1 text-[10px] font-bold text-sky-700">{voiceGuide.note}</p>
           </details>
 

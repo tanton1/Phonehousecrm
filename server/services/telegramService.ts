@@ -27,6 +27,7 @@ import {
   getBranchAcceptedAliases,
   fetchActiveBranches
 } from './telegramAiAssistant';
+import { expandVietnameseBusinessShorthand } from './businessSpeech';
 
 type TelegramAction = 'CHECK_IN' | 'CHECK_OUT' | 'MISSING_CHECK_IN' | 'SHIFT_LOCATION';
 
@@ -159,7 +160,9 @@ const TERMINAL_WORK_ORDER_STATUSES = new Set(['DELIVERED_TO_CUSTOMER', 'RETURNED
 const TELEGRAM_CONFIGURATION_COLLECTION = 'telegramConfigurations';
 const TELEGRAM_CONFIGURATION_DOCUMENT = 'primary';
 const TELEGRAM_USER_PREFERENCES_COLLECTION = 'telegramUserPreferences';
+const TELEGRAM_CONVERSATION_CONTEXT_COLLECTION = 'telegramConversationContexts';
 const TELEGRAM_CONFIGURATION_CACHE_MS = 60_000;
+const TELEGRAM_CONVERSATION_CONTEXT_MS = 30 * 60_000;
 let databaseTelegramConfigCache: { config: TelegramConfig; expiresAt: number } | null = null;
 
 function boolEnv(name: string, fallback = false): boolean {
@@ -202,6 +205,60 @@ export type TelegramUserBranchPreference = {
 
 export function telegramUserPreferenceId(senderId: string): string {
   return crypto.createHash('sha256').update(`telegram-preference:${String(senderId || '')}`).digest('hex');
+}
+
+function telegramConversationContextId(senderId: string): string {
+  return crypto.createHash('sha256').update(`telegram-context:${String(senderId || '')}`).digest('hex');
+}
+
+export function isTelegramContextFollowUp(rawText: string): boolean {
+  const normalized = expandVietnameseBusinessShorthand(rawText);
+  if (!normalized || normalized.startsWith('/')) return false;
+  if (/\b(doanh so|doanh thu|ton kho|ky thuat|kcs|crm|khach hang|cham cong|diem danh|so quy|bao hanh|sua le|imei)\b/.test(normalized)) return false;
+  return /^(?:con|the|vay|roi|uh|ok|xem)?\s*(?:hom nay|hom qua|tuan nay|tuan truoc|thang nay|thang truoc|chi tiet|danh sach|imei|chi nhanh|cn|ph|\d{1,3})\b/.test(normalized)
+    || /^(?:con|the|vay)\s+.+(?:thi sao|sao|khong)$/.test(normalized);
+}
+
+export async function contextualizeTelegramQuery(
+  db: Firestore,
+  senderId: string,
+  rawText: string
+): Promise<{ query: string; usedContext: boolean }> {
+  const query = String(rawText || '').trim().slice(0, 1_000);
+  if (!isTelegramContextFollowUp(query)) return { query, usedContext: false };
+  try {
+    const snapshot = await db.collection(TELEGRAM_CONVERSATION_CONTEXT_COLLECTION).doc(telegramConversationContextId(senderId)).get();
+    const context = snapshot.exists ? snapshot.data() : null;
+    const updatedAtMs = Date.parse(String(context?.updatedAtIso || ''));
+    if (!context?.query || !Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > TELEGRAM_CONVERSATION_CONTEXT_MS) {
+      return { query, usedContext: false };
+    }
+    return {
+      query: `${String(context.query).slice(0, 700)}. Yêu cầu tiếp theo: ${query}`.slice(0, 1_000),
+      usedContext: true
+    };
+  } catch {
+    return { query, usedContext: false };
+  }
+}
+
+export async function rememberTelegramConversation(
+  db: Firestore,
+  senderId: string,
+  query: string,
+  intent: string
+): Promise<void> {
+  if (!['REVENUE', 'INVENTORY', 'TECHNICAL', 'RETAIL_REPAIRS', 'CUSTOMER', 'CRM_PIPELINE', 'CRM_WORK_QUEUE', 'CASHBOOK', 'ATTENDANCE', 'IMEI', 'AI'].includes(intent)) return;
+  try {
+    await db.collection(TELEGRAM_CONVERSATION_CONTEXT_COLLECTION).doc(telegramConversationContextId(senderId)).set({
+      query: String(query || '').trim().slice(0, 1_000),
+      intent,
+      updatedAtIso: new Date().toISOString(),
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch {
+    // Context improves convenience but must never make the primary bot query fail.
+  }
 }
 
 export async function loadTelegramUserBranchPreference(
@@ -627,6 +684,43 @@ export async function dispatchPendingTelegramOutbox(db: Firestore, limit = 25): 
   return { processed: ids.length, sent, failed };
 }
 
+function telegramVoiceMimeType(filePath: string): string {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.mp3')) return 'audio/mpeg';
+  if (lower.endsWith('.m4a') || lower.endsWith('.mp4')) return 'audio/mp4';
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.webm')) return 'audio/webm';
+  return 'audio/ogg';
+}
+
+export async function downloadTelegramVoice(
+  fileId: string,
+  declaredSize: number,
+  config = getTelegramConfig()
+): Promise<{ bytes: Buffer; mimeType: string }> {
+  const maxBytes = 5 * 1024 * 1024;
+  if (!fileId) throw new Error('TELEGRAM_VOICE_FILE_REQUIRED');
+  if (declaredSize > maxBytes) throw new Error('TELEGRAM_VOICE_TOO_LARGE');
+  const file = await telegramRequest<{ file_path?: string; file_size?: number }>('getFile', { file_id: fileId }, config);
+  const filePath = String(file?.file_path || '');
+  if (!filePath || filePath.includes('..') || filePath.startsWith('/')) throw new Error('TELEGRAM_VOICE_FILE_INVALID');
+  if (Number(file?.file_size || declaredSize || 0) > maxBytes) throw new Error('TELEGRAM_VOICE_TOO_LARGE');
+  const response = await fetch(`https://api.telegram.org/file/bot${config.token}/${filePath}`, {
+    signal: AbortSignal.timeout(20_000)
+  });
+  if (!response.ok) throw new Error(`TELEGRAM_VOICE_DOWNLOAD_${response.status}`);
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  if (contentLength > maxBytes) throw new Error('TELEGRAM_VOICE_TOO_LARGE');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length) throw new Error('TELEGRAM_VOICE_EMPTY');
+  if (bytes.length > maxBytes) throw new Error('TELEGRAM_VOICE_TOO_LARGE');
+  return { bytes, mimeType: telegramVoiceMimeType(filePath) };
+}
+
+export async function sendTelegramChatAction(chatId: string, config = getTelegramConfig()): Promise<void> {
+  await telegramRequest('sendChatAction', { chat_id: chatId, action: 'typing' }, config).catch(() => null);
+}
+
 function firestoreDateIso(value: any): string {
   if (!value) return '';
   if (typeof value === 'string') return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : '';
@@ -750,7 +844,7 @@ type TelegramCommandScope = {
 };
 
 function parseTelegramCommandScope(value: string): TelegramCommandScope {
-  const normalized = normalizeText(value);
+  const normalized = expandVietnameseBusinessShorthand(value);
   const all = /\b(all|tong he thong|tong|toan he thong|tat ca chi nhanh|tat ca|ca chuoi|toan chuoi|toan bo)\b/.test(normalized);
   const dateMatch = normalized.match(/\b(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{4})?)\b/);
 
@@ -758,16 +852,18 @@ function parseTelegramCommandScope(value: string): TelegramCommandScope {
   if (dateMatch) period = 'CUSTOM';
   else if (/\b(thang truoc|last month)\b/.test(normalized)) period = 'LAST_MONTH';
   else if (/\b(tuan truoc|last week)\b/.test(normalized)) period = 'LAST_WEEK';
-  else if (/\b(hom qua|homqua|yesterday)\b/.test(normalized)) period = 'YESTERDAY';
+  else if (/\b(hom qua|homqua|yesterday|hq)\b/.test(normalized)) period = 'YESTERDAY';
   else if (/\b(thang nay|thangnay|thang|month)\b/.test(normalized)) period = 'MONTH';
   else if (/\b(tuan nay|tuannay|tuan|week)\b/.test(normalized)) period = 'WEEK';
 
   const branchToken = normalized
     .replace(/\b\d{4}-\d{1,2}-\d{1,2}\b/g, ' ')
     .replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{4})?\b/g, ' ')
-    .replace(/\b(thang truoc|tuan truoc|hom qua|homqua|hôm qua|thang nay|thangnay|tuan nay|tuannay|hom nay|homnay|today|yesterday|last month|last week|month|week|thang|tuan)\b/g, ' ')
+    .replace(/\b(thang truoc|tuan truoc|hom qua|homqua|hôm qua|hq|thang nay|thangnay|tuan nay|tuannay|hom nay|homnay|hn|today|yesterday|last month|last week|month|week|thang|tuan)\b/g, ' ')
     .replace(/\b(all|tong he thong|tong|toan he thong|tat ca chi nhanh|tat ca|ca chuoi|toan chuoi|toan bo)\b/g, ' ')
-    .replace(/\b(bao cao ban hang|bao cao|doanh so|doanh thu|ngay)\b/g, ' ')
+    .replace(/\b(bao cao ban hang|bao cao|doanh so|doanh thu|ban duoc|ban sao|tinh hinh ban|ngay)\b/g, ' ')
+    .replace(/\b(yeu cau tiep theo|thi sao|the nao|con sao)\b/g, ' ')
+    .replace(/[.,]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim() || undefined;
 
@@ -775,7 +871,7 @@ function parseTelegramCommandScope(value: string): TelegramCommandScope {
 }
 
 function extractInventoryModelQuery(value: string): string | undefined {
-  const normalized = normalizeText(value);
+  const normalized = expandVietnameseBusinessShorthand(value);
   const modelMatch = normalized.match(/\b(?:iphone\s*)?((?:1[1-9]|[6-9])(?:\s+(?:pro|max|plus|mini)){0,3})(?:\s+(\d{2,4}\s*(?:gb|tb)))?\b/);
   if (!modelMatch) return undefined;
   const model = `${modelMatch[1] || ''} ${modelMatch[2] || ''}`.replace(/\s+/g, ' ').trim();
@@ -784,7 +880,7 @@ function extractInventoryModelQuery(value: string): string | undefined {
 
 export function parseTelegramIntent(rawText: string): TelegramIntent {
   const original = String(rawText || '').trim();
-  const normalized = normalizeText(original.replace(/@[A-Za-z0-9_]+/g, ' '));
+  const normalized = expandVietnameseBusinessShorthand(original.replace(/@[A-Za-z0-9_]+/g, ' '));
   const tokens = normalized.split(/\s+/).filter(Boolean);
   const rawCommand = tokens[0] || '';
   const command = rawCommand.split('@')[0];
@@ -803,9 +899,11 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
   // Pure IMEI or explicit IMEI query
   const imeiMatch = normalized.match(/(?:imei|may|sua chua)\s*[:#-]?\s*(\d{5,15})\b/)
     || (command === '/imei' || command === '/suachua' ? normalized.match(/\b(\d{5,15})\b/) : null)
-    || (/^\d{10,15}$/.test(normalized) ? [normalized, normalized] : null);
+    || (/^\d{15}$/.test(normalized) ? [normalized, normalized] : null);
 
   if (imeiMatch) return { kind: 'IMEI', imei: imeiMatch[1] };
+
+  if (/^0\d{9}$/.test(normalized)) return { kind: 'CUSTOMER', query: normalized };
 
   // Explicit Slash Commands
   if (['/report', '/baocao', '/doanhso'].includes(command)) {
@@ -867,7 +965,7 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
   // Deterministic natural-language commands used in Telegram groups. These must
   // not depend on the AI provider because a proxy outage or a malformed tool call
   // could otherwise drop branch/date arguments that are present in the message.
-  if (/\b(doanh so|doanh thu|bao cao ban hang)\b/.test(normalized)) {
+  if (/\b(doanh so|doanh thu|bao cao ban hang|ban duoc|ban sao|tinh hinh ban)\b/.test(normalized)) {
     const scope = parseTelegramCommandScope(normalized);
     return { kind: 'REVENUE', ...scope };
   }
@@ -878,11 +976,13 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
     return { kind: 'TECHNICAL', branchToken: scope.branchToken, all: scope.all };
   }
 
-  if (/\b(ton kho|con may|may ton)\b/.test(normalized)) {
+  const inventoryModel = extractInventoryModelQuery(normalized);
+  if (/\b(ton kho|con may|may ton|con hang|co san)\b/.test(normalized)
+    || Boolean(inventoryModel && /\b(con khong|co khong|con may nao|con con nao)\b/.test(normalized))) {
     const scope = parseTelegramCommandScope(normalized
-      .replace(/\b(ton kho|con may|may ton)\b/g, ' '));
+      .replace(/\b(ton kho|con may|may ton|con hang|co san|con khong|co khong|con may nao|con con nao)\b/g, ' '));
     const includeImeis = /\b(imei|chi tiet|danh sach|tung may|ma may)\b/.test(normalized);
-    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all, includeImeis, model: extractInventoryModelQuery(normalized) };
+    return { kind: 'INVENTORY', branchToken: scope.branchToken, all: scope.all, includeImeis, model: inventoryModel };
   }
 
   if (/\b(bao hanh|sua le|sua khach|sua dich vu|may khach sua|tiep nhan sua)\b/.test(normalized)) {
@@ -902,9 +1002,9 @@ export function parseTelegramIntent(rawText: string): TelegramIntent {
     };
   }
 
-  if (/\b(nhan su|cham cong|diem danh|di tre)\b/.test(normalized)) {
+  if (/\b(nhan su|cham cong|diem danh|di tre|ai tre|ai di lam|ai chua vao ca)\b/.test(normalized)) {
     const scope = parseTelegramCommandScope(normalized
-      .replace(/\b(nhan su|cham cong|diem danh|di tre)\b/g, ' '));
+      .replace(/\b(nhan su|cham cong|diem danh|di tre|ai tre|ai di lam|ai chua vao ca)\b/g, ' '));
     return { kind: 'ATTENDANCE', branchToken: scope.branchToken, all: scope.all, date: scope.date };
   }
 
@@ -1320,7 +1420,7 @@ export function telegramMenuText(): string {
   return [
     '<b>🤖 BẢNG ĐIỀU KHIỂN PHONEHOUSE AI</b>',
     'Chào mừng bạn đến với Trợ Lý Toàn Năng.',
-    'Vui lòng chọn chức năng nhanh bên dưới hoặc hỏi trực tiếp bằng tiếng Việt:'
+    'Chọn chức năng bên dưới hoặc nhắn/gửi voice ngắn bằng tiếng Việt tự nhiên:'
   ].join('\n');
 }
 
@@ -1350,8 +1450,11 @@ export function telegramHelpText(): string {
     '• <code>/soquy homnay</code> · Sổ quỹ & tiền mặt (Owner)',
     '',
     '<b>3. Trợ lý AI Thông Minh:</b>',
-    '• Hỏi tự nhiên: <i>“Hôm nay chi nhánh Cầu Giấy bán được mấy máy?”</i>',
-    '• Hoặc dùng lệnh: <code>/ai tư vấn cách tăng doanh thu phụ kiện</code>'
+    '• Tin riêng không cần lệnh: <i>“ds hn 109”</i>, <i>“15pm 256 còn không”</i>, <i>“ai trễ?”</i>',
+    '• Có thể gửi voice tối đa 3 phút; bot sẽ chép lời rồi tra đúng dữ liệu CRM.',
+    '• Có thể hỏi tiếp ngắn: <i>“hôm qua thì sao?”</i> hoặc <i>“còn 245?”</i>',
+    '• Trong nhóm, hãy gọi bot, dùng lệnh hoặc trả lời tin nhắn của bot để tránh bot nghe nhầm hội thoại chung.',
+    '• Phân tích tự do: <code>/ai tư vấn cách tăng doanh thu phụ kiện</code>'
   ].join('\n');
 }
 
