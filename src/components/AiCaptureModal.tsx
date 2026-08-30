@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AudioLines, Ban, Check, FileAudio, FileImage, Loader2, Mic, PackagePlus, Plus, ScanLine,
+  AudioLines, Ban, Check, FileAudio, FileImage, ListChecks, Loader2, Mic, PackagePlus, Plus, ScanLine,
   ShieldCheck, Sparkles, Square, Trash2, Upload, UserPlus, Wrench, X
 } from 'lucide-react';
 import {
@@ -15,6 +15,7 @@ import {
   confirmAiCaptureDraft,
   createLeadFromAiCaptureDraft,
   getAiCaptureStatus,
+  reExtractAiCaptureDraft,
   requestAiCapture
 } from '../services/aiCaptureApiClient';
 
@@ -50,6 +51,44 @@ const captureModules: Array<{
   { type: 'REPAIR_INTAKE', label: 'Tiếp nhận sửa chữa', shortLabel: 'Sửa chữa', description: 'Ảnh phiếu hoặc ghi âm mô tả lỗi', accept: `${imageAccept},audio/*`, icon: Wrench }
 ];
 
+const voiceGuides: Record<AiCaptureSourceType, { fields: string[]; example: string; note: string }> = {
+  SALES_SLIP: {
+    fields: ['Khách hàng', 'Số điện thoại', 'Sản phẩm', 'SKU', 'IMEI', 'Số lượng', 'Đơn giá', 'Giảm giá', 'Tổng tiền', 'Thanh toán'],
+    example: 'Khách hàng Nguyễn An. Số điện thoại 0901 234 567. Sản phẩm iPhone 15 Pro. SKU IP15P. IMEI 3 5 3... đọc đủ 15 số. Số lượng 1. Đơn giá 25 triệu. Tổng tiền 25 triệu. Thanh toán chuyển khoản.',
+    note: 'Đọc nhãn trước giá trị; đọc IMEI từng số và nói “mặt hàng tiếp theo” trước dòng mới.'
+  },
+  CONVERSATION: {
+    fields: ['Tên khách', 'Số điện thoại', 'Máy quan tâm', 'Ngân sách', 'Tiền cọc', 'Lịch hẹn', 'Việc tiếp theo'],
+    example: 'Có thể ghi hội thoại tự nhiên. Trước khi kết thúc, nhân viên nên nhắc lại: tên khách, số điện thoại, máy quan tâm, ngân sách và lịch hẹn để AI có dữ liệu rõ ràng.',
+    note: 'Đặt điện thoại gần người nói, tránh nhiều người nói chồng lên nhau.'
+  },
+  PURCHASE_RECEIPT: {
+    fields: ['Nhà cung cấp', 'Điện thoại/MST', 'Số chứng từ', 'Ngày nhập', 'Mặt hàng', 'SKU', 'IMEI', 'Số lượng', 'Giá nhập', 'Tổng tiền', 'Thanh toán'],
+    example: 'Nhà cung cấp Công ty A. Mã số thuế 040... Số chứng từ HD 001. Ngày nhập 30 tháng 8 năm 2026. Mặt hàng iPhone 15 Pro. SKU IP15P. IMEI 3 5 3... Giá nhập 20 triệu. Tổng tiền 20 triệu. Ghi nợ nhà cung cấp.',
+    note: 'Một IMEI một dòng đọc; nói “mặt hàng tiếp theo” để AI không trộn giá hoặc IMEI giữa hai máy.'
+  },
+  REPAIR_INTAKE: {
+    fields: ['Tên khách', 'Số điện thoại', 'IMEI/Serial', 'Model', 'Nhóm lỗi', 'Mô tả lỗi', 'Ngoại hình', 'Phụ kiện', 'Báo giá', 'Hẹn trả'],
+    example: 'Tên khách Trần Bình. Số điện thoại 0905... IMEI 3 5 3... Model iPhone 14 Pro. Nhóm lỗi màn hình cảm ứng. Mô tả sọc xanh sau khi rơi. Ngoại hình cấn góc phải. Phụ kiện máy trần. Báo giá dự kiến 2 triệu. Hẹn trả 17 giờ ngày mai.',
+    note: 'Không đọc mật khẩu hoặc tài khoản iCloud. Trường chưa kiểm tra hãy nói rõ “chưa kiểm tra”.'
+  }
+};
+
+function reviewFieldLabel(path: string): string {
+  const itemMatch = path.match(/^items\[(\d+)]\.(.+)$/);
+  if (itemMatch) {
+    const itemField: Record<string, string> = { name: 'tên/SKU', imei: 'IMEI', unitPrice: 'đơn giá' };
+    return `Dòng hàng ${Number(itemMatch[1]) + 1}: ${itemField[itemMatch[2]] || itemMatch[2]}`;
+  }
+  const labels: Record<string, string> = {
+    'customer.name': 'Tên khách hàng', 'customer.phone': 'Số điện thoại khách',
+    'supplier.name': 'Nhà cung cấp', 'supplier.phone': 'Điện thoại nhà cung cấp',
+    items: 'Danh sách mặt hàng', totalAmount: 'Tổng tiền', summary: 'Tóm tắt hội thoại',
+    imei: 'IMEI/Serial', model: 'Model máy', faultDescription: 'Mô tả lỗi'
+  };
+  return labels[path] || path;
+}
+
 function formatMoney(value: number | null | undefined): string {
   return value == null ? '' : Number(value).toLocaleString('vi-VN');
 }
@@ -83,6 +122,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
   const [confirmed, setConfirmed] = useState(false);
   const [leadCreated, setLeadCreated] = useState(false);
   const [leadBusy, setLeadBusy] = useState(false);
+  const [remapping, setRemapping] = useState(false);
   const [error, setError] = useState('');
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -94,6 +134,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
   const discardRecordingRef = useRef(false);
 
   const selectedModule = captureModules.find(module => module.type === sourceType) || captureModules[0];
+  const voiceGuide = voiceGuides[sourceType];
 
   useEffect(() => {
     if (!isOpen) return;
@@ -305,6 +346,20 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
     }
   };
 
+  const remapTranscript = async () => {
+    if (!result || !extraction?.transcript.trim() || remapping || confirmed) return;
+    setRemapping(true);
+    setError('');
+    try {
+      const remapped = await reExtractAiCaptureDraft(result.draftId, extraction.transcript);
+      setExtraction(remapped);
+    } catch (remapError: any) {
+      setError(remapError?.message || 'Không thể ánh xạ lại bản chép lời.');
+    } finally {
+      setRemapping(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   const sales = extraction?.sourceType === 'SALES_SLIP' ? extraction : null;
@@ -343,6 +398,13 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
             })}
           </div>
 
+          <details open className="mt-3 rounded-2xl border border-sky-200 bg-sky-50/70 p-3">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-black text-sky-900"><ListChecks className="h-4 w-4" />Mẫu đọc để AI điền đúng {selectedModule.label.toLowerCase()}</summary>
+            <div className="mt-2 flex flex-wrap gap-1.5">{voiceGuide.fields.map(field => <span key={field} className="rounded-full border border-sky-200 bg-white px-2 py-1 text-[10px] font-bold text-sky-800">{field}</span>)}</div>
+            <p className="mt-2 text-[11px] font-semibold leading-5 text-sky-950"><b>Ví dụ:</b> “{voiceGuide.example}”</p>
+            <p className="mt-1 text-[10px] font-bold text-sky-700">{voiceGuide.note}</p>
+          </details>
+
           <div className="mt-4 rounded-2xl border-2 border-dashed border-orange-200 bg-orange-50/40 p-5 text-center">
             {isImage && fileUrl && <img src={fileUrl} alt="Tệp ảnh đã chọn" className="mx-auto mb-4 max-h-52 max-w-full rounded-xl object-contain shadow-sm" />}
             {isAudio && fileUrl && <audio controls src={fileUrl} className="mx-auto mb-4 w-full max-w-md" />}
@@ -366,7 +428,8 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
               <div className="flex items-center gap-2 text-xs font-black text-emerald-800"><ShieldCheck className="h-4 w-4" />Bản nháp đã tạo · chưa tự ghi vào POS, kho hoặc sửa chữa</div>
               <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-emerald-700">Độ tin cậy {Math.round(extraction.confidence * 100)}% · {confidenceLabel(extraction.confidence)}</span>
             </div>
-            {extraction.fieldsToReview.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Cần kiểm tra: {extraction.fieldsToReview.join(' · ')}</div>}
+            {result.mimeType.startsWith('audio/') && <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-[11px] font-bold text-violet-800">Audio đã xử lý theo 2 bước: chép lời nguyên văn → ánh xạ vào trường nghiệp vụ. Hãy đối chiếu phần “Bản chép lời” trước khi xác nhận.</div>}
+            {extraction.fieldsToReview.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">Cần kiểm tra: {extraction.fieldsToReview.map(reviewFieldLabel).join(' · ')}</div>}
 
             {sales && <SalesReview value={sales} onChange={updateSales} />}
             {conversation && <ConversationReview value={conversation} onChange={updateConversation} />}
@@ -380,6 +443,7 @@ export const AiCaptureModal: React.FC<AiCaptureModalProps> = ({
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" onClick={reset} className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-black text-zinc-600">Làm lại</button>
             {result && extraction && <button type="button" onClick={() => void confirmDraft()} disabled={confirming || confirmed} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-black text-emerald-700 disabled:opacity-50"><Check className="h-4 w-4" />{confirming ? 'Đang lưu…' : confirmed ? 'Đã xác nhận' : 'Xác nhận bản nháp'}</button>}
+            {result?.mimeType.startsWith('audio/') && extraction?.transcript && !confirmed && <button type="button" onClick={() => void remapTranscript()} disabled={remapping} className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2 text-xs font-black text-violet-700 disabled:opacity-50"><Sparkles className="h-4 w-4" />{remapping ? 'Đang ánh xạ lại…' : 'Ánh xạ lại từ bản chép lời'}</button>}
             {conversation && confirmed && <button type="button" onClick={() => void createLead()} disabled={leadBusy || leadCreated} className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50"><UserPlus className="h-4 w-4" />{leadBusy ? 'Đang tạo lead…' : leadCreated ? 'Đã tạo lead CRM' : 'Tạo lead CRM'}</button>}
             {sales && confirmed && onOpenPOS && <button type="button" onClick={() => onOpenPOS(sales, result!.draftId)} className="rounded-xl bg-zinc-950 px-3 py-2 text-xs font-black text-white">Mở POS để đối chiếu</button>}
             {purchase && confirmed && onOpenPurchase && <button type="button" onClick={() => onOpenPurchase(purchase, result!.draftId)} className="rounded-xl bg-zinc-950 px-3 py-2 text-xs font-black text-white">Mở phiếu nhập hàng</button>}
@@ -399,7 +463,7 @@ function SalesReview({ value, onChange }: { value: SalesSlipExtraction; onChange
     <Field label="Phương thức thanh toán"><input value={value.paymentMethod || ''} onChange={event => onChange({ paymentMethod: event.target.value || null })} className={controlClass} /></Field>
     <MoneyField label="Giảm giá (VNĐ)" value={value.discountAmount} onChange={discountAmount => onChange({ discountAmount })} />
     <MoneyField label="Tổng tiền (VNĐ)" value={value.totalAmount} onChange={totalAmount => onChange({ totalAmount })} />
-  </div><ItemTable items={value.items} onChange={items => onChange({ items })} priceLabel="Đơn giá bán" /></section>;
+  </div><ItemTable items={value.items} onChange={items => onChange({ items })} priceLabel="Đơn giá bán" />{value.transcript && <Field label="Bản chép lời gốc"><textarea value={value.transcript} onChange={event => onChange({ transcript: event.target.value })} rows={4} className={textareaClass} /></Field>}</section>;
 }
 
 function ConversationReview({ value, onChange }: { value: ConversationExtraction; onChange: (patch: Partial<ConversationExtraction>) => void }) {
@@ -422,7 +486,7 @@ function PurchaseReview({ value, onChange }: { value: PurchaseReceiptExtraction;
     <Field label="Thanh toán"><input value={value.paymentMethod || ''} onChange={event => onChange({ paymentMethod: event.target.value || null })} className={controlClass} /></Field>
     <MoneyField label="Giảm giá (VNĐ)" value={value.discountAmount} onChange={discountAmount => onChange({ discountAmount })} />
     <MoneyField label="Tổng tiền (VNĐ)" value={value.totalAmount} onChange={totalAmount => onChange({ totalAmount })} />
-  </div><ItemTable items={value.items} onChange={items => onChange({ items })} priceLabel="Giá nhập" /><Field label="Ghi chú"><textarea value={value.notes} onChange={event => onChange({ notes: event.target.value })} rows={3} className={textareaClass} /></Field></section>;
+  </div><ItemTable items={value.items} onChange={items => onChange({ items })} priceLabel="Giá nhập" />{value.transcript && <Field label="Bản chép lời gốc"><textarea value={value.transcript} onChange={event => onChange({ transcript: event.target.value })} rows={4} className={textareaClass} /></Field>}<Field label="Ghi chú"><textarea value={value.notes} onChange={event => onChange({ notes: event.target.value })} rows={3} className={textareaClass} /></Field></section>;
 }
 
 function RepairReview({ value, onChange }: { value: RepairIntakeExtraction; onChange: (patch: Partial<RepairIntakeExtraction>) => void }) {

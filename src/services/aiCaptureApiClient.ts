@@ -6,6 +6,7 @@ export interface SalesSlipExtraction {
   sourceType: 'SALES_SLIP';
   confidence: number;
   fieldsToReview: string[];
+  transcript: string;
   customer: { name: string; phone: string };
   saleDate: string | null;
   paymentMethod: string | null;
@@ -41,6 +42,7 @@ export interface PurchaseReceiptExtraction {
   sourceType: 'PURCHASE_RECEIPT';
   confidence: number;
   fieldsToReview: string[];
+  transcript: string;
   supplier: { name: string; phone: string; taxCode: string };
   documentCode: string | null;
   purchaseDate: string | null;
@@ -117,7 +119,7 @@ export async function requestAiCapture(file: File, sourceType: AiCaptureSourceTy
   const response = await apiJson<{ success: boolean; data: AiCaptureResult }>('/api/ai/capture/extract', {
     method: 'POST',
     body: JSON.stringify({ sourceType, mimeType: file.type, data }),
-    timeoutMs: 90_000
+    timeoutMs: file.type.startsWith('audio/') ? 180_000 : 90_000
   });
   if (!response?.success || !response.data) throw new Error('AI_CAPTURE_FAILED');
   return response.data;
@@ -127,6 +129,16 @@ export async function getAiCaptureStatus(): Promise<AiCaptureStatus> {
   const response = await apiJson<{ success: boolean; data: AiCaptureStatus }>('/api/ai/capture/status', { timeoutMs: 15_000 });
   if (!response?.success || !response.data) throw new Error('Không thể kiểm tra cấu hình AI dùng chung.');
   return response.data;
+}
+
+export async function reExtractAiCaptureDraft(draftId: string, transcript: string): Promise<AiCaptureExtraction> {
+  const response = await apiJson<{ success: boolean; data: { extraction: AiCaptureExtraction } }>(`/api/ai/capture/drafts/${encodeURIComponent(draftId)}/re-extract`, {
+    method: 'POST',
+    body: JSON.stringify({ transcript }),
+    timeoutMs: 90_000
+  });
+  if (!response?.success || !response.data?.extraction) throw new Error('Không thể ánh xạ lại dữ liệu từ bản chép lời.');
+  return response.data.extraction;
 }
 
 export async function confirmAiCaptureDraft(draftId: string, extraction?: AiCaptureExtraction): Promise<{ draftId: string; status: string; idempotentReplay?: boolean }> {
