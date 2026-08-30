@@ -18,7 +18,9 @@ app.use(requestContext);
 app.use(securityHeaders);
 app.use(corsAllowlist);
 app.use('/api', apiRateLimit);
-app.use('/api/ai', express.json({ limit: '5mb' }));
+// AI capture accepts compact image/audio payloads.  The route still enforces
+// strict per-file limits before sending anything to the provider.
+app.use('/api/ai', express.json({ limit: '8mb' }));
 app.use(['/api/meta/webhook', '/api/zalo/webhook', '/api/tiktok/webhook'], express.json({
   limit: '2mb',
   verify: (req: any, _res, buffer) => { req.rawBody = Buffer.from(buffer); }
@@ -249,6 +251,8 @@ import { createTelegramRouter } from './server/routes/telegram';
 app.use('/api/telegram', createTelegramRouter(adminDb));
 
 import { authenticateFirebase } from './server/middleware/authenticateFirebase';
+import { createAiCaptureRouter } from './server/routes/aiCapture';
+app.use('/api/ai/capture', createAiCaptureRouter(adminDb));
 
 // ============================================================================
 // EXECUTIVE AI VOICE COPILOT & TELEGRAM BOT INGESTION (IDEA 1)

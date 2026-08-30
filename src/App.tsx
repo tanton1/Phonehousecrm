@@ -28,6 +28,8 @@ import { AppShell } from './app/AppShell';
 import { RepairIntakeModal } from './features/warranty/components/RepairIntakeModal';
 import { AICopilotModal } from './components/AICopilotModal';
 import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModal';
+import { AiCaptureModal } from './components/AiCaptureModal';
+import type { SalesSlipExtraction } from './services/aiCaptureApiClient';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { GlobalImeiHistory } from './components/GlobalImeiHistory';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
@@ -271,6 +273,8 @@ export default function App() {
     }
   }, [currentUser]);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
+  const [isAiCaptureOpen, setIsAiCaptureOpen] = useState(false);
+  const [posAiCapture, setPosAiCapture] = useState<{ draftId: string; extraction: SalesSlipExtraction } | null>(null);
   const [isExecutiveAIOpen, setIsExecutiveAIOpen] = useState(false);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
   const [posPreSelectedDevice, setPosPreSelectedDevice] = useState<DeviceItem | null>(null);
@@ -1822,6 +1826,8 @@ export default function App() {
             } : null}
             preSelectedDevice={posPreSelectedDevice}
             initialCustomer={posCustomerContext}
+            initialAiCapture={posAiCapture}
+            onConsumeAiCapture={() => setPosAiCapture(null)}
             tradeInAppraisal={posTradeInContext}
             onNavigateToInvoices={() => setActiveTab('invoices')}
             onAddPartner={handleAddPartner}
@@ -1925,6 +1931,7 @@ export default function App() {
             }}
             onOpenNewDeviceModal={() => setActiveTab('inventory')}
             onOpenAICopilot={() => setIsAICopilotOpen(true)}
+            onOpenAiCapture={() => setIsAiCaptureOpen(true)}
             onLogout={handleLogout}
             partners={filteredPartners}
             invoices={filteredInvoices}
@@ -2078,6 +2085,18 @@ export default function App() {
       <AICopilotModal
         isOpen={isAICopilotOpen}
         onClose={() => setIsAICopilotOpen(false)}
+      />
+
+      <AiCaptureModal
+        isOpen={isAiCaptureOpen}
+        onClose={() => setIsAiCaptureOpen(false)}
+        onOpenPOS={(extraction, draftId) => {
+          setPosCustomerContext({ name: extraction.customer.name, phone: extraction.customer.phone });
+          setPosAiCapture({ draftId, extraction });
+          setPosPreSelectedDevice(null);
+          setIsAiCaptureOpen(false);
+          setActiveTab('pos');
+        }}
       />
 
       {/* Executive AI Voice Assistant Modal (Idea 1) */}

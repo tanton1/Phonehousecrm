@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, ChevronRight, Copy, Link2, LogOut, Sparkles, Unlink } from 'lucide-react';
+import { Bot, ChevronRight, Copy, FileScan, Link2, LogOut, Sparkles, Unlink } from 'lucide-react';
 import type { DeviceItem, Partner, SalesInvoice, UserAccount } from '../types';
 import { getAuthorizedNavigation } from '../app/permissionNavigation';
 import { requestTelegramLinkCode, requestTelegramLinkStatus, requestUnlinkTelegram, TelegramLinkStatus } from '../services/telegramApiClient';
@@ -10,6 +10,7 @@ interface MoreHubViewProps {
   onOpenPOSModal: () => void;
   onOpenNewDeviceModal: () => void;
   onOpenAICopilot: () => void;
+  onOpenAiCapture: () => void;
   onLogout: () => void;
   partners?: Partner[];
   invoices?: SalesInvoice[];
@@ -36,6 +37,7 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
   onSelectTab,
   onOpenPOSModal,
   onOpenAICopilot,
+  onOpenAiCapture,
   onLogout
 }) => {
   const role = currentUser?.role || 'SALES';
@@ -90,14 +92,10 @@ export const MoreHubView: React.FC<MoreHubViewProps> = ({
               {currentUser?.displayName || 'Tài khoản'} · {ROLE_LABELS[role] || role}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onOpenAICopilot}
-            className="flex shrink-0 items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-[#ff4b16]"
-          >
-            <Sparkles className="h-5 w-5" style={{ stroke: 'url(#more-hub-icon-gradient)' }} />
-            <span className="hidden sm:inline">Trợ lý AI</span>
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            <button type="button" onClick={onOpenAiCapture} className="flex items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-[#ff4b16]"><FileScan className="h-5 w-5" style={{ stroke: 'url(#more-hub-icon-gradient)' }} /><span className="hidden sm:inline">AI nhập liệu</span></button>
+            <button type="button" onClick={onOpenAICopilot} className="flex items-center gap-2 py-2 text-xs font-black text-zinc-700 transition hover:text-[#ff4b16]"><Sparkles className="h-5 w-5" style={{ stroke: 'url(#more-hub-icon-gradient)' }} /><span className="hidden sm:inline">Trợ lý AI</span></button>
+          </div>
         </header>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-2">

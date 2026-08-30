@@ -12,6 +12,12 @@ import { CreatePartnerModal } from '../../../components/CreatePartnerModal';
 import { getCachedOperationalConfigs } from '../../../services/configurationApiClient';
 import { resolveRetailPrice } from '../../../utils/retailPricing';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../../../utils/browserDraft';
+import type { SalesSlipExtraction } from '../../../services/aiCaptureApiClient';
+
+export interface POSAiCaptureContext {
+  draftId: string;
+  extraction: SalesSlipExtraction;
+}
 
 export interface POSCockpitViewProps {
   devices: DeviceItem[];
@@ -25,6 +31,8 @@ export interface POSCockpitViewProps {
   currentUser?: StaffMember | null;
   preSelectedDevice?: DeviceItem | null;
   initialCustomer?: { name?: string; phone?: string } | null;
+  initialAiCapture?: POSAiCaptureContext | null;
+  onConsumeAiCapture?: (draftId: string) => void;
   tradeInAppraisal?: any | null;
   onNavigateToInvoices?: () => void;
   onAddPartner?: (partner: Partner) => void | Promise<void>;
@@ -65,6 +73,8 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   currentUser,
   preSelectedDevice,
   initialCustomer,
+  initialAiCapture,
+  onConsumeAiCapture,
   tradeInAppraisal,
   onNavigateToInvoices,
   onAddPartner,
@@ -96,6 +106,7 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
   const [receiptData, setReceiptData] = useState<any | null>(null);
   const posDraftKey = browserDraftKey('pos', currentUser?.id, currentBranch.id);
   const hydratedDraftKeyRef = useRef('');
+  const appliedAiCaptureRef = useRef('');
   const currentWarehouse = useMemo(
     () => warehouses.find(warehouse => String(warehouse.id) === selectedWarehouseId),
     [selectedWarehouseId, warehouses]
@@ -153,6 +164,70 @@ export const POSCockpitView: React.FC<POSCockpitViewProps> = ({
       if (initialCustomer.phone) setCustomerPhone(initialCustomer.phone);
     }
   }, [initialCustomer]);
+
+  // AI only proposes a cart.  Match exact IMEI/SKU against the server-loaded
+  // inventory/catalog and leave unmatched lines visible for manual selection.
+  useEffect(() => {
+    const capture = initialAiCapture;
+    if (!capture || appliedAiCaptureRef.current === capture.draftId || !capture.extraction) return;
+    const extraction = capture.extraction;
+    const normalize = (value: unknown) => String(value || '').trim().toLowerCase();
+    const digits = (value: unknown) => String(value || '').replace(/\D/g, '');
+    const matchedDevices: DeviceItem[] = [];
+    const matchedAccessories: { product: ProductItem; quantity: number }[] = [];
+    const nextPriceEdits: Record<string, { unitPrice: number; reason: string }> = {};
+    for (const item of extraction.items || []) {
+      const itemImei = digits(item.imei);
+      const itemSku = normalize(item.sku);
+      const itemName = normalize(item.name);
+      const device = devices.find(candidate => {
+        const candidateImei = digits(candidate.imei);
+        if (itemImei && candidateImei && itemImei === candidateImei) return true;
+        const candidateSku = normalize(candidate.sku);
+        return Boolean(itemSku && candidateSku && itemSku === candidateSku)
+          || Boolean(itemName && normalize(candidate.model) && itemName.includes(normalize(candidate.model)));
+      });
+      if (device && !matchedDevices.some(candidate => candidate.id === device.id)) {
+        matchedDevices.push(device);
+        if (item.unitPrice != null) nextPriceEdits[`DEVICE:${device.id}`] = { unitPrice: item.unitPrice, reason: 'Giá từ phiếu AI · nhân viên xác nhận' };
+        continue;
+      }
+      const product = products.find(candidate => {
+        const candidateSku = normalize(candidate.sku);
+        const candidateName = normalize(candidate.name);
+        return Boolean(itemSku && candidateSku && itemSku === candidateSku)
+          || Boolean(itemName && candidateName && (itemName === candidateName || itemName.includes(candidateName) || candidateName.includes(itemName)));
+      });
+      if (product) {
+        const existing = matchedAccessories.find(candidate => candidate.product.id === product.id);
+        if (existing) existing.quantity += Math.max(1, Number(item.quantity || 1));
+        else matchedAccessories.push({ product, quantity: Math.max(1, Number(item.quantity || 1)) });
+        if (item.unitPrice != null) nextPriceEdits[`ACCESSORY:${product.id}`] = { unitPrice: item.unitPrice, reason: 'Giá từ phiếu AI · nhân viên xác nhận' };
+      }
+    }
+    setSelectedDevices(current => [...current, ...matchedDevices.filter(device => !current.some(existing => existing.id === device.id))]);
+    setSelectedAccessories(current => {
+      const next = [...current];
+      for (const line of matchedAccessories) {
+        const existing = next.find(candidate => candidate.product.id === line.product.id);
+        if (existing) existing.quantity = Math.max(existing.quantity, line.quantity);
+        else next.push(line);
+      }
+      return next;
+    });
+    if (Object.keys(nextPriceEdits).length) setLinePriceEdits(current => ({ ...current, ...nextPriceEdits }));
+    setCustomerName(extraction.customer.name || '');
+    setCustomerPhone(extraction.customer.phone || '');
+    if (extraction.discountAmount != null) setDiscountAmount(extraction.discountAmount);
+    const payment = normalize(extraction.paymentMethod);
+    if (payment.includes('chuyển khoản') || payment.includes('chuyen khoan') || payment.includes('bank')) setPaymentMethod('Chuyển khoản QR');
+    else if (payment.includes('thẻ') || payment.includes('the') || payment.includes('pos')) setPaymentMethod('Quẹt thẻ POS');
+    else if (payment.includes('trả góp') || payment.includes('tra gop')) setPaymentMethod('Trả góp qua Cty Tài Chính (HD/Home/Mpos)');
+    else if (payment.includes('tiền mặt') || payment.includes('tien mat') || payment.includes('cash')) setPaymentMethod('Tiền mặt');
+    setMobileTab('CART');
+    appliedAiCaptureRef.current = capture.draftId;
+    onConsumeAiCapture?.(capture.draftId);
+  }, [devices, initialAiCapture, onConsumeAiCapture, products]);
 
   useEffect(() => {
     if (tradeInAppraisal) {
