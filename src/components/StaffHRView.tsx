@@ -974,8 +974,8 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
             <h4 className="font-bold text-zinc-700 uppercase tracking-wider text-[11px]">1. Các Khoản Thu Nhập (+)</h4>
             <div className="bg-zinc-50 rounded-2xl p-4 space-y-2.5 border border-zinc-200">
               <div className="flex justify-between items-center font-bold">
-                <span className="text-zinc-600">Lương vị trí theo hợp đồng:</span>
-                <span className="font-mono text-zinc-900 font-black">{formatVND(myPayrollSlip?.baseSalary ?? staffMember.baseSalary)}</span>
+                <span className="text-zinc-600">Lương cơ bản theo ngày công:</span>
+                <span className="font-mono text-zinc-900 font-black">{formatVND(myPayrollSlip?.proratedBaseSalary ?? myPayrollSlip?.baseSalary ?? staffMember.baseSalary)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-zinc-600">Phụ cấp đã cấu hình:</span>
@@ -983,7 +983,7 @@ export const StaffHRView: React.FC<StaffHRViewProps> = ({
               </div>
               <div className="flex justify-between items-center text-orange-600 font-bold">
                 <span>Tổng hoa hồng & thù lao (Từ Ví):</span>
-                <span className="font-mono font-black">{formatVND(roleCommissions.totalEarnings)}</span>
+                <span className="font-mono font-black">{formatVND(myPayrollSlip ? Number(myPayrollSlip.posCommission || 0) + Number(myPayrollSlip.techCommission || 0) : roleCommissions.totalEarnings)}</span>
               </div>
             </div>
 

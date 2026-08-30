@@ -11,6 +11,7 @@ import {
   Loader2,
   LogOut,
   LocateFixed,
+  PencilLine,
   RefreshCw,
   ShieldCheck,
   Timer,
@@ -20,6 +21,7 @@ import {
 import type { AttendanceRecord, StaffMember } from '../types';
 import {
   requestAttendanceHistory,
+  requestAttendanceCorrection,
   requestAttendanceReview,
   type AttendanceHistorySummary
 } from '../services/attendanceApiClient';
@@ -124,6 +126,9 @@ export const AttendanceHistoryDrawer: React.FC<AttendanceHistoryDrawerProps> = (
   const [reviewDecision, setReviewDecision] = useState<'APPROVE' | 'REJECT'>('APPROVE');
   const [reviewReason, setReviewReason] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [correctionRecord, setCorrectionRecord] = useState<AttendanceRecord | null>(null);
+  const [correctionForm, setCorrectionForm] = useState({ checkInTime: '', checkOutTime: '', checkOutDate: '', reason: '' });
+  const [correcting, setCorrecting] = useState(false);
 
   const uid = staffUid(staff);
 
@@ -210,6 +215,38 @@ export const AttendanceHistoryDrawer: React.FC<AttendanceHistoryDrawerProps> = (
     }
   };
 
+  const openCorrection = (record: AttendanceRecord) => {
+    setCorrectionRecord(record);
+    setCorrectionForm({
+      checkInTime: String(record.checkInTime || '').slice(0, 5),
+      checkOutTime: String(record.checkOutTime || '').slice(0, 5),
+      checkOutDate: record.checkOutDate || record.date,
+      reason: ''
+    });
+  };
+
+  const submitCorrection = async () => {
+    if (!correctionRecord || correctionForm.reason.trim().length < 5) return;
+    setCorrecting(true);
+    setError('');
+    try {
+      const updated = await requestAttendanceCorrection({
+        attendanceId: correctionRecord.id,
+        correctedCheckInTime: correctionForm.checkInTime || undefined,
+        correctedCheckOutTime: correctionForm.checkOutTime || undefined,
+        correctedCheckOutDate: correctionForm.checkOutTime ? correctionForm.checkOutDate : undefined,
+        reason: correctionForm.reason.trim()
+      });
+      setRecords((current) => current.map((record) => record.id === updated.id ? updated : record));
+      setCorrectionRecord(null);
+      await loadHistory();
+    } catch (correctionError: any) {
+      setError(String(correctionError?.message || 'Không hiệu chỉnh được bản ghi chấm công.'));
+    } finally {
+      setCorrecting(false);
+    }
+  };
+
   if (!open || !staff) return null;
 
   return <div className="fixed inset-0 z-[140] flex justify-end bg-black/35 backdrop-blur-[2px]">
@@ -286,6 +323,7 @@ export const AttendanceHistoryDrawer: React.FC<AttendanceHistoryDrawerProps> = (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {evidenceId ? <button type="button" onClick={() => void showPhoto(evidenceId)} className="inline-flex h-9 items-center gap-2 rounded-xl bg-zinc-900 px-3 text-xs font-black text-white"><Camera className="h-4 w-4" /> Xem ảnh vào ca</button> : <span className="inline-flex h-9 items-center gap-2 rounded-xl bg-zinc-100 px-3 text-xs font-bold text-zinc-500"><Camera className="h-4 w-4" /> Không có ảnh</span>}
                   {canReview && record.verificationStatus === 'PENDING_REVIEW' && <button type="button" onClick={() => { setReviewRecord(record); setReviewDecision('APPROVE'); setReviewReason(''); }} className="inline-flex h-9 items-center gap-2 rounded-xl bg-[#ff4b16] px-3 text-xs font-black text-white"><ShieldCheck className="h-4 w-4" /> Duyệt bản ghi</button>}
+                  {canReview && <button type="button" onClick={() => openCorrection(record)} className="inline-flex h-9 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-black text-zinc-700"><PencilLine className="h-4 w-4" /> Hiệu chỉnh giờ</button>}
                 </div>
                 {record.reviewData && <div className="mt-3 rounded-xl border border-zinc-200 px-3 py-2 text-[11px] font-semibold text-zinc-600"><span className="font-black text-zinc-800">Lần duyệt gần nhất:</span> {record.reviewData.decision === 'APPROVE' ? 'Đã duyệt' : 'Từ chối'} bởi {record.reviewData.reviewedByName}{record.reviewData.reason ? ` · ${record.reviewData.reason}` : ''}</div>}
               </div>}
@@ -314,6 +352,17 @@ export const AttendanceHistoryDrawer: React.FC<AttendanceHistoryDrawerProps> = (
         <label className="mt-4 block text-xs font-black text-zinc-700">Ghi chú {reviewDecision === 'REJECT' ? '(bắt buộc)' : '(nếu có)'}</label>
         <textarea value={reviewReason} onChange={event => setReviewReason(event.target.value)} rows={3} placeholder="Nêu lý do để lưu vào lịch sử kiểm duyệt" className="mt-2 w-full resize-none rounded-xl border border-zinc-200 p-3 text-sm font-semibold outline-none focus:border-[#ff4b16]" />
         <button type="button" onClick={() => void submitReview()} disabled={reviewing || (reviewDecision === 'REJECT' && reviewReason.trim().length < 5)} className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#ff4b16] to-[#ff9f0a] text-sm font-black text-white disabled:opacity-40">{reviewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Xác nhận</button>
+      </div>
+    </div>}
+
+    {correctionRecord && <div className="fixed inset-0 z-[155] grid place-items-end bg-black/45 p-0 sm:place-items-center sm:p-4">
+      <div className="w-full rounded-t-3xl bg-white p-5 shadow-2xl sm:max-w-md sm:rounded-3xl">
+        <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black uppercase tracking-wider text-[#ff4b16]">Hiệu chỉnh có lưu audit</div><h3 className="mt-1 text-lg font-black text-zinc-950">{formatDate(correctionRecord.date)}</h3></div><button type="button" onClick={() => setCorrectionRecord(null)} className="grid h-9 w-9 place-items-center rounded-full bg-zinc-100"><X className="h-4 w-4" /></button></div>
+        <div className="mt-4 grid grid-cols-2 gap-3"><label className="text-xs font-black text-zinc-700">Giờ vào<input type="time" step="60" value={correctionForm.checkInTime} onChange={(event) => setCorrectionForm((form) => ({ ...form, checkInTime: event.target.value }))} className="mt-2 h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm font-bold" /></label><label className="text-xs font-black text-zinc-700">Giờ ra<input type="time" step="60" value={correctionForm.checkOutTime} onChange={(event) => setCorrectionForm((form) => ({ ...form, checkOutTime: event.target.value }))} className="mt-2 h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm font-bold" /></label></div>
+        <label className="mt-3 block text-xs font-black text-zinc-700">Ngày ra ca (dùng cho ca qua đêm)<input type="date" value={correctionForm.checkOutDate} onChange={(event) => setCorrectionForm((form) => ({ ...form, checkOutDate: event.target.value }))} className="mt-2 h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm font-bold" /></label>
+        <label className="mt-3 block text-xs font-black text-zinc-700">Lý do hiệu chỉnh (bắt buộc)</label><textarea value={correctionForm.reason} onChange={(event) => setCorrectionForm((form) => ({ ...form, reason: event.target.value }))} rows={3} placeholder="Ví dụ: nhân viên quên bấm ra ca, đối chiếu camera cửa hàng…" className="mt-2 w-full resize-none rounded-xl border border-zinc-200 p-3 text-sm font-semibold outline-none focus:border-[#ff4b16]" />
+        <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">Không thể sửa kỳ lương đã duyệt/đã chi. Hệ thống lưu người sửa, lý do và dữ liệu trước/sau.</div>
+        <button type="button" onClick={() => void submitCorrection()} disabled={correcting || correctionForm.reason.trim().length < 5 || !correctionForm.checkInTime} className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-black text-white disabled:opacity-40">{correcting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PencilLine className="h-4 w-4" />} Lưu hiệu chỉnh</button>
       </div>
     </div>}
   </div>;

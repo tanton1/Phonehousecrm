@@ -9,6 +9,10 @@ import {
   createAttendanceTelegramOutboxRecord,
   telegramAlertsEnabled
 } from './telegramService';
+import { assertPayrollPeriodsOpen, monthKeyFromDate } from './payrollPeriodLockService';
+
+const MAX_ATTENDANCE_SHIFT_MINUTES = 20 * 60;
+const ATTENDANCE_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
 
 export function resolveAttendanceRadius(branch: { attendanceRadius?: unknown; allowedGpsRadiusMeters?: unknown } | null | undefined): number {
   const canonical = Number(branch?.attendanceRadius);
@@ -107,7 +111,10 @@ export interface AttendanceRecordResult {
   branchName?: string;
   date: string;
   checkInTime: string;
+  checkInAt?: string;
   checkOutTime?: string;
+  checkOutAt?: string;
+  checkOutDate?: string;
   status: 'ON_TIME' | 'LATE' | 'PENDING_VERIFICATION' | 'REJECTED' | 'COMPLETED';
   attendanceStatus?: 'CHECKED_IN' | 'COMPLETED' | 'ABSENT' | 'ON_LEAVE';
   punctualityStatus?: 'ON_TIME' | 'LATE' | 'EARLY';
@@ -157,6 +164,19 @@ export interface AttendanceRecordResult {
   };
 }
 
+export interface AttendanceCorrectionRequest {
+  attendanceId: string;
+  correctedCheckInTime?: string;
+  correctedCheckOutTime?: string;
+  correctedCheckOutDate?: string;
+  reason: string;
+  actorUid: string;
+  actorName: string;
+  actorRole: string;
+  actorBranchId: string;
+  actorAssignedBranches?: string[];
+}
+
 export function parseTimeToMinutes(timeStr: string): number {
   if (!timeStr) return 0;
   const parts = timeStr.split(':').map(Number);
@@ -171,6 +191,30 @@ export function diffMinutes(startMinutes: number, endMinutes: number): number {
     return endMinutes - startMinutes;
   }
   return (1440 - startMinutes) + endMinutes;
+}
+
+export function vietnamLocalDateTimeToIso(date: string, time: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !ATTENDANCE_TIME_RE.test(time)) {
+    throw new Error('ATTENDANCE_DATETIME_INVALID');
+  }
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute, second = 0] = time.split(':').map(Number);
+  const instant = new Date(Date.UTC(year, month - 1, day, hour - 7, minute, second));
+  if (!Number.isFinite(instant.getTime())) throw new Error('ATTENDANCE_DATETIME_INVALID');
+  return instant.toISOString();
+}
+
+export function attendanceDurationMinutes(checkInAt: string, checkOutAt: string): number {
+  const startMs = Date.parse(checkInAt);
+  const endMs = Date.parse(checkOutAt);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    throw new Error('ATTENDANCE_DATETIME_INVALID: Thời điểm ra ca phải sau thời điểm vào ca.');
+  }
+  const minutes = Math.floor((endMs - startMs) / 60_000);
+  if (minutes > MAX_ATTENDANCE_SHIFT_MINUTES) {
+    throw new Error('ATTENDANCE_SHIFT_TOO_LONG: Ca vượt quá 20 giờ; quản lý cần hiệu chỉnh bản ghi trước khi tính công.');
+  }
+  return minutes;
 }
 
 /**
@@ -447,6 +491,7 @@ export async function processServerCheckIn(
     branchName: authoritativeBranchName,
     date: dateStr,
     checkInTime: timeStr,
+    checkInAt: serverTimeIso,
     status,
     attendanceStatus: 'CHECKED_IN',
     punctualityStatus,
@@ -563,6 +608,7 @@ export async function processServerCheckOut(
     second: '2-digit',
     timeZone: 'Asia/Ho_Chi_Minh'
   });
+  const checkOutAt = now.toISOString();
 
   const recordId = `ATT_${staffId}_${dateStr.replace(/-/g, '')}`;
   let completedRecord: AttendanceRecordResult;
@@ -576,7 +622,10 @@ export async function processServerCheckOut(
       branchId: payload.branchId || 'TEST_BRANCH',
       date: dateStr,
       checkInTime: '08:00:00',
+      checkInAt: vietnamLocalDateTimeToIso(dateStr, '08:00:00'),
       checkOutTime: timeStr,
+      checkOutAt,
+      checkOutDate: dateStr,
       status: 'COMPLETED',
       attendanceStatus: 'COMPLETED',
       punctualityStatus: 'ON_TIME',
@@ -679,9 +728,8 @@ export async function processServerCheckOut(
       throw new Error(`ALREADY_CHECKED_OUT: Bạn đã kết thúc ca làm việc lúc ${data.checkOutTime}.`);
     }
 
-    const inMinutes = parseTimeToMinutes(data.checkInTime || '08:00:00');
-    const outMinutes = parseTimeToMinutes(timeStr);
-    const workDurationMinutes = diffMinutes(inMinutes, outMinutes);
+    const checkInAt = String(data.checkInAt || data.verification?.serverTimeIso || vietnamLocalDateTimeToIso(String(data.date || dateStr), String(data.checkInTime || '08:00:00')));
+    const workDurationMinutes = attendanceDurationMinutes(checkInAt, checkOutAt);
 
     const scheduledStart = data.scheduledStart || '08:00';
     const scheduledEnd = data.scheduledEnd || '17:00';
@@ -710,6 +758,8 @@ export async function processServerCheckOut(
     const calculatedRecord = {
       ...data,
       checkOutTime: timeStr,
+      checkOutAt,
+      checkOutDate: dateStr,
       status: 'COMPLETED',
       attendanceStatus: 'COMPLETED',
       verificationStatus,
@@ -722,6 +772,8 @@ export async function processServerCheckOut(
     };
     const updateFields = {
       checkOutTime: calculatedRecord.checkOutTime,
+      checkOutAt: calculatedRecord.checkOutAt,
+      checkOutDate: calculatedRecord.checkOutDate,
       status: calculatedRecord.status,
       attendanceStatus: calculatedRecord.attendanceStatus,
       verificationStatus: calculatedRecord.verificationStatus,
@@ -855,6 +907,7 @@ export async function processAttendanceReview(
         throw new Error(`BRANCH_FORBIDDEN: Bạn chỉ có quyền duyệt chấm công thuộc chi nhánh phụ trách (${reviewerBranchId}).`);
       }
     }
+    await assertPayrollPeriodsOpen(transaction, db, data.branchId, [monthKeyFromDate(data.date)]);
 
     const newVerificationStatus: 'VERIFIED' | 'REJECTED' = decision === 'APPROVE' ? 'VERIFIED' : 'REJECTED';
     const newStatus: 'ON_TIME' | 'LATE' | 'REJECTED' = decision === 'APPROVE' ? (data.lateMinutes && data.lateMinutes > 0 ? 'LATE' : 'ON_TIME') : 'REJECTED';
@@ -901,5 +954,113 @@ export async function processAttendanceReview(
       ...data,
       ...updateFields
     } as unknown as AttendanceRecordResult;
+  });
+}
+
+export async function processAttendanceCorrection(
+  db: Firestore | null,
+  payload: AttendanceCorrectionRequest
+): Promise<AttendanceRecordResult> {
+  if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
+  const role = normalizeRole(payload.actorRole);
+  if (!hasPermission(role, 'ATTENDANCE_REVIEW')) throw new Error('PERMISSION_DENIED');
+  if (!payload.attendanceId) throw new Error('ATTENDANCE_ID_REQUIRED');
+  const reason = String(payload.reason || '').trim();
+  if (reason.length < 5) throw new Error('ATTENDANCE_CORRECTION_REASON_REQUIRED');
+  const checkInTimeInput = payload.correctedCheckInTime?.trim();
+  const checkOutTimeInput = payload.correctedCheckOutTime?.trim();
+  const checkOutDateInput = payload.correctedCheckOutDate?.trim();
+  if (!checkInTimeInput && !checkOutTimeInput && !checkOutDateInput) throw new Error('ATTENDANCE_CORRECTION_EMPTY');
+  if (checkInTimeInput && !ATTENDANCE_TIME_RE.test(checkInTimeInput)) throw new Error('ATTENDANCE_CHECKIN_TIME_INVALID');
+  if (checkOutTimeInput && !ATTENDANCE_TIME_RE.test(checkOutTimeInput)) throw new Error('ATTENDANCE_CHECKOUT_TIME_INVALID');
+  if (checkOutDateInput && !/^\d{4}-\d{2}-\d{2}$/.test(checkOutDateInput)) throw new Error('ATTENDANCE_CHECKOUT_DATE_INVALID');
+
+  const attendanceRef = db.collection('attendance').doc(payload.attendanceId);
+  const auditRef = db.collection('attendanceAuditLogs').doc();
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(attendanceRef);
+    if (!snapshot.exists) throw new Error('ATTENDANCE_NOT_FOUND');
+    const current = snapshot.data()! as AttendanceRecordResult;
+    const allowedBranches = new Set([payload.actorBranchId, ...(payload.actorAssignedBranches || [])].filter(Boolean));
+    if (role !== 'ADMIN' && role !== 'REGIONAL_MANAGER' && !allowedBranches.has(current.branchId)) {
+      throw new Error('BRANCH_FORBIDDEN');
+    }
+    await assertPayrollPeriodsOpen(transaction, db, current.branchId, [monthKeyFromDate(current.date)]);
+
+    const checkInTime = checkInTimeInput || current.checkInTime;
+    const checkOutTime = checkOutTimeInput || current.checkOutTime;
+    const checkOutDate = checkOutDateInput || current.checkOutDate || current.date;
+    if (!checkOutTime && checkOutDateInput) throw new Error('ATTENDANCE_CHECKOUT_TIME_REQUIRED');
+    const checkInAt = vietnamLocalDateTimeToIso(current.date, checkInTime);
+    const scheduledStart = current.scheduledStart || '08:00';
+    const scheduledEnd = current.scheduledEnd || '17:00';
+    const checkInMinutes = parseTimeToMinutes(checkInTime);
+    const lateMinutes = Math.max(0, checkInMinutes - (parseTimeToMinutes(scheduledStart) + Number(current.graceMinutes || 5)));
+    let next: Record<string, any> = {
+      ...current,
+      checkInTime,
+      checkInAt,
+      lateMinutes,
+      correctedAt: new Date().toISOString(),
+      correctedByUid: payload.actorUid,
+      correctedByName: payload.actorName,
+      correctionReason: reason
+    };
+    if (checkOutTime) {
+      const checkOutAt = vietnamLocalDateTimeToIso(checkOutDate, checkOutTime);
+      const workDurationMinutes = attendanceDurationMinutes(checkInAt, checkOutAt);
+      const scheduledShiftDuration = diffMinutes(parseTimeToMinutes(scheduledStart), parseTimeToMinutes(scheduledEnd));
+      const relativeCheckout = normalizeRelativeMinutes(checkOutTime, scheduledStart);
+      const earlyMinutes = Math.max(0, scheduledShiftDuration - relativeCheckout);
+      const otMinutes = Math.max(0, relativeCheckout - scheduledShiftDuration);
+      const scheduledBreak = Number(current.scheduledBreakMinutes || current.breakDurationMinutes || 0);
+      next = {
+        ...next,
+        checkOutTime,
+        checkOutDate,
+        checkOutAt,
+        attendanceStatus: 'COMPLETED',
+        status: 'COMPLETED',
+        punctualityStatus: earlyMinutes > 15 ? 'EARLY' : lateMinutes > 0 ? 'LATE' : 'ON_TIME',
+        workDurationMinutes,
+        netWorkMinutes: Math.max(0, workDurationMinutes - scheduledBreak),
+        earlyMinutes,
+        otMinutes
+      };
+    }
+    next = { ...next, ...attendanceWorkdayFields(next) };
+    const persisted = { ...next };
+    delete persisted.id;
+    transaction.update(attendanceRef, { ...persisted, updatedAt: FieldValue.serverTimestamp() });
+    transaction.set(auditRef, {
+      id: auditRef.id,
+      attendanceId: payload.attendanceId,
+      staffId: current.staffId,
+      branchId: current.branchId,
+      action: 'ATTENDANCE_CORRECTED',
+      before: {
+        checkInTime: current.checkInTime || null,
+        checkInAt: current.checkInAt || null,
+        checkOutTime: current.checkOutTime || null,
+        checkOutDate: current.checkOutDate || null,
+        checkOutAt: current.checkOutAt || null,
+        workDurationMinutes: current.workDurationMinutes || 0,
+        creditedWorkDay: current.creditedWorkDay || 0
+      },
+      after: {
+        checkInTime: next.checkInTime,
+        checkInAt: next.checkInAt,
+        checkOutTime: next.checkOutTime || null,
+        checkOutDate: next.checkOutDate || null,
+        checkOutAt: next.checkOutAt || null,
+        workDurationMinutes: next.workDurationMinutes || 0,
+        creditedWorkDay: next.creditedWorkDay || 0
+      },
+      reason,
+      performedByUid: payload.actorUid,
+      performedByName: payload.actorName,
+      timestamp: next.correctedAt
+    });
+    return { ...next, id: payload.attendanceId } as AttendanceRecordResult;
   });
 }

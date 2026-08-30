@@ -66,4 +66,67 @@ describe('Payroll backend snapshots', () => {
     });
     expect(records[0].standardWorkDays).toBe(26);
   });
+
+  it('uses effective-dated compensation and credits approved paid leave', () => {
+    const records = buildPayrollRecords({
+      period: '2026-08', branchId: 'CN01',
+      users: [{ id: 'STAFF_01', data: { displayName: 'Sale có phép', role: 'SALES', branchId: 'CN01', active: true, baseSalary: 1 } }],
+      branches: [{ id: 'CN01', data: { name: 'PhoneHouse' } }],
+      attendance: [], commissions: [], departmentPolicies: [],
+      schedules: [{ staffId: 'STAFF_01', status: 'PUBLISHED', branchId: 'CN01', days: {
+        '2026-08-01': { shiftId: 'DAY' }, '2026-08-02': { shiftId: 'DAY' }
+      } }],
+      compensations: [{ id: 'COMP_01', staffUid: 'STAFF_01', effectiveFrom: '2026-08-01', status: 'ACTIVE', version: 2, baseSalary: 10_000_000, allowance: 500_000 }],
+      leaves: [{ id: 'LEAVE_01', staffId: 'STAFF_01', status: 'APPROVED', type: 'ANNUAL_LEAVE', startDate: '2026-08-01', endDate: '2026-08-01' }]
+    });
+    expect(records[0]).toMatchObject({
+      baseSalary: 10_000_000,
+      proratedBaseSalary: 5_000_000,
+      paidLeaveDays: 1,
+      unpaidLeaveDays: 0,
+      workDays: 1,
+      compensationId: 'COMP_01',
+      compensationSource: 'CANONICAL',
+      netSalary: 5_500_000,
+      blockingIssues: []
+    });
+    expect(records[0].leaveRequestIds).toEqual(['LEAVE_01']);
+  });
+
+  it('uses canonical sales commission entries and carries refund reversals into payroll', () => {
+    const records = buildPayrollRecords({
+      period: '2026-08', branchId: 'CN01',
+      users: [{ id: 'SALE_01', data: { displayName: 'Sale', role: 'SALES', branchId: 'CN01', active: true, baseSalary: 8_000_000, salesCommission: 99_000_000 } }],
+      branches: [{ id: 'CN01', data: { name: 'PhoneHouse' } }],
+      attendance: [{ id: 'ATT_01', staffId: 'SALE_01', date: '2026-08-01', checkInTime: '08:00:00', checkOutTime: '17:00:00', attendanceStatus: 'COMPLETED', scheduledStart: '08:00', scheduledEnd: '17:00', scheduledBreakMinutes: 60, netWorkMinutes: 480, verificationStatus: 'VERIFIED', verification: { gpsVerified: true }, checkOutVerification: { gpsVerified: true } }],
+      schedules: [{ staffId: 'SALE_01', status: 'PUBLISHED', branchId: 'CN01', days: { '2026-08-01': { shiftId: 'DAY' } } }],
+      compensations: [], leaves: [],
+      commissions: [
+        { id: 'SALE_COMM_01', staffUid: 'SALE_01', commissionCategory: 'SALES', status: 'ELIGIBLE', commissionPayable: 500_000 },
+        { id: 'SALE_REV_01', staffUid: 'SALE_01', commissionCategory: 'SALES', status: 'ELIGIBLE', commissionPayable: -200_000 }
+      ]
+    });
+    expect(records[0].posCommission).toBe(300_000);
+    expect(records[0].netSalary).toBe(8_300_000);
+    expect(records[0].warnings).not.toContain('LEGACY_SALES_COMMISSION_SOURCE');
+  });
+
+  it('includes each approved unposted earning and deduction adjustment exactly once', () => {
+    const records = buildPayrollRecords({
+      period: '2026-08', branchId: 'CN01',
+      users: [{ id: 'STAFF_01', data: { displayName: 'Nhân viên', branchId: 'CN01', active: true, baseSalary: 8_000_000, advanceSalaryDeductions: 9_000_000 } }],
+      branches: [{ id: 'CN01', data: { name: 'PhoneHouse' } }],
+      attendance: [{ staffId: 'STAFF_01', date: '2026-08-01', checkInTime: '08:00:00', checkOutTime: '17:00:00', attendanceStatus: 'COMPLETED', scheduledStart: '08:00', scheduledEnd: '17:00', scheduledBreakMinutes: 60, netWorkMinutes: 480, verificationStatus: 'VERIFIED', verification: { gpsVerified: true }, checkOutVerification: { gpsVerified: true } }],
+      schedules: [{ staffId: 'STAFF_01', status: 'PUBLISHED', branchId: 'CN01', days: { '2026-08-01': { shiftId: 'DAY' } } }],
+      commissions: [],
+      adjustments: [
+        { id: 'ADJ_EARN', staffUid: 'STAFF_01', period: '2026-08', status: 'APPROVED', type: 'EARNING', amount: 500_000 },
+        { id: 'ADJ_DEDUCT', staffUid: 'STAFF_01', period: '2026-08', status: 'APPROVED', type: 'DEDUCTION', amount: 200_000 },
+        { id: 'ADJ_PENDING', staffUid: 'STAFF_01', period: '2026-08', status: 'PENDING', type: 'EARNING', amount: 9_000_000 },
+        { id: 'ADJ_POSTED', staffUid: 'STAFF_01', period: '2026-08', status: 'APPROVED', payrollPostingId: 'OLD_RUN', type: 'EARNING', amount: 9_000_000 }
+      ]
+    });
+    expect(records[0]).toMatchObject({ adjustmentEarnings: 500_000, adjustmentDeductions: 200_000, advances: 200_000, netSalary: 8_300_000 });
+    expect(records[0].adjustmentEntryIds).toEqual(['ADJ_EARN', 'ADJ_DEDUCT']);
+  });
 });

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
-import { processServerCheckIn, processServerCheckOut, resolveAttendanceRadius, resolveShiftAssignment } from '../services/attendanceService';
+import { processAttendanceCorrection, processServerCheckIn, processServerCheckOut, resolveAttendanceRadius, resolveShiftAssignment } from '../services/attendanceService';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireBranchAccess } from '../middleware/requireBranchAccess';
 import { requireRole } from '../middleware/requireRole';
@@ -14,6 +14,7 @@ import {
   loadTelegramConfig,
   processAttendanceLocationHeartbeat
 } from '../services/telegramService';
+import { assertPayrollPeriodsOpen, monthKeysBetween } from '../services/payrollPeriodLockService';
 
 const CHECKLIST_CATEGORIES = new Set(['OPENING', 'MID_SHIFT', 'CLOSING']);
 const CHECKLIST_PRIORITIES = new Set(['HIGH', 'MEDIUM', 'NORMAL']);
@@ -364,6 +365,27 @@ export function createAttendanceRouter(db: Firestore | null): Router {
     }
   });
 
+  router.post('/corrections', authenticateFirebase, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req: Request, res: Response) => {
+    try {
+      const actor = getActor(req);
+      const data = await processAttendanceCorrection(db, {
+        attendanceId: safeText(req.body?.attendanceId, 180),
+        correctedCheckInTime: safeText(req.body?.correctedCheckInTime, 8) || undefined,
+        correctedCheckOutTime: safeText(req.body?.correctedCheckOutTime, 8) || undefined,
+        correctedCheckOutDate: safeText(req.body?.correctedCheckOutDate, 10) || undefined,
+        reason: safeText(req.body?.reason, 1000),
+        actorUid: actor.uid,
+        actorName: actor.name,
+        actorRole: actor.role,
+        actorBranchId: actor.branchId || '',
+        actorAssignedBranches: actor.assignedBranchIds
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return res.status(scheduleErrorStatus(error)).json({ success: false, error: error?.message || 'ATTENDANCE_CORRECTION_FAILED' });
+    }
+  });
+
   router.post('/leave-requests', authenticateFirebase, async (req: Request, res: Response) => {
     try {
       if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
@@ -419,6 +441,7 @@ export function createAttendanceRouter(db: Firestore | null): Router {
         const allowed = actor.role === 'ADMIN' || actor.branchId === branchId || actor.assignedBranchIds.includes(branchId);
         if (!branchId || !allowed) throw new Error('LEAVE_BRANCH_FORBIDDEN');
         if (current.status !== 'PENDING') throw new Error('LEAVE_REQUEST_ALREADY_REVIEWED');
+        await assertPayrollPeriodsOpen(transaction, db, branchId, monthKeysBetween(String(current.startDate || ''), String(current.endDate || '')));
         const status = decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
         result = { ...current, id: leave.id, branchId, status, approvedBy: actor.name, approvedByUid: actor.uid, approvedAt: new Date().toISOString() };
         transaction.update(leaveRef, {

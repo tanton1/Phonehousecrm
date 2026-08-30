@@ -474,6 +474,38 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /employmentCompensations/{compensationId} {
+      allow read, write: if false; // Effective-dated compensation is exposed only through Payroll API.
+    }
+
+    match /compensationAuditLogs/{auditId} {
+      allow read, write: if false;
+    }
+
+    match /payrollStaffLocks/{lockId} {
+      allow read, write: if false; // Prevents one employee from being approved in overlapping runs.
+    }
+
+    match /payrollPeriods/{periodId} {
+      allow read, write: if false; // Source-domain locks are enforced by server transactions.
+    }
+
+    match /payrollAdjustments/{adjustmentId} {
+      allow read, write: if false; // Earnings and deductions are server-authoritative.
+    }
+
+    match /payrollAdjustmentAuditLogs/{auditId} {
+      allow read, write: if false;
+    }
+
+    match /payrollPaymentBatches/{batchId} {
+      allow read, write: if false;
+    }
+
+    match /payrollPaymentRequests/{requestId} {
+      allow read, write: if false;
+    }
+
     match /sopTemplates/{templateId} {
       allow read: if isAuthenticated() && isActiveUser();
       allow write: if false; // Only /api/configuration/sop-templates.

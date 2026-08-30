@@ -65,7 +65,7 @@ export interface AttendanceHistoryResult {
  * Executes an authenticated API request to the backend Attendance service
  */
 async function sendAttendanceApiRequest<T>(
-  endpoint: 'check-in-context' | 'check-in' | 'check-out' | 'location-heartbeats' | 'network-check' | 'review' | 'verification-sessions' | 'leave-requests' | `leave-requests/${string}/review` | `checklists/${string}/save` | `checklists/${string}/review` | 'handovers' | `handovers/${string}/review`,
+  endpoint: 'check-in-context' | 'check-in' | 'check-out' | 'location-heartbeats' | 'network-check' | 'review' | 'corrections' | 'verification-sessions' | 'leave-requests' | `leave-requests/${string}/review` | `checklists/${string}/save` | `checklists/${string}/review` | 'handovers' | `handovers/${string}/review`,
   payload: Record<string, any> = {}
 ): Promise<T> {
   const firebaseUser = auth.currentUser;
@@ -242,6 +242,16 @@ export async function requestAttendanceReview(
     decision,
     reason
   });
+}
+
+export async function requestAttendanceCorrection(input: {
+  attendanceId: string;
+  correctedCheckInTime?: string;
+  correctedCheckOutTime?: string;
+  correctedCheckOutDate?: string;
+  reason: string;
+}): Promise<AttendanceRecord> {
+  return sendAttendanceApiRequest<AttendanceRecord>('corrections', input);
 }
 
 export async function requestCreateLeaveRequest(request: LeaveRequest): Promise<LeaveRequest> {

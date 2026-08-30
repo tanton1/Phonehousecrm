@@ -77,6 +77,69 @@ const ALLOWED_FUND_TYPES_BY_METHOD: Record<string, string[]> = {
 const normalizePriceKey = (value: unknown) => String(value || '').trim().toUpperCase();
 const devicePriceVariantKey = (device: any) => [device?.model, device?.storage, device?.condition].map(normalizePriceKey).join('|');
 
+function vietnamMonthAt(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  return new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' })
+    .format(date)
+    .slice(0, 7);
+}
+
+function commissionIdPart(value: unknown) {
+  return String(value || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100);
+}
+
+export function buildSalesCommissionLedgerEntries(input: {
+  invoiceId: string;
+  invoiceCode: string;
+  branchId: string;
+  staffUid: string;
+  staffName: string;
+  occurredAt: string;
+  items: Array<{ id: string; itemType: 'DEVICE' | 'ACCESSORY'; name: string; quantity: number; lineAmount: number; commissionTags: any[] }>;
+}) {
+  return input.items.flatMap((item) => (item.commissionTags || []).map((tag) => {
+    const quantity = Math.max(1, Math.floor(Number(item.quantity || 1)));
+    const lineAmount = Math.max(0, Math.round(Number(item.lineAmount || 0)));
+    const value = Number(tag.value || 0);
+    if (!Number.isFinite(value) || value < 0) throw new Error('SALES_COMMISSION_POLICY_VALUE_INVALID');
+    const commissionPayable = tag.calculationType === 'PERCENT'
+      ? Math.round(lineAmount * value / 100)
+      : Math.round(value * quantity);
+    if (!Number.isSafeInteger(commissionPayable) || commissionPayable < 0) throw new Error('SALES_COMMISSION_AMOUNT_INVALID');
+    const id = `COMM_SALES_${commissionIdPart(input.invoiceId)}_${commissionIdPart(item.itemType)}_${commissionIdPart(item.id)}_${commissionIdPart(tag.id)}`;
+    return {
+      id,
+      commissionCategory: 'SALES',
+      sourceType: 'POS_INVOICE',
+      sourceId: input.invoiceId,
+      sourceCode: input.invoiceCode,
+      branchId: input.branchId,
+      staffUid: input.staffUid,
+      staffName: input.staffName,
+      itemType: item.itemType,
+      itemId: item.id,
+      itemName: item.name,
+      quantity,
+      lineAmount,
+      policyId: String(tag.policyId || 'sales'),
+      policyVersion: String(tag.policyVersion || '1'),
+      commissionTagId: String(tag.id || ''),
+      commissionTagName: String(tag.name || ''),
+      calculationType: String(tag.calculationType || 'FLAT'),
+      policyValue: value,
+      commissionPayable,
+      amount: commissionPayable,
+      status: 'ELIGIBLE',
+      assignedAt: input.occurredAt,
+      eligibleAt: input.occurredAt,
+      payrollPeriod: vietnamMonthAt(input.occurredAt),
+      eligibilityReason: 'POS_INVOICE_COMPLETED',
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt
+    };
+  })).filter((entry) => entry.commissionPayable > 0);
+}
+
 function resolveRetailPriceEntry(policy: any, branchId: string, itemType: 'DEVICE' | 'ACCESSORY', itemId: string, data: any): any | undefined {
   const entries = Array.isArray(policy?.entries) ? policy.entries : [];
   const matches = entries.filter((entry: any) => {
@@ -961,6 +1024,36 @@ export async function executeAtomicCheckout(
 
     transaction.set(invRef, invoiceRecord);
 
+    // Canonical sales commission ledger. Payroll consumes this ledger by
+    // eligibility period instead of mutable totals stored on the user profile.
+    const salesCommissionEntries = buildSalesCommissionLedgerEntries({
+      invoiceId,
+      invoiceCode,
+      branchId,
+      staffUid: authenticatedStaff?.uid || 'SYSTEM',
+      staffName: authenticatedStaff?.name || 'Nhân viên bán hàng',
+      occurredAt: new Date().toISOString(),
+      items: [
+        ...loadedDevices.map((item) => ({
+          id: item.id,
+          itemType: 'DEVICE' as const,
+          name: String(item.data.model || item.id),
+          quantity: 1,
+          lineAmount: item.authoritativePrice,
+          commissionTags: item.commissionTags || []
+        })),
+        ...loadedAccessories.map((item) => ({
+          id: item.id,
+          itemType: 'ACCESSORY' as const,
+          name: String(item.data.name || item.id),
+          quantity: item.quantity,
+          lineAmount: item.authoritativePrice * item.quantity,
+          commissionTags: item.commissionTags || []
+        }))
+      ]
+    });
+    salesCommissionEntries.forEach((entry) => transaction.set(db.collection('commissionLedger').doc(entry.id), entry, { merge: false }));
+
     // 13. Standardized Cash Transactions (Full Branch, InvoiceId & Creator Linkage)
     if (isMultiPayment) {
       for (const p of payload.payments) {
@@ -1381,6 +1474,11 @@ export async function executeAtomicInvoiceRefund(
       if (Number(fund.currentBalance || 0) < refundAmount) throw new Error('REFUND_FUND_INSUFFICIENT_BALANCE');
     }
 
+    const salesCommissionSnapshot = await transaction.get(
+      db.collection('commissionLedger').where('sourceId', '==', invoiceId).limit(201)
+    );
+    if (salesCommissionSnapshot.size > 200) throw new Error('REFUND_COMMISSION_LIMIT');
+
     const deviceSnapshots = new Map<string, any>();
     const soldDevices = await transaction.get(db.collection('devices').where('soldInvoiceId', '==', invoiceId));
     soldDevices.docs.forEach(item => deviceSnapshots.set(item.id, item));
@@ -1528,6 +1626,36 @@ export async function executeAtomicInvoiceRefund(
       cancelledByUid: authenticatedStaff?.uid || '', cancelledAt: now,
       debtAmount: 0,
       ...(pendingFinanceAmount > 0 ? { installmentDisbursementStatus: 'CANCELLED' } : {})
+    });
+    const reversalPeriod = vietnamMonthAt(now);
+    salesCommissionSnapshot.docs.forEach((doc) => {
+      const commission = doc.data();
+      if (String(commission.commissionCategory || '').toUpperCase() !== 'SALES' || commission.status === 'REVERSED') return;
+      if (commission.payrollPostingId || commission.status === 'PAID') {
+        const reversalId = `REV_${doc.id}_${commissionIdPart(invoiceId)}`;
+        const originalAmount = Math.abs(Number(commission.commissionPayable ?? commission.amount ?? 0));
+        transaction.set(db.collection('commissionLedger').doc(reversalId), {
+          ...commission,
+          id: reversalId,
+          commissionPayable: -originalAmount,
+          amount: -originalAmount,
+          status: 'ELIGIBLE',
+          assignedAt: now,
+          eligibleAt: now,
+          payrollPeriod: reversalPeriod,
+          eligibilityReason: 'POS_INVOICE_REFUNDED',
+          reversalOfLedgerId: doc.id,
+          payrollPostingId: null,
+          payrollPostedAt: null,
+          paidAt: null,
+          payrollBatchId: null,
+          createdAt: now,
+          updatedAt: now,
+          reversalReason: reason
+        }, { merge: false });
+      } else {
+        transaction.update(doc.ref, { status: 'REVERSED', reversedAt: now, reversedByUid: authenticatedStaff?.uid || 'SYSTEM', reversalReason: reason, updatedAt: now });
+      }
     });
     deviceSnapshots.forEach(item => transaction.update(item.ref, {
       status: 'in_stock', soldDate: FieldValue.delete(), soldInvoiceId: FieldValue.delete(),

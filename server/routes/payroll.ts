@@ -2,7 +2,9 @@ import { Router, type Request, type Response } from 'express';
 import type { Firestore } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
-import { approvePayrollRun, calculateAndSavePayrollRun, getMyPayrollSlip, getPayrollRun } from '../services/payrollService';
+import { approvePayrollRun, calculateAndSavePayrollRun, getMyPayrollSlip, getPayrollRun, payPayrollRun } from '../services/payrollService';
+import { listEmploymentCompensations, saveEmploymentCompensation } from '../services/compensationService';
+import { createPayrollAdjustment, listPayrollAdjustments, reviewPayrollAdjustment } from '../services/payrollAdjustmentService';
 
 export function createPayrollRouter(db: Firestore | null) {
   const router = Router();
@@ -18,7 +20,7 @@ export function createPayrollRouter(db: Firestore | null) {
     if (text.includes('FORBIDDEN')) return 403;
     if (text.includes('NOT_FOUND')) return 404;
     if (text.includes('FIRESTORE_NOT_CONFIGURED')) return 503;
-    if (text.includes('LOCKED') || text.includes('PAID')) return 409;
+    if (text.includes('LOCKED') || text.includes('PAID') || text.includes('IDEMPOTENCY') || text.includes('ALREADY')) return 409;
     return 400;
   };
 
@@ -55,6 +57,74 @@ export function createPayrollRouter(db: Firestore | null) {
       return res.json({ success: true, data });
     } catch (error: any) {
       return res.status(statusFor(error)).json({ success: false, error: error?.message || 'Không duyệt được kỳ lương.' });
+    }
+  });
+
+  router.post('/runs/:runId/pay', authenticateFirebase, requireRole('ACCOUNTANT'), async (req: Request, res: Response) => {
+    try {
+      const data = await payPayrollRun(db, actor(req), String(req.params.runId || ''), {
+        fundId: String(req.body?.fundId || ''),
+        idempotencyKey: String(req.body?.idempotencyKey || req.headers['x-idempotency-key'] || ''),
+        note: String(req.body?.note || '')
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return res.status(statusFor(error)).json({ success: false, error: error?.message || 'Không chi được kỳ lương.' });
+    }
+  });
+
+  router.get('/compensations', authenticateFirebase, requireRole('ACCOUNTANT'), async (req: Request, res: Response) => {
+    try {
+      const data = await listEmploymentCompensations(db, actor(req), {
+        staffUid: String(req.query.staffUid || ''),
+        branchId: String(req.query.branchId || '')
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return res.status(statusFor(error)).json({ success: false, error: error?.message || 'Không tải được cấu hình lương.' });
+    }
+  });
+
+  router.post('/compensations/:staffUid', authenticateFirebase, requireRole('ACCOUNTANT'), async (req: Request, res: Response) => {
+    try {
+      const data = await saveEmploymentCompensation(db, actor(req), String(req.params.staffUid || ''), req.body || {});
+      return res.status(201).json({ success: true, data });
+    } catch (error: any) {
+      return res.status(statusFor(error)).json({ success: false, error: error?.message || 'Không lưu được cấu hình lương.' });
+    }
+  });
+
+  router.get('/adjustments', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    try {
+      const data = await listPayrollAdjustments(db, actor(req), {
+        period: String(req.query.period || ''),
+        branchId: String(req.query.branchId || ''),
+        staffUid: String(req.query.staffUid || '') || undefined
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return res.status(statusFor(error)).json({ success: false, error: error?.message || 'Không tải được điều chỉnh lương.' });
+    }
+  });
+
+  router.post('/adjustments', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+    try {
+      const data = await createPayrollAdjustment(db, actor(req), req.body || {});
+      return res.status(201).json({ success: true, data });
+    } catch (error: any) {
+      return res.status(statusFor(error)).json({ success: false, error: error?.message || 'Không tạo được điều chỉnh lương.' });
+    }
+  });
+
+  router.post('/adjustments/:adjustmentId/review', authenticateFirebase, requireRole('ACCOUNTANT'), async (req: Request, res: Response) => {
+    try {
+      const data = await reviewPayrollAdjustment(db, actor(req), String(req.params.adjustmentId || ''), {
+        decision: String(req.body?.decision || ''),
+        reason: String(req.body?.reason || '')
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      return res.status(statusFor(error)).json({ success: false, error: error?.message || 'Không duyệt được điều chỉnh lương.' });
     }
   });
 

@@ -32,6 +32,9 @@ import {
 import { UserAccount, UserRole, RolePermissionInfo, StoreBranch } from '../types';
 import { auth, loginWithEmail } from '../lib/firebase';
 import { FaceRegistrationModal } from './FaceRegistrationModal';
+import { fetchEmploymentCompensations, saveEmploymentCompensation } from '../services/payrollApiClient';
+
+const currentVietnamMonthStart = () => `${new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date()).slice(0, 7)}-01`;
 
 interface UserManagementViewProps {
   users: UserAccount[];
@@ -92,6 +95,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     assignedBranchIds: [] as string[],
     password: '',
     notes: '',
+    baseSalary: 0,
+    allowance: 0,
+    compensationEffectiveFrom: currentVietnamMonthStart(),
     active: true
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -139,6 +145,9 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       assignedBranchIds: [],
       password: '',
       notes: '',
+      baseSalary: 0,
+      allowance: 0,
+      compensationEffectiveFrom: currentVietnamMonthStart(),
       active: true
     });
     setSubmitMessage(null);
@@ -160,10 +169,27 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       assignedBranchIds: userBranchIds,
       password: '',
       notes: user.notes || '',
+      baseSalary: Number((user as any).baseSalary || 0),
+      allowance: Number((user as any).allowance || 0),
+      compensationEffectiveFrom: currentVietnamMonthStart(),
       active: user.active
     });
     setSubmitMessage(null);
     setIsAddModalOpen(true);
+    void fetchEmploymentCompensations({ staffUid: user.id })
+      .then((entries) => {
+        const current = entries.find((entry) => entry.status === 'ACTIVE');
+        if (!current) return;
+        setFormData((previous) => ({
+          ...previous,
+          baseSalary: current.baseSalary,
+          allowance: current.allowance,
+          compensationEffectiveFrom: current.effectiveFrom
+        }));
+      })
+      .catch(() => {
+        setSubmitMessage({ type: 'error', text: 'Không tải được cấu hình lương hiện hành; đang hiển thị dữ liệu hồ sơ cũ.' });
+      });
   };
 
   const handleSubmitUser = async (e: React.FormEvent) => {
@@ -199,6 +225,8 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           assignedBranchIds: formData.assignedBranchIds,
           workplaceAddresses: selectedAddresses,
           notes: formData.notes,
+          baseSalary: formData.baseSalary,
+          allowance: formData.allowance,
           active: formData.active
         };
         const token = await auth.currentUser?.getIdToken();
@@ -220,6 +248,11 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || result.success === false) throw new Error(result.message || result.error || 'USER_UPDATE_FAILED');
+        await saveEmploymentCompensation(editingUser.id, {
+          effectiveFrom: formData.compensationEffectiveFrom,
+          baseSalary: formData.baseSalary,
+          allowance: formData.allowance
+        });
         onUpdateUser(updated);
         setSubmitMessage({ type: 'success', text: 'Cập nhật tài khoản và địa chỉ làm việc thành công!' });
         setTimeout(() => setIsAddModalOpen(false), 800);
@@ -251,6 +284,11 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             if (resp.ok) {
               const data = await resp.json();
               if (data.user) {
+                await saveEmploymentCompensation(String(data.user.id || data.user.uid), {
+                  effectiveFrom: formData.compensationEffectiveFrom,
+                  baseSalary: formData.baseSalary,
+                  allowance: formData.allowance
+                });
                 onAddUser(data.user);
                 userCreated = true;
               }
@@ -724,6 +762,16 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                   <option value="TECHNICIAN">🔵 Kỹ Thuật Viên (Technician - Tiếp nhận bảo hành, sửa chữa)</option>
                   <option value="ACCOUNTANT">🟢 Kế Toán / Thu Ngân (Accountant - Kiểm soát hóa đơn, dòng tiền)</option>
                 </select>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3.5">
+                <div className="mb-3 text-xs font-black text-emerald-950">Cấu hình lương có hiệu lực</div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <label className="space-y-1"><span className="font-bold text-zinc-700">Lương cơ bản</span><input type="number" min="0" step="1000" value={formData.baseSalary} onChange={(event) => setFormData({ ...formData, baseSalary: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded-xl border border-zinc-200 px-3 py-2 font-mono focus:border-emerald-500 focus:outline-hidden" /></label>
+                  <label className="space-y-1"><span className="font-bold text-zinc-700">Phụ cấp</span><input type="number" min="0" step="1000" value={formData.allowance} onChange={(event) => setFormData({ ...formData, allowance: Math.max(0, Number(event.target.value) || 0) })} className="w-full rounded-xl border border-zinc-200 px-3 py-2 font-mono focus:border-emerald-500 focus:outline-hidden" /></label>
+                  <label className="space-y-1"><span className="font-bold text-zinc-700">Hiệu lực từ</span><input type="date" required value={formData.compensationEffectiveFrom} onChange={(event) => setFormData({ ...formData, compensationEffectiveFrom: event.target.value })} className="w-full rounded-xl border border-zinc-200 px-3 py-2 font-mono focus:border-emerald-500 focus:outline-hidden" /></label>
+                </div>
+                <p className="mt-2 text-[10px] font-semibold text-emerald-800">Mỗi lần đổi mức lương sẽ tạo phiên bản có ngày hiệu lực và audit trên máy chủ.</p>
               </div>
 
               {/* MULTI-BRANCH WORKPLACE SELECTION */}

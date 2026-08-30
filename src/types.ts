@@ -1348,6 +1348,7 @@ export interface UserAccount {
   kpiTargetOrders?: number;
   kpiTargetWarranty?: number;
   baseSalary?: number;
+  allowance?: number;
   departmentId?: string;
   departmentName?: string;
 }
@@ -1700,7 +1701,10 @@ export interface AttendanceRecord {
   
   // Realtime Timestamps
   checkInTime?: string; // HH:mm:ss
+  checkInAt?: string;
   checkOutTime?: string;
+  checkOutAt?: string;
+  checkOutDate?: string;
   workDurationMinutes: number;
   breakDurationMinutes: number;
   netWorkMinutes: number;

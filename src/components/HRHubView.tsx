@@ -14,7 +14,7 @@ import {
   Users,
   WalletCards
 } from 'lucide-react';
-import type { AttendanceRecord, LeaveRequest, SalesInvoice, StaffMember, StoreBranch, WarrantyTicket } from '../types';
+import type { AttendanceRecord, FundAccount, LeaveRequest, SalesInvoice, StaffMember, StoreBranch, WarrantyTicket } from '../types';
 import { getVietnamDateString } from '../utils/dateTimeUtils';
 import ShiftSchedulingView from './ShiftSchedulingView';
 import { MonthlyPayrollTable } from '../features/payroll/components/MonthlyPayrollTable';
@@ -32,6 +32,7 @@ export interface HRHubViewProps {
   invoices?: SalesInvoice[];
   warrantyTickets?: WarrantyTicket[];
   branches?: StoreBranch[];
+  funds?: FundAccount[];
   initialSubModule?: HRSubModule;
   onApproveLeave?: (request: LeaveRequest) => Promise<void> | void;
 }
@@ -50,6 +51,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
   attendanceRecords = [],
   leaveRequests = [],
   branches = [],
+  funds = [],
   initialSubModule,
   onApproveLeave
 }) => {
@@ -222,7 +224,7 @@ export const HRHubView: React.FC<HRHubViewProps> = ({
         {timesheetRows.length === 0 ? <div className="p-8 text-center text-sm font-semibold text-zinc-500">Không có nhân viên phù hợp.</div> : <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">{timesheetRows.map((row) => <button type="button" key={row.staff.id} onClick={() => setSelectedHistoryStaff(row.staff)} className="rounded-2xl border border-zinc-200 p-4 text-left transition hover:border-orange-200 hover:bg-orange-50/30"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="truncate font-black text-zinc-900">{row.staff.name}</div><div className="mt-1 truncate text-xs font-semibold text-zinc-500">{row.staff.roleTitle}</div></div><div className="flex items-center gap-2"><span className="rounded-xl bg-orange-50 px-3 py-2 text-lg font-black text-[#ff4b16]">{row.workDays}</span><ChevronRight className="h-4 w-4 text-zinc-300" /></div></div><div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-900">{row.completedDays}</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đủ checkout</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-[#ff4b16]">{row.lateMinutes}p</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Đi trễ</div></div><div className="rounded-xl bg-zinc-50 p-2"><div className="font-black text-zinc-800">{Math.round(row.otMinutes / 60 * 10) / 10}h</div><div className="mt-1 text-[10px] font-bold text-zinc-500">Tăng ca</div></div></div>{row.missingCheckout > 0 && <div className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-bold text-red-700">Thiếu checkout {row.missingCheckout} ngày</div>}<div className="mt-3 text-[11px] font-black text-[#ff4b16]">Xem lịch sử từng ngày</div></button>)}</div>}
       </section>}
 
-      {activeModule === 'PAYROLL' && <MonthlyPayrollTable staffList={staffList} branches={accessibleBranches} attendanceRecords={monthAttendance} selectedMonth={selectedPeriod} selectedBranchId={selectedBranchId} search={search} recordFilter={statusFilter} />}
+      {activeModule === 'PAYROLL' && <MonthlyPayrollTable branches={accessibleBranches} staffList={staffList} selectedMonth={selectedPeriod} selectedBranchId={selectedBranchId} search={search} recordFilter={statusFilter} funds={funds} currentUserRole={role} />}
 
       <AttendanceHistoryDrawer
         open={Boolean(selectedHistoryStaff)}
