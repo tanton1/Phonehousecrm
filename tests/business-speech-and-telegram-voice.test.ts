@@ -82,6 +82,10 @@ describe('shared Vietnamese business speech understanding', () => {
     expect(parseTelegramIntent(contextualized.query)).toMatchObject({ kind: 'REVENUE', period: 'YESTERDAY', branchToken: 'ph109' });
     await rememberTelegramConversation(db, 'sender-1', contextualized.query, 'REVENUE');
     expect(stored?.intent).toBe('REVENUE');
+
+    const beforeSensitiveQuery = stored;
+    await rememberTelegramConversation(db, 'sender-1', 'khách 0901234567', 'CUSTOMER');
+    expect(stored).toBe(beforeSensitiveQuery);
   });
 });
 

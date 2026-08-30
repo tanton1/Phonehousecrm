@@ -248,10 +248,14 @@ export async function rememberTelegramConversation(
   query: string,
   intent: string
 ): Promise<void> {
-  if (!['REVENUE', 'INVENTORY', 'TECHNICAL', 'RETAIL_REPAIRS', 'CUSTOMER', 'CRM_PIPELINE', 'CRM_WORK_QUEUE', 'CASHBOOK', 'ATTENDANCE', 'IMEI', 'AI'].includes(intent)) return;
+  // Do not retain free-form, customer or IMEI queries as conversation context.
+  if (!['REVENUE', 'INVENTORY', 'TECHNICAL', 'RETAIL_REPAIRS', 'CRM_PIPELINE', 'CRM_WORK_QUEUE', 'CASHBOOK', 'ATTENDANCE'].includes(intent)) return;
+  const safeQuery = String(query || '').trim().replace(/(?:\+?\d[\d\s().-]{5,}\d)/g, match => {
+    return match.replace(/\D/g, '').length >= 10 ? '[dữ liệu nhạy cảm]' : match;
+  }).slice(0, 1_000);
   try {
     await db.collection(TELEGRAM_CONVERSATION_CONTEXT_COLLECTION).doc(telegramConversationContextId(senderId)).set({
-      query: String(query || '').trim().slice(0, 1_000),
+      query: safeQuery,
       intent,
       updatedAtIso: new Date().toISOString(),
       updatedAt: FieldValue.serverTimestamp()
