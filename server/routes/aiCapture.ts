@@ -7,8 +7,10 @@ import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { createRateLimit } from '../middleware/security';
 import { processCreateCrmLead } from '../services/crmOperationsService';
+import { loadTelegramConfig } from '../services/telegramService';
+import { isOpenAiCompatible, resolveBaseUrl } from '../services/telegramAiAssistant';
 
-export type AiCaptureSourceType = 'SALES_SLIP' | 'CONVERSATION';
+export type AiCaptureSourceType = 'SALES_SLIP' | 'CONVERSATION' | 'PURCHASE_RECEIPT' | 'REPAIR_INTAKE';
 
 export interface SalesSlipExtraction {
   sourceType: 'SALES_SLIP';
@@ -45,31 +47,63 @@ export interface ConversationExtraction {
   nextActions: string[];
 }
 
-export type AiCaptureExtraction = SalesSlipExtraction | ConversationExtraction;
+export interface PurchaseReceiptExtraction {
+  sourceType: 'PURCHASE_RECEIPT'; confidence: number; fieldsToReview: string[];
+  supplier: { name: string; phone: string; taxCode: string };
+  documentCode: string | null; purchaseDate: string | null; paymentMethod: string | null;
+  discountAmount: number | null; totalAmount: number | null; notes: string;
+  items: SalesSlipExtraction['items'];
+}
+
+export interface RepairIntakeExtraction {
+  sourceType: 'REPAIR_INTAKE'; confidence: number; fieldsToReview: string[];
+  transcript: string; customer: { name: string; phone: string };
+  imei: string | null; model: string; issueType: string; faultDescription: string;
+  deviceAppearance: string; accessoriesIncluded: string; estimatedCost: number | null;
+  expectedReturnDate: string | null; notes: string;
+}
+
+export type AiCaptureExtraction = SalesSlipExtraction | ConversationExtraction | PurchaseReceiptExtraction | RepairIntakeExtraction;
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 // Keep the base64 request below common serverless request limits (roughly
 // 4.5 MB after encoding) while still covering normal short voice notes.
 const MAX_AUDIO_BYTES = 3 * 1024 * 1024;
 const MAX_TRANSCRIPT_CHARS = 20_000;
-const CAPTURE_MODEL = String(process.env.GEMINI_CAPTURE_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
+const DEFAULT_CAPTURE_MODEL = String(process.env.GEMINI_CAPTURE_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim();
 
 const ALLOWED_MIME: Record<AiCaptureSourceType, string[]> = {
   SALES_SLIP: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
-  CONVERSATION: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/x-m4a']
+  CONVERSATION: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/x-m4a'],
+  PURCHASE_RECEIPT: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
+  REPAIR_INTAKE: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/x-m4a']
 };
 
 const captureRateLimit = createRateLimit({ prefix: 'ai-capture', windowMs: 60_000, maxRequests: 12 });
 
-function getCaptureAi(): GoogleGenAI | null {
-  const key = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!key) return null;
-  try {
-    return new GoogleGenAI({ apiKey: key, httpOptions: { headers: { 'User-Agent': 'phonehouse-crm-ai-capture' } } });
-  } catch (error) {
-    console.warn('[AI Capture] Gemini initialization failed:', error);
+type CaptureAiProvider = 'GOOGLE_GEMINI' | 'OPENAI_COMPATIBLE';
+type CaptureAiConfigurationSource = 'SHARED_DATABASE' | 'ENVIRONMENT';
+
+export function selectCaptureAiConfig(
+  shared: { geminiApiKey?: string; geminiBaseUrl?: string; aiModel?: string; source?: string } | null,
+  environment: NodeJS.ProcessEnv = process.env
+) {
+  const apiKey = String(shared?.geminiApiKey || environment.GEMINI_API_KEY || '').trim();
+  const baseUrl = String(shared?.geminiBaseUrl || environment.GEMINI_BASE_URL || '').trim();
+  const model = String(environment.GEMINI_CAPTURE_MODEL || shared?.aiModel || environment.GEMINI_MODEL || DEFAULT_CAPTURE_MODEL).trim();
+  const source: CaptureAiConfigurationSource = shared?.source === 'DATABASE' && Boolean(shared.geminiApiKey)
+    ? 'SHARED_DATABASE'
+    : 'ENVIRONMENT';
+  const provider: CaptureAiProvider = isOpenAiCompatible(apiKey, baseUrl) ? 'OPENAI_COMPATIBLE' : 'GOOGLE_GEMINI';
+  return { apiKey, baseUrl, model, source, provider };
+}
+
+async function resolveSharedAiConfig(db: Firestore | null) {
+  const shared = await loadTelegramConfig(db).catch(error => {
+    console.warn('[AI Capture] Shared AI configuration could not be loaded; using environment fallback:', error instanceof Error ? error.message : error);
     return null;
-  }
+  });
+  return selectCaptureAiConfig(shared);
 }
 
 function stripJsonFence(value: string): string {
@@ -156,6 +190,37 @@ export function normalizeConversationExtraction(input: unknown): ConversationExt
   };
 }
 
+export function normalizePurchaseReceiptExtraction(input: unknown): PurchaseReceiptExtraction {
+  const source = (input && typeof input === 'object' ? input : {}) as Record<string, any>;
+  const salesLines = normalizeSalesSlipExtraction({ items: source.items });
+  return {
+    sourceType: 'PURCHASE_RECEIPT', confidence: safeConfidence(source.confidence),
+    fieldsToReview: Array.isArray(source.fieldsToReview) ? source.fieldsToReview.map(value => cleanText(value, 120)).filter(Boolean).slice(0, 20) : [],
+    supplier: { name: cleanText(source.supplier?.name || source.supplierName, 180), phone: cleanPhone(source.supplier?.phone), taxCode: cleanText(source.supplier?.taxCode || source.taxCode, 30) },
+    documentCode: cleanText(source.documentCode || source.invoiceCode, 100) || null,
+    purchaseDate: cleanText(source.purchaseDate || source.date, 40) || null,
+    paymentMethod: cleanText(source.paymentMethod, 100) || null,
+    discountAmount: safeMoney(source.discountAmount), totalAmount: safeMoney(source.totalAmount || source.grandTotal),
+    notes: cleanText(source.notes, 2_000), items: salesLines.items
+  };
+}
+
+export function normalizeRepairIntakeExtraction(input: unknown): RepairIntakeExtraction {
+  const source = (input && typeof input === 'object' ? input : {}) as Record<string, any>;
+  return {
+    sourceType: 'REPAIR_INTAKE', confidence: safeConfidence(source.confidence),
+    fieldsToReview: Array.isArray(source.fieldsToReview) ? source.fieldsToReview.map(value => cleanText(value, 120)).filter(Boolean).slice(0, 20) : [],
+    transcript: cleanText(source.transcript, MAX_TRANSCRIPT_CHARS),
+    customer: { name: cleanText(source.customer?.name || source.customerName, 160), phone: cleanPhone(source.customer?.phone || source.customerPhone) },
+    imei: cleanText(source.imei, 40).replace(/\D/g, '').slice(0, 20) || null,
+    model: cleanText(source.model, 180), issueType: cleanText(source.issueType, 100) || 'Khác',
+    faultDescription: cleanText(source.faultDescription || source.issueDescription, 3_000),
+    deviceAppearance: cleanText(source.deviceAppearance, 1_000), accessoriesIncluded: cleanText(source.accessoriesIncluded, 1_000),
+    estimatedCost: safeMoney(source.estimatedCost), expectedReturnDate: cleanText(source.expectedReturnDate, 80) || null,
+    notes: cleanText(source.notes, 2_000)
+  };
+}
+
 function defaultSalesSlip(): SalesSlipExtraction {
   return normalizeSalesSlipExtraction({ fieldsToReview: ['Không đọc được nội dung phiếu'], confidence: 0 });
 }
@@ -164,31 +229,76 @@ function defaultConversation(): ConversationExtraction {
   return normalizeConversationExtraction({ fieldsToReview: ['Không chép được nội dung ghi âm'], confidence: 0 });
 }
 
+function defaultPurchaseReceipt(): PurchaseReceiptExtraction {
+  return normalizePurchaseReceiptExtraction({ fieldsToReview: ['Không đọc được phiếu nhập hàng'], confidence: 0 });
+}
+
+function defaultRepairIntake(): RepairIntakeExtraction {
+  return normalizeRepairIntakeExtraction({ fieldsToReview: ['Không nhận dạng được thông tin tiếp nhận sửa chữa'], confidence: 0 });
+}
+
 function extractionPrompt(sourceType: AiCaptureSourceType): string {
   if (sourceType === 'SALES_SLIP') {
     return `Bạn là bộ máy OCR phiếu bán hàng PhoneHouse. Đọc ảnh và chỉ trả về JSON hợp lệ, không markdown, theo đúng cấu trúc:
 {"sourceType":"SALES_SLIP","confidence":0.0,"fieldsToReview":[],"customer":{"name":"","phone":""},"saleDate":null,"paymentMethod":null,"discountAmount":null,"totalAmount":null,"notes":"","items":[{"name":"","sku":null,"imei":null,"quantity":1,"unitPrice":null,"totalPrice":null,"confidence":0.0}]}
 Quy tắc: số tiền là số nguyên VNĐ; không đoán dữ liệu bị mờ; thêm tên trường vào fieldsToReview khi không chắc; chuẩn hóa IMEI chỉ gồm số; confidence từ 0 đến 1.`;
   }
-  return `Bạn là bộ máy nhập liệu hội thoại bán hàng PhoneHouse. Nghe audio tiếng Việt và chỉ trả về JSON hợp lệ, không markdown, theo đúng cấu trúc:
+  if (sourceType === 'CONVERSATION') return `Bạn là bộ máy nhập liệu hội thoại bán hàng PhoneHouse. Nghe audio tiếng Việt và chỉ trả về JSON hợp lệ, không markdown, theo đúng cấu trúc:
 {"sourceType":"CONVERSATION","confidence":0.0,"fieldsToReview":[],"transcript":"","summary":"","customer":{"name":"","phone":""},"interestedModel":null,"budget":null,"depositAmount":null,"appointmentAt":null,"nextActions":[]}
 Quy tắc: chép đúng lời nói, không bịa; số tiền là số nguyên VNĐ; nếu không nghe rõ hoặc thiếu dữ liệu thì để rỗng/null và thêm fieldsToReview; confidence từ 0 đến 1.`;
+  if (sourceType === 'PURCHASE_RECEIPT') return `Bạn là bộ máy OCR phiếu nhập hàng/hóa đơn nhà cung cấp PhoneHouse. Chỉ trả JSON hợp lệ, không markdown:
+{"sourceType":"PURCHASE_RECEIPT","confidence":0.0,"fieldsToReview":[],"supplier":{"name":"","phone":"","taxCode":""},"documentCode":null,"purchaseDate":null,"paymentMethod":null,"discountAmount":null,"totalAmount":null,"notes":"","items":[{"name":"","sku":null,"imei":null,"quantity":1,"unitPrice":null,"totalPrice":null,"confidence":0.0}]}
+Không đoán IMEI/giá bị mờ; tiền là số nguyên VNĐ; một IMEI một dòng; trường không chắc phải vào fieldsToReview.`;
+  return `Bạn là bộ máy nhập liệu tiếp nhận sửa chữa iPhone PhoneHouse. File có thể là ảnh máy/phiếu hoặc ghi âm mô tả lỗi. Chỉ trả JSON hợp lệ:
+{"sourceType":"REPAIR_INTAKE","confidence":0.0,"fieldsToReview":[],"transcript":"","customer":{"name":"","phone":""},"imei":null,"model":"","issueType":"Khác","faultDescription":"","deviceAppearance":"","accessoriesIncluded":"","estimatedCost":null,"expectedReturnDate":null,"notes":""}
+issueType chỉ chọn gần nhất trong: Nguồn / Mất Nguồn, Màn Hình / Cảm Ứng, Pin / Phù Pin, Face ID / Camera, Sóng / Wifi, Loa / Mic, Ép Kính / Thay Lưng, Mainboard / IC Sạc, Khác. Không bịa IMEI, mật khẩu hay tình trạng iCloud.`;
 }
 
-async function generateExtraction(sourceType: AiCaptureSourceType, mimeType: string, base64: string): Promise<AiCaptureExtraction> {
-  const ai = getCaptureAi();
-  if (!ai) throw new Error('AI_NOT_CONFIGURED');
-  const response = await ai.models.generateContent({
-    model: CAPTURE_MODEL,
-    contents: [{ role: 'user', parts: [
-      { inlineData: { mimeType, data: base64 } },
-      { text: extractionPrompt(sourceType) }
-    ] }],
-    config: { temperature: 0, responseMimeType: 'application/json' }
-  });
-  const rawText = String(response.text || '').trim();
-  if (sourceType === 'SALES_SLIP') return normalizeSalesSlipExtraction(parseAiCaptureJson(rawText, defaultSalesSlip()));
-  return normalizeConversationExtraction(parseAiCaptureJson(rawText, defaultConversation()));
+function providerErrorMessage(code: string): string {
+  if (code === 'AI_NOT_CONFIGURED') return 'AI chưa có API key dùng chung. Hãy lưu API key tại Cài đặt → Telegram & AI hoặc cấu hình GEMINI_API_KEY trên máy chủ.';
+  if (code === 'AI_PROVIDER_HTTP_401' || code === 'AI_PROVIDER_HTTP_403') return 'API key AI dùng chung đã bị nhà cung cấp từ chối. Hãy kiểm tra lại key trong Cài đặt → Telegram & AI.';
+  if (code === 'AI_PROVIDER_HTTP_404') return 'Không tìm thấy endpoint hoặc model AI dùng chung đã cấu hình.';
+  if (code === 'AI_PROVIDER_HTTP_429') return 'API AI dùng chung đang hết hạn mức hoặc bị giới hạn tần suất. Vui lòng thử lại sau.';
+  return 'Nhà cung cấp AI không thể phân tích tệp. Vui lòng thử lại hoặc nhập thủ công.';
+}
+
+async function generateExtraction(db: Firestore | null, sourceType: AiCaptureSourceType, mimeType: string, base64: string): Promise<{ extraction: AiCaptureExtraction; model: string; configurationSource: CaptureAiConfigurationSource; provider: CaptureAiProvider }> {
+  const config = await resolveSharedAiConfig(db);
+  if (!config.apiKey) throw new Error('AI_NOT_CONFIGURED');
+  let rawText = '';
+  if (config.provider === 'OPENAI_COMPATIBLE') {
+    const isAudio = mimeType.startsWith('audio/');
+    const content: any[] = [{ type: 'text', text: extractionPrompt(sourceType) }];
+    const audioFormat = mimeType.includes('wav') ? 'wav'
+      : mimeType.includes('mpeg') || mimeType.includes('mp3') ? 'mp3'
+        : mimeType.includes('m4a') || mimeType.includes('mp4') ? 'm4a'
+          : mimeType.includes('ogg') ? 'ogg'
+            : mimeType.includes('webm') ? 'webm'
+              : 'aac';
+    content.push(isAudio
+      ? { type: 'input_audio', input_audio: { data: base64, format: audioFormat } }
+      : { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } });
+    const response = await fetch(`${resolveBaseUrl(config.baseUrl)}/chat/completions`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify({ model: config.model, messages: [{ role: 'user', content }], temperature: 0, response_format: { type: 'json_object' } }),
+      signal: AbortSignal.timeout(80_000)
+    });
+    if (!response.ok) throw new Error(`AI_PROVIDER_HTTP_${response.status}`);
+    const body: any = await response.json();
+    rawText = String(body?.choices?.[0]?.message?.content || '');
+  } else {
+    const ai = new GoogleGenAI({ apiKey: config.apiKey, httpOptions: { headers: { 'User-Agent': 'phonehouse-crm-ai-capture' } } });
+    const response = await ai.models.generateContent({
+      model: config.model, contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: base64 } }, { text: extractionPrompt(sourceType) }] }],
+      config: { temperature: 0, responseMimeType: 'application/json' }
+    });
+    rawText = String(response.text || '').trim();
+  }
+  const metadata = { model: config.model, configurationSource: config.source, provider: config.provider };
+  if (sourceType === 'SALES_SLIP') return { extraction: normalizeSalesSlipExtraction(parseAiCaptureJson(rawText, defaultSalesSlip())), ...metadata };
+  if (sourceType === 'CONVERSATION') return { extraction: normalizeConversationExtraction(parseAiCaptureJson(rawText, defaultConversation())), ...metadata };
+  if (sourceType === 'PURCHASE_RECEIPT') return { extraction: normalizePurchaseReceiptExtraction(parseAiCaptureJson(rawText, defaultPurchaseReceipt())), ...metadata };
+  return { extraction: normalizeRepairIntakeExtraction(parseAiCaptureJson(rawText, defaultRepairIntake())), ...metadata };
 }
 
 function extensionForMime(mimeType: string): string {
@@ -239,7 +349,26 @@ async function persistCapture(db: Firestore | null, sourceType: AiCaptureSourceT
 
 export function createAiCaptureRouter(db: Firestore | null): Router {
   const router = Router();
-  router.post('/extract', captureRateLimit, authenticateFirebase, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH', 'CASHIER'), async (req: Request, res: Response) => {
+  const captureRoles = requireRole(
+    'ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE',
+    'CUSTOMER_CARE', 'CSKH', 'CASHIER', 'ACCOUNTANT', 'INVENTORY_MANAGER', 'WAREHOUSE',
+    'TECHNICIAN', 'TECH', 'TECH_LEAD'
+  );
+
+  router.get('/status', authenticateFirebase, captureRoles, async (_req: Request, res: Response) => {
+    const config = await resolveSharedAiConfig(db);
+    return res.json({
+      success: true,
+      data: {
+        configured: Boolean(config.apiKey),
+        provider: config.provider,
+        model: config.model,
+        source: config.source
+      }
+    });
+  });
+
+  router.post('/extract', captureRateLimit, authenticateFirebase, captureRoles, async (req: Request, res: Response) => {
     const sourceType = String(req.body?.sourceType || '').trim().toUpperCase() as AiCaptureSourceType;
     const mimeType = String(req.body?.mimeType || '').trim().toLowerCase();
     const rawBase64 = String(req.body?.data || '').replace(/^data:[^;]+;base64,/i, '').replace(/\s/g, '');
@@ -249,7 +378,7 @@ export function createAiCaptureRouter(db: Firestore | null): Router {
     if (!rawBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(rawBase64)) {
       return res.status(400).json({ success: false, code: 'AI_CAPTURE_DATA_INVALID', message: 'Dữ liệu tệp không hợp lệ.' });
     }
-    const maxBytes = sourceType === 'SALES_SLIP' ? MAX_IMAGE_BYTES : MAX_AUDIO_BYTES;
+    const maxBytes = mimeType.startsWith('image/') ? MAX_IMAGE_BYTES : MAX_AUDIO_BYTES;
     const estimatedBytes = Math.floor(rawBase64.length * 3 / 4);
     if (estimatedBytes <= 0 || estimatedBytes > maxBytes) {
       return res.status(413).json({ success: false, code: 'AI_CAPTURE_FILE_TOO_LARGE', message: `Tệp vượt giới hạn ${Math.round(maxBytes / 1024 / 1024)} MB.` });
@@ -257,18 +386,18 @@ export function createAiCaptureRouter(db: Firestore | null): Router {
     try {
       const bytes = Buffer.from(rawBase64, 'base64');
       if (!bytes.length || bytes.length > maxBytes) throw new Error('AI_CAPTURE_FILE_TOO_LARGE');
-      const extraction = await generateExtraction(sourceType, mimeType, rawBase64);
-      const persistence = await persistCapture(db, sourceType, mimeType, bytes, extraction, req.user!);
-      return res.json({ success: true, data: { ...persistence, sourceType, mimeType, extraction, reviewRequired: true, aiModel: CAPTURE_MODEL } });
+      const generated = await generateExtraction(db, sourceType, mimeType, rawBase64);
+      const persistence = await persistCapture(db, sourceType, mimeType, bytes, generated.extraction, req.user!);
+      return res.json({ success: true, data: { ...persistence, sourceType, mimeType, extraction: generated.extraction, reviewRequired: true, aiModel: generated.model, aiConfiguration: generated.configurationSource, aiProvider: generated.provider } });
     } catch (error: any) {
       const code = String(error?.message || 'AI_CAPTURE_FAILED').split(':')[0];
       const status = code === 'AI_NOT_CONFIGURED' ? 503 : code === 'AI_CAPTURE_FILE_TOO_LARGE' ? 413 : 502;
       console.error('[AI Capture Error]', { requestId: req.requestId, code, providerCode: error?.code });
-      return res.status(status).json({ success: false, code, message: code === 'AI_NOT_CONFIGURED' ? 'AI chưa được cấu hình API key trên máy chủ.' : 'Không thể phân tích tệp. Vui lòng thử lại hoặc nhập thủ công.' });
+      return res.status(status).json({ success: false, code, message: providerErrorMessage(code) });
     }
   });
 
-  router.post('/drafts/:draftId/confirm', authenticateFirebase, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH', 'CASHIER'), async (req: Request, res: Response) => {
+  router.post('/drafts/:draftId/confirm', authenticateFirebase, captureRoles, async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
     const ref = db.collection('aiCaptureDrafts').doc(String(req.params.draftId || ''));
     try {
@@ -277,9 +406,10 @@ export function createAiCaptureRouter(db: Firestore | null): Router {
       const draft = snapshot.data()!;
       if (draft.createdByUid !== req.user!.uid && req.user!.role !== 'ADMIN' && req.user!.role !== 'MANAGER') return res.status(403).json({ success: false, code: 'AI_CAPTURE_DRAFT_FORBIDDEN' });
       if (draft.status === 'CONFIRMED') return res.json({ success: true, data: { draftId: ref.id, status: 'CONFIRMED', idempotentReplay: true } });
-      const reviewedExtraction = draft.sourceType === 'SALES_SLIP'
-        ? normalizeSalesSlipExtraction(req.body?.extraction || draft.extraction)
-        : normalizeConversationExtraction(req.body?.extraction || draft.extraction);
+      const reviewedExtraction = draft.sourceType === 'SALES_SLIP' ? normalizeSalesSlipExtraction(req.body?.extraction || draft.extraction)
+        : draft.sourceType === 'CONVERSATION' ? normalizeConversationExtraction(req.body?.extraction || draft.extraction)
+          : draft.sourceType === 'PURCHASE_RECEIPT' ? normalizePurchaseReceiptExtraction(req.body?.extraction || draft.extraction)
+            : normalizeRepairIntakeExtraction(req.body?.extraction || draft.extraction);
       await ref.update({ status: 'CONFIRMED', reviewedExtraction, confirmedAt: FieldValue.serverTimestamp(), confirmedByUid: req.user!.uid });
       return res.json({ success: true, data: { draftId: ref.id, status: 'CONFIRMED' } });
     } catch (error: any) {

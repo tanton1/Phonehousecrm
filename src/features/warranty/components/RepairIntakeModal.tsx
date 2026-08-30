@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, Camera, CheckCircle2, ChevronLeft, ChevronRight,
   ClipboardCheck, ImagePlus, Loader2, PackageCheck,
@@ -11,6 +11,12 @@ import { fetchInventoryTransferMetadata } from '../../../services/inventoryTrans
 import { requestAttachIntakeEvidence, requestCreateWorkOrder } from '../../../services/technicalApiClient';
 import { isTechnicalImageFile, MAX_TECHNICAL_EVIDENCE_BYTES, uploadTechnicalEvidence } from '../../../services/technicalEvidenceService';
 import { HelpHint } from '../../../components/HelpHint';
+import type { RepairIntakeExtraction } from '../../../services/aiCaptureApiClient';
+
+export interface RepairAiCaptureContext {
+  draftId: string;
+  extraction: RepairIntakeExtraction;
+}
 
 interface RepairIntakeModalProps {
   isOpen: boolean;
@@ -21,6 +27,8 @@ interface RepairIntakeModalProps {
   users: UserAccount[];
   currentUser?: UserAccount | null;
   onCreated?: (result: { workOrderId: string; code: string }) => Promise<void> | void;
+  initialAiCapture?: RepairAiCaptureContext | null;
+  onConsumeAiCapture?: (draftId: string) => void;
 }
 
 type IntakeSource = 'RETAIL_REPAIR' | 'WARRANTY' | 'STORE_ESCALATION';
@@ -64,7 +72,8 @@ function StepLabel({ number, title, active, done }: { number: IntakeStep; title:
 }
 
 export const RepairIntakeModal: React.FC<RepairIntakeModalProps> = ({
-  isOpen, onClose, branches, warehouses, devices, users, currentUser, onCreated
+  isOpen, onClose, branches, warehouses, devices, users, currentUser, onCreated,
+  initialAiCapture, onConsumeAiCapture
 }) => {
   const [step, setStep] = useState<IntakeStep>(1);
   const [saving, setSaving] = useState(false);
@@ -76,6 +85,8 @@ export const RepairIntakeModal: React.FC<RepairIntakeModalProps> = ({
   const [createdWorkOrder, setCreatedWorkOrder] = useState<{ workOrderId: string; code: string } | null>(null);
   const [photoWarning, setPhotoWarning] = useState('');
   const [form, setForm] = useState(initialForm());
+  const wasOpenRef = useRef(false);
+  const [activeAiCaptureId, setActiveAiCaptureId] = useState('');
 
   const activeWarehouses = useMemo(() => warehouses.filter(warehouse => warehouse.isActive !== false && warehouse.isArchived !== true && warehouse.branchId === form.branchId), [warehouses, form.branchId]);
   const technicians = useMemo(() => users.filter(user => {
@@ -103,18 +114,45 @@ export const RepairIntakeModal: React.FC<RepairIntakeModalProps> = ({
   }, [form.issueType, taskTypes]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      wasOpenRef.current = false;
+      return;
+    }
+    if (wasOpenRef.current) return;
+    wasOpenRef.current = true;
     const branchId = currentUser?.branchId || branches.find(branch => branch.isActive !== false)?.id || '';
     const initialWarehouse = warehouses.find(warehouse => warehouse.isActive !== false && warehouse.isArchived !== true && warehouse.branchId === branchId);
     const technician = users.find(user => technicianRoles.has(String(user.role).toUpperCase()) && user.active !== false && (user.branchId === branchId || (user.assignedBranchIds || []).includes(branchId)));
-    setForm({ ...initialForm(), branchId, sourceWarehouseId: initialWarehouse?.id || '', assigneeId: technician?.id || '' });
+    const capture = initialAiCapture;
+    const extractedIssue = capture && issueTypes.includes(capture.extraction.issueType as WarrantyTicket['issueType'])
+      ? capture.extraction.issueType as WarrantyTicket['issueType']
+      : 'Khác';
+    setForm(capture ? {
+      ...initialForm(),
+      branchId,
+      sourceWarehouseId: initialWarehouse?.id || '',
+      assigneeId: '',
+      customerName: capture.extraction.customer.name,
+      phone: capture.extraction.customer.phone,
+      imei: capture.extraction.imei || '',
+      model: capture.extraction.model,
+      issueType: extractedIssue,
+      faultDescription: capture.extraction.faultDescription,
+      deviceAppearance: capture.extraction.deviceAppearance,
+      accessoriesIncluded: capture.extraction.accessoriesIncluded,
+      estimatedCost: Number(capture.extraction.estimatedCost || 0),
+      expectedReturnDate: String(capture.extraction.expectedReturnDate || '').slice(0, 16),
+      notes: [capture.extraction.notes, capture.extraction.transcript ? `Bản chép lời AI:\n${capture.extraction.transcript}` : '', `Nguồn AI: ${capture.draftId}`].filter(Boolean).join('\n\n')
+    } : { ...initialForm(), branchId, sourceWarehouseId: initialWarehouse?.id || '', assigneeId: technician?.id || '' });
+    setActiveAiCaptureId(capture?.draftId || '');
+    if (capture) onConsumeAiCapture?.(capture.draftId);
     setStep(1); setPhotos([]); setSelectedTaskTypes([]); setError(''); setCreatedWorkOrder(null); setPhotoWarning('');
     setLoadingSettings(true);
     void fetchInventoryTransferMetadata(currentUser || undefined)
       .then(result => setTaskTypes((result.taskTypes || []).filter(task => task.isActive !== false)))
       .catch(cause => setError(cause?.message || 'Không thể tải danh sách việc kỹ thuật.'))
       .finally(() => setLoadingSettings(false));
-  }, [isOpen, currentUser?.id, currentUser?.branchId, branches, warehouses, users]);
+  }, [isOpen, currentUser?.id, currentUser?.branchId, branches, warehouses, users, initialAiCapture, onConsumeAiCapture]);
 
   useEffect(() => {
     if (!isOpen || !form.branchId) return;
@@ -222,6 +260,7 @@ export const RepairIntakeModal: React.FC<RepairIntakeModalProps> = ({
     <div className="flex h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl bg-zinc-50 shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-3xl">
       <header className="border-b border-zinc-800 bg-zinc-950 px-4 py-3 text-white sm:px-5"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2.5"><span className="rounded-xl bg-orange-600 p-2"><Wrench className="h-5 w-5" /></span><div className="flex items-center gap-2"><h3 className="text-sm font-black">Tiếp nhận máy sửa</h3><HelpHint title="Quy trình tiếp nhận">Đi lần lượt qua bốn bước: thông tin máy, tình trạng lúc nhận, việc kỹ thuật và xác nhận. Ảnh lúc nhận là tùy chọn.</HelpHint></div></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-white/10"><X className="h-5 w-5" /></button></div><div className="mt-3 flex items-center justify-between"><StepLabel number={1} title="Máy & khách" active={step === 1} done={step > 1} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={2} title="Tình trạng" active={step === 2} done={step > 2} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={3} title="Việc sửa" active={step === 3} done={step > 3} /><span className="h-px flex-1 bg-zinc-700" /><StepLabel number={4} title="Xác nhận" active={step === 4} done={false} /></div></header>
       <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+        {activeAiCaptureId && <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs font-bold text-sky-900">AI đã điền sẵn thông tin từ bản nháp {activeAiCaptureId}. Hãy kiểm tra khách, IMEI, lỗi và tình trạng máy. KTV, kho nhận và việc kỹ thuật vẫn phải chọn thủ công; AI chưa tạo phiếu sửa chữa.</div>}
         {error && <div className="mb-3 flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</div>}
         {photoWarning && <div className="mb-3 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800"><ImagePlus className="h-4 w-4 shrink-0" />Ảnh chưa tải: {photoWarning}</div>}
         {step === 1 && <section className="space-y-4"><div><h4 className="text-base font-black text-zinc-900">Máy và người gửi</h4><p className="mt-1 text-xs text-zinc-500">Nhập thông tin tối thiểu trước. Các phần còn lại làm ở bước sau.</p></div><div className="grid gap-3 sm:grid-cols-2"><Field label="Nguồn tiếp nhận" required><select value={form.source} onChange={event => update({ source: event.target.value as IntakeSource })}><option value="RETAIL_REPAIR">Khách lẻ sửa dịch vụ</option><option value="WARRANTY">Khách bảo hành</option><option value="STORE_ESCALATION">Máy lỗi cửa hàng chuyển lên</option></select></Field><Field label="Chi nhánh" required><select value={form.branchId} onChange={event => update({ branchId: event.target.value })}><option value="">Chọn chi nhánh</option>{branches.filter(branch => branch.isActive !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></Field><Field label="Vị trí tiếp nhận" required><select value={form.sourceWarehouseId} onChange={event => update({ sourceWarehouseId: event.target.value })}><option value="">Chọn kho/vị trí</option>{activeWarehouses.map(warehouse => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}</select></Field><Field label="IMEI / Serial" required><input inputMode="numeric" value={form.imei} onChange={event => update({ imei: event.target.value.replace(/\D/g, '').slice(0, 15) })} placeholder="5–15 số" className="font-mono" />{form.source === 'STORE_ESCALATION' && form.imei && <small className={matchedCompanyDevice ? 'text-emerald-700' : 'text-red-600'}>{matchedCompanyDevice ? `Đã khớp: ${matchedCompanyDevice.model}` : 'Chưa thấy IMEI trong hệ thống'}</small>}</Field><Field label="Model máy" required><input value={form.model} onChange={event => update({ model: event.target.value })} placeholder="Ví dụ: iPhone 15 Pro Max" /></Field>{requiresCustomer ? <><Field label="Tên khách" required><input value={form.customerName} onChange={event => update({ customerName: event.target.value })} /></Field><Field label="Số điện thoại" required><input inputMode="tel" value={form.phone} onChange={event => update({ phone: event.target.value })} /></Field></> : <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800 sm:col-span-2">Máy nội bộ: hệ thống tự đối chiếu IMEI, chi nhánh và kho đang giữ máy.</div>}</div></section>}

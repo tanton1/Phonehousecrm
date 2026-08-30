@@ -1,6 +1,6 @@
 import { apiJson } from './apiClient';
 
-export type AiCaptureSourceType = 'SALES_SLIP' | 'CONVERSATION';
+export type AiCaptureSourceType = 'SALES_SLIP' | 'CONVERSATION' | 'PURCHASE_RECEIPT' | 'REPAIR_INTAKE';
 
 export interface SalesSlipExtraction {
   sourceType: 'SALES_SLIP';
@@ -37,7 +37,45 @@ export interface ConversationExtraction {
   nextActions: string[];
 }
 
-export type AiCaptureExtraction = SalesSlipExtraction | ConversationExtraction;
+export interface PurchaseReceiptExtraction {
+  sourceType: 'PURCHASE_RECEIPT';
+  confidence: number;
+  fieldsToReview: string[];
+  supplier: { name: string; phone: string; taxCode: string };
+  documentCode: string | null;
+  purchaseDate: string | null;
+  paymentMethod: string | null;
+  discountAmount: number | null;
+  totalAmount: number | null;
+  notes: string;
+  items: SalesSlipExtraction['items'];
+}
+
+export interface RepairIntakeExtraction {
+  sourceType: 'REPAIR_INTAKE';
+  confidence: number;
+  fieldsToReview: string[];
+  transcript: string;
+  customer: { name: string; phone: string };
+  imei: string | null;
+  model: string;
+  issueType: string;
+  faultDescription: string;
+  deviceAppearance: string;
+  accessoriesIncluded: string;
+  estimatedCost: number | null;
+  expectedReturnDate: string | null;
+  notes: string;
+}
+
+export type AiCaptureExtraction = SalesSlipExtraction | ConversationExtraction | PurchaseReceiptExtraction | RepairIntakeExtraction;
+
+export interface AiCaptureStatus {
+  configured: boolean;
+  provider: 'GOOGLE_GEMINI' | 'OPENAI_COMPATIBLE';
+  model: string;
+  source: 'SHARED_DATABASE' | 'ENVIRONMENT';
+}
 
 export interface AiCaptureResult {
   draftId: string;
@@ -49,6 +87,8 @@ export interface AiCaptureResult {
   extraction: AiCaptureExtraction;
   reviewRequired: true;
   aiModel: string;
+  aiConfiguration: AiCaptureStatus['source'];
+  aiProvider: AiCaptureStatus['provider'];
 }
 
 function readAsBase64(file: File): Promise<string> {
@@ -69,8 +109,9 @@ export async function requestAiCapture(file: File, sourceType: AiCaptureSourceTy
   if (!file.size || file.size > maxBytes) {
     throw new Error(`Tệp vượt giới hạn ${Math.round(maxBytes / 1024 / 1024)} MB.`);
   }
-  const supported = sourceType === 'SALES_SLIP' ? file.type.startsWith('image/') : file.type.startsWith('audio/');
-  if (!supported) throw new Error(sourceType === 'SALES_SLIP' ? 'Vui lòng chọn tệp ảnh.' : 'Vui lòng chọn tệp ghi âm.');
+  const imageOnly = sourceType === 'SALES_SLIP' || sourceType === 'PURCHASE_RECEIPT';
+  const supported = imageOnly ? file.type.startsWith('image/') : sourceType === 'CONVERSATION' ? file.type.startsWith('audio/') : file.type.startsWith('image/') || file.type.startsWith('audio/');
+  if (!supported) throw new Error(imageOnly ? 'Vui lòng chọn tệp ảnh.' : sourceType === 'CONVERSATION' ? 'Vui lòng chọn tệp ghi âm.' : 'Vui lòng chọn ảnh hoặc tệp ghi âm.');
   const data = await readAsBase64(file);
   const response = await apiJson<{ success: boolean; data: AiCaptureResult }>('/api/ai/capture/extract', {
     method: 'POST',
@@ -78,6 +119,12 @@ export async function requestAiCapture(file: File, sourceType: AiCaptureSourceTy
     timeoutMs: 90_000
   });
   if (!response?.success || !response.data) throw new Error('AI_CAPTURE_FAILED');
+  return response.data;
+}
+
+export async function getAiCaptureStatus(): Promise<AiCaptureStatus> {
+  const response = await apiJson<{ success: boolean; data: AiCaptureStatus }>('/api/ai/capture/status', { timeoutMs: 15_000 });
+  if (!response?.success || !response.data) throw new Error('Không thể kiểm tra cấu hình AI dùng chung.');
   return response.data;
 }
 

@@ -29,7 +29,7 @@ import { RepairIntakeModal } from './features/warranty/components/RepairIntakeMo
 import { AICopilotModal } from './components/AICopilotModal';
 import { ExecutiveAIAssistantModal } from './components/ExecutiveAIAssistantModal';
 import { AiCaptureModal } from './components/AiCaptureModal';
-import type { SalesSlipExtraction } from './services/aiCaptureApiClient';
+import type { PurchaseReceiptExtraction, RepairIntakeExtraction, SalesSlipExtraction } from './services/aiCaptureApiClient';
 import { QuickSearchModal } from './components/QuickSearchModal';
 import { GlobalImeiHistory } from './components/GlobalImeiHistory';
 import { PhoneHouseLoginPage } from './components/PhoneHouseLoginPage';
@@ -274,6 +274,8 @@ export default function App() {
   }, [currentUser]);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
   const [posAiCapture, setPosAiCapture] = useState<{ draftId: string; extraction: SalesSlipExtraction } | null>(null);
+  const [purchaseAiCapture, setPurchaseAiCapture] = useState<{ draftId: string; extraction: PurchaseReceiptExtraction } | null>(null);
+  const [repairAiCapture, setRepairAiCapture] = useState<{ draftId: string; extraction: RepairIntakeExtraction } | null>(null);
   const [isExecutiveAIOpen, setIsExecutiveAIOpen] = useState(false);
   const [isCheckInModalOpen, setIsCheckInModalOpen] = useState(false);
   const [posPreSelectedDevice, setPosPreSelectedDevice] = useState<DeviceItem | null>(null);
@@ -1627,6 +1629,8 @@ export default function App() {
             onPaySupplierDebt={handlePaySupplierDebt}
             onAddPartner={handleAddPartner}
             initialSelectedOrderId={linkedPurchaseOrderId}
+            initialAiCapture={purchaseAiCapture}
+            onConsumeAiCapture={() => setPurchaseAiCapture(null)}
           />
         )}
 
@@ -1949,6 +1953,15 @@ export default function App() {
               setPosPreSelectedDevice(null);
               setActiveTab('pos');
             }}
+            onOpenPurchase={(extraction, draftId) => {
+              setPurchaseAiCapture({ draftId, extraction });
+              setLinkedPurchaseOrderId(null);
+              setActiveTab('purchase-orders');
+            }}
+            onOpenRepair={(extraction, draftId) => {
+              setRepairAiCapture({ draftId, extraction });
+              setIsRepairIntakeOpen(true);
+            }}
           />
         )}
 
@@ -2059,12 +2072,14 @@ export default function App() {
 
       <RepairIntakeModal
         isOpen={isRepairIntakeOpen}
-        onClose={() => setIsRepairIntakeOpen(false)}
+        onClose={() => { setIsRepairIntakeOpen(false); setRepairAiCapture(null); }}
         branches={branches}
         warehouses={warehouses}
         devices={devices}
         users={users}
         currentUser={currentUser}
+        initialAiCapture={repairAiCapture}
+        onConsumeAiCapture={() => setRepairAiCapture(null)}
         onCreated={async () => { setRetailRepairRefreshKey(value => value + 1); setActiveTab('warranty'); }}
       />
 

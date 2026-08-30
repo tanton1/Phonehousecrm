@@ -19,6 +19,7 @@ import { DateRangeFilter } from './shared/DateRangeFilter';
 import { isWarehouseActive } from '../utils/warehouseLifecycle';
 import { DEFAULT_DATE_FILTER, matchesDateFilter } from '../utils/dateRangeFilter';
 import { createInventoryIdempotencyKey } from '../services/inventoryApiClient';
+import type { PurchaseAiCaptureContext } from './UniformEntryForm';
 import { 
   Database,
   Plus, 
@@ -81,6 +82,8 @@ interface PurchaseOrdersViewProps {
   /** Temporary compatibility fallback used only if the catalog API is unavailable. */
   catalogItems?: MasterCatalogItem[];
   initialSelectedOrderId?: string | null;
+  initialAiCapture?: PurchaseAiCaptureContext | null;
+  onConsumeAiCapture?: (draftId: string) => void;
 }
 
 const STATUS_CONFIG: Record<PurchaseOrderStatus, { label: string; bg: string; text: string; border: string; dot: string; icon: any }> = {
@@ -156,7 +159,9 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
   onUpdatePartner,
   onAddPartner,
   catalogItems = [],
-  initialSelectedOrderId
+  initialSelectedOrderId,
+  initialAiCapture,
+  onConsumeAiCapture
 }) => {
   // Master-Detail State
   const [selectedOrder, setSelectedOrder] = useState<PurchaseOrder | null>(() => initialSelectedOrderId
@@ -168,6 +173,12 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
     const matched = purchaseOrders.find(order => order.id === initialSelectedOrderId || order.code === initialSelectedOrderId);
     if (matched) setSelectedOrder(matched);
   }, [initialSelectedOrderId, purchaseOrders]);
+
+  useEffect(() => {
+    if (!initialAiCapture) return;
+    setSelectedOrder(null);
+    setIsCreateModalOpen(true);
+  }, [initialAiCapture?.draftId]);
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('');
@@ -1515,6 +1526,8 @@ export const PurchaseOrdersView: React.FC<PurchaseOrdersViewProps> = ({
         onAddCashTransaction={onAddCashTransaction}
         onUpdatePartner={onUpdatePartner}
         onAddPartner={onAddPartner}
+        initialAiCapture={initialAiCapture}
+        onConsumeAiCapture={onConsumeAiCapture}
       />
     </div>
   );

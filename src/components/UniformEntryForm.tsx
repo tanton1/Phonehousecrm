@@ -14,6 +14,12 @@ import { catalogApi } from '../services/catalogApiClient';
 import { browserDraftKey, readBrowserDraft, removeBrowserDraft, writeBrowserDraft } from '../utils/browserDraft';
 import { purchaseErrorMessage } from '../utils/purchaseErrors';
 import { fetchLegacyUnassignedPartners } from '../services/firestoreService';
+import type { PurchaseReceiptExtraction } from '../services/aiCaptureApiClient';
+
+export interface PurchaseAiCaptureContext {
+  draftId: string;
+  extraction: PurchaseReceiptExtraction;
+}
 
 interface UniformEntryFormProps {
   isOpen: boolean;
@@ -30,6 +36,8 @@ interface UniformEntryFormProps {
   onAddMultipleDevices?: (devices: import('../types').DeviceItem[]) => void;
   onAddCashTransaction?: (tx: import('../types').CashTransaction) => void;
   onUpdatePartner?: (partner: Partner) => void;
+  initialAiCapture?: PurchaseAiCaptureContext | null;
+  onConsumeAiCapture?: (draftId: string) => void;
 }
 
 interface FormItem {
@@ -46,6 +54,10 @@ interface FormValues {
   items: FormItem[];
   paymentMethod: 'BANK' | 'CASH' | 'DEBT';
   amountPaid: number;
+  orderDate: string;
+  documentCode: string;
+  discountAmount: number;
+  notes: string;
 }
 
 interface UniformEntryDraft {
@@ -98,7 +110,9 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   catalogItems = [],
   currentUser,
   onAddPurchaseOrder,
-  onAddPartner
+  onAddPartner,
+  initialAiCapture,
+  onConsumeAiCapture
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
   const defaultBranchId = currentUser?.branchId || '';
@@ -125,6 +139,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
   const wasOpenRef = useRef(false);
   const draftHydratedRef = useRef(false);
   const skipPaymentSyncRef = useRef(false);
+  const appliedAiCaptureRef = useRef('');
+  const [activeAiCaptureId, setActiveAiCaptureId] = useState('');
 
   const { register, control, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<FormValues>({
     defaultValues: {
@@ -133,7 +149,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       supplierId: '',
       items: [{ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 }],
       paymentMethod: 'BANK',
-      amountPaid: 0
+      amountPaid: 0,
+      orderDate: new Date().toISOString().slice(0, 10),
+      documentCode: '',
+      discountAmount: 0,
+      notes: ''
     }
   });
 
@@ -250,7 +270,11 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     supplierId: suppliers[0]?.id || '',
     items: [{ catalogItemId: '', searchQuery: '', imeisInput: '', buyPrice: 0 }],
     paymentMethod: 'BANK',
-    amountPaid: 0
+    amountPaid: 0,
+    orderDate: new Date().toISOString().slice(0, 10),
+    documentCode: '',
+    discountAmount: 0,
+    notes: ''
   }), [defaultBranchId, suppliers, warehouses]);
 
   useEffect(() => {
@@ -291,21 +315,68 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
     wasOpenRef.current = true;
     draftHydratedRef.current = false;
 
+    const capture = initialAiCapture;
     const saved = readBrowserDraft<UniformEntryDraft>(entryDraftKey);
-    const nextValues = saved?.values?.items?.length ? saved.values : defaultFormValues();
+    let nextValues: FormValues;
+    let nextSelectedCatalogItems = saved?.selectedCatalogItems || {};
+    if (capture && appliedAiCaptureRef.current !== capture.draftId) {
+      const extraction = capture.extraction;
+      const supplierPhone = String(extraction.supplier.phone || '').replace(/\D/g, '');
+      const supplierTaxCode = normalizeCatalogSearch(extraction.supplier.taxCode).replace(/\s/g, '');
+      const supplierName = normalizeCatalogSearch(extraction.supplier.name);
+      const matchedSupplier = suppliers.find(supplier => {
+        const taxCode = normalizeCatalogSearch(supplier.taxCode).replace(/\s/g, '');
+        const phone = String(supplier.phone || '').replace(/\D/g, '');
+        const name = normalizeCatalogSearch(supplier.name);
+        return Boolean((supplierTaxCode && taxCode === supplierTaxCode) || (supplierPhone && phone === supplierPhone) || (supplierName && name === supplierName));
+      });
+      const paymentText = normalizeCatalogSearch(extraction.paymentMethod);
+      const paymentMethod: FormValues['paymentMethod'] = paymentText.includes('tien mat') || paymentText.includes('cash')
+        ? 'CASH'
+        : paymentText.includes('chuyen') || paymentText.includes('bank') || paymentText.includes('qr')
+          ? 'BANK'
+          : 'DEBT';
+      const lines = extraction.items.length ? extraction.items : [{ name: '', sku: null, imei: null, quantity: 1, unitPrice: null, totalPrice: null, confidence: 0 }];
+      nextValues = {
+        ...defaultFormValues(),
+        supplierId: matchedSupplier?.id || '',
+        items: lines.map(item => ({
+          catalogItemId: '',
+          searchQuery: item.sku || item.name,
+          imeisInput: item.imei || '',
+          buyPrice: Number(item.unitPrice || (item.totalPrice && item.quantity ? item.totalPrice / item.quantity : 0)) || 0
+        })),
+        paymentMethod,
+        amountPaid: paymentMethod === 'DEBT' ? 0 : Math.max(0, Number(extraction.totalAmount || 0)),
+        orderDate: String(extraction.purchaseDate || '').slice(0, 10) || new Date().toISOString().slice(0, 10),
+        documentCode: extraction.documentCode || '',
+        discountAmount: Number(extraction.discountAmount || 0),
+        notes: [extraction.notes, `Nguồn AI: ${capture.draftId}`].filter(Boolean).join('\n')
+      };
+      nextSelectedCatalogItems = {};
+      appliedAiCaptureRef.current = capture.draftId;
+      setActiveAiCaptureId(capture.draftId);
+      onConsumeAiCapture?.(capture.draftId);
+    } else if (saved?.values?.items?.length) {
+      nextValues = { ...defaultFormValues(), ...saved.values, items: saved.values.items };
+      setActiveAiCaptureId('');
+    } else {
+      nextValues = defaultFormValues();
+      setActiveAiCaptureId('');
+    }
     skipPaymentSyncRef.current = true;
     reset(nextValues);
-    setMobileTab(saved?.mobileTab || 'ITEMS');
-    setSelectedFundId(saved?.selectedFundId || '');
-    setSelectedCatalogItems(saved?.selectedCatalogItems || {});
-    setCatalogSearch(saved?.catalogSearch || '');
+    setMobileTab(capture ? 'ITEMS' : saved?.mobileTab || 'ITEMS');
+    setSelectedFundId(capture ? '' : saved?.selectedFundId || '');
+    setSelectedCatalogItems(nextSelectedCatalogItems);
+    setCatalogSearch(capture ? '' : saved?.catalogSearch || '');
     setActiveSearchRowIndex(null);
     setIsCustomPaid(saved?.isCustomPaid === true);
     setIsSubmitting(false);
     draftHydratedRef.current = true;
-  }, [defaultFormValues, entryDraftKey, isOpen, reset]);
+  }, [defaultFormValues, entryDraftKey, initialAiCapture, isOpen, onConsumeAiCapture, reset, suppliers]);
 
-  const totalAmount = useMemo(() => {
+  const subTotalAmount = useMemo(() => {
     if (!Array.isArray(watchItems)) return 0;
     return watchItems.reduce((sum, item) => {
       if (!item) return sum;
@@ -314,6 +385,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       return sum + (quantity * price);
     }, 0);
   }, [watchItems]);
+  const totalAmount = Math.max(0, subTotalAmount - (Number(watchedFormValues?.discountAmount) || 0));
 
   const totalQuantity = useMemo(() => {
     if (!Array.isArray(watchItems)) return 0;
@@ -372,6 +444,20 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
 
   const isUsingCatalogFallback = catalogLoadState === 'error' && remoteCatalogItems.length === 0;
   const availableCatalogItems = isUsingCatalogFallback ? catalogItems : remoteCatalogItems;
+
+  useEffect(() => {
+    if (!isOpen || !activeAiCaptureId || !availableCatalogItems.length) return;
+    watchItems.forEach((item, index) => {
+      if (!item || item.catalogItemId || !item.searchQuery.trim()) return;
+      const query = normalizeCatalogSearch(item.searchQuery);
+      const match = availableCatalogItems.find(catalogItem => normalizeCatalogSearch(catalogItem.sku) === query)
+        || availableCatalogItems.find(catalogItem => normalizeCatalogSearch(catalogItem.name) === query);
+      if (!match) return;
+      setValue(`items.${index}.catalogItemId`, match.id);
+      setValue(`items.${index}.searchQuery`, match.name);
+      setSelectedCatalogItems(current => ({ ...current, [match.id]: match }));
+    });
+  }, [activeAiCaptureId, availableCatalogItems, isOpen, setValue, watchItems]);
 
   const filteredCatalogItems = useMemo(() => {
     const query = effectiveCatalogSearch.trim();
@@ -528,18 +614,20 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
         branchName: targetBranch.name,
         warehouseId: targetWarehouse.id,
         warehouseName: targetWarehouse.name,
-        orderDate: new Date().toISOString().split('T')[0],
+        orderDate: data.orderDate || new Date().toISOString().split('T')[0],
         creatorName: currentUser ? currentUser.displayName : 'Hệ thống',
         status: 'COMPLETED',
         paymentStatus: actualPaidAmount >= totalAmount ? 'PAID' : (actualPaidAmount > 0 ? 'PARTIAL' : 'UNPAID'),
         paidAmount: actualPaidAmount,
         debtAmount: debtAmount,
-        subTotal: totalAmount,
+        subTotal: subTotalAmount,
+        discountAmount: Math.max(0, Number(data.discountAmount) || 0),
         totalAmount: totalAmount,
         fundId: fund?.id,
         paymentMethod: data.paymentMethod === 'BANK' ? 'Chuyển khoản VietQR' : data.paymentMethod === 'CASH' ? 'Tiền mặt tại két' : 'Ghi nhận công nợ NCC',
         items: orderItems,
-        totalQuantity: totalValidQuantity
+        totalQuantity: totalValidQuantity,
+        notes: [data.documentCode ? `Chứng từ NCC: ${data.documentCode}` : '', data.notes].filter(Boolean).join('\n')
       };
 
       try {
@@ -640,6 +728,8 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.4fr_390px] divide-y lg:divide-y-0 lg:divide-x divide-zinc-200/80 items-stretch flex-1 min-h-0 overflow-y-auto lg:overflow-hidden bg-white w-full">
+
+        {activeAiCaptureId && <div className="col-span-full border-b border-sky-200 bg-sky-50 px-4 py-2 text-[11px] font-bold text-sky-900">AI đã điền sẵn bản nháp {activeAiCaptureId}. Hãy chọn đúng SKU cho các dòng chưa khớp, kiểm tra IMEI/NCC/giá rồi mới bấm nhập kho. AI chưa tạo phiếu và chưa tăng tồn.</div>}
 
         <div className={`p-3 sm:p-4 flex flex-col h-full overflow-hidden space-y-3 bg-gradient-to-b from-white via-orange-50/15 to-zinc-50/50 ${mobileTab !== 'CATALOG' ? 'hidden lg:flex' : 'flex'}`}>
           <div className="flex items-center justify-between border-b border-zinc-100 pb-2">
@@ -941,6 +1031,17 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
                 </option>
               ))}
             </select>
+            {activeAiCaptureId && !watchedFormValues?.supplierId && <p className="text-[11px] font-semibold text-amber-700">AI chưa khớp được nhà cung cấp. Hãy chọn NCC hiện có hoặc dùng “+ Thêm NCC”.</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1"><label className="block text-xs font-semibold text-zinc-700">Ngày chứng từ</label><input type="date" {...register('orderDate')} className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-xs font-medium outline-none focus:border-[#ff4b16]" /></div>
+            <div className="space-y-1"><label className="block text-xs font-semibold text-zinc-700">Số chứng từ NCC</label><input {...register('documentCode')} className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-xs font-medium outline-none focus:border-[#ff4b16]" /></div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1"><label className="block text-xs font-semibold text-zinc-700">Giảm giá (VNĐ)</label><input type="number" min={0} {...register('discountAmount', { valueAsNumber: true })} className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-xs font-mono font-medium outline-none focus:border-[#ff4b16]" /></div>
+            <div className="space-y-1"><label className="block text-xs font-semibold text-zinc-700">Ghi chú</label><input {...register('notes')} className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-xs font-medium outline-none focus:border-[#ff4b16]" /></div>
           </div>
 
           <div className="space-y-1.5 shrink-0">
@@ -1040,7 +1141,7 @@ export const UniformEntryForm: React.FC<UniformEntryFormProps> = ({
             </div>
 
             <div className="flex items-center justify-between text-xs text-zinc-600 font-normal">
-              <span>Tổng tiền hàng:</span>
+              <span>Tổng tiền sau giảm:</span>
               <span className="font-mono font-bold text-sm text-[#ff4b16]">
                 {totalAmount.toLocaleString('vi-VN')} đ
               </span>

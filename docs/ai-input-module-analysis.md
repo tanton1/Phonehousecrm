@@ -19,8 +19,8 @@ Luồng chuẩn cho mọi module:
 |---|---|---|---|---|---|
 | P0 | POS bán hàng | Ảnh phiếu bán/đơn viết tay | Khách, IMEI/SKU, số lượng, giá, giảm giá, thanh toán | Khớp IMEI với kho, SKU với catalog, chính sách giá, tổng tiền | Đã có |
 | P0 | CRM | Ghi âm tư vấn/cuộc gọi | Transcript, nhu cầu, ngân sách, lịch hẹn, next action | Tên + SĐT hợp lệ, chống tạo trùng bằng operation key | Đã có |
-| P1 | Nhập hàng & kho IMEI | Hóa đơn NCC, phiếu giao hàng, ảnh tem hộp | Nhà cung cấp, danh sách IMEI, model, giá vốn, kho nhận | IMEI duy nhất, PO tồn tại, NCC/chi nhánh, tổng hóa đơn | Nên làm kế tiếp |
-| P1 | Sửa chữa lẻ | Ảnh máy + ghi âm mô tả lỗi | Phiếu tiếp nhận, tình trạng ngoại quan, lỗi, phụ kiện bàn giao | Khách/IMEI, ảnh bắt buộc, checklist đầu vào, nhân viên xác nhận | Nên làm kế tiếp |
+| P1 | Nhập hàng & kho IMEI | Hóa đơn NCC, phiếu giao hàng, ảnh tem hộp | Nhà cung cấp, danh sách IMEI, model, giá vốn, kho nhận | IMEI duy nhất, SKU/NCC/chi nhánh, tổng hóa đơn, nhân viên bấm nhập kho | Đã có bản nháp & handoff |
+| P1 | Sửa chữa lẻ | Ảnh phiếu/máy + ghi âm mô tả lỗi | Phiếu tiếp nhận, tình trạng ngoại quan, lỗi, phụ kiện bàn giao | Khách/IMEI, KTV/kho/việc kỹ thuật và nhân viên xác nhận | Đã có bản nháp & handoff |
 | P1 | Tài chính | Ảnh hóa đơn chi, biên lai, ảnh chuyển khoản | Thu/chi nháp, số tiền, ngày, đối tác, danh mục | Kế toán duyệt, quỹ đúng chi nhánh, chống trùng hash/số chứng từ | Chưa làm |
 | P2 | Thu cũ đổi mới | Ảnh máy, ảnh pin/IMEI + mô tả bằng giọng nói | Thông tin máy và checklist thẩm định | Không cho AI quyết giá cuối; IMEI, iCloud và KCS phải xác nhận | Chưa làm |
 | P2 | Linh kiện kỹ thuật | Phiếu nhập linh kiện/ảnh nhãn | SKU, số lượng, giá nhập, kho kỹ thuật | Khớp catalog, kho, PO và giới hạn số lượng | Chưa làm |
@@ -29,12 +29,12 @@ Luồng chuẩn cho mọi module:
 
 ## Đề xuất triển khai tiếp theo
 
-### Giai đoạn 1 — nhập hàng và sửa chữa
+### Giai đoạn 1 — nhập hàng và sửa chữa (đã triển khai)
 
-- Thêm schema `PURCHASE_RECEIPT` và `REPAIR_INTAKE` vào `aiCaptureDrafts`.
-- Đối chiếu hàng nhập với `productMaster`, `devices`, `imeiRegistry`, `partners`, `warehouses`.
-- Chỉ sau xác nhận mới gọi `/api/inventory/purchase-orders/receive` hoặc API tạo work order kỹ thuật.
-- Với nhiều ảnh, cho phép một bộ chứng từ tối đa 5 ảnh nhưng vẫn giới hạn tổng dung lượng và số lượt AI.
+- Đã thêm schema `PURCHASE_RECEIPT` và `REPAIR_INTAKE` vào `aiCaptureDrafts`.
+- Phiếu nhập tự khớp chính xác NCC theo MST/SĐT/tên và Product Master theo SKU/tên; dòng chưa khớp vẫn để người dùng xử lý.
+- Chỉ sau khi xác nhận bản nháp và thao tác tại form đích mới gọi `/api/inventory/purchase-orders/receive` hoặc API tạo work order kỹ thuật.
+- Tiếp theo có thể hỗ trợ một bộ chứng từ tối đa 5 ảnh nhưng vẫn giới hạn tổng dung lượng và số lượt AI.
 
 ### Giai đoạn 2 — tài chính và thu cũ
 
@@ -56,4 +56,3 @@ Luồng chuẩn cho mọi module:
 - Không tự xác nhận hóa đơn, thanh toán, giá vốn, giá thu cũ hoặc trạng thái KCS.
 - Không ghi trực tiếp Firestore từ trình duyệt; adapter áp dụng draft phải gọi API server-authoritative sẵn có.
 - Mọi lần áp dụng draft phải idempotent và liên kết ngược tới file/hash gốc.
-
