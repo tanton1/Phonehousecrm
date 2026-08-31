@@ -88,7 +88,7 @@ import {
   requestUpdateInventoryDeviceMetadata,
   requestUpdatePurchaseOrderNote
 } from './services/inventoryApiClient';
-import { requestInstallmentDisbursement, requestPaymentAccounts, requestSettlePartnerDebt, type PartnerDebtSettlementDirection } from './services/financeApiClient';
+import { requestInstallmentDisbursement, requestPaymentAccounts, requestReconcileFund, requestSettlePartnerDebt, type PartnerDebtSettlementDirection } from './services/financeApiClient';
 import { fetchAdminOperationalSnapshot, type AdminOperationalSnapshot } from './services/adminOperationalApiClient';
 import { requestUpdateInvoiceNote } from './services/posApiClient';
 import { requestLeadStateTransition } from './services/crmApiClient';
@@ -1292,6 +1292,20 @@ export default function App() {
     }
   };
 
+  const handleReconcileFund = async (fundId: string, actualBalance: number, notes: string) => {
+    const idempotencyKey = `RECONCILE:${fundId}:${crypto.randomUUID()}`;
+    const result = await requestReconcileFund({ fundId, actualBalance, notes, idempotencyKey });
+    if (result.fund) {
+      setFunds(previous => previous.map(fund => fund.id === result.fund.id ? result.fund : fund));
+    }
+    if (result.adjustmentTx) {
+      setCashTransactions(previous => [
+        result.adjustmentTx!,
+        ...previous.filter(transaction => transaction.id !== result.adjustmentTx!.id)
+      ]);
+    }
+  };
+
   const handleAddBranch = async (newBranch: StoreBranch) => {
     try {
       const saved = await addBranchToFirestore(newBranch, branches);
@@ -1866,6 +1880,7 @@ export default function App() {
           <CashbookView
             currentUser={currentUser}
             branches={branches}
+            storeSettings={storeSettings}
             selectedBranchId={selectedBranchId}
             transactions={filteredCashTransactions}
             funds={filteredFunds}
@@ -1875,6 +1890,7 @@ export default function App() {
             onSaveFund={handleSaveFund}
             onDeleteFund={handleDeleteFund}
             onTransferFunds={handleTransferFunds}
+            onReconcileFund={handleReconcileFund}
           />
         )}
 

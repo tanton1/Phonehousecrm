@@ -1387,6 +1387,10 @@ export type CashReceiptCategory =
   | 'CAPITAL_INVEST'       // Thu bổ sung vốn chủ sở hữu / quỹ dự phòng
   | 'SUPPLIER_REFUND'      // NCC hoàn tiền hàng lỗi / chiết khấu
   | 'INTER_BRANCH_RECEIPT' // Thu tiền đối soát từ chi nhánh khác (không vào P&L)
+  | 'OPENING_BALANCE'      // Số dư đầu kỳ - không tính là thu trong kỳ
+  | 'INTERNAL_TRANSFER'    // Nhận luân chuyển giữa các nguồn tiền
+  | 'INVENTORY_AUDIT_SURPLUS'
+  | 'ACCOUNTING_ADJUSTMENT'
   | 'OTHER_INCOME';        // Thu nhập khác
 
 export type CashPaymentCategory = 
@@ -1400,6 +1404,9 @@ export type CashPaymentCategory =
   | 'WARRANTY_PARTS'       // Chi mua linh kiện bảo hành / sửa chữa
   | 'CUSTOMER_REFUND'      // Chi hoàn tiền đổi trả cho khách
   | 'INTER_BRANCH_PAYMENT' // Chi thanh toán công nợ cho chi nhánh khác (không vào P&L)
+  | 'INTERNAL_TRANSFER'    // Xuất luân chuyển giữa các nguồn tiền
+  | 'OPERATING_EXPENSE'
+  | 'ACCOUNTING_ADJUSTMENT'
   | 'INTERNAL'             // Chi phí nội bộ / Phạt KTV
   | 'OTHER_EXPENSE';       // Chi phí khác
 
@@ -1430,6 +1437,12 @@ export interface CashTransaction {
   creator: string; // Nhật Tân (Admin), Thu ngân Linh...
   notes: string;
   status: 'COMPLETED' | 'PENDING' | 'CANCELLED';
+  recordStatus?: 'DRAFT' | 'POSTED' | 'REVERSED';
+  entryKind?: 'OPENING_BALANCE' | 'CASH_MOVEMENT' | 'INTERNAL_TRANSFER' | 'RECONCILIATION_ADJUSTMENT' | 'CORRECTION';
+  postedAt?: string;
+  reversalOf?: string;
+  reversedByTransactionId?: string;
+  reversedAt?: string;
   isPLAccounted?: boolean; // Mặc định: true (Có hạch toán vào Kết quả kinh doanh P&L)
   attachments?: string[];
 }

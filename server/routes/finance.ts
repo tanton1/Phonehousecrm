@@ -5,6 +5,9 @@ import { requireRole } from '../middleware/requireRole';
 import { requirePermission } from '../middleware/requirePermission';
 import { processPartnerDebtSettlement } from '../services/partnerDebtService';
 import { processInstallmentDisbursement } from '../services/installmentDisbursementService';
+import { listCashLedger } from '../services/cashLedgerService';
+import { getS2eCashLedgerReport } from '../services/s2eCashLedgerService';
+import { allocateFinanceVoucherCode, allocateFinanceVoucherCodes } from '../services/financeVoucherSequenceService';
 import {
   assertFinanceIdempotencyRecord,
   financePayloadHash,
@@ -21,6 +24,25 @@ function canAccessBranch(user: any, targetBranchId?: string): boolean {
 }
 
 const FINANCE_ACCOUNT_TYPES = new Set(['CASH', 'BANK', 'POS_CARD', 'INSTALLMENT_CREDIT']);
+const SOURCE_BOUND_RECEIPT_CATEGORIES = new Set(['SALES_REVENUE', 'CUSTOMER_DEBT_COLLECT', 'TRADEIN_DIFF_COLLECT', 'DEPOSIT', 'REPAIR_SERVICE', 'SUPPLIER_REFUND', 'INTER_BRANCH_RECEIPT']);
+const SOURCE_BOUND_PAYMENT_CATEGORIES = new Set(['INVENTORY_PURCHASE', 'SUPPLIER_DEBT_PAY', 'TRADEIN_BUYBACK', 'SALARY_BONUS', 'WARRANTY_PARTS', 'CUSTOMER_REFUND', 'INTER_BRANCH_PAYMENT', 'INTERNAL']);
+
+function manualCashPostingPolicy(type: 'RECEIPT' | 'PAYMENT', rawCategory: unknown, rawName: unknown) {
+  const fallback = type === 'RECEIPT' ? 'OTHER_INCOME' : 'OTHER_EXPENSE';
+  const category = String(rawCategory || fallback).trim().slice(0, 100);
+  const categoryName = String(rawName || (type === 'RECEIPT' ? 'Thu tiền khác' : 'Chi phí hoạt động')).trim().slice(0, 160);
+  if (!category || !categoryName) throw new Error('FINANCE_CATEGORY_INVALID');
+  const blocked = type === 'RECEIPT' ? SOURCE_BOUND_RECEIPT_CATEGORIES : SOURCE_BOUND_PAYMENT_CATEGORIES;
+  if (blocked.has(category)) {
+    throw new Error('FINANCE_SOURCE_WORKFLOW_REQUIRED: Hạng mục này phải phát sinh từ chứng từ nghiệp vụ gốc, không được lập phiếu quỹ thủ công.');
+  }
+  return {
+    category,
+    categoryName,
+    // Capital contribution changes equity/cash but is not operating profit.
+    isPLAccounted: category !== 'CAPITAL_INVEST'
+  };
+}
 
 function requiredBranchId(value: unknown): string {
   const branchId = String(value || '').trim();
@@ -89,6 +111,41 @@ export function createFinanceRouter(db: Firestore | null): Router {
       second: '2-digit'
     }).format(new Date()).replace('T', ' ');
   };
+
+  router.get('/cash-ledger', requirePermission('FINANCE_VIEW'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await listCashLedger(db, req.user!, {
+        branchId: String(req.query.branchId || '') || undefined,
+        fundId: String(req.query.fundId || '') || undefined,
+        type: String(req.query.type || 'ALL').toUpperCase() as any,
+        category: String(req.query.category || '') || undefined,
+        from: String(req.query.from || '') || undefined,
+        to: String(req.query.to || '') || undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        cursor: String(req.query.cursor || '') || undefined
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      const message = String(error?.message || 'CASH_LEDGER_LOAD_FAILED');
+      return res.status(message.includes('FORBIDDEN') ? 403 : 400).json({ success: false, error: message });
+    }
+  });
+
+  router.get('/cash-ledger/s2e', requirePermission('FINANCE_VIEW'), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      const data = await getS2eCashLedgerReport(db, req.user!, {
+        branchId: String(req.query.branchId || '') || undefined,
+        from: String(req.query.from || '') || undefined,
+        to: String(req.query.to || '') || undefined
+      });
+      return res.json({ success: true, data });
+    } catch (error: any) {
+      const message = String(error?.message || 'S2E_REPORT_LOAD_FAILED');
+      return res.status(message.includes('FORBIDDEN') ? 403 : 400).json({ success: false, error: message });
+    }
+  });
 
   router.get('/accounts', requirePermission('FINANCE_VIEW'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
@@ -179,6 +236,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
           return data.type === draft.type && data.isArchived !== true && data.isActive !== false;
         });
         const shouldBeDefault = draft.isDefault || sameTypeActive.length === 0;
+        const openingVoucherCode = draft.openingBalance > 0
+          ? await allocateFinanceVoucherCode(db, transaction, { branchId: draft.branchId, prefix: 'SDDK', occurredAt: now })
+          : '';
         if (shouldBeDefault) {
           sameTypeActive.forEach((item) => transaction.update(item.ref, { isDefault: false, updatedAt: now }));
         }
@@ -193,8 +253,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
           accountHolder: draft.accountHolder,
           openingBalance: draft.openingBalance,
           currentBalance: draft.openingBalance,
-          totalIncome: draft.openingBalance,
+          totalIncome: 0,
           totalExpense: 0,
+          openingTransactionId: draft.openingBalance > 0 ? `OPENING_${accountId}` : '',
           isDefault: shouldBeDefault,
           isActive: true,
           active: true,
@@ -210,7 +271,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
           const txId = `OPENING_${accountId}`;
           transaction.set(db.collection('cashTransactions').doc(txId), {
             id: txId,
-            code: `SDDK-${Date.now().toString().slice(-6)}`,
+            code: openingVoucherCode,
             type: 'RECEIPT',
             category: 'OPENING_BALANCE',
             categoryName: 'Số dư đầu kỳ',
@@ -225,6 +286,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
             notes: 'Khởi tạo số dư tài khoản',
             isPLAccounted: false,
             status: 'COMPLETED',
+            recordStatus: 'POSTED',
+            entryKind: 'OPENING_BALANCE',
+            postedAt: now,
             createdAt: FieldValue.serverTimestamp()
           });
         }
@@ -363,23 +427,20 @@ export function createFinanceRouter(db: Firestore | null): Router {
         category,
         categoryName,
         notes,
-        isPLAccounted = true
+        isPLAccounted: _clientIsPLAccounted
       } = req.body;
 
       if (!fundId) return res.status(400).json({ success: false, error: 'FUND_REQUIRED' });
       const numAmount = parseVnd(amount);
+      const posting = manualCashPostingPolicy('RECEIPT', category, categoryName);
       const idempotencyKey = requireFinanceIdempotencyKey(req.body?.idempotencyKey, req.headers['x-idempotency-key']);
       const payloadHash = financePayloadHash('RECEIPT', {
         fundId, amount: numAmount, partnerId: partnerId || '', partnerName: partnerName || '',
-        partnerType: partnerType || 'CUSTOMER', category: category || 'OTHER_INCOME',
-        categoryName: categoryName || 'Thu tiền khác', notes: notes || '', isPLAccounted: isPLAccounted !== false
+        partnerType: partnerType || 'CUSTOMER', category: posting.category,
+        categoryName: posting.categoryName, notes: notes || '', isPLAccounted: posting.isPLAccounted
       });
-      if (category === 'CUSTOMER_DEBT_COLLECT') {
-        return res.status(400).json({ success: false, error: 'USE_PARTNER_DEBT_SETTLEMENT: Thu nợ phải thực hiện từ Sổ nợ đối tác để cập nhật đồng thời công nợ và chứng từ gốc.' });
-      }
 
       const now = getVietnamDateTime();
-      const code = `PT${Date.now().toString().slice(-6)}`;
       const txId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
       let resultingTx: any = null;
@@ -413,6 +474,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
         if (!canAccessBranch(req.user, fundBranchId)) {
           throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên quỹ thuộc chi nhánh "${fundBranchId}".`);
         }
+        const code = await allocateFinanceVoucherCode(db, transaction, { branchId: fundBranchId, prefix: 'PT', occurredAt: now });
 
         const currentBalance = parseVnd(fundData.currentBalance ?? 0, { allowZero: true, field: 'FUND_BALANCE' });
         const totalIncome = parseVnd(fundData.totalIncome ?? 0, { allowZero: true, field: 'FUND_TOTAL_INCOME' });
@@ -432,8 +494,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
           code,
           type: 'RECEIPT',
           amount: numAmount,
-          category: category || 'OTHER_INCOME',
-          categoryName: categoryName || 'Thu tiền khác',
+          category: posting.category,
+          categoryName: posting.categoryName,
           fundId,
           fundName: fundData.name || 'Quỹ tiền mặt',
           fundType: fundData.type || 'CASH',
@@ -445,8 +507,11 @@ export function createFinanceRouter(db: Firestore | null): Router {
           creatorUid: req.user?.uid,
           branchId: fundBranchId,
           notes: notes || 'Thu tiền theo chứng từ',
-          isPLAccounted: isPLAccounted !== false,
-          status: 'COMPLETED'
+          isPLAccounted: posting.isPLAccounted,
+          status: 'COMPLETED',
+          recordStatus: 'POSTED',
+          entryKind: 'CASH_MOVEMENT',
+          postedAt: now
         };
 
         const txRef = db.collection('cashTransactions').doc(txId);
@@ -500,23 +565,20 @@ export function createFinanceRouter(db: Firestore | null): Router {
         category,
         categoryName,
         notes,
-        isPLAccounted = true
+        isPLAccounted: _clientIsPLAccounted
       } = req.body;
 
       if (!fundId) return res.status(400).json({ success: false, error: 'FUND_REQUIRED' });
       const numAmount = parseVnd(amount);
+      const posting = manualCashPostingPolicy('PAYMENT', category, categoryName);
       const idempotencyKey = requireFinanceIdempotencyKey(req.body?.idempotencyKey, req.headers['x-idempotency-key']);
       const payloadHash = financePayloadHash('PAYMENT', {
         fundId, amount: numAmount, partnerId: partnerId || '', partnerName: partnerName || '',
-        partnerType: partnerType || 'SUPPLIER', category: category || 'OPERATING_EXPENSE',
-        categoryName: categoryName || 'Chi phí hoạt động', notes: notes || '', isPLAccounted: isPLAccounted !== false
+        partnerType: partnerType || 'SUPPLIER', category: posting.category,
+        categoryName: posting.categoryName, notes: notes || '', isPLAccounted: posting.isPLAccounted
       });
-      if (category === 'SUPPLIER_DEBT_PAY') {
-        return res.status(400).json({ success: false, error: 'USE_PARTNER_DEBT_SETTLEMENT: Trả nợ NCC phải thực hiện từ Sổ nợ đối tác để cập nhật đồng thời công nợ và phiếu nhập.' });
-      }
 
       const now = getVietnamDateTime();
-      const code = `PC${Date.now().toString().slice(-6)}`;
       const txId = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
       let resultingTx: any = null;
@@ -550,6 +612,7 @@ export function createFinanceRouter(db: Firestore | null): Router {
         if (!canAccessBranch(req.user, fundBranchId)) {
           throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên quỹ thuộc chi nhánh "${fundBranchId}".`);
         }
+        const code = await allocateFinanceVoucherCode(db, transaction, { branchId: fundBranchId, prefix: 'PC', occurredAt: now });
 
         // Invariant: Non-Negative Fund Balance Protection
         const currentBalance = parseVnd(fundData.currentBalance ?? 0, { allowZero: true, field: 'FUND_BALANCE' });
@@ -573,8 +636,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
           code,
           type: 'PAYMENT',
           amount: numAmount,
-          category: category || 'OPERATING_EXPENSE',
-          categoryName: categoryName || 'Chi phí hoạt động',
+          category: posting.category,
+          categoryName: posting.categoryName,
           fundId,
           fundName: fundData.name || 'Quỹ tiền mặt',
           fundType: fundData.type || 'CASH',
@@ -586,8 +649,11 @@ export function createFinanceRouter(db: Firestore | null): Router {
           creatorUid: req.user?.uid,
           branchId: fundBranchId,
           notes: notes || 'Chi tiền theo chứng từ',
-          isPLAccounted: isPLAccounted !== false,
-          status: 'COMPLETED'
+          isPLAccounted: posting.isPLAccounted,
+          status: 'COMPLETED',
+          recordStatus: 'POSTED',
+          entryKind: 'CASH_MOVEMENT',
+          postedAt: now
         };
 
         const txRef = db.collection('cashTransactions').doc(txId);
@@ -647,8 +713,6 @@ export function createFinanceRouter(db: Firestore | null): Router {
       const payloadHash = financePayloadHash('TRANSFER', { fromFundId, toFundId, amount: numAmount, notes: notes || '' });
 
       const now = getVietnamDateTime();
-      const codeOut = `PC${Date.now().toString().slice(-6)}`;
-      const codeIn = `PT${(Date.now() + 1).toString().slice(-6)}`;
       const txOutId = `tx_out_${Date.now()}`;
       const txInId = `tx_in_${Date.now() + 1}`;
 
@@ -694,6 +758,10 @@ export function createFinanceRouter(db: Firestore | null): Router {
         if (fromBranchId !== toBranchId) {
           throw new Error('INTER_BRANCH_TRANSFER_REQUIRES_SETTLEMENT: Chuyển tiền khác chi nhánh phải qua quy trình đối soát liên chi nhánh.');
         }
+        const [codeOut, codeIn] = await allocateFinanceVoucherCodes(db, transaction, [
+          { branchId: fromBranchId, prefix: 'PC', occurredAt: now },
+          { branchId: toBranchId, prefix: 'PT', occurredAt: now }
+        ]);
 
         // Check sufficient balance
         const fromBalance = parseVnd(fromData.currentBalance ?? 0, { allowZero: true, field: 'SOURCE_FUND_BALANCE' });
@@ -742,7 +810,10 @@ export function createFinanceRouter(db: Firestore | null): Router {
           counterpartyBranchId: toBranchId,
           notes: notes || `Chuyển quỹ sang ${toData.name}`,
           isPLAccounted: false,
-          status: 'COMPLETED'
+          status: 'COMPLETED',
+          recordStatus: 'POSTED',
+          entryKind: 'INTERNAL_TRANSFER',
+          postedAt: now
         };
 
         txIn = {
@@ -766,7 +837,10 @@ export function createFinanceRouter(db: Firestore | null): Router {
           counterpartyBranchId: fromBranchId,
           notes: notes || `Nhận chuyển quỹ từ ${fromData.name}`,
           isPLAccounted: false,
-          status: 'COMPLETED'
+          status: 'COMPLETED',
+          recordStatus: 'POSTED',
+          entryKind: 'INTERNAL_TRANSFER',
+          postedAt: now
         };
 
         transaction.set(db.collection('cashTransactions').doc(txOutId), {
@@ -829,6 +903,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
 
       const now = getVietnamDateTime();
       let adjustmentTx: any = null;
+      let resultingFund: any = null;
+      let reconciliationId = '';
 
       await db.runTransaction(async (transaction) => {
         // Idempotency Check
@@ -839,6 +915,8 @@ export function createFinanceRouter(db: Firestore | null): Router {
           assertFinanceIdempotencyRecord(existing, { operationType: 'RECONCILE', payloadHash, actorUid: req.user!.uid });
           if (existing.status !== 'COMPLETED') throw new Error('IDEMPOTENCY_REQUEST_IN_PROGRESS');
           adjustmentTx = existing.adjustmentTx;
+          resultingFund = existing.fund || null;
+          reconciliationId = existing.reconciliationId || '';
           return;
         }
 
@@ -860,9 +938,39 @@ export function createFinanceRouter(db: Firestore | null): Router {
 
         const currentBalance = parseVnd(fundData.currentBalance ?? 0, { allowZero: true, field: 'FUND_BALANCE' });
         const diff = numActual - currentBalance;
+        if (diff !== 0 && !String(notes || '').trim()) {
+          throw new Error('RECONCILIATION_REASON_REQUIRED: Chênh lệch kiểm kê bắt buộc phải ghi rõ nguyên nhân.');
+        }
+        reconciliationId = `recon_${idempotencyKey.replace(/[^A-Z0-9_-]/gi, '_').slice(0, 180)}`;
+        const reconciliationVoucherCode = diff !== 0
+          ? await allocateFinanceVoucherCode(db, transaction, {
+              branchId: fundBranchId,
+              prefix: diff > 0 ? 'PT' : 'PC',
+              occurredAt: now
+            })
+          : '';
+        const reconciledTotalIncome = parseVnd(
+          parseVnd(fundData.totalIncome ?? 0, { allowZero: true, field: 'FUND_TOTAL_INCOME' }) + Math.max(0, diff),
+          { allowZero: true, field: 'FUND_TOTAL_INCOME' }
+        );
+        const reconciledTotalExpense = parseVnd(
+          parseVnd(fundData.totalExpense ?? 0, { allowZero: true, field: 'FUND_TOTAL_EXPENSE' }) + Math.max(0, -diff),
+          { allowZero: true, field: 'FUND_TOTAL_EXPENSE' }
+        );
+        resultingFund = {
+          id: fundDoc.id,
+          ...fundData,
+          currentBalance: numActual,
+          totalIncome: reconciledTotalIncome,
+          totalExpense: reconciledTotalExpense,
+          lastReconciledAt: now,
+          updatedAt: now
+        };
 
         transaction.update(fundRef, {
           currentBalance: numActual,
+          totalIncome: reconciledTotalIncome,
+          totalExpense: reconciledTotalExpense,
           lastReconciledAt: now,
           updatedAt: now
         });
@@ -870,14 +978,13 @@ export function createFinanceRouter(db: Firestore | null): Router {
         if (diff !== 0) {
           const isSurplus = diff > 0;
           const absDiff = Math.abs(diff);
-          const code = isSurplus ? `PT${Date.now().toString().slice(-6)}` : `PC${Date.now().toString().slice(-6)}`;
           const txId = `tx_reconcile_${Date.now()}`;
 
           adjustmentTx = {
             id: txId,
-            code,
+            code: reconciliationVoucherCode,
             type: isSurplus ? 'RECEIPT' : 'PAYMENT',
-            category: isSurplus ? 'INVENTORY_AUDIT_SURPLUS' : 'OPERATING_EXPENSE',
+            category: 'ACCOUNTING_ADJUSTMENT',
             categoryName: isSurplus ? 'Điều chỉnh kiểm kê (Thừa quỹ)' : 'Điều chỉnh kiểm kê (Thiếu quỹ)',
             amount: absDiff,
             fundId,
@@ -891,8 +998,11 @@ export function createFinanceRouter(db: Firestore | null): Router {
             creatorUid: req.user?.uid,
             branchId: fundBranchId,
             notes: notes || `Điều chỉnh đối soát số dư ca: ${diff > 0 ? '+' : ''}${diff.toLocaleString('vi-VN')} đ`,
-            isPLAccounted: true,
-            status: 'COMPLETED'
+            isPLAccounted: false,
+            status: 'COMPLETED',
+            recordStatus: 'POSTED',
+            entryKind: 'RECONCILIATION_ADJUSTMENT',
+            postedAt: now
           };
 
           transaction.set(db.collection('cashTransactions').doc(txId), {
@@ -901,12 +1011,32 @@ export function createFinanceRouter(db: Firestore | null): Router {
           });
         }
 
+        transaction.set(db.collection('cashReconciliations').doc(reconciliationId), {
+          id: reconciliationId,
+          branchId: fundBranchId,
+          fundId,
+          fundName: fundData.name,
+          fundType: fundData.type || 'CASH',
+          bookBalance: currentBalance,
+          actualBalance: numActual,
+          difference: diff,
+          notes: String(notes || '').trim() || 'Số kiểm kê khớp với sổ',
+          adjustmentTransactionId: adjustmentTx?.id || '',
+          status: diff === 0 ? 'MATCHED' : 'ADJUSTED',
+          countedByUid: req.user?.uid,
+          countedByName: req.user?.name || req.user?.email || 'Kiểm soát viên',
+          countedAt: now,
+          createdAt: FieldValue.serverTimestamp()
+        });
+
         transaction.set(idemRef, {
           id: idempotencyKey,
           status: 'COMPLETED',
           type: 'RECONCILE',
           payloadHash,
           adjustmentTx,
+          fund: resultingFund,
+          reconciliationId,
           creatorUid: req.user?.uid,
           branchId: fundBranchId,
           createdAt: FieldValue.serverTimestamp()
@@ -916,7 +1046,9 @@ export function createFinanceRouter(db: Firestore | null): Router {
       return res.json({
         success: true,
         message: 'Đối soát số dư thành công',
-        adjustmentTx
+        adjustmentTx,
+        fund: resultingFund,
+        reconciliationId
       });
     } catch (err: any) {
       console.error('[Finance Reconcile Error]:', err);

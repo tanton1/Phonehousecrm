@@ -6,11 +6,13 @@ import {
 } from 'lucide-react';
 import {
   CashTransaction, FundAccount, CashTransactionType, PaymentFundType,
-  CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch
+  CashReceiptCategory, CashPaymentCategory, Partner, UserAccount, StoreBranch, StoreSettings
 } from '../types';
 import { CreatePartnerModal } from './CreatePartnerModal';
 import { InterBranchDebtPanel } from '../features/finance/components/InterBranchDebtPanel';
+import { S2eCashLedgerReportView } from '../features/finance/components/S2eCashLedgerReport';
 import { addFinanceCategory, fetchFinanceCategories } from '../services/configurationApiClient';
+import { requestCashLedger } from '../services/financeApiClient';
 import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamDateTimeString, getVietnamRelativeDateString } from '../utils/dateTimeUtils';
 
 // format helpers
@@ -24,6 +26,7 @@ const formatCompact = (amount: number) => {
 interface CashbookViewProps {
   currentUser?: UserAccount | null;
   branches?: StoreBranch[];
+  storeSettings?: StoreSettings;
   selectedBranchId?: string;
   transactions: CashTransaction[];
   funds: FundAccount[];
@@ -32,12 +35,14 @@ interface CashbookViewProps {
   onSaveFund?: (fund: FundAccount, isNew: boolean) => Promise<void> | void;
   onDeleteFund?: (fundId: string) => Promise<void> | void;
   onTransferFunds?: (fromFundId: string, toFundId: string, amount: number, notes: string, creator?: string) => Promise<void> | void;
+  onReconcileFund?: (fundId: string, actualBalance: number, notes: string) => Promise<void> | void;
   onAddPartner?: (partner: Partner) => Partner | void | Promise<Partner | void>;
 }
 
 export const CashbookView: React.FC<CashbookViewProps> = ({
   currentUser,
   branches = [],
+  storeSettings,
   selectedBranchId = 'ALL',
   transactions = [],
   funds = [],
@@ -46,6 +51,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   onSaveFund,
   onDeleteFund,
   onTransferFunds,
+  onReconcileFund,
   onAddPartner
 }) => {
   const [activeMainTab, setActiveMainTab] = useState<'TRANSACTIONS' | 'INTER_BRANCH_DEBT' | 'ACCOUNTS' | 'REPORTS'>('TRANSACTIONS');
@@ -58,6 +64,68 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   const [dateFilterMode, setDateFilterMode] = useState<'ALL' | 'TODAY' | 'YESTERDAY' | '7DAYS' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('THIS_MONTH');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [ledgerTransactions, setLedgerTransactions] = useState<CashTransaction[]>([]);
+  const [ledgerTotals, setLedgerTotals] = useState({ receipts: 0, payments: 0, net: 0, receiptCount: 0, paymentCount: 0 });
+  const [ledgerCursor, setLedgerCursor] = useState<string | null>(null);
+  const [ledgerHasMore, setLedgerHasMore] = useState(false);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState('');
+  const [ledgerReady, setLedgerReady] = useState(false);
+
+  const ledgerDateRange = useMemo(() => {
+    const today = getVietnamDateString();
+    if (dateFilterMode === 'TODAY') return { from: today, to: today };
+    if (dateFilterMode === 'YESTERDAY') {
+      const yesterday = getVietnamRelativeDateString(-1);
+      return { from: yesterday, to: yesterday };
+    }
+    if (dateFilterMode === '7DAYS') return { from: getVietnamRelativeDateString(-6), to: today };
+    if (dateFilterMode === 'THIS_MONTH') return { from: `${today.slice(0, 7)}-01`, to: today };
+    if (dateFilterMode === 'LAST_MONTH') {
+      const month = getPreviousVietnamMonthString();
+      const [year, monthNumber] = month.split('-').map(Number);
+      const lastDay = new Date(year, monthNumber, 0).getDate();
+      return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+    }
+    if (dateFilterMode === 'CUSTOM') return { from: customStartDate || undefined, to: customEndDate || undefined };
+    return {};
+  }, [dateFilterMode, customStartDate, customEndDate]);
+
+  const ledgerRequest = React.useCallback(async (cursor?: string, append = false) => {
+    if (!currentUser || !selectedBranchId) return;
+    setLedgerLoading(true);
+    setLedgerError('');
+    try {
+      const result = await requestCashLedger({
+        branchId: selectedBranchId,
+        fundId: selectedFundFilter,
+        type: activeFilter === 'RECEIPT' || activeFilter === 'PAYMENT' ? activeFilter : 'ALL',
+        category: activeFilter === 'RETAIL' ? 'SALES_REVENUE' : undefined,
+        from: ledgerDateRange.from,
+        to: ledgerDateRange.to,
+        cursor,
+        limit: 50
+      });
+      setLedgerTransactions(previous => append ? [
+        ...previous,
+        ...result.items.filter(item => !previous.some(existing => existing.id === item.id))
+      ] : result.items);
+      setLedgerTotals(result.totals);
+      setLedgerCursor(result.nextCursor);
+      setLedgerHasMore(result.hasMore);
+      setLedgerReady(true);
+    } catch (error: any) {
+      setLedgerError(error?.message || 'Không tải được sổ quỹ từ máy chủ.');
+      if (!append) setLedgerReady(false);
+    } finally {
+      setLedgerLoading(false);
+    }
+  }, [currentUser, selectedBranchId, selectedFundFilter, activeFilter, ledgerDateRange.from, ledgerDateRange.to]);
+
+  React.useEffect(() => {
+    if (activeMainTab !== 'TRANSACTIONS') return;
+    void ledgerRequest();
+  }, [activeMainTab, ledgerRequest, transactions.length]);
 
   // Dynamic Branch-scoped Funds
   const displayFunds = useMemo(() => {
@@ -67,7 +135,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
   // Filtered Transactions
   const filteredTransactions = useMemo(() => {
-    let result = [...transactions];
+    let result = [...(ledgerReady ? ledgerTransactions : transactions)];
 
     // 1. Fund Filter
     if (selectedFundFilter !== 'ALL') {
@@ -118,12 +186,13 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       const timeB = new Date(b.date).getTime() || 0;
       return timeB - timeA;
     });
-  }, [transactions, selectedFundFilter, activeFilter, dateFilterMode, customStartDate, customEndDate, searchQuery]);
+  }, [transactions, ledgerTransactions, ledgerReady, selectedFundFilter, activeFilter, dateFilterMode, customStartDate, customEndDate, searchQuery]);
 
   // Accurate Stats calculated from filteredTransactions and displayFunds
-  const currentBalance = useMemo(() => displayFunds.reduce((sum, f) => sum + (f.currentBalance || 0), 0), [displayFunds]);
-  const totalIn = useMemo(() => filteredTransactions.filter(t => t.type === 'RECEIPT').reduce((s, t) => s + t.amount, 0), [filteredTransactions]);
-  const totalOut = useMemo(() => filteredTransactions.filter(t => t.type === 'PAYMENT').reduce((s, t) => s + t.amount, 0), [filteredTransactions]);
+  const availableMoneyFunds = useMemo(() => displayFunds.filter(fund => fund.type === 'CASH' || fund.type === 'BANK'), [displayFunds]);
+  const currentBalance = useMemo(() => availableMoneyFunds.reduce((sum, fund) => sum + (fund.currentBalance || 0), 0), [availableMoneyFunds]);
+  const totalIn = ledgerReady ? ledgerTotals.receipts : filteredTransactions.filter(t => t.type === 'RECEIPT').reduce((s, t) => s + t.amount, 0);
+  const totalOut = ledgerReady ? ledgerTotals.payments : filteredTransactions.filter(t => t.type === 'PAYMENT').reduce((s, t) => s + t.amount, 0);
   const netFlow = totalIn - totalOut;
 
   // Dynamic Date Filter Label
@@ -190,7 +259,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
   });
 
   const [reconcileData, setReconcileData] = useState({
-    fundName: funds[0]?.name || '',
+    fundId: funds.find(fund => fund.type === 'CASH' || fund.type === 'BANK')?.id || '',
     actualBalance: '',
     notes: 'Kiểm kê đối soát cuối ca'
   });
@@ -303,6 +372,12 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
 
   const handleOpenReconcileModal = () => {
     setIsCreateSheetOpen(false);
+    setReconcileData(current => ({
+      ...current,
+      fundId: funds.some(fund => fund.id === current.fundId && (fund.type === 'CASH' || fund.type === 'BANK'))
+        ? current.fundId
+        : funds.find(fund => fund.type === 'CASH' || fund.type === 'BANK')?.id || ''
+    }));
     setIsReconcileModalOpen(true);
   };
 
@@ -410,41 +485,26 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
     });
   };
 
-  const handleSubmitReconcile = (e: React.FormEvent) => {
+  const handleSubmitReconcile = async (e: React.FormEvent) => {
     e.preventDefault();
     const actualBalNum = parseFloat(reconcileData.actualBalance.replace(/[^0-9]/g, '')) || 0;
-    const fund = funds.find(f => f.name === reconcileData.fundName);
+    const fund = funds.find(f => f.id === reconcileData.fundId);
     if (!fund) return;
 
     const diff = actualBalNum - fund.currentBalance;
-    if (diff === 0) {
-      alert('Số dư khớp, không cần điều chỉnh.');
-      setIsReconcileModalOpen(false);
+    if (diff !== 0 && !reconcileData.notes.trim()) {
+      alert('Chênh lệch kiểm kê bắt buộc phải ghi rõ nguyên nhân.');
       return;
     }
 
-    const now = new Date();
-    const dateStr = getVietnamDateTimeString(now).slice(0, 16);
-
-    const txAdjust: CashTransaction = {
-      id: `TX-${Date.now()}-ADJ`,
-      code: `${diff > 0 ? 'PT' : 'PC'}-${Math.floor(1000 + Math.random() * 9000)}`,
-      type: diff > 0 ? 'RECEIPT' : 'PAYMENT',
-      category: diff > 0 ? 'OTHER_INCOME' : 'OTHER_EXPENSE',
-      categoryName: 'Điều chỉnh đối soát',
-      amount: Math.abs(diff),
-      fundId: fund.id,
-      branchId: fund.branchId,
-      fundType: fund.type,
-      fundName: fund.name,
-      date: dateStr,
-      creator: 'Nhật Tân (Admin)',
-      notes: reconcileData.notes,
-      status: 'COMPLETED'
-    };
-
-    onAddTransaction(txAdjust);
-    setIsReconcileModalOpen(false);
+    if (!onReconcileFund) throw new Error('Chức năng đối soát chưa được kết nối với máy chủ.');
+    try {
+      await onReconcileFund(fund.id, actualBalNum, reconcileData.notes);
+      setIsReconcileModalOpen(false);
+      void ledgerRequest();
+    } catch (error: any) {
+      alert(error?.message || 'Không thể đối soát quỹ.');
+    }
   };
 
   const handleSubmitTransaction = (e: React.FormEvent) => {
@@ -636,7 +696,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
             { id: 'TRANSACTIONS', label: 'Sổ Quỹ Thu Chi', count: transactions.length },
             { id: 'INTER_BRANCH_DEBT', label: 'Công Nợ Chi Nhánh' },
             { id: 'ACCOUNTS', label: 'Tài Khoản Quỹ & Két', count: funds.length },
-            { id: 'REPORTS', label: 'Báo Cáo Dòng Tiền' }
+            { id: 'REPORTS', label: 'Sổ S2e-HKD' }
           ].map(tab => {
             const isActive = activeMainTab === tab.id;
             return (
@@ -685,7 +745,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   </button>
                 </div>
                 <p className="mt-3 font-mono text-2xl font-black tracking-tight sm:text-3xl">{showBalance ? formatCurrency(currentBalance) : '•••••••• đ'}</p>
-                <p className="mt-1 text-[11px] font-semibold text-orange-50/85">{displayFunds.length} quỹ và tài khoản đang hiển thị</p>
+                <p className="mt-1 text-[11px] font-semibold text-orange-50/85">Tiền mặt + tiền gửi · {availableMoneyFunds.length} nguồn tiền</p>
               </article>
 
               <article className="min-w-[82%] snap-start rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xs sm:min-w-[280px] lg:flex-1">
@@ -800,6 +860,12 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                 </span>
               </div>
 
+              {ledgerError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+                  {ledgerError} Dữ liệu dự phòng trên máy có thể chưa đầy đủ.
+                </div>
+              )}
+
               {/* DESKTOP TABLE VIEW (>= lg) */}
               <div className="hidden lg:block bg-white rounded-2xl border border-zinc-200 shadow-2xs overflow-hidden">
                 <table className="w-full text-left text-xs border-collapse">
@@ -812,14 +878,13 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       <th className="py-3 px-3">Quỹ & Chi nhánh</th>
                       <th className="py-3 px-3 text-right">Thu (+VNĐ)</th>
                       <th className="py-3 px-3 text-right">Chi (-VNĐ)</th>
-                      <th className="py-3 px-3 text-center">P&L</th>
                       <th className="py-3 px-4 text-center">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
                     {filteredTransactions.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-12 text-center text-zinc-400">
+                        <td colSpan={8} className="py-12 text-center text-zinc-400">
                           <Wallet className="w-8 h-8 mx-auto mb-2 text-zinc-300" />
                           <p className="font-semibold text-xs text-zinc-500">Không có giao dịch thu chi nào phù hợp</p>
                         </td>
@@ -866,17 +931,6 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                             <td className="py-3 px-3 text-right font-mono font-bold text-rose-700 whitespace-nowrap">
                               {tx.type === 'PAYMENT' ? `-${formatCurrency(tx.amount)}` : '—'}
                             </td>
-                            <td className="py-3 px-3 text-center">
-                              {tx.isPLAccounted !== false ? (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
-                                  P&L
-                                </span>
-                              ) : (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded">
-                                  Nội bộ
-                                </span>
-                              )}
-                            </td>
                             <td className="py-3 px-4 text-center">
                               <button
                                 type="button"
@@ -919,14 +973,13 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                           <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-zinc-100 text-zinc-600 border border-zinc-200">
                             {tx.code}
                           </span>
-                          {tx.isPLAccounted !== false ? (
-                            <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">
-                              P&L
-                            </span>
-                          ) : (
+                          {(tx.entryKind === 'INTERNAL_TRANSFER' || tx.category === 'INTERNAL_TRANSFER') && (
                             <span className="text-[9px] font-bold px-1.5 py-0.2 bg-zinc-100 text-zinc-500 rounded">
                               Luân chuyển
                             </span>
+                          )}
+                          {(tx.entryKind === 'RECONCILIATION_ADJUSTMENT' || tx.entryKind === 'CORRECTION') && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 bg-amber-50 text-amber-700 border border-amber-200 rounded">Điều chỉnh</span>
                           )}
                         </div>
                         <p className="text-[11px] text-zinc-600 mt-0.5 truncate font-medium">
@@ -956,6 +1009,16 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                   </div>
                 ))}
               </div>
+              {ledgerReady && ledgerHasMore && (
+                <button
+                  type="button"
+                  disabled={ledgerLoading || !ledgerCursor}
+                  onClick={() => ledgerCursor && void ledgerRequest(ledgerCursor, true)}
+                  className="mx-auto flex h-10 items-center justify-center rounded-xl border border-zinc-200 bg-white px-5 text-xs font-bold text-zinc-700 hover:border-orange-300 hover:text-[#ff4b16] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {ledgerLoading ? 'Đang tải…' : 'Tải thêm chứng từ'}
+                </button>
+              )}
             </div>
           </>
         )}
@@ -1258,11 +1321,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
         )}
 
         {activeMainTab === 'REPORTS' && (
-          <div className="text-center py-20 text-zinc-500 space-y-4">
-            <FileText className="w-12 h-12 mx-auto text-zinc-300" />
-            <h3 className="font-bold text-[#171717] text-lg">Báo Cáo Sổ Quỹ</h3>
-            <p className="text-sm">Biểu đồ thu chi, cơ cấu chi phí, so sánh kỳ trước.</p>
-          </div>
+          <S2eCashLedgerReportView
+            branchId={selectedBranchId}
+            branches={branches}
+            storeSettings={storeSettings}
+          />
         )}
       </div>
 
@@ -1384,12 +1447,7 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       {modalType === 'RECEIPT' ? (
                         <>
                           <optgroup label="Danh mục Thu chuẩn">
-                            <option value="SALES_REVENUE">Thu tiền bán lẻ iPhone, Phụ kiện (POS)</option>
-                            <option value="TRADEIN_DIFF_COLLECT">Thu tiền chênh lệch Trade-in thu cũ đổi mới</option>
-                            <option value="DEPOSIT">Thu tiền đặt cọc giữ máy</option>
-                            <option value="REPAIR_SERVICE">Thu phí dịch vụ sửa chữa / Thay linh kiện</option>
                             <option value="CAPITAL_INVEST">Chủ đầu tư nạp vốn / Bổ sung quỹ</option>
-                            <option value="SUPPLIER_REFUND">Nhà cung cấp hoàn tiền hàng</option>
                             <option value="OTHER_INCOME">Thu nhập khác</option>
                           </optgroup>
                           {customReceiptCategories.length > 0 && (
@@ -1403,14 +1461,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                       ) : (
                         <>
                           <optgroup label="Danh mục Chi chuẩn">
-                            <option value="INVENTORY_PURCHASE">Chi nhập hàng iPhone / Phụ kiện từ NCC</option>
-                            <option value="TRADEIN_BUYBACK">Chi tiền mua lại máy cũ khách Trade-in</option>
                             <option value="STORE_RENT">Chi tiền thuê mặt bằng showroom</option>
-                            <option value="SALARY_BONUS">Chi lương, thưởng, hoa hồng nhân viên</option>
                             <option value="MARKETING_ADS">Chi phí Marketing, quảng cáo Ads</option>
                             <option value="UTILITIES">Chi tiền điện, nước, internet cửa hàng</option>
-                            <option value="WARRANTY_PARTS">Chi mua linh kiện kỹ thuật sửa chữa</option>
-                            <option value="CUSTOMER_REFUND">Chi hoàn tiền đổi trả cho khách</option>
                             <option value="OTHER_EXPENSE">Chi phí hoạt động khác</option>
                           </optgroup>
                           {customPaymentCategories.length > 0 && (
@@ -1559,23 +1612,9 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
                     />
                   </div>
 
-                  {/* P&L Accounting Checkbox */}
-                  <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex items-start space-x-2.5">
-                    <input
-                      type="checkbox"
-                      id="isPLAccounted"
-                      checked={formData.isPLAccounted}
-                      onChange={(e) => setFormData(prev => ({ ...prev, isPLAccounted: e.target.checked }))}
-                      className="mt-0.5 w-4 h-4 rounded text-[#ff4b16] focus:ring-[#ff4b16] border-zinc-300 cursor-pointer accent-[#ff4b16]"
-                    />
-                    <label htmlFor="isPLAccounted" className="text-xs text-zinc-800 cursor-pointer select-none">
-                      <span className="font-bold block text-zinc-900">Hạch toán vào Kết quả hoạt động kinh doanh (P&L)</span>
-                      <span className="text-[11px] text-zinc-500 block mt-0.5">
-                        {formData.isPLAccounted
-                          ? '✓ Mặc định: Giao dịch này sẽ được ghi nhận vào Báo Cáo Doanh Thu / Chi Phí kinh doanh định kỳ.'
-                          : '⚡ Bỏ chọn: Giao dịch này chỉ tác động số dư quỹ (luân chuyển vốn, nạp/rút vốn, cho mượn tạm...).'}
-                      </span>
-                    </label>
+                  <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-2xl text-xs text-blue-900">
+                    <span className="font-bold block">Phân loại theo chứng từ gốc</span>
+                    <span className="text-[11px] block mt-0.5">Hệ thống tự xác định doanh thu, chi phí hoặc luân chuyển tiền từ loại nghiệp vụ; người lập phiếu không thể tự bật/tắt kết quả kinh doanh.</span>
                   </div>
                 </div>
 
@@ -1791,8 +1830,8 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
       <form onSubmit={handleSubmitReconcile} className="p-5 space-y-4">
         <div>
           <label className="block text-xs font-bold text-zinc-500 mb-1">Chọn quỹ cần đối soát</label>
-          <select value={reconcileData.fundName} onChange={e => setReconcileData({...reconcileData, fundName: e.target.value})} className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-semibold">
-            {funds.map(f => <option key={f.id} value={f.name}>{f.name} (SS: {formatCurrency(f.currentBalance)})</option>)}
+          <select value={reconcileData.fundId} onChange={e => setReconcileData({...reconcileData, fundId: e.target.value})} className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs font-semibold">
+            {funds.filter(fund => fund.type === 'CASH' || fund.type === 'BANK').map(f => <option key={f.id} value={f.id}>{f.name} (Sổ: {formatCurrency(f.currentBalance)})</option>)}
           </select>
         </div>
         <div>
@@ -1803,10 +1842,11 @@ export const CashbookView: React.FC<CashbookViewProps> = ({
           }} className="w-full px-4 py-3 bg-white border border-orange-200 rounded-xl text-xl font-black text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500" />
         </div>
         <div>
-          <label className="block text-xs font-bold text-zinc-500 mb-1">Lý do điều chỉnh (nếu lệch)</label>
-          <input type="text" value={reconcileData.notes} onChange={e => setReconcileData({...reconcileData, notes: e.target.value})} className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
+          <label className="block text-xs font-bold text-zinc-500 mb-1">Kết quả kiểm kê / Nguyên nhân chênh lệch</label>
+          <input type="text" value={reconcileData.notes} onChange={e => setReconcileData({...reconcileData, notes: e.target.value})} placeholder="Ví dụ: Kiểm kê cuối ca, lệch do trả nhầm tiền khách…" className="w-full p-3 bg-zinc-50 border border-zinc-200 rounded-xl text-sm" />
         </div>
-        <button type="submit" className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer">Cân bằng sổ sách</button>
+        <p className="rounded-xl bg-blue-50 p-3 text-[11px] leading-5 text-blue-800">Hệ thống sẽ lưu biên bản đối soát. Nếu có chênh lệch, một chứng từ điều chỉnh riêng được tạo và không tự tính vào doanh thu/chi phí kinh doanh.</p>
+        <button type="submit" className="w-full py-3.5 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer">Ghi biên bản & cập nhật sổ</button>
       </form>
     </div>
   </div>

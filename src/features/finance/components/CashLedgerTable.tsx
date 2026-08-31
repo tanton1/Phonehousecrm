@@ -37,7 +37,7 @@ export const CashLedgerTable: React.FC<CashLedgerTableProps> = ({
         tx.notes?.toLowerCase().includes(q) ||
         tx.referenceCode?.toLowerCase().includes(q);
 
-      return matchBranch && matchType && matchFund;
+      return matchBranch && matchType && matchFund && matchSearch;
     });
   }, [transactions, selectedBranchId, typeFilter, fundFilter, searchQuery]);
 
