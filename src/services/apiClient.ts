@@ -42,10 +42,15 @@ export async function apiJson<T>(
   const { timeoutMs = 15000, ...requestInit } = init;
   const isCustomerPortal = path.startsWith('/api/customer-portal');
   const isStaffPortal = path.startsWith('/api/customer-portal/staff');
+  const method = String(requestInit.method || 'GET').toUpperCase();
+  const isPublicCustomerRead = path.startsWith('/api/customer-portal/public/') && method === 'GET';
   const authPrincipal = isCustomerPortal && !isStaffPortal ? customerAuth.currentUser : auth.currentUser;
   const [token, appCheckToken] = await Promise.all([
     authPrincipal?.getIdToken(false).catch(() => null),
-    getPhoneHouseAppCheckToken()
+    // Public catalog/bootstrap reads are intentionally unauthenticated on the
+    // server. They must not leave the guest portal blank when the attestation
+    // provider is slow or blocked. Protected mutations still wait for App Check.
+    isPublicCustomerRead ? Promise.resolve(null) : getPhoneHouseAppCheckToken()
   ]);
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
