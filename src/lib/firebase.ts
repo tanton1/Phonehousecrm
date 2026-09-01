@@ -49,9 +49,9 @@ async function resolveAppCheck(): Promise<AppCheck | null> {
   if (typeof window === 'undefined' || !recaptchaSiteKey) return null;
   if (!appCheckInitialization) {
     appCheckInitialization = import('firebase/app-check')
-      .then(({ ReCaptchaV3Provider, initializeAppCheck }) => {
+      .then(({ ReCaptchaEnterpriseProvider, initializeAppCheck }) => {
         appCheck = initializeAppCheck(app, {
-          provider: new ReCaptchaV3Provider(recaptchaSiteKey),
+          provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey),
           isTokenAutoRefreshEnabled: true
         });
         return appCheck;
