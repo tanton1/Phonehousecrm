@@ -197,6 +197,90 @@ export async function logOut() {
 let phoneRecaptcha: RecaptchaVerifier | null = null;
 let phoneRecaptchaContainerId = '';
 let phoneRecaptchaInitialization: Promise<RecaptchaVerifier> | null = null;
+let phoneRecaptchaLibraryInitialization: Promise<void> | null = null;
+
+type RecaptchaV2 = {
+  render?: (...args: unknown[]) => unknown;
+  ready?: (callback: () => void) => void;
+};
+
+function hasPhoneRecaptchaLibrary() {
+  if (typeof window === 'undefined') return false;
+  const recaptcha = (window as Window & { grecaptcha?: RecaptchaV2 }).grecaptcha;
+  return typeof recaptcha?.render === 'function' && typeof recaptcha?.ready === 'function';
+}
+
+function waitForPhoneRecaptchaLibrary(timeoutMs = 8_000): Promise<void> {
+  if (hasPhoneRecaptchaLibrary()) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    const check = () => {
+      if (hasPhoneRecaptchaLibrary()) {
+        resolve();
+        return;
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        reject(new Error('RECAPTCHA_LIBRARY_TIMEOUT'));
+        return;
+      }
+      window.setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
+function loadPhoneRecaptchaScript(url: string): Promise<void> {
+  const baseUrl = url.split('?')[0];
+  const existing = Array.from(document.scripts).find(script => script.src.startsWith(baseUrl));
+  if (existing) return waitForPhoneRecaptchaLibrary();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = url;
+    script.async = true;
+    script.defer = true;
+    script.type = 'text/javascript';
+    script.charset = 'UTF-8';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('RECAPTCHA_SCRIPT_LOAD_FAILED'));
+    document.head.appendChild(script);
+  });
+}
+
+/**
+ * Firebase Auth normally loads reCAPTCHA from www.google.com. Some mobile
+ * webviews, privacy browsers and carrier networks block that host while still
+ * allowing the official recaptcha.net mirror. Load the mirror first so the
+ * Firebase SDK can reuse the same grecaptcha v2 instance.
+ */
+async function ensurePhoneRecaptchaLibrary() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    throw new Error('PHONE_AUTH_BROWSER_REQUIRED');
+  }
+  if (hasPhoneRecaptchaLibrary()) return;
+  if (!phoneRecaptchaLibraryInitialization) {
+    phoneRecaptchaLibraryInitialization = (async () => {
+      const urls = [
+        'https://www.recaptcha.net/recaptcha/api.js?render=explicit&hl=vi',
+        'https://www.google.com/recaptcha/api.js?render=explicit&hl=vi'
+      ];
+      let lastError: unknown = null;
+      for (const url of urls) {
+        try {
+          await loadPhoneRecaptchaScript(url);
+          await waitForPhoneRecaptchaLibrary();
+          return;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error('RECAPTCHA_LIBRARY_UNAVAILABLE');
+    })().catch(error => {
+      phoneRecaptchaLibraryInitialization = null;
+      throw error;
+    });
+  }
+  await phoneRecaptchaLibraryInitialization;
+}
 
 function withPhoneAuthTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -219,6 +303,9 @@ function customerPhoneAuthError(error: unknown): Error {
   if (code === 'auth/captcha-check-failed' || code === 'auth/missing-app-credential') {
     return new Error('Phiên xác minh chống spam chưa hợp lệ. Vui lòng bấm gửi lại mã OTP.');
   }
+  if (code === 'RECAPTCHA_LIBRARY_TIMEOUT' || code === 'RECAPTCHA_SCRIPT_LOAD_FAILED' || code === 'RECAPTCHA_LIBRARY_UNAVAILABLE') {
+    return new Error('Không tải được bước xác minh chống spam. Hãy mở trang bằng Chrome/Safari, tắt chặn quảng cáo hoặc VPN rồi thử lại.');
+  }
   if (error instanceof Error) return error;
   return new Error('Không thể gửi OTP lúc này. Vui lòng thử lại.');
 }
@@ -229,6 +316,7 @@ export async function prepareCustomerPhoneRecaptcha(containerId: string): Promis
   if (phoneRecaptcha && phoneRecaptchaContainerId === containerId) {
     return phoneRecaptchaInitialization || phoneRecaptcha;
   }
+  await ensurePhoneRecaptchaLibrary().catch(error => { throw customerPhoneAuthError(error); });
   resetCustomerPhoneRecaptcha();
   phoneRecaptchaContainerId = containerId;
   phoneRecaptcha = new RecaptchaVerifier(customerAuth, containerId, {
