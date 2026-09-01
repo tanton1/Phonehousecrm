@@ -293,7 +293,11 @@ function withPhoneAuthTimeout<T>(promise: Promise<T>, timeoutMs: number, message
 }
 
 function customerPhoneAuthError(error: unknown): Error {
-  const code = String((error as { code?: unknown })?.code || '');
+  const code = String(
+    (error as { code?: unknown })?.code
+    || (error as { message?: unknown })?.message
+    || ''
+  );
   if (code === 'auth/network-request-failed') {
     return new Error('Không kết nối được dịch vụ xác minh OTP. Hãy tắt VPN/chặn quảng cáo nếu có, kiểm tra mạng rồi bấm gửi lại.');
   }
