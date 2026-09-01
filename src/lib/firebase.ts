@@ -27,7 +27,9 @@ export const customerAuth = (() => {
   if (typeof window === 'undefined') return getAuth(app);
   customerApp = getApps().find(instance => instance.name === 'phonehouse-care')
     || initializeApp(firebaseConfig, 'phonehouse-care');
-  return getAuth(customerApp);
+  const instance = getAuth(customerApp);
+  instance.languageCode = 'vi';
+  return instance;
 })();
 
 // CRITICAL: The app will break without firebaseConfig.firestoreDatabaseId
@@ -193,27 +195,80 @@ export async function logOut() {
 }
 
 let phoneRecaptcha: RecaptchaVerifier | null = null;
+let phoneRecaptchaContainerId = '';
+let phoneRecaptchaInitialization: Promise<RecaptchaVerifier> | null = null;
 
-function phoneRecaptchaVerifier() {
-  if (typeof window === 'undefined') throw new Error('PHONE_AUTH_BROWSER_REQUIRED');
-  if (!phoneRecaptcha) {
-    const container = document.getElementById('phone-auth-recaptcha');
-    if (!container) throw new Error('PHONE_AUTH_RECAPTCHA_CONTAINER_MISSING');
-    phoneRecaptcha = new RecaptchaVerifier(customerAuth, container, { size: 'invisible' });
-  }
-  return phoneRecaptcha;
+function withPhoneAuthTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      value => { window.clearTimeout(timeoutId); resolve(value); },
+      error => { window.clearTimeout(timeoutId); reject(error); }
+    );
+  });
 }
 
-export async function requestCustomerPhoneOtp(phone: string): Promise<ConfirmationResult> {
+function customerPhoneAuthError(error: unknown): Error {
+  const code = String((error as { code?: unknown })?.code || '');
+  if (code === 'auth/network-request-failed') {
+    return new Error('Không kết nối được dịch vụ xác minh OTP. Hãy tắt VPN/chặn quảng cáo nếu có, kiểm tra mạng rồi bấm gửi lại.');
+  }
+  if (code === 'auth/too-many-requests') {
+    return new Error('Số điện thoại này đã yêu cầu OTP quá nhiều lần. Vui lòng đợi một lúc rồi thử lại.');
+  }
+  if (code === 'auth/captcha-check-failed' || code === 'auth/missing-app-credential') {
+    return new Error('Phiên xác minh chống spam chưa hợp lệ. Vui lòng bấm gửi lại mã OTP.');
+  }
+  if (error instanceof Error) return error;
+  return new Error('Không thể gửi OTP lúc này. Vui lòng thử lại.');
+}
+
+export async function prepareCustomerPhoneRecaptcha(containerId: string): Promise<RecaptchaVerifier> {
+  if (typeof window === 'undefined') throw new Error('PHONE_AUTH_BROWSER_REQUIRED');
+  if (!document.getElementById(containerId)) throw new Error('PHONE_AUTH_RECAPTCHA_CONTAINER_MISSING');
+  if (phoneRecaptcha && phoneRecaptchaContainerId === containerId) {
+    return phoneRecaptchaInitialization || phoneRecaptcha;
+  }
+  resetCustomerPhoneRecaptcha();
+  phoneRecaptchaContainerId = containerId;
+  phoneRecaptcha = new RecaptchaVerifier(customerAuth, containerId, {
+    size: 'invisible',
+    'expired-callback': resetCustomerPhoneRecaptcha
+  });
+  const verifier = phoneRecaptcha;
+  phoneRecaptchaInitialization = withPhoneAuthTimeout(
+    verifier.render().then(() => verifier),
+    20_000,
+    'Dịch vụ xác minh OTP phản hồi quá chậm. Vui lòng kiểm tra mạng rồi thử lại.'
+  ).catch(error => {
+    resetCustomerPhoneRecaptcha();
+    throw customerPhoneAuthError(error);
+  });
+  return phoneRecaptchaInitialization;
+}
+
+export async function requestCustomerPhoneOtp(phone: string, containerId: string): Promise<ConfirmationResult> {
   const digits = String(phone || '').replace(/\D/g, '');
   const normalized = digits.startsWith('84') ? `+${digits}` : digits.startsWith('0') ? `+84${digits.slice(1)}` : `+84${digits}`;
   if (!/^\+84\d{9}$/.test(normalized)) throw new Error('Số điện thoại Việt Nam chưa hợp lệ.');
-  return signInWithPhoneNumber(customerAuth, normalized, phoneRecaptchaVerifier());
+  try {
+    const verifier = await prepareCustomerPhoneRecaptcha(containerId);
+    return await withPhoneAuthTimeout(
+      signInWithPhoneNumber(customerAuth, normalized, verifier),
+      45_000,
+      'Yêu cầu gửi OTP quá thời gian chờ. Vui lòng kiểm tra mạng rồi bấm gửi lại.'
+    );
+  } catch (error) {
+    resetCustomerPhoneRecaptcha();
+    throw customerPhoneAuthError(error);
+  }
 }
 
 export function resetCustomerPhoneRecaptcha() {
   phoneRecaptcha?.clear();
   phoneRecaptcha = null;
+  phoneRecaptchaContainerId = '';
+  phoneRecaptchaInitialization = null;
 }
 
 /**
