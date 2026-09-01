@@ -20,6 +20,7 @@
     "check:client-writes": "node scripts/check-client-firestore-writes.mjs",
     "verify:production": "node scripts/verify-production.mjs",
     "backup:firestore": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-firestore.ps1",
+    "audit:debt-open-items": "tsx scripts/runDebtOpenItemReconciliation.ts",
     "test:watch": "vitest",
     "verify": "npm run typecheck && npm run typecheck:strict && npm run lint && npm run test && npm run check:client-writes && npm run build"
   },

@@ -1,4 +1,4 @@
-import { Firestore } from 'firebase-admin/firestore';
+import { FieldPath, Firestore } from 'firebase-admin/firestore';
 
 export interface StockItemActor {
   uid: string;
@@ -64,21 +64,26 @@ async function listAccessibleBalanceDocuments(db: Firestore, actor: StockItemAct
   return docs.filter(doc => !warehouseId || String(doc.data()?.warehouseId || '') === warehouseId);
 }
 
-/**
- * Accessory Product Master is global, but physical quantities live in
- * inventoryBalances.  Returning one row per location lets the UI group the
- * same SKU without treating each warehouse as a different product.
- */
-export async function listAccessoryStockBalances(
-  db: Firestore,
-  actor: StockItemActor,
-  warehouseId?: string
-): Promise<any[]> {
-  const balanceDocs = await listAccessibleBalanceDocuments(db, actor, warehouseId);
+function encodeBalanceCursor(documentId: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, id: documentId }), 'utf8').toString('base64url');
+}
+
+function decodeBalanceCursor(cursor: string): string {
+  try {
+    if (!cursor || cursor.length > 500) throw new Error('INVALID');
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    const id = String(parsed?.id || '');
+    if (parsed?.v !== 1 || !id || id.length > 500 || /[\r\n]/.test(id)) throw new Error('INVALID');
+    return id;
+  } catch {
+    throw new Error('INVENTORY_BALANCE_CURSOR_INVALID');
+  }
+}
+
+async function projectAccessoryBalanceRows(db: Firestore, actor: StockItemActor, balanceDocs: any[]): Promise<any[]> {
   const productIds = balanceDocs.map(doc => String(doc.data()?.productId || '')).filter(Boolean);
   const products = await getDocuments(db, 'products', productIds);
   const mayViewCost = canViewCost(actor);
-
   return balanceDocs.map(balanceDoc => {
     const balance = balanceDoc.data() || {};
     const productId = String(balance.productId || '');
@@ -109,6 +114,49 @@ export async function listAccessoryStockBalances(
     if (mayViewCost) row.currentCost = Number(product.buyPrice || 0);
     return row;
   }).filter(row => row.productId && row.sku);
+}
+
+export async function listAccessoryStockBalancePage(
+  db: Firestore,
+  actor: StockItemActor,
+  options: { warehouseId?: string; cursor?: string; limit?: number } = {}
+) {
+  const role = normalizedRole(actor);
+  const pageLimit = Math.min(500, Math.max(1, Math.floor(Number(options.limit) || 200)));
+  let query: any = db.collection('inventoryBalances');
+  if (options.warehouseId) query = query.where('warehouseId', '==', options.warehouseId);
+  if (role !== 'ADMIN' && role !== 'REGIONAL_MANAGER') {
+    const branches = actorBranchIds(actor);
+    if (branches.length === 0) return { items: [], nextCursor: null, hasMore: false };
+    if (branches.length === 1) query = query.where('branchId', '==', branches[0]);
+    else if (branches.length <= 30) query = query.where('branchId', 'in', branches);
+    else throw new Error('INVENTORY_BRANCH_SCOPE_TOO_LARGE');
+  }
+  query = query.orderBy(FieldPath.documentId());
+  if (options.cursor) query = query.startAfter(decodeBalanceCursor(options.cursor));
+  const snapshot = await query.limit(pageLimit + 1).get();
+  const hasMore = snapshot.docs.length > pageLimit;
+  const documents = snapshot.docs.slice(0, pageLimit);
+  const last = documents.at(-1);
+  return {
+    items: await projectAccessoryBalanceRows(db, actor, documents),
+    nextCursor: hasMore && last ? encodeBalanceCursor(last.id) : null,
+    hasMore
+  };
+}
+
+/**
+ * Accessory Product Master is global, but physical quantities live in
+ * inventoryBalances.  Returning one row per location lets the UI group the
+ * same SKU without treating each warehouse as a different product.
+ */
+export async function listAccessoryStockBalances(
+  db: Firestore,
+  actor: StockItemActor,
+  warehouseId?: string
+): Promise<any[]> {
+  const balanceDocs = await listAccessibleBalanceDocuments(db, actor, warehouseId);
+  return projectAccessoryBalanceRows(db, actor, balanceDocs);
 }
 
 export async function getAccessoryStockTrace(

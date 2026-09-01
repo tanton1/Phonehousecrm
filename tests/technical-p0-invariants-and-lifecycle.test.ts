@@ -9,6 +9,13 @@ import {
   processIssueSparePart
 } from '../server/services/technicalService';
 import { REQUIRED_QC_CHECKLIST_STEPS } from '../server/services/technicalStateMachine';
+import { getVietnamMonthString } from '../shared/vietnamTime';
+
+function nextMonth(period: string) {
+  const [year, month] = period.split('-').map(Number);
+  const value = year * 12 + month;
+  return `${Math.floor(value / 12)}-${String(value % 12 + 1).padStart(2, '0')}`;
+}
 
 describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite', () => {
 
@@ -47,6 +54,8 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
 
     it('allows delivering customer service/warranty device to customer after QC PASS', async () => {
       let updatedStatus = '';
+      let commissionUpdate: any = null;
+      const currentPeriod = getVietnamMonthString();
 
       const mockDb: any = {
         collection: (col: string) => ({
@@ -54,9 +63,17 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async (ref: any) => ref.col === 'technicalOperationIdempotency' ? ({ exists: false, data: () => undefined }) : ({
-              exists: true,
-              data: () => ({
+            get: async (ref: any) => {
+              if (ref.col === 'technicalOperationIdempotency') return { exists: false, data: () => undefined };
+              if (ref.col === 'commissionLedger') return { id: ref.docId, ref, exists: true, data: () => ({ id: ref.docId, staffUid: 'UID_KTV_01', branchId: 'CN01', assignedPeriod: '2026-07' }) };
+              if (ref.col === 'users') return { exists: true, data: () => ({ authUid: 'UID_KTV_01', branchId: 'CN01', payrollBranchId: 'CN01' }) };
+              if (ref.col === 'payrollPeriods') return ref.docId === `${currentPeriod}_CN01`
+                ? { exists: true, data: () => ({ status: 'APPROVED' }) }
+                : { exists: false, data: () => undefined };
+              if (ref.col === 'payrollStaffLocks') return { exists: false, data: () => undefined };
+              return {
+                exists: true,
+                data: () => ({
                 id: 'WO_CUST_01',
                 workOrderType: 'CUSTOMER_SERVICE',
                 status: 'QC_PASSED',
@@ -65,13 +82,17 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
                 customerName: 'Nguyễn Văn A',
                 deviceId: 'DEV-CUST-01',
                 imei: '356789012345678',
-                branchId: 'CN01'
+                branchId: 'CN01',
+                taskLineIds: ['WOL_01'],
+                eligibilityRequiresCustomerDelivery: true
               })
-            }),
+              };
+            },
             update: (ref: any, fields: any) => {
               if (ref.col === 'technicalWorkOrders') {
                 updatedStatus = fields.status;
               }
+              if (ref.col === 'commissionLedger') commissionUpdate = fields;
             },
             set: () => {}
           };
@@ -82,6 +103,10 @@ describe('Technical P0 Invariants, Customer Device Protection & Lifecycle Suite'
       const result = await processDeliverToCustomer(mockDb, 'WO_CUST_01', 'Đã trả máy cho khách', { uid: 'UID_STAFF_01', branchId: 'CN01' }, { idempotencyKey: 'deliver-customer-test-0001', paidAmount: 0, paymentMethod: 'DEBT' });
       expect(result.success).toBe(true);
       expect(updatedStatus).toBe('DELIVERED_TO_CUSTOMER');
+      expect(commissionUpdate).toMatchObject({
+        status: 'ELIGIBLE', assignedPeriod: '2026-07', originalPayrollPeriod: currentPeriod,
+        payrollPeriod: nextMonth(currentPeriod), carriedFromPeriod: currentPeriod, carryForwardReason: 'PAYROLL_PERIOD_APPROVED'
+      });
     });
   });
 

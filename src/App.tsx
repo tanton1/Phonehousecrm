@@ -553,6 +553,7 @@ export default function App() {
                       ? 'Chăm sóc khách hàng'
                     : 'Nhân viên',
           branchId: user.branchId || '',
+          payrollBranchId: user.payrollBranchId || (user.assignedBranchIds?.length === 1 ? user.assignedBranchIds[0] : user.branchId || ''),
           assignedBranchIds: user.assignedBranchIds || [],
           branchName: branch?.name || 'Chi Nhánh Showroom',
           avatar: user.avatarUrl || '',
@@ -785,13 +786,29 @@ export default function App() {
     setAdminOperationalSummary(null);
     let financeLoadActive = true;
     const unsubs = [
-      subscribeToLeads(items => setLeads(items || []), scope),
-      subscribeToTradeIns(items => setTradeIns(items || []), scope),
-      subscribeToInvoices(items => setInvoices(items || []), scope),
-      subscribeToPartners(items => setPartners(items || []), scope),
       subscribeToTransfers(items => setTransfers(items || []), scope),
       subscribeToPurchaseOrders(items => setPurchaseOrders(items || []), scope)
     ];
+    if (hasPermission(role, 'CRM_READ')) {
+      unsubs.push(subscribeToLeads(items => setLeads(items || []), scope));
+    } else {
+      setLeads([]);
+    }
+    if (hasPermission(role, 'TRADE_IN_READ')) {
+      unsubs.push(subscribeToTradeIns(items => setTradeIns(items || []), scope));
+    } else {
+      setTradeIns([]);
+    }
+    if (hasPermission(role, 'INVOICE_READ')) {
+      unsubs.push(subscribeToInvoices(items => setInvoices(items || []), scope));
+    } else {
+      setInvoices([]);
+    }
+    if (hasPermission(role, 'PARTNER_DIRECTORY_READ')) {
+      unsubs.push(subscribeToPartners(items => setPartners(items || []), scope));
+    } else {
+      setPartners([]);
+    }
     if (hasPermission(role, 'FINANCE_VIEW')) {
       unsubs.push(
         subscribeToFunds(items => setFunds(items || []), scope),

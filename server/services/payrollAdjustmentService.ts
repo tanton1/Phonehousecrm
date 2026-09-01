@@ -2,6 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { parseVnd } from '../utils/financeIntegrity';
 import { assertPayrollPeriodsOpen } from './payrollPeriodLockService';
 import type { PayrollActor } from './payrollService';
+import { assertValidPayrollHomeBranch } from './payrollStaffIdentity';
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const TYPES = new Set(['EARNING', 'DEDUCTION']);
@@ -61,8 +62,10 @@ export async function createPayrollAdjustment(
     const staffSnapshot = await transaction.get(staffRef);
     if (!staffSnapshot.exists || staffSnapshot.data()?.active === false) throw new Error('PAYROLL_ADJUSTMENT_STAFF_NOT_FOUND');
     const staff = staffSnapshot.data()!;
-    const branchId = String(staff.branchId || '').trim();
+    const branchId = assertValidPayrollHomeBranch(staff);
     if (!branchId || !actorCanAccessBranch(actor, branchId)) throw new Error('PAYROLL_ADJUSTMENT_BRANCH_FORBIDDEN');
+    const staffLock = await transaction.get(db.collection('payrollStaffLocks').doc(`${period}_${staffUid}`));
+    if (staffLock.exists) throw new Error('PAYROLL_STAFF_ALREADY_LOCKED: Kỳ lương nhân viên đã được duyệt.');
     await assertPayrollPeriodsOpen(transaction, db, branchId, [period]);
     const now = new Date().toISOString();
     result = {

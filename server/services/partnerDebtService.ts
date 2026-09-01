@@ -1,12 +1,20 @@
 import crypto from 'node:crypto';
 import { Firestore } from 'firebase-admin/firestore';
 import {
+  assertDebtOpenItemScope,
   assertPartnerForBranch,
+  debtOpenItemAllocationKey,
+  debtOpenItemId,
   debtLedgerEntry,
   newBranchPartyAccountRecord,
+  newDebtOpenItemRecord,
   newPartyMasterRecord,
-  resolvePartyIdentity
+  resolvePartyIdentity,
+  settleDebtOpenItemRecord,
+  type DebtDirection,
+  type DebtOpenItemSourceType
 } from './branchPartyService';
+import { parseVnd } from '../utils/financeIntegrity';
 
 export type PartnerDebtSettlementDirection = 'PAYMENT' | 'RECEIPT';
 
@@ -28,7 +36,7 @@ export interface PartnerDebtSettlementInput {
 }
 
 export interface PartnerDebtAllocation {
-  sourceType: 'PURCHASE_ORDER' | 'INVOICE';
+  sourceType: DebtOpenItemSourceType;
   sourceId: string;
   sourceCode: string;
   amount: number;
@@ -56,6 +64,12 @@ function canAccessBranch(actor: PartnerDebtActor, branchId: string): boolean {
 function requireWholeVnd(value: unknown, errorCode: string): number {
   const amount = Number(value);
   if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error(errorCode);
+  return amount;
+}
+
+function requireNonNegativeWholeVnd(value: unknown, errorCode: string): number {
+  const amount = Number(value);
+  if (!Number.isSafeInteger(amount) || amount < 0) throw new Error(errorCode);
   return amount;
 }
 
@@ -88,7 +102,7 @@ export function validatePartnerDebtSettlementInput(raw: Partial<PartnerDebtSettl
     partnerId,
     fundId,
     direction,
-    amount: requireWholeVnd(raw.amount, 'PARTNER_DEBT_AMOUNT_INVALID'),
+    amount: parseVnd(raw.amount, { field: 'PARTNER_DEBT_AMOUNT' }),
     note: String(raw.note || '').trim().slice(0, 500),
     idempotencyKey
   };
@@ -125,9 +139,13 @@ export async function processPartnerDebtSettlement(
 
     const partner = partnerSnap.data()!;
     const fund = fundSnap.data()!;
+    const branchId = String(fund.branchId || '').trim();
+    if (!canAccessBranch(actor, branchId)) throw new Error('PARTNER_DEBT_BRANCH_FORBIDDEN');
     if (idemSnap.exists) {
       const idem = idemSnap.data()!;
-      if (idem.payloadHash !== payloadHash) throw new Error('PARTNER_DEBT_IDEMPOTENCY_CONFLICT');
+      if (idem.payloadHash !== payloadHash || String(idem.actorUid || '') !== actor.uid || String(idem.branchId || '') !== branchId) {
+        throw new Error('PARTNER_DEBT_IDEMPOTENCY_CONFLICT');
+      }
       return {
         settlementId,
         partner: { id: partnerSnap.id, ...partner },
@@ -139,8 +157,6 @@ export async function processPartnerDebtSettlement(
       };
     }
 
-    const branchId = String(fund.branchId || '').trim();
-    if (!canAccessBranch(actor, branchId)) throw new Error('PARTNER_DEBT_BRANCH_FORBIDDEN');
     if (fund.isActive === false || fund.active === false || fund.isArchived === true) throw new Error('PARTNER_DEBT_FUND_INACTIVE');
     if (!['CASH', 'BANK'].includes(String(fund.type || '').toUpperCase())) throw new Error('PARTNER_DEBT_FUND_TYPE_INVALID');
 
@@ -175,32 +191,254 @@ export async function processPartnerDebtSettlement(
       if (account.status === 'ARCHIVED' || account.status === 'INACTIVE') throw new Error('PARTNER_DEBT_ACCOUNT_INACTIVE');
     }
 
-    const currentDebt = Number(partner.outstandingDebt || 0);
-    if (!Number.isSafeInteger(currentDebt) || currentDebt < input.amount) throw new Error('PARTNER_DEBT_AMOUNT_EXCEEDS_BALANCE');
-    const currentFundBalance = Number(fund.currentBalance || 0);
-    if (!Number.isSafeInteger(currentFundBalance) || currentFundBalance < 0) throw new Error('PARTNER_DEBT_FUND_BALANCE_INVALID');
+    const currentFundBalance = parseVnd(fund.currentBalance ?? 0, {
+      allowZero: true,
+      field: 'PARTNER_DEBT_FUND_BALANCE',
+      max: Number.MAX_SAFE_INTEGER
+    });
     if (input.direction === 'PAYMENT' && currentFundBalance < input.amount) throw new Error('INSUFFICIENT_FUNDS');
 
-    const sourceCollection = input.direction === 'PAYMENT' ? 'purchaseOrders' : 'invoices';
-    const partnerField = input.direction === 'PAYMENT' ? 'supplierId' : 'customerId';
-    const sourceSnap = await transaction.get(db.collection(sourceCollection).where(partnerField, '==', input.partnerId));
-    const openSources = sourceSnap.docs
-      .map(doc => ({ doc, data: doc.data() }))
-      .filter(({ data }) => {
-        const status = String(data.status || '').toUpperCase();
-        return String(data.branchId || '') === branchId && Number(data.debtAmount || 0) > 0 && !['CANCELLED', 'REVERSED'].includes(status);
-      })
-      .sort((a, b) => sourceDate(a.data) - sourceDate(b.data) || a.doc.id.localeCompare(b.doc.id));
+    const debtDirection: DebtDirection = input.direction === 'PAYMENT' ? 'PAYABLE' : 'RECEIVABLE';
+    const allocationKey = debtOpenItemAllocationKey(partnerIdentity.branchPartyAccountId, debtDirection);
+    const openItemQuery = db.collection('debtOpenItems').where('allocationKey', '==', allocationKey).limit(101);
+    const openItemSnap = await transaction.get(openItemQuery);
+    const emptyQuerySnapshot = { docs: [] as any[] };
+    // Always discover open legacy source documents as well as canonical items.
+    // During rollout a partner can legitimately have both: skipping these
+    // queries as soon as one canonical item exists makes the remaining balance
+    // impossible to settle. sourceDocuments below de-duplicates by type + id,
+    // while deterministic open-item reads prevent an already-closed item from
+    // being recreated.
+    const [purchaseSourceSnap, invoiceSourceSnap, technicalSourceSnap] = await Promise.all([
+      input.direction === 'PAYMENT'
+        ? transaction.get(db.collection('purchaseOrders').where('supplierId', '==', input.partnerId).where('debtAmount', '>', 0).limit(101))
+        : Promise.resolve(emptyQuerySnapshot),
+      input.direction === 'RECEIPT'
+        ? transaction.get(db.collection('invoices').where('customerId', '==', input.partnerId).where('debtAmount', '>', 0).limit(101))
+        : Promise.resolve(emptyQuerySnapshot),
+      input.direction === 'RECEIPT'
+        ? transaction.get(db.collection('technicalWorkOrders').where('customerId', '==', input.partnerId).where('balanceDue', '>', 0).limit(101))
+        : Promise.resolve(emptyQuerySnapshot)
+    ]);
+    if (openItemSnap.docs.length > 100 || purchaseSourceSnap.docs.length > 100 || invoiceSourceSnap.docs.length > 100 || technicalSourceSnap.docs.length > 100) {
+      throw new Error('PARTNER_DEBT_TOO_MANY_REFERENCES');
+    }
+
+    type CanonicalSource = {
+      sourceType: DebtOpenItemSourceType;
+      doc: any;
+      data: any;
+      debtAmount: number;
+      openItemRef: any;
+      openItem: any;
+      openItemExists: boolean;
+      occurredAt: string;
+    };
+    const sourceDocuments = new Map<string, { sourceType: DebtOpenItemSourceType; doc: any; data: any }>();
+    const addSourceDocuments = (sourceType: DebtOpenItemSourceType, docs: any[]) => docs.forEach(doc => {
+      sourceDocuments.set(`${sourceType}:${doc.id}`, { sourceType, doc, data: doc.data() });
+    });
+    addSourceDocuments('PURCHASE_ORDER', purchaseSourceSnap.docs);
+    addSourceDocuments('INVOICE', invoiceSourceSnap.docs);
+    addSourceDocuments('TECHNICAL_WORK_ORDER', technicalSourceSnap.docs);
+
+    const existingOpenItems = new Map<string, { doc: any; data: any }>();
+    for (const doc of openItemSnap.docs) {
+      const item = doc.data();
+      const sourceType = String(item.sourceType || '') as DebtOpenItemSourceType;
+      if (!['PURCHASE_ORDER', 'INVOICE', 'TECHNICAL_WORK_ORDER'].includes(sourceType)) {
+        throw new Error('PARTNER_DEBT_OPEN_ITEM_SOURCE_UNSUPPORTED');
+      }
+      const sourceId = String(item.sourceId || item.sourceDocumentId || '').trim();
+      if (!sourceId) throw new Error('PARTNER_DEBT_OPEN_ITEM_SOURCE_INVALID');
+      const openItemSourceKey = `${sourceType}:${sourceId}`;
+      if (existingOpenItems.has(openItemSourceKey)) {
+        throw new Error('PARTNER_DEBT_OPEN_ITEM_DUPLICATE: Một chứng từ đang có nhiều open-item; cần chạy đối soát trước khi thu/chi công nợ.');
+      }
+      existingOpenItems.set(openItemSourceKey, { doc, data: item });
+      if (!sourceDocuments.has(openItemSourceKey)) {
+        const collection = sourceType === 'PURCHASE_ORDER' ? 'purchaseOrders'
+          : sourceType === 'INVOICE' ? 'invoices' : 'technicalWorkOrders';
+        const sourceDoc = await transaction.get(db.collection(collection).doc(sourceId));
+        if (!sourceDoc.exists) throw new Error('PARTNER_DEBT_OPEN_ITEM_SOURCE_NOT_FOUND');
+        sourceDocuments.set(openItemSourceKey, { sourceType, doc: sourceDoc, data: sourceDoc.data() });
+      }
+    }
+    if (sourceDocuments.size > 100) throw new Error('PARTNER_DEBT_TOO_MANY_REFERENCES');
+    // Closed legacy items no longer carry allocationKey, so the account-level
+    // query above cannot see them. Discover every item attached to each source
+    // through both field names used during the rollout. This must happen before
+    // the deterministic document read; otherwise an already-settled legacy item
+    // could be silently recreated under the canonical ID and reopen the debt.
+    const sourceOpenItemResults = await Promise.all([...sourceDocuments.values()].map(async source => {
+      const [sourceIdSnap, sourceDocumentIdSnap] = await Promise.all([
+        transaction.get(db.collection('debtOpenItems')
+          .where('sourceType', '==', source.sourceType)
+          .where('sourceId', '==', source.doc.id)
+          .limit(3)),
+        transaction.get(db.collection('debtOpenItems')
+          .where('sourceType', '==', source.sourceType)
+          .where('sourceDocumentId', '==', source.doc.id)
+          .limit(3))
+      ]);
+      return { source, docs: [...sourceIdSnap.docs, ...sourceDocumentIdSnap.docs] };
+    }));
+    for (const { source, docs } of sourceOpenItemResults) {
+      const key = `${source.sourceType}:${source.doc.id}`;
+      const uniqueDocs = new Map<string, any>();
+      for (const doc of docs) uniqueDocs.set(doc.id, doc);
+      const allocationItem = existingOpenItems.get(key);
+      if (allocationItem) uniqueDocs.set(allocationItem.doc.id, allocationItem.doc);
+      if (uniqueDocs.size > 1) {
+        throw new Error('PARTNER_DEBT_OPEN_ITEM_DUPLICATE: Một chứng từ đang có nhiều open-item; cần chạy đối soát trước khi thu/chi công nợ.');
+      }
+      const discovered = [...uniqueDocs.values()][0];
+      if (discovered) existingOpenItems.set(key, { doc: discovered, data: discovered.data() });
+    }
+    // Always read the deterministic document too. A closed or malformed item
+    // intentionally has no allocationKey and must never be silently overwritten
+    // (which would reopen already-settled debt).
+    for (const [key, source] of sourceDocuments) {
+      const deterministicRef = db.collection('debtOpenItems').doc(
+        debtOpenItemId(source.sourceType, source.doc.id, debtDirection)
+      );
+      const deterministicSnap = await transaction.get(deterministicRef);
+      const existing = existingOpenItems.get(key);
+      if (existing) {
+        if (existing.doc.id !== deterministicRef.id) {
+          if (deterministicSnap.exists) {
+            throw new Error('PARTNER_DEBT_OPEN_ITEM_DUPLICATE: Một chứng từ đang có cả open-item legacy và canonical; cần chạy đối soát trước khi thu/chi công nợ.');
+          }
+          throw new Error('PARTNER_DEBT_OPEN_ITEM_MIGRATION_REQUIRED: Open-item legacy phải được chuyển sang ID canonical bằng công cụ đối soát trước khi thu/chi công nợ.');
+        }
+        continue;
+      }
+      if (deterministicSnap.exists) existingOpenItems.set(key, { doc: deterministicSnap, data: deterministicSnap.data() });
+    }
+
+    const migrationNow = new Date().toISOString();
+    const canonicalSources: CanonicalSource[] = [];
+    for (const [key, source] of sourceDocuments) {
+      const status = String(source.data.status || '').toUpperCase();
+      const expectedPartnerId = source.sourceType === 'PURCHASE_ORDER'
+        ? String(source.data.supplierId || '')
+        : String(source.data.customerId || '');
+      const debtAmountValue = source.sourceType === 'TECHNICAL_WORK_ORDER'
+        ? source.data.balanceDue
+        : source.data.debtAmount;
+      const debtAmount = Number(debtAmountValue || 0);
+      const hasExistingOpenItem = existingOpenItems.has(key);
+      if (String(source.data.branchId || '') !== branchId || expectedPartnerId !== input.partnerId) {
+        if (hasExistingOpenItem) throw new Error('PARTNER_DEBT_OPEN_ITEM_SOURCE_SCOPE_MISMATCH');
+        continue;
+      }
+      if (['CANCELLED', 'REVERSED'].includes(status) || debtAmount <= 0) {
+        if (hasExistingOpenItem) {
+          const closedItem = existingOpenItems.get(key)!.data;
+          assertDebtOpenItemScope(closedItem, {
+            branchId,
+            partyAccountId: partnerIdentity.branchPartyAccountId,
+            partyMasterId: partnerIdentity.partyMasterId,
+            legacyPartnerId: input.partnerId,
+            direction: debtDirection,
+            sourceType: source.sourceType,
+            sourceDocumentId: source.doc.id,
+            openAmount: 0
+          });
+        }
+        continue;
+      }
+      const normalizedDebtAmount = requireWholeVnd(debtAmount, 'PARTNER_DEBT_SOURCE_AMOUNT_INVALID');
+      const existing = existingOpenItems.get(key);
+      const sourceCode = String(source.data.code || source.data.invoiceCode || source.doc.id);
+      const settledFromCollections = source.sourceType === 'INVOICE'
+        ? (Array.isArray(source.data.debtCollections) ? source.data.debtCollections : []).reduce((sum: number, entry: any) => {
+          const amount = requireNonNegativeWholeVnd(entry?.amount || 0, 'PARTNER_DEBT_SOURCE_AMOUNT_INVALID');
+          const next = sum + amount;
+          if (!Number.isSafeInteger(next)) throw new Error('PARTNER_DEBT_SOURCE_AMOUNT_INVALID');
+          return next;
+        }, 0)
+        : requireNonNegativeWholeVnd(source.data.paidAmount || 0, 'PARTNER_DEBT_SOURCE_AMOUNT_INVALID');
+      const occurredAtRaw = source.data.orderDate || source.data.deliveredAt || source.data.createdAt || source.data.date;
+      const occurredAt = typeof occurredAtRaw === 'string' && occurredAtRaw ? occurredAtRaw : migrationNow;
+      const openItem = existing?.data || newDebtOpenItemRecord({
+        branchId,
+        partyAccountId: partnerIdentity.branchPartyAccountId,
+        partyMasterId: partnerIdentity.partyMasterId,
+        legacyPartnerId: input.partnerId,
+        direction: debtDirection,
+        sourceType: source.sourceType,
+        sourceDocumentId: source.doc.id,
+        sourceDocumentCode: sourceCode,
+        originalAmount: settledFromCollections + normalizedDebtAmount,
+        settledAmount: settledFromCollections,
+        actorUid: actor.uid,
+        occurredAt
+      });
+      assertDebtOpenItemScope(openItem, {
+        branchId,
+        partyAccountId: partnerIdentity.branchPartyAccountId,
+        partyMasterId: partnerIdentity.partyMasterId,
+        legacyPartnerId: input.partnerId,
+        direction: debtDirection,
+        sourceType: source.sourceType,
+        sourceDocumentId: source.doc.id,
+        openAmount: normalizedDebtAmount
+      });
+      canonicalSources.push({
+        ...source,
+        debtAmount: normalizedDebtAmount,
+        openItemRef: db.collection('debtOpenItems').doc(debtOpenItemId(source.sourceType, source.doc.id, debtDirection)),
+        openItem,
+        openItemExists: Boolean(existing),
+        occurredAt
+      });
+    }
+    canonicalSources.sort((a, b) => sourceDate({ createdAt: a.occurredAt }) - sourceDate({ createdAt: b.occurredAt }) || a.doc.id.localeCompare(b.doc.id));
+    const openSourceDebt = canonicalSources.reduce((total, source) => {
+      const next = total + source.debtAmount;
+      if (!Number.isSafeInteger(next)) throw new Error('PARTNER_DEBT_SOURCE_AMOUNT_INVALID');
+      return next;
+    }, 0);
+    const balanceField = input.direction === 'PAYMENT' ? 'payableBalance' : 'receivableBalance';
+    let currentPayableBalance = 0;
+    let currentReceivableBalance = 0;
+    if (branchPartyAccountSnap.exists) {
+      const account = branchPartyAccountSnap.data()!;
+      currentPayableBalance = requireNonNegativeWholeVnd(
+        account.payableBalance || 0,
+        'PARTNER_DEBT_ACCOUNT_BALANCE_INVALID'
+      );
+      currentReceivableBalance = requireNonNegativeWholeVnd(
+        account.receivableBalance || 0,
+        'PARTNER_DEBT_ACCOUNT_BALANCE_INVALID'
+      );
+    } else {
+      if (partnerType === 'BOTH') throw new Error('PARTNER_DEBT_ACCOUNT_REQUIRED_FOR_BOTH');
+      if (input.direction === 'PAYMENT') currentPayableBalance = openSourceDebt;
+      else currentReceivableBalance = openSourceDebt;
+    }
+    const currentDirectionalBalance = input.direction === 'PAYMENT'
+      ? currentPayableBalance
+      : currentReceivableBalance;
+    if (currentDirectionalBalance < openSourceDebt) {
+      throw new Error('PARTNER_DEBT_ACCOUNT_BALANCE_MISMATCH');
+    }
+    if (currentDirectionalBalance > openSourceDebt) {
+      throw new Error('PARTNER_DEBT_OPEN_ITEMS_INCOMPLETE');
+    }
+    if (input.amount > currentDirectionalBalance) throw new Error('PARTNER_DEBT_AMOUNT_EXCEEDS_BALANCE');
+    if (input.amount > openSourceDebt) throw new Error('PARTNER_DEBT_SOURCE_BALANCE_MISMATCH');
 
     let remaining = input.amount;
     const allocations: PartnerDebtAllocation[] = [];
-    for (const source of openSources) {
+    for (const source of canonicalSources) {
       if (remaining <= 0) break;
       if (allocations.length >= 100) throw new Error('PARTNER_DEBT_TOO_MANY_REFERENCES');
-      const sourceDebt = requireWholeVnd(source.data.debtAmount, 'PARTNER_DEBT_SOURCE_AMOUNT_INVALID');
+      const sourceDebt = source.debtAmount;
       const allocatedAmount = Math.min(sourceDebt, remaining);
       allocations.push({
-        sourceType: input.direction === 'PAYMENT' ? 'PURCHASE_ORDER' : 'INVOICE',
+        sourceType: source.sourceType,
         sourceId: source.doc.id,
         sourceCode: String(source.data.code || source.data.invoiceCode || source.doc.id),
         amount: allocatedAmount,
@@ -210,8 +448,16 @@ export async function processPartnerDebtSettlement(
       });
       remaining -= allocatedAmount;
     }
+    if (remaining !== 0) throw new Error('PARTNER_DEBT_SOURCE_BALANCE_MISMATCH');
 
-    const now = new Date().toISOString();
+    const nextPayableBalance = input.direction === 'PAYMENT'
+      ? currentPayableBalance - input.amount
+      : currentPayableBalance;
+    const nextReceivableBalance = input.direction === 'RECEIPT'
+      ? currentReceivableBalance - input.amount
+      : currentReceivableBalance;
+
+    const now = migrationNow;
     const cashCode = `${input.direction === 'PAYMENT' ? 'PC' : 'PT'}-NO-${idempotencyId.slice(0, 8).toUpperCase()}`;
     const note = input.note || (input.direction === 'PAYMENT'
       ? `Thanh toán công nợ nhà cung cấp ${partner.name || input.partnerId}`
@@ -257,16 +503,21 @@ export async function processPartnerDebtSettlement(
       allocatedReferences: allocations
     };
 
-    for (const allocation of allocations) {
-      const source = openSources.find(item => item.doc.id === allocation.sourceId)!;
+    for (const source of canonicalSources) {
+      const allocation = allocations.find(item => item.sourceType === source.sourceType && item.sourceId === source.doc.id);
+      if (!allocation) {
+        if (!source.openItemExists) transaction.set(source.openItemRef, source.openItem);
+        continue;
+      }
       const debtSettlementIds = [...new Set([...(Array.isArray(source.data.debtSettlementIds) ? source.data.debtSettlementIds : []), settlementId])];
       const sourceUpdate: any = {
-        debtAmount: allocation.remainingDebt,
         paidAmount: allocation.paidAmount,
         paymentStatus: allocation.paymentStatus,
         debtSettlementIds,
         updatedAt: now
       };
+      if (allocation.sourceType === 'TECHNICAL_WORK_ORDER') sourceUpdate.balanceDue = allocation.remainingDebt;
+      else sourceUpdate.debtAmount = allocation.remainingDebt;
       if (allocation.sourceType === 'PURCHASE_ORDER') {
         sourceUpdate.paymentAllocations = [
           ...(Array.isArray(source.data.paymentAllocations) ? source.data.paymentAllocations : []),
@@ -294,20 +545,76 @@ export async function processPartnerDebtSettlement(
         ];
       }
       transaction.update(source.doc.ref, sourceUpdate);
+      if (allocation.sourceType === 'TECHNICAL_WORK_ORDER') {
+        const repairPaymentId = `REPAIR_PAYMENT_${settlementId}_${allocation.sourceId}`;
+        transaction.set(db.collection('repairPayments').doc(repairPaymentId), {
+          id: repairPaymentId,
+          workOrderId: allocation.sourceId,
+          workOrderCode: allocation.sourceCode,
+          branchId,
+          customerId: input.partnerId,
+          customerName: partner.name || source.data.customerName || '',
+          partyMasterId: partnerIdentity.partyMasterId,
+          branchPartyAccountId: partnerIdentity.branchPartyAccountId,
+          amount: allocation.amount,
+          paymentMethod: String(fund.type || '').toUpperCase() === 'CASH' ? 'CASH' : 'BANK',
+          fundId: input.fundId,
+          partnerDebtSettlementId: settlementId,
+          collectedByUid: actor.uid,
+          collectedByName: actor.name || actor.uid,
+          collectedAt: now,
+          note,
+          status: 'PAID',
+          createdAt: now
+        });
+      }
+      transaction.set(source.openItemRef, {
+        ...source.openItem,
+        ...settleDebtOpenItemRecord(source.openItem, allocation.amount, {
+          settlementId,
+          actorUid: actor.uid,
+          occurredAt: now
+        })
+      });
     }
 
+    const currentTotalExpense = parseVnd(fund.totalExpense ?? 0, {
+      allowZero: true,
+      field: 'PARTNER_DEBT_FUND_TOTAL_EXPENSE',
+      max: Number.MAX_SAFE_INTEGER
+    });
+    const currentTotalIncome = parseVnd(fund.totalIncome ?? 0, {
+      allowZero: true,
+      field: 'PARTNER_DEBT_FUND_TOTAL_INCOME',
+      max: Number.MAX_SAFE_INTEGER
+    });
+    const nextFundBalance = input.direction === 'PAYMENT'
+      ? currentFundBalance - input.amount
+      : currentFundBalance + input.amount;
+    const nextTotalExpense = currentTotalExpense + (input.direction === 'PAYMENT' ? input.amount : 0);
+    const nextTotalIncome = currentTotalIncome + (input.direction === 'RECEIPT' ? input.amount : 0);
+    parseVnd(nextFundBalance, { allowZero: true, field: 'PARTNER_DEBT_FUND_BALANCE', max: Number.MAX_SAFE_INTEGER });
+    parseVnd(nextTotalExpense, { allowZero: true, field: 'PARTNER_DEBT_FUND_TOTAL_EXPENSE', max: Number.MAX_SAFE_INTEGER });
+    parseVnd(nextTotalIncome, { allowZero: true, field: 'PARTNER_DEBT_FUND_TOTAL_INCOME', max: Number.MAX_SAFE_INTEGER });
     const nextFund = {
       ...fund,
       id: fundSnap.id,
-      currentBalance: input.direction === 'PAYMENT' ? currentFundBalance - input.amount : currentFundBalance + input.amount,
-      totalExpense: Number(fund.totalExpense || 0) + (input.direction === 'PAYMENT' ? input.amount : 0),
-      totalIncome: Number(fund.totalIncome || 0) + (input.direction === 'RECEIPT' ? input.amount : 0),
+      currentBalance: nextFundBalance,
+      totalExpense: nextTotalExpense,
+      totalIncome: nextTotalIncome,
       updatedAt: now
     };
     const nextPartner = {
       ...partner,
       id: partnerSnap.id,
-      outstandingDebt: currentDebt - input.amount,
+      // outstandingDebt is retained as a legacy read projection only. BOTH is
+      // represented as gross exposure so reducing one direction never hides or
+      // mutates the other; all mutations validate the directional account.
+      outstandingDebt: partnerType === 'BOTH'
+        ? nextPayableBalance + nextReceivableBalance
+        : input.direction === 'PAYMENT' ? nextPayableBalance : nextReceivableBalance,
+      payableOutstandingDebt: nextPayableBalance,
+      receivableOutstandingDebt: nextReceivableBalance,
       debtTransactions: [debtTransaction, ...(Array.isArray(partner.debtTransactions) ? partner.debtTransactions : [])].slice(0, 200),
       lastInteraction: now.slice(0, 10),
       updatedAt: now
@@ -322,6 +629,8 @@ export async function processPartnerDebtSettlement(
       partyMasterId: partnerIdentity.partyMasterId,
       branchPartyAccountId: partnerIdentity.branchPartyAccountId,
       outstandingDebt: nextPartner.outstandingDebt,
+      payableOutstandingDebt: nextPartner.payableOutstandingDebt,
+      receivableOutstandingDebt: nextPartner.receivableOutstandingDebt,
       debtTransactions: nextPartner.debtTransactions,
       lastInteraction: nextPartner.lastInteraction,
       updatedAt: now
@@ -330,19 +639,14 @@ export async function processPartnerDebtSettlement(
       transaction.set(partyMasterRef, newPartyMasterRecord({ id: partnerSnap.id, ...partner }, partnerIdentity, actor.uid, now));
     }
     const account = branchPartyAccountSnap.exists ? branchPartyAccountSnap.data()! : null;
-    const balanceField = input.direction === 'PAYMENT' ? 'payableBalance' : 'receivableBalance';
     if (!account) {
       transaction.set(branchPartyAccountRef, newBranchPartyAccountRecord(
         { id: partnerSnap.id, ...partner }, branchId, partnerIdentity, actor.uid, now,
-        input.direction === 'PAYMENT'
-          ? { payableBalance: nextPartner.outstandingDebt }
-          : { receivableBalance: nextPartner.outstandingDebt }
+        { payableBalance: nextPayableBalance, receivableBalance: nextReceivableBalance }
       ));
     } else {
-      const accountBalance = Number(account[balanceField] || 0);
-      if (!Number.isSafeInteger(accountBalance) || accountBalance + 1 < input.amount) throw new Error('PARTNER_DEBT_ACCOUNT_BALANCE_MISMATCH');
       transaction.update(branchPartyAccountRef, {
-        [balanceField]: Math.max(0, accountBalance - input.amount),
+        [balanceField]: input.direction === 'PAYMENT' ? nextPayableBalance : nextReceivableBalance,
         updatedAt: now,
         updatedByUid: actor.uid
       });
@@ -375,6 +679,9 @@ export async function processPartnerDebtSettlement(
       fundId: input.fundId,
       direction: input.direction,
       amount: input.amount,
+      balanceField,
+      canonicalBalanceBefore: currentDirectionalBalance,
+      canonicalBalanceAfter: input.direction === 'PAYMENT' ? nextPayableBalance : nextReceivableBalance,
       allocations,
       unallocatedAmount: remaining,
       cashTransactionId,
@@ -390,6 +697,7 @@ export async function processPartnerDebtSettlement(
       cashTransaction,
       allocations,
       unallocatedAmount: remaining,
+      branchId,
       createdAt: now,
       actorUid: actor.uid
     });

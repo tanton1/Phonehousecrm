@@ -92,6 +92,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
     phone: '',
     role: 'SALES' as UserRole,
     branchId: defaultBranchId,
+    payrollBranchId: '',
     assignedBranchIds: [] as string[],
     password: '',
     notes: '',
@@ -129,7 +130,10 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       return {
         ...prev,
         assignedBranchIds: newAssigned,
-        branchId: newAssigned[0] || prev.branchId
+        branchId: newAssigned[0] || prev.branchId,
+        payrollBranchId: newAssigned.includes(prev.payrollBranchId)
+          ? prev.payrollBranchId
+          : (newAssigned[0] || '')
       };
     });
   };
@@ -142,6 +146,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       phone: '',
       role: 'SALES',
       branchId: '',
+      payrollBranchId: '',
       assignedBranchIds: [],
       password: '',
       notes: '',
@@ -166,6 +171,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       phone: user.phone || '',
       role: user.role,
       branchId: user.branchId || userBranchIds[0] || '',
+      payrollBranchId: user.payrollBranchId || (userBranchIds.length === 1 ? userBranchIds[0] : ''),
       assignedBranchIds: userBranchIds,
       password: '',
       notes: user.notes || '',
@@ -203,6 +209,10 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
       setSubmitMessage({ type: 'error', text: 'Vui lòng chọn ít nhất 1 địa chỉ / chi nhánh làm việc.' });
       return;
     }
+    if (!formData.payrollBranchId || !formData.assignedBranchIds.includes(formData.payrollBranchId)) {
+      setSubmitMessage({ type: 'error', text: 'Vui lòng chọn một chi nhánh trả lương chính trong các địa điểm làm việc.' });
+      return;
+    }
 
     setIsSubmitting(true);
     setSubmitMessage(null);
@@ -222,6 +232,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
           phone: formData.phone,
           role: formData.role,
           branchId: formData.assignedBranchIds[0] || formData.branchId,
+          payrollBranchId: formData.payrollBranchId,
           assignedBranchIds: formData.assignedBranchIds,
           workplaceAddresses: selectedAddresses,
           notes: formData.notes,
@@ -238,6 +249,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             uid: editingUser.id,
             role: updated.role,
             branchId: updated.branchId,
+            payrollBranchId: updated.payrollBranchId,
             active: updated.active,
             displayName: updated.displayName,
             phone: updated.phone,
@@ -274,6 +286,7 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
             phone: formData.phone,
             role: formData.role,
             branchId: formData.assignedBranchIds[0] || formData.branchId,
+            payrollBranchId: formData.payrollBranchId,
             assignedBranchIds: formData.assignedBranchIds,
             workplaceAddresses: selectedAddresses,
             notes: formData.notes
@@ -791,6 +804,22 @@ export const UserManagementView: React.FC<UserManagementViewProps> = ({
                 <p className="text-[11px] text-zinc-500 leading-snug">
                   Chọn địa điểm nhân viên được phép trực ca và chấm công bằng GPS kèm ảnh tại chỗ:
                 </p>
+
+                <label className="block rounded-xl border border-orange-200 bg-white p-3">
+                  <span className="mb-1 block text-xs font-black text-orange-950">Chi nhánh trả lương chính</span>
+                  <select
+                    required
+                    value={formData.payrollBranchId}
+                    onChange={(event) => setFormData({ ...formData, payrollBranchId: event.target.value })}
+                    className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-bold text-zinc-900 focus:border-orange-500 focus:outline-hidden"
+                  >
+                    <option value="">Chọn chi nhánh trả lương</option>
+                    {availableBranches
+                      .filter((branch) => formData.assignedBranchIds.includes(branch.id))
+                      .map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                  </select>
+                  <span className="mt-1.5 block text-[10px] font-semibold leading-4 text-zinc-500">Lương cơ bản và hoa hồng phát sinh ở các chi nhánh khác được gom đúng một lần về kỳ lương này.</span>
+                </label>
 
                 <div className="space-y-1.5 pt-1">
                   {availableBranches.map((branch) => {

@@ -236,10 +236,20 @@ export async function fetchInventoryAccessoryBalances(
   currentUser?: UserAccount,
   warehouseId?: string
 ): Promise<InventoryAccessoryBalanceRow[]> {
-  const params = new URLSearchParams();
-  if (warehouseId) params.set('warehouseId', warehouseId);
-  const query = params.toString();
-  return sendInventoryRequest(`stock-items/accessories${query ? `?${query}` : ''}`, 'GET', undefined, currentUser);
+  const rows: InventoryAccessoryBalanceRow[] = [];
+  let cursor = '';
+  for (let page = 0; page < 200; page++) {
+    const params = new URLSearchParams({ limit: '500' });
+    if (warehouseId) params.set('warehouseId', warehouseId);
+    if (cursor) params.set('cursor', cursor);
+    const result = await sendInventoryRequest<{ items: InventoryAccessoryBalanceRow[]; nextCursor: string | null; hasMore: boolean }>(
+      `stock-items/accessories?${params.toString()}`, 'GET', undefined, currentUser
+    );
+    rows.push(...(result.items || []));
+    if (!result.hasMore || !result.nextCursor) return rows;
+    cursor = result.nextCursor;
+  }
+  throw new Error('INVENTORY_ACCESSORY_PAGINATION_LIMIT_EXCEEDED');
 }
 
 export async function fetchInventoryAccessoryTrace(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allocatePurchaseLandedCosts, assertPurchaseDeviceCanBeCancelled, processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, processPurchaseOrderReceipt, validatePurchaseReceiptInput } from '../server/services/purchaseOrderReceiptService';
 import { imeiRegistryId } from '../server/services/inventoryDeviceService';
+import { debtOpenItemId } from '../server/services/branchPartyService';
 
 const actor = { uid: 'ADMIN_01', name: 'Admin', role: 'ADMIN', branchId: 'CN01' };
 
@@ -267,6 +268,10 @@ describe('Atomic supplier purchase receipt validation', () => {
     });
     expect(data.get('debtLedgerEntries/DLE_PO_PO_PART_01_PURCHASE')).toMatchObject({ debitIncrease: 800_000, direction: 'PAYABLE' });
     expect(data.get('debtLedgerEntries/DLE_PO_PO_PART_01_INITIAL_PAYMENT')).toMatchObject({ creditDecrease: 800_000, direction: 'PAYABLE' });
+    expect(data.get(`debtOpenItems/${debtOpenItemId('PURCHASE_ORDER', 'PO_PART_01', 'PAYABLE')}`)).toMatchObject({
+      sourceType: 'PURCHASE_ORDER', sourceId: 'PO_PART_01', originalAmount: 800_000,
+      settledAmount: 800_000, openAmount: 0, status: 'SETTLED', isOpen: false
+    });
   });
 
   it('rejects a total that does not equal IMEI cost minus discount plus fees', () => {
@@ -377,8 +382,12 @@ describe('Purchase receipt cancellation rollback', () => {
     const result = await processCancelPurchaseOrderReceipt(db, 'PO_01', actor, 'Nhập nhầm');
     expect(result.removedDeviceIds).toEqual(['DEV_01']);
     expect(data.has('devices/DEV_01')).toBe(false);
-    expect(data.has(`imeiRegistry/${imeiRegistryId('12345')}`)).toBe(false);
-    expect(data.get('inventoryMovements/MOV_01')).toMatchObject({ movementType: 'STOCK_RECEIPT_CANCELLED', reversed: true });
+    expect(data.get(`imeiRegistry/${imeiRegistryId('12345')}`)).toMatchObject({ status: 'VOIDED', deviceId: 'DEV_01' });
+    expect(data.get('inventoryDeviceTombstones/DEV_01')).toMatchObject({ lifecycleStatus: 'VOIDED', voidedBySourceId: 'PO_01' });
+    expect(data.get('inventoryMovements/MOV_01')).toMatchObject({ movementType: 'STOCK_RECEIPT' });
+    expect(data.get('inventoryMovements/MOV_REV_PURCHASE_PO_01_1')).toMatchObject({
+      movementType: 'STOCK_RECEIPT_REVERSAL', reversalOfMovementId: 'MOV_01', sourceId: 'PO_01'
+    });
     expect(data.get('funds/FUND_CN01')).toMatchObject({ currentBalance: 100_000_000, totalExpense: 0 });
     expect(data.get('funds/BANK_CN01')).toMatchObject({ currentBalance: 100_000_000, totalExpense: 0 });
     expect(data.get('partners/SUP_01')).toMatchObject({ outstandingDebt: 0, totalPurchasedFrom: 0, debtTransactions: [] });
@@ -432,5 +441,21 @@ describe('Purchase supplier-debt payment transaction', () => {
     expect(replay.idempotentReplay).toBe(true);
     expect(data.get('partners/SUP_01').outstandingDebt).toBe(5_000_000);
     expect(data.get('funds/FUND_CN01').currentBalance).toBe(45_000_000);
+    await expect(processPayPurchaseOrderDebt(db, 'PO_01', {
+      ...input,
+      paymentAllocations: [
+        { fundId: 'FUND_CN01', method: 'CASH' as const, amount: 4_000_000 },
+        { fundId: 'BANK_CN01', method: 'BANK_TRANSFER' as const, amount: 10_000_000 }
+      ]
+    }, actor)).rejects.toThrow('PURCHASE_PAYMENT_IDEMPOTENCY_CONFLICT');
+
+    data.set('partners/SUP_01', { ...data.get('partners/SUP_01'), outstandingDebt: 4_999_999 });
+    await expect(processPayPurchaseOrderDebt(db, 'PO_01', {
+      idempotencyKey: 'PAYMENT-ONE-DONG-SHORT',
+      note: 'Không được dung sai projection',
+      paymentAllocations: [
+        { fundId: 'FUND_CN01', method: 'CASH' as const, amount: 5_000_000 }
+      ]
+    }, actor)).rejects.toThrow('PURCHASE_SUPPLIER_DEBT_MISMATCH');
   });
 });

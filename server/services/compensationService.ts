@@ -1,6 +1,7 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { parseVnd } from '../utils/financeIntegrity';
 import { assertPayrollPeriodsOpen } from './payrollPeriodLockService';
+import { assertValidPayrollHomeBranch } from './payrollStaffIdentity';
 
 export interface CompensationActor {
   uid: string;
@@ -112,7 +113,7 @@ export async function saveEmploymentCompensation(
     ]);
     if (!staffSnapshot.exists || staffSnapshot.data()?.active === false) throw new Error('COMPENSATION_STAFF_NOT_FOUND');
     const staff = staffSnapshot.data()!;
-    const branchId = String(staff.branchId || '').trim();
+    const branchId = assertValidPayrollHomeBranch(staff);
     if (!branchId || !canAccessBranch(actor, branchId)) throw new Error('COMPENSATION_BRANCH_FORBIDDEN');
     await assertPayrollPeriodsOpen(transaction, db, branchId, [effectiveFrom.slice(0, 7)]);
     const now = new Date().toISOString();

@@ -6,10 +6,12 @@ import { HRMetricCarousel, type HRMetricItem } from '../../../components/HRMetri
 import { getVietnamMonthString } from '../../../utils/dateTimeUtils';
 
 export interface PayrollRecord {
+  staffUid: string;
   staffId: string;
   staffName: string;
   role: string;
   branchId?: string;
+  payrollBranchId?: string;
   branchName: string;
   baseSalary: number;
   proratedBaseSalary?: number;
@@ -184,7 +186,11 @@ export const MonthlyPayrollTable: React.FC<MonthlyPayrollTableProps> = ({
     }
   };
 
-  const eligibleStaff = staffList.filter((staff) => staff.branchId === selectedBranchId || (staff.assignedBranchIds || []).includes(selectedBranchId));
+  const eligibleStaff = staffList.filter((staff) => {
+    const workplaceIds = [...new Set([staff.branchId, ...(staff.assignedBranchIds || [])].filter(Boolean))];
+    const payrollBranchId = staff.payrollBranchId || (workplaceIds.length === 1 ? workplaceIds[0] : '');
+    return payrollBranchId === selectedBranchId;
+  });
 
   return (
     <div className="space-y-4">

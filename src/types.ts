@@ -1325,10 +1325,12 @@ export type UserRole = 'ADMIN' | 'MANAGER' | 'SALES' | 'CUSTOMER_CARE' | 'TECHNI
 
 export interface UserAccount {
   id: string;
+  authUid?: string;
   email: string;
   displayName: string;
   role: UserRole;
   branchId?: string; // Primary branch ID (e.g. TONG, CN01)
+  payrollBranchId?: string; // Chi nhánh duy nhất sở hữu bảng lương của nhân viên
   assignedBranchIds?: string[]; // Cho phép chọn 1 hoặc nhiều chi nhánh/địa chỉ làm việc
   workplaceAddresses?: string[]; // Danh sách các địa chỉ làm việc cụ thể được phân công
   phone?: string;
@@ -1516,6 +1518,10 @@ export interface Partner {
   warrantyPolicyDays?: number;
   // Financial & Debt Management
   outstandingDebt: number; // Positive: They owe us / We owe supplier
+  /** Legacy read projection. Directional authority lives in BranchPartyAccount. */
+  receivableOutstandingDebt?: number;
+  /** Legacy read projection. Directional authority lives in BranchPartyAccount. */
+  payableOutstandingDebt?: number;
   creditLimit?: number;
   debtTransactions?: PartnerDebtTransaction[];
   // Meta
@@ -1617,6 +1623,7 @@ export interface StaffMember {
   phone: string;
   email: string;
   branchId: string;
+  payrollBranchId?: string;
   branchName: string;
   assignedBranchIds?: string[];
   workplaceAddresses?: string[];

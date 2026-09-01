@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertFails, assertSucceeds, initializeTestEnvironment, RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { ref, uploadBytes } from 'firebase/storage';
 
 let env: RulesTestEnvironment;
@@ -21,18 +21,26 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'users/manager-2'), { role: 'MANAGER', active: true, branchId: 'CN02', assignedBranchIds: ['CN02'] });
     await setDoc(doc(context.firestore(), 'users/staff-1'), { role: 'SALES', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'users/tech-1'), { role: 'TECHNICIAN', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
+    await setDoc(doc(context.firestore(), 'users/tech-2'), { role: 'TECHNICIAN', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
+    await setDoc(doc(context.firestore(), 'users/customer-care-1'), { role: 'CUSTOMER_CARE', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
+    await setDoc(doc(context.firestore(), 'users/inventory-1'), { role: 'INVENTORY_MANAGER', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'users/accountant-1'), { role: 'ACCOUNTANT', active: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'users/password-locked-1'), { role: 'SALES', active: true, mustChangePassword: true, branchId: 'CN01', assignedBranchIds: ['CN01'] });
     await setDoc(doc(context.firestore(), 'technicalSecrets/WO-1'), { branchId: 'CN01', encryptedSecret: 'never-browser-readable' });
     await setDoc(doc(context.firestore(), 'catalogItems/SKU-1'), { branchId: 'CN01', lifecycleStatus: 'ACTIVE' });
     await setDoc(doc(context.firestore(), 'branches/CN01'), { id: 'CN01', name: 'PhoneHouse', isActive: true });
     await setDoc(doc(context.firestore(), 'partners/PT-1'), { id: 'PT-1', branchId: 'CN01', name: 'Nhà cung cấp' });
+    await setDoc(doc(context.firestore(), 'invoices/INV-1'), { id: 'INV-1', branchId: 'CN01', totalAmount: 10_000_000 });
+    await setDoc(doc(context.firestore(), 'leads/LEAD-1'), { id: 'LEAD-1', branchId: 'CN01', assignedStaffId: 'staff-1', customerCareOwnerId: 'customer-care-1' });
     await setDoc(doc(context.firestore(), 'partyMasters/PTY-1'), { id: 'PTY-1', displayName: 'Danh tính dùng chung', phoneNormalized: '0905000001' });
     await setDoc(doc(context.firestore(), 'branchPartyAccounts/BPA-1'), { id: 'BPA-1', branchId: 'CN01', partyMasterId: 'PTY-1', type: 'SUPPLIER', status: 'ACTIVE' });
     await setDoc(doc(context.firestore(), 'debtLedgerEntries/DLE-1'), { id: 'DLE-1', branchId: 'CN01', partyAccountId: 'BPA-1', direction: 'PAYABLE', debitIncrease: 1000, creditDecrease: 0 });
+    await setDoc(doc(context.firestore(), 'debtOpenItems/DOI-1'), { id: 'DOI-1', branchId: 'CN01', partyAccountId: 'BPA-1', direction: 'PAYABLE', sourceType: 'PURCHASE_ORDER', sourceId: 'PO-1', openAmount: 1000, status: 'OPEN' });
     await setDoc(doc(context.firestore(), 'branchProducts/BPR-1'), { id: 'BPR-1', branchId: 'CN01', productMasterId: 'SKU-1', status: 'ACTIVE' });
     await setDoc(doc(context.firestore(), 'leaveRequests/LR-1'), { id: 'LR-1', branchId: 'CN01', staffId: 'staff-1', status: 'PENDING' });
     await setDoc(doc(context.firestore(), 'tradeIns/TR-1'), { id: 'TR-1', branchId: 'CN01', createdByUid: 'staff-1', status: 'pending' });
+    await setDoc(doc(context.firestore(), 'tradeInAppraisals/TRA-1'), { id: 'TRA-1', branchId: 'CN01', createdByUid: 'staff-1', status: 'pending' });
+    await setDoc(doc(context.firestore(), 'warrantyTickets/WT-1'), { id: 'WT-1', branchId: 'CN01', assigneeId: 'tech-1', status: 'repairing' });
     await setDoc(doc(context.firestore(), 'sopTemplates/SOP-1'), { id: 'SOP-1', code: 'SOP-OPEN', isActive: true });
     await setDoc(doc(context.firestore(), 'dailyShiftChecklists/CL-1'), { id: 'CL-1', branchId: 'CN01', staffId: 'staff-1', isCompleted: false });
     await setDoc(doc(context.firestore(), 'shiftHandover/HO-1'), { id: 'HO-1', branchId: 'CN01', staffId: 'staff-1', status: 'SUBMITTED' });
@@ -96,10 +104,13 @@ afterAll(async () => { await env?.cleanup(); });
     await assertFails(getDoc(doc(admin, 'partyMasters/PTY-1')));
     await assertSucceeds(getDoc(doc(ownManager, 'branchPartyAccounts/BPA-1')));
     await assertSucceeds(getDoc(doc(ownManager, 'debtLedgerEntries/DLE-1')));
+    await assertSucceeds(getDoc(doc(ownManager, 'debtOpenItems/DOI-1')));
     await assertSucceeds(getDoc(doc(ownManager, 'branchProducts/BPR-1')));
     await assertFails(getDoc(doc(otherManager, 'branchPartyAccounts/BPA-1')));
     await assertFails(getDoc(doc(otherManager, 'debtLedgerEntries/DLE-1')));
+    await assertFails(getDoc(doc(otherManager, 'debtOpenItems/DOI-1')));
     await assertFails(setDoc(doc(admin, 'debtLedgerEntries/DLE-2'), { branchId: 'CN01', debitIncrease: 1 }));
+    await assertFails(setDoc(doc(admin, 'debtOpenItems/DOI-2'), { branchId: 'CN01', openAmount: 1 }));
   });
 
   it('browser uploads are denied even for ADMIN', async () => {
@@ -150,6 +161,65 @@ afterAll(async () => { await env?.cleanup(); });
     await assertSucceeds(getDoc(doc(accountantDb, 'funds/FUND-1')));
     await assertSucceeds(getDoc(doc(accountantDb, 'cashTransactions/TX-1')));
     await assertFails(getDoc(doc(otherManagerDb, 'funds/FUND-1')));
+  });
+
+  it('raw operational reads require the matching capability and branch', async () => {
+    const salesDb = env.authenticatedContext('staff-1').firestore();
+    const techDb = env.authenticatedContext('tech-1').firestore();
+    const careDb = env.authenticatedContext('customer-care-1').firestore();
+    const inventoryDb = env.authenticatedContext('inventory-1').firestore();
+    const accountantDb = env.authenticatedContext('accountant-1').firestore();
+    const otherManagerDb = env.authenticatedContext('manager-2').firestore();
+
+    for (const path of ['invoices/INV-1', 'leads/LEAD-1', 'tradeIns/TR-1', 'partners/PT-1']) {
+      await assertSucceeds(getDoc(doc(salesDb, path)));
+      await assertFails(getDoc(doc(otherManagerDb, path)));
+    }
+
+    await assertSucceeds(getDoc(doc(careDb, 'invoices/INV-1')));
+    await assertSucceeds(getDoc(doc(careDb, 'leads/LEAD-1')));
+    await assertSucceeds(getDoc(doc(careDb, 'partners/PT-1')));
+    await assertFails(getDoc(doc(careDb, 'tradeIns/TR-1')));
+
+    await assertSucceeds(getDoc(doc(techDb, 'tradeIns/TR-1')));
+    await assertSucceeds(getDoc(doc(techDb, 'tradeInAppraisals/TRA-1')));
+    await assertFails(getDoc(doc(techDb, 'invoices/INV-1')));
+    await assertFails(getDoc(doc(techDb, 'leads/LEAD-1')));
+    await assertFails(getDoc(doc(techDb, 'partners/PT-1')));
+
+    await assertSucceeds(getDoc(doc(inventoryDb, 'invoices/INV-1')));
+    await assertSucceeds(getDoc(doc(inventoryDb, 'tradeIns/TR-1')));
+    await assertSucceeds(getDoc(doc(inventoryDb, 'partners/PT-1')));
+    await assertFails(getDoc(doc(inventoryDb, 'leads/LEAD-1')));
+    await assertFails(getDoc(doc(inventoryDb, 'branchPartyAccounts/BPA-1')));
+    await assertFails(getDoc(doc(inventoryDb, 'debtOpenItems/DOI-1')));
+
+    await assertSucceeds(getDoc(doc(accountantDb, 'invoices/INV-1')));
+    await assertSucceeds(getDoc(doc(accountantDb, 'partners/PT-1')));
+    await assertSucceeds(getDoc(doc(accountantDb, 'branchPartyAccounts/BPA-1')));
+    await assertSucceeds(getDoc(doc(accountantDb, 'debtOpenItems/DOI-1')));
+    await assertFails(getDoc(doc(accountantDb, 'leads/LEAD-1')));
+    await assertFails(getDoc(doc(accountantDb, 'tradeIns/TR-1')));
+  });
+
+  it('branch-filtered listeners are allowed only for authorized role and branch', async () => {
+    const salesDb = env.authenticatedContext('staff-1').firestore();
+    const techDb = env.authenticatedContext('tech-1').firestore();
+    await assertSucceeds(getDocs(query(collection(salesDb, 'invoices'), where('branchId', '==', 'CN01'))));
+    await assertSucceeds(getDocs(query(collection(salesDb, 'leads'), where('branchId', '==', 'CN01'))));
+    await assertFails(getDocs(query(collection(salesDb, 'invoices'), where('branchId', '==', 'CN02'))));
+    await assertFails(getDocs(query(collection(techDb, 'invoices'), where('branchId', '==', 'CN01'))));
+  });
+
+  it('legacy warranty tickets enforce both manager branch and technician assignment', async () => {
+    const ownManagerDb = env.authenticatedContext('manager-1').firestore();
+    const otherManagerDb = env.authenticatedContext('manager-2').firestore();
+    const assignedTechDb = env.authenticatedContext('tech-1').firestore();
+    const otherTechDb = env.authenticatedContext('tech-2').firestore();
+    await assertSucceeds(getDoc(doc(ownManagerDb, 'warrantyTickets/WT-1')));
+    await assertFails(getDoc(doc(otherManagerDb, 'warrantyTickets/WT-1')));
+    await assertSucceeds(getDoc(doc(assignedTechDb, 'warrantyTickets/WT-1')));
+    await assertFails(getDoc(doc(otherTechDb, 'warrantyTickets/WT-1')));
   });
 
   it('lead assignment and commission reads stay branch scoped while staff may read own commission', async () => {

@@ -60,8 +60,8 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     items: [
       { id: 'pos', label: 'POS Thu Ngân', icon: ShoppingCart, shortcut: 'F2', permission: 'POS_CHECKOUT' },
       { id: 'ai-capture', label: 'AI Nhập Liệu', icon: FileScan, roles: ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH', 'CASHIER'] },
-      { id: 'invoices', label: 'Quản Lý Hóa Đơn', icon: Receipt, shortcut: 'Alt+2' },
-      { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: Repeat },
+      { id: 'invoices', label: 'Quản Lý Hóa Đơn', icon: Receipt, shortcut: 'Alt+2', permission: 'INVOICE_READ' },
+      { id: 'tradein', label: 'Thu Cũ Đổi Mới', icon: Repeat, permission: 'TRADE_IN_READ' },
       { id: 'installments', label: 'Đối Soát Trả Góp', icon: DollarSign, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] }
     ]
   },
@@ -69,7 +69,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     id: 'crm',
     label: 'Khách Hàng & Giao Tiếp',
     items: [
-      { id: 'crm', label: 'Pipeline Lead CRM', icon: Users, shortcut: 'Alt+4' },
+      { id: 'crm', label: 'Pipeline Lead CRM', icon: Users, shortcut: 'Alt+4', permission: 'CRM_READ' },
       { id: 'omnichannel-chat', label: 'Inbox Chat Đa Kênh', icon: MessageSquare },
       { id: 'channel-connections', label: 'Kênh & Kết nối', icon: Link2, permission: 'CHANNEL_MANAGE' }
     ]

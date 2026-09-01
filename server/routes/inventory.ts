@@ -3,7 +3,7 @@ import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { buildInventoryAuditReport, listInventoryDevicesForActor, processImportInventoryDevices, processUpdateInventoryDeviceMetadata } from '../services/inventoryDeviceService';
-import { getAccessoryStockTrace, listAccessoryStockBalances } from '../services/inventoryStockItemService';
+import { getAccessoryStockTrace, listAccessoryStockBalancePage } from '../services/inventoryStockItemService';
 import { processCancelPurchaseOrderReceipt, processPayPurchaseOrderDebt, processPurchaseOrderReceipt } from '../services/purchaseOrderReceiptService';
 import { getDeviceLifecycleTimeline, processAddDeviceLifecycleNote } from '../services/deviceLifecycleService';
 
@@ -90,7 +90,11 @@ export function createInventoryRouter(db: Firestore | null): Router {
   router.get('/stock-items/accessories', async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
-      const result = await listAccessoryStockBalances(db, req.user!, String(req.query.warehouseId || '') || undefined);
+      const result = await listAccessoryStockBalancePage(db, req.user!, {
+        warehouseId: String(req.query.warehouseId || '') || undefined,
+        cursor: String(req.query.cursor || '') || undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined
+      });
       return res.json({ success: true, data: result });
     } catch (error: any) {
       return sendInventoryError(res, error);
@@ -107,7 +111,7 @@ export function createInventoryRouter(db: Firestore | null): Router {
     }
   });
 
-  router.post('/devices/import', requireRole('ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'TECH_LEAD'), async (req: Request, res: Response) => {
+  router.post('/devices/import', requireRole('ADMIN', 'INVENTORY_MANAGER'), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const result = await processImportInventoryDevices(db, req.body, req.user!);

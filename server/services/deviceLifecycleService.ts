@@ -601,6 +601,10 @@ async function resolveDeviceAndWorkOrder(
   if (requestedDeviceId) {
     const snapshot = await db.collection('devices').doc(requestedDeviceId).get();
     if (snapshot.exists) device = { id: snapshot.id, ...snapshot.data() };
+    if (!device) {
+      const tombstone = await db.collection('inventoryDeviceTombstones').doc(requestedDeviceId).get();
+      if (tombstone.exists) device = { id: tombstone.id, ...tombstone.data(), lifecycleStatus: 'VOIDED' };
+    }
   }
   if (requestedWorkOrderId) {
     const snapshot = await db.collection('technicalWorkOrders').doc(requestedWorkOrderId).get();
@@ -621,6 +625,16 @@ async function resolveDeviceAndWorkOrder(
     const legacy = normalized.empty ? await db.collection('devices').where('imei', '==', imei).limit(1).get() : null;
     const match = !normalized.empty ? normalized.docs[0] : legacy && !legacy.empty ? legacy.docs[0] : null;
     if (match) device = { id: match.id, ...match.data() };
+    if (!device) {
+      const voidedNormalized = await db.collection('inventoryDeviceTombstones').where('imeiNormalized', '==', imei).limit(1).get();
+      const voidedLegacy = voidedNormalized.empty
+        ? await db.collection('inventoryDeviceTombstones').where('imei', '==', imei).limit(1).get()
+        : null;
+      const voidedMatch = !voidedNormalized.empty
+        ? voidedNormalized.docs[0]
+        : voidedLegacy && !voidedLegacy.empty ? voidedLegacy.docs[0] : null;
+      if (voidedMatch) device = { id: voidedMatch.id, ...voidedMatch.data(), lifecycleStatus: 'VOIDED' };
+    }
   }
   if (!device && !seedWorkOrder && imei) {
     const workOrderSnapshot = await db.collection('technicalWorkOrders').where('imei', '==', imei).limit(1).get();

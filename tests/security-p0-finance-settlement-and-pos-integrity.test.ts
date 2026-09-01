@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { executeAtomicCheckout } from '../server/services/checkoutService';
 import { randomBytes } from 'crypto';
 
+const checkoutActor = { uid: 'SALE_01', name: 'Sale test', role: 'SALES', branchId: 'CN01' };
+
 describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () => {
 
   describe('1. User Provisioning Password Security (P0-01)', () => {
@@ -43,6 +45,8 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
                 exists: true,
                 data: () => ({ name: 'Sales test', isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
               };
+              if (ref.col === 'users') return { exists: true, data: () => ({ authUid: 'SALE_01', branchId: 'CN01', payrollBranchId: 'CN01', active: true }) };
+              if (ref.col === 'payrollPeriods' || ref.col === 'payrollStaffLocks') return { exists: false, data: () => undefined };
               if (ref.col === 'partners') {
                 if (ref.docId === 'CUST-01') {
                   return {
@@ -85,7 +89,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
         installmentFinancePartnerId: 'FINANCE-PARTNER-01',
         installmentContractCode: 'HD-TG-001',
         commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-01', tagIds: ['MAY_TEST'] }]
-      });
+      }, checkoutActor);
 
       expect(result.success).toBe(true);
       expect(result.finalAmount).toBe(30000000);
@@ -181,6 +185,8 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
                 exists: true,
                 data: () => ({ name: 'Sales test', isActive: true, version: 'test-v1', commissionTags: [{ id: 'MAY_TEST', name: 'Máy test', appliesTo: 'DEVICE', calculationType: 'FLAT', value: 100000, isActive: true }] })
               };
+              if (ref.col === 'users') return { exists: true, data: () => ({ authUid: 'SALE_01', branchId: 'CN01', payrollBranchId: 'CN01', active: true }) };
+              if (ref.col === 'payrollPeriods' || ref.col === 'payrollStaffLocks') return { exists: false, data: () => undefined };
               return { exists: false };
             },
             set: () => {},
@@ -197,7 +203,7 @@ describe('P0 Security, Finance Settlement & POS Integrity Invariants Suite', () 
         leadId: 'LEAD-MATCH-01',
         payment: { method: 'CASH', fundId: 'FUND-01' },
         commissionTagSelections: [{ itemType: 'DEVICE', itemId: 'DEV-RESERVED-01', tagIds: ['MAY_TEST'] }]
-      });
+      }, checkoutActor);
 
       expect(result.success).toBe(true);
       expect(result.finalAmount).toBe(34000000);

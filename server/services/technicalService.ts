@@ -9,12 +9,19 @@ import {
 } from './technicalStateMachine';
 import { calculateTechnicalTaskQuote, TechnicalPriority, TechnicalTaskTypeRecord } from './inventoryTransferService';
 import {
+  assertDebtOpenItemScope,
+  debtOpenItemId,
   debtLedgerEntry,
   newBranchPartyAccountRecord,
+  newDebtOpenItemRecord,
   newPartyMasterRecord,
-  resolvePartyIdentity
+  resolveLegacyDirectionalBalances,
+  resolvePartyIdentity,
+  settleDebtOpenItemRecord
 } from './branchPartyService';
 import { getVietnamMonthString } from '../../shared/vietnamTime';
+import { parseVnd } from '../utils/financeIntegrity';
+import { resolveCommissionPayrollPeriod } from './commissionPayrollPeriodService';
 
 export interface CreateWorkOrderLineInput {
   taskType: string;
@@ -89,6 +96,10 @@ export interface TechnicalQuoteAdjustmentInput {
 }
 
 type TechnicalActor = { uid: string; name?: string; role?: string; branchId?: string; assignedBranchIds?: string[] };
+
+function commissionPayrollResolutionKey(staffUid: string, assignedPeriod: string): string {
+  return `${staffUid}|${assignedPeriod}`;
+}
 
 function canAccessBranch(user: any, targetBranchId?: string): boolean {
   if (!targetBranchId) return true;
@@ -1614,6 +1625,22 @@ export async function processQCInspection(
 
     const now = new Date().toISOString();
     const inspectionId = `QC_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const qcCommissionPeriods = new Map<string, Awaited<ReturnType<typeof resolveCommissionPayrollPeriod>>>();
+    if (inspection.overallResult === 'PASS' && !woData.eligibilityRequiresStockReturn && !woData.eligibilityRequiresCustomerDelivery) {
+      for (const lineDoc of allLinesSnap.docs) {
+        const staffUid = String(lineDoc.data().assigneeUid || '').trim();
+        if (!staffUid) throw new Error('TECHNICAL_COMMISSION_STAFF_UID_REQUIRED');
+        const assignedPeriod = String(lineDoc.data().assignedPeriod || getVietnamMonthString(String(lineDoc.data().assignedAt || now)));
+        const resolutionKey = commissionPayrollResolutionKey(staffUid, assignedPeriod);
+        if (qcCommissionPeriods.has(resolutionKey)) continue;
+        qcCommissionPeriods.set(resolutionKey, await resolveCommissionPayrollPeriod(transaction, db, {
+          staffUid,
+          sourceBranchId: String(woData.branchId || ''),
+          requestedPeriod: getVietnamMonthString(now),
+          assignedPeriod
+        }));
+      }
+    }
 
     // F. Save QC Inspection Record
     const qcRef = db.collection('qcInspections').doc(inspectionId);
@@ -1650,6 +1677,8 @@ export async function processQCInspection(
 
       // Transfer-created commissions remain PENDING until the machine is physically returned to Kho Tổng.
       for (const lineDoc of allLinesSnap.docs) {
+        const staffUid = String(lineDoc.data().assigneeUid || '').trim();
+        const assignedPeriod = String(lineDoc.data().assignedPeriod || getVietnamMonthString(String(lineDoc.data().assignedAt || now)));
         const commRef = db.collection('commissionLedger').doc(`COMM_${lineDoc.id}`);
         transaction.update(commRef, (woData.eligibilityRequiresStockReturn || woData.eligibilityRequiresCustomerDelivery) ? {
           status: 'PENDING',
@@ -1659,7 +1688,7 @@ export async function processQCInspection(
         } : {
           status: 'ELIGIBLE',
           eligibleAt: now,
-          payrollPeriod: getVietnamMonthString(now),
+          ...qcCommissionPeriods.get(commissionPayrollResolutionKey(staffUid, assignedPeriod)),
           eligibilityReason: 'QC_PASSED',
           approvedByUid: inspectorUser.uid,
           updatedAt: FieldValue.serverTimestamp()
@@ -1777,6 +1806,27 @@ export async function processReturnToStock(
     }
 
     const now = new Date().toISOString();
+    const taskCommissionIds = new Set<string>((Array.isArray(woData.taskLineIds) ? woData.taskLineIds : [])
+      .map((lineId: unknown) => `COMM_${String(lineId)}`));
+    if (taskCommissionIds.size > 200) throw new Error('TECHNICAL_COMMISSION_LIMIT');
+    const returnCommissionDocs = woData.eligibilityRequiresStockReturn
+      ? (await Promise.all([...taskCommissionIds].map((id) => transaction.get(db.collection('commissionLedger').doc(id))))).filter((snapshot) => snapshot.exists)
+      : [];
+    const returnCommissionPeriods = new Map<string, Awaited<ReturnType<typeof resolveCommissionPayrollPeriod>>>();
+    for (const commissionDoc of returnCommissionDocs) {
+      const commission = commissionDoc.data();
+      const staffUid = String(commission.staffUid || '').trim();
+      if (!staffUid) throw new Error('TECHNICAL_COMMISSION_STAFF_UID_REQUIRED');
+      const assignedPeriod = String(commission.assignedPeriod || getVietnamMonthString(commission.assignedAt || now));
+      const resolutionKey = commissionPayrollResolutionKey(staffUid, assignedPeriod);
+      if (returnCommissionPeriods.has(resolutionKey)) continue;
+      returnCommissionPeriods.set(resolutionKey, await resolveCommissionPayrollPeriod(transaction, db, {
+        staffUid,
+        sourceBranchId: String(commission.sourceBranchId || commission.branchId || woData.branchId || ''),
+        requestedPeriod: getVietnamMonthString(now),
+        assignedPeriod
+      }));
+    }
 
     // 1. Update Work Order
     transaction.update(woRef, {
@@ -1809,10 +1859,16 @@ export async function processReturnToStock(
 
     if (woData.eligibilityRequiresStockReturn) {
       for (const lineId of woData.taskLineIds || []) {
-        transaction.update(db.collection('commissionLedger').doc(`COMM_${lineId}`), {
+        const commissionId = `COMM_${lineId}`;
+        const commissionDoc = returnCommissionDocs.find((doc) => doc.id === commissionId);
+        if (!commissionDoc) throw new Error('TECHNICAL_COMMISSION_NOT_FOUND');
+        const commission = commissionDoc.data();
+        const staffUid = String(commission.staffUid || '').trim();
+        const assignedPeriod = String(commission.assignedPeriod || getVietnamMonthString(commission.assignedAt || now));
+        transaction.update(commissionDoc.ref, {
           status: 'ELIGIBLE',
           eligibleAt: now,
-          payrollPeriod: getVietnamMonthString(now),
+          ...returnCommissionPeriods.get(commissionPayrollResolutionKey(staffUid, assignedPeriod)),
           eligibilityReason: 'RETURNED_TO_STOCK',
           approvedByUid: warehouseStaff.uid,
           stockReturnConfirmedAt: now,
@@ -1965,27 +2021,53 @@ export async function processDeliverToCustomer(
 ): Promise<{ success: boolean; workOrderId: string }> {
   const normalizedDeliveryNotes = String(notes || '').trim();
   if (normalizedDeliveryNotes.length < 5) throw new Error('DELIVERY_NOTES_REQUIRED');
+  const actorUid = String(staffUser.uid || '').trim();
+  if (!actorUid) throw new Error('TECHNICAL_ACTOR_REQUIRED');
   const idempotencyKey = requireTechnicalIdempotencyKey(paymentInput?.idempotencyKey);
+  const paidAmount = Number(paymentInput?.paidAmount ?? 0);
+  const paymentMethod = String(paymentInput?.paymentMethod || (paidAmount > 0 ? 'CASH' : 'DEBT')).toUpperCase();
+  const fundId = String(paymentInput?.fundId || '').trim();
+  const paymentNote = String(paymentInput?.note || '').trim();
+  const deliveryPayloadHash = crypto.createHash('sha256').update(JSON.stringify({
+    workOrderId,
+    deliveryNotes: normalizedDeliveryNotes,
+    paidAmount,
+    paymentMethod,
+    fundId,
+    paymentNote
+  })).digest('hex');
   const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`DELIVER_CUSTOMER:${workOrderId}`, idempotencyKey));
   return await db.runTransaction(async (transaction) => {
     const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
     const [woSnap, idemSnap] = await Promise.all([transaction.get(woRef), transaction.get(idemRef)]);
-    if (idemSnap.exists) return { success: true, workOrderId };
     if (!woSnap.exists) {
       throw new Error(`WORK_ORDER_NOT_FOUND: Không tìm thấy phiếu kỹ thuật "${workOrderId}".`);
     }
 
     const woData = woSnap.data()!;
+    const branchId = String(woData.branchId || '').trim();
+    if (!branchId || !canAccessBranch(staffUser, branchId)) {
+      throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên chi nhánh "${branchId}".`);
+    }
     const isCustomerDevice = woData.assetOwnership === 'CUSTOMER' || ['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(woData.workOrderType || ''));
     if (!isCustomerDevice) {
       throw new Error('CUSTOMER_DELIVERY_ONLY: Máy thuộc công ty phải được Kho Tổng quét nhận và kết chuyển giá vốn, không được đi qua luồng giao khách.');
     }
+    if (idemSnap.exists) {
+      const idem = idemSnap.data()!;
+      if (
+        String(idem.scope || '') !== 'DELIVER_CUSTOMER'
+        || String(idem.workOrderId || '') !== workOrderId
+        || String(idem.payloadHash || '') !== deliveryPayloadHash
+        || String(idem.actorUid || '') !== actorUid
+        || String(idem.branchId || '') !== branchId
+      ) {
+        throw new Error('TECHNICAL_DELIVERY_IDEMPOTENCY_CONFLICT');
+      }
+      return { success: true, workOrderId };
+    }
     if (woData.status !== 'QC_PASSED') {
       throw new Error(`DEVICE_NOT_QC_PASSED: Máy phải đạt chuẩn KCS (QC_PASSED) trước khi bàn giao trả khách hàng.`);
-    }
-
-    if (!canAccessBranch(staffUser, woData.branchId)) {
-      throw new Error(`BRANCH_FORBIDDEN: Bạn không có quyền thao tác trên chi nhánh "${woData.branchId}".`);
     }
 
     const isWarranty = String(woData.workOrderType || '') === 'WARRANTY';
@@ -1998,18 +2080,17 @@ export async function processDeliverToCustomer(
     const finalAmount = isWarranty
       ? 0
       : Number(woData.approvedFinalAmount ?? (hasLegacyApprovalEvidence ? woData.customerApprovedQuote : NaN));
-    const paidAmount = Number(paymentInput?.paidAmount ?? 0);
-    const paymentMethod = String(paymentInput?.paymentMethod || (paidAmount > 0 ? 'CASH' : 'DEBT')).toUpperCase();
     if (!Number.isFinite(finalAmount) || finalAmount < 0 || !Number.isFinite(paidAmount) || paidAmount < 0 || paidAmount > finalAmount) {
       throw new Error('REPAIR_PAYMENT_AMOUNT_INVALID');
     }
     if (!['CASH', 'BANK', 'DEBT'].includes(paymentMethod)) throw new Error('REPAIR_PAYMENT_METHOD_INVALID');
     if (paidAmount > 0 && paymentMethod === 'DEBT') throw new Error('REPAIR_PAYMENT_METHOD_INVALID');
-    if (paidAmount > 0 && !String(paymentInput?.fundId || '').trim()) throw new Error('REPAIR_PAYMENT_FUND_REQUIRED');
+    if (paidAmount > 0 && !fundId) throw new Error('REPAIR_PAYMENT_FUND_REQUIRED');
 
-    if (!Number.isSafeInteger(finalAmount) || !Number.isSafeInteger(paidAmount)) throw new Error('REPAIR_PAYMENT_AMOUNT_INVALID');
+    parseVnd(finalAmount, { allowZero: true, field: 'REPAIR_FINAL_AMOUNT' });
+    parseVnd(paidAmount, { allowZero: true, field: 'REPAIR_PAID_AMOUNT' });
     const now = new Date().toISOString();
-    const fundRef = paidAmount > 0 ? db.collection('funds').doc(String(paymentInput?.fundId || '').trim()) : null;
+    const fundRef = paidAmount > 0 ? db.collection('funds').doc(fundId) : null;
     const balanceDue = Math.max(0, finalAmount - paidAmount);
     const customerPhone = String(woData.customerPhone || '').trim();
     if (balanceDue > 0 && !customerPhone) throw new Error('CUSTOMER_PHONE_REQUIRED_FOR_DEBT');
@@ -2041,13 +2122,102 @@ export async function processDeliverToCustomer(
       if (String(fund.branchId || '') !== String(woData.branchId || '')) throw new Error('REPAIR_PAYMENT_FUND_BRANCH_MISMATCH');
       if (String(fund.type || '').toUpperCase() !== expectedFundType) throw new Error('REPAIR_PAYMENT_FUND_TYPE_MISMATCH');
     }
+    const existingCustomer = customerSnap?.exists ? customerSnap.data()! : null;
+    const existingMaster = masterSnap?.exists ? masterSnap.data()! : null;
+    const existingAccount = accountSnap?.exists ? accountSnap.data()! : null;
+    if (existingCustomer && customerIdentity) {
+      if (String(existingCustomer.branchId || '') !== String(woData.branchId || '')) throw new Error('CUSTOMER_BRANCH_MISMATCH');
+      if (!['CUSTOMER', 'BOTH'].includes(String(existingCustomer.type || '').toUpperCase())) throw new Error('CUSTOMER_TYPE_INVALID');
+      if (existingCustomer.isActive === false || existingCustomer.isArchived === true) throw new Error('CUSTOMER_INACTIVE');
+      const linkedMasterId = String(existingCustomer.partyMasterId || '').trim();
+      const linkedAccountId = String(existingCustomer.branchPartyAccountId || '').trim();
+      if (linkedMasterId && linkedMasterId !== customerIdentity.partyMasterId) throw new Error('CUSTOMER_IDENTITY_MISMATCH');
+      if (linkedAccountId && linkedAccountId !== customerIdentity.branchPartyAccountId) throw new Error('CUSTOMER_ACCOUNT_MISMATCH');
+    }
+    if (existingMaster && customerIdentity) {
+      if (String(existingMaster.id || masterRef?.id || '') !== customerIdentity.partyMasterId) throw new Error('CUSTOMER_IDENTITY_MISMATCH');
+      if (String(existingMaster.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') throw new Error('CUSTOMER_INACTIVE');
+    }
+    if (existingAccount && customerIdentity) {
+      if (String(existingAccount.branchId || '') !== String(woData.branchId || '')) throw new Error('CUSTOMER_ACCOUNT_BRANCH_MISMATCH');
+      if (String(existingAccount.partyMasterId || '') !== customerIdentity.partyMasterId) throw new Error('CUSTOMER_ACCOUNT_IDENTITY_MISMATCH');
+      const linkedPartnerId = String(existingAccount.legacyPartnerId || '').trim();
+      if (linkedPartnerId && linkedPartnerId !== customerId) throw new Error('CUSTOMER_ACCOUNT_PARTNER_MISMATCH');
+      if (!['CUSTOMER', 'BOTH'].includes(String(existingAccount.type || '').toUpperCase())) throw new Error('CUSTOMER_ACCOUNT_TYPE_INVALID');
+      if (String(existingAccount.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') throw new Error('CUSTOMER_ACCOUNT_INACTIVE');
+    }
+    const currentAccountReceivableBalance = existingAccount ? parseVnd(existingAccount.receivableBalance ?? 0, {
+      allowZero: true,
+      field: 'CUSTOMER_ACCOUNT_RECEIVABLE_BALANCE',
+      max: Number.MAX_SAFE_INTEGER
+    }) : 0;
+    const currentAccountTotalSales = existingAccount ? parseVnd(existingAccount.totalSales ?? 0, {
+      allowZero: true,
+      field: 'CUSTOMER_ACCOUNT_TOTAL_SALES',
+      max: Number.MAX_SAFE_INTEGER
+    }) : 0;
+    const currentCustomerOutstandingDebt = existingCustomer ? parseVnd(existingCustomer.outstandingDebt ?? 0, {
+      allowZero: true,
+      field: 'CUSTOMER_OUTSTANDING_DEBT',
+      max: Number.MAX_SAFE_INTEGER
+    }) : 0;
+    const currentCustomerTotalSpent = existingCustomer ? parseVnd(existingCustomer.totalSpent ?? 0, {
+      allowZero: true,
+      field: 'CUSTOMER_TOTAL_SPENT',
+      max: Number.MAX_SAFE_INTEGER
+    }) : 0;
+    const nextAccountReceivableBalance = currentAccountReceivableBalance + balanceDue;
+    const nextAccountTotalSales = currentAccountTotalSales + finalAmount;
+    const nextCustomerOutstandingDebt = currentCustomerOutstandingDebt + balanceDue;
+    const nextCustomerTotalSpent = currentCustomerTotalSpent + finalAmount;
+    parseVnd(nextAccountReceivableBalance, { allowZero: true, field: 'CUSTOMER_ACCOUNT_RECEIVABLE_BALANCE', max: Number.MAX_SAFE_INTEGER });
+    parseVnd(nextAccountTotalSales, { allowZero: true, field: 'CUSTOMER_ACCOUNT_TOTAL_SALES', max: Number.MAX_SAFE_INTEGER });
+    parseVnd(nextCustomerOutstandingDebt, { allowZero: true, field: 'CUSTOMER_OUTSTANDING_DEBT', max: Number.MAX_SAFE_INTEGER });
+    parseVnd(nextCustomerTotalSpent, { allowZero: true, field: 'CUSTOMER_TOTAL_SPENT', max: Number.MAX_SAFE_INTEGER });
     const paymentStatus = finalAmount === 0 ? 'NOT_REQUIRED' : balanceDue === 0 ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID';
     const paymentTransactionId = paidAmount > 0 ? `TECH_REPAIR_RECEIPT_${workOrderId}` : null;
+    const shouldActivateDeliveryCommission = woData.eligibilityRequiresCustomerDelivery
+      || ['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(woData.workOrderType || ''));
+    const deliveryTaskCommissionIds = new Set<string>((Array.isArray(woData.taskLineIds) ? woData.taskLineIds : [])
+      .map((lineId: unknown) => `COMM_${String(lineId)}`));
+    if (deliveryTaskCommissionIds.size > 200) throw new Error('TECHNICAL_COMMISSION_LIMIT');
+    const deliveryCommissionDocs = shouldActivateDeliveryCommission
+      ? (await Promise.all([...deliveryTaskCommissionIds].map((id) => transaction.get(db.collection('commissionLedger').doc(id))))).filter((snapshot) => snapshot.exists)
+      : [];
+    const deliveryCommissionPeriods = new Map<string, Awaited<ReturnType<typeof resolveCommissionPayrollPeriod>>>();
+    for (const commissionDoc of deliveryCommissionDocs) {
+      const commission = commissionDoc.data();
+      const staffUid = String(commission.staffUid || '').trim();
+      if (!staffUid) throw new Error('TECHNICAL_COMMISSION_STAFF_UID_REQUIRED');
+      const assignedPeriod = String(commission.assignedPeriod || getVietnamMonthString(commission.assignedAt || now));
+      const resolutionKey = commissionPayrollResolutionKey(staffUid, assignedPeriod);
+      if (deliveryCommissionPeriods.has(resolutionKey)) continue;
+      deliveryCommissionPeriods.set(resolutionKey, await resolveCommissionPayrollPeriod(transaction, db, {
+        staffUid,
+        sourceBranchId: String(commission.sourceBranchId || commission.branchId || woData.branchId || ''),
+        requestedPeriod: getVietnamMonthString(now),
+        assignedPeriod
+      }));
+    }
 
     if (fundRef && fund) {
+      const currentFundBalance = parseVnd(fund.currentBalance ?? 0, {
+        allowZero: true,
+        field: 'REPAIR_PAYMENT_FUND_BALANCE',
+        max: Number.MAX_SAFE_INTEGER
+      });
+      const currentTotalIncome = parseVnd(fund.totalIncome ?? 0, {
+        allowZero: true,
+        field: 'REPAIR_PAYMENT_FUND_TOTAL_INCOME',
+        max: Number.MAX_SAFE_INTEGER
+      });
+      const nextFundBalance = currentFundBalance + paidAmount;
+      const nextTotalIncome = currentTotalIncome + paidAmount;
+      parseVnd(nextFundBalance, { allowZero: true, field: 'REPAIR_PAYMENT_FUND_BALANCE', max: Number.MAX_SAFE_INTEGER });
+      parseVnd(nextTotalIncome, { allowZero: true, field: 'REPAIR_PAYMENT_FUND_TOTAL_INCOME', max: Number.MAX_SAFE_INTEGER });
       transaction.update(fundRef, {
-        currentBalance: Number(fund.currentBalance || 0) + paidAmount,
-        totalIncome: Number(fund.totalIncome || 0) + paidAmount,
+        currentBalance: nextFundBalance,
+        totalIncome: nextTotalIncome,
         updatedAt: now
       });
       transaction.set(db.collection('cashTransactions').doc(paymentTransactionId!), {
@@ -2060,7 +2230,7 @@ export async function processDeliverToCustomer(
         fundId: fundRef.id,
         fundName: fund.name || 'Quỹ thu tiền',
         fundType: fund.type || expectedFundType,
-        partnerId: woData.customerId || '',
+        partnerId: customerId,
         partnerName: woData.customerName || 'Khách sửa chữa',
         partnerType: 'CUSTOMER',
         branchId: woData.branchId,
@@ -2068,7 +2238,7 @@ export async function processDeliverToCustomer(
         referenceId: workOrderId,
         referenceCode: woData.code || workOrderId,
         date: now,
-        notes: paymentInput?.note || `Thu tiền phiếu sửa ${woData.code || workOrderId}`,
+        notes: paymentNote || `Thu tiền phiếu sửa ${woData.code || workOrderId}`,
         creator: staffUser.name || 'Nhân viên bàn giao',
         creatorUid: staffUser.uid,
         isPLAccounted: true,
@@ -2077,19 +2247,21 @@ export async function processDeliverToCustomer(
       });
     }
     if (customerProfile && customerIdentity && customerRef && masterRef && accountRef) {
-      const existingCustomer = customerSnap?.exists ? customerSnap.data()! : null;
-      const existingAccount = accountSnap?.exists ? accountSnap.data()! : null;
-      if (existingCustomer && String(existingCustomer.branchId || '') !== String(woData.branchId || '')) throw new Error('CUSTOMER_BRANCH_MISMATCH');
       if (!masterSnap?.exists) transaction.create(masterRef, newPartyMasterRecord(customerProfile, customerIdentity, staffUser.uid, now));
       if (!accountSnap?.exists) {
-        transaction.create(accountRef, newBranchPartyAccountRecord({ ...customerProfile, totalSpent: finalAmount }, String(woData.branchId || ''), customerIdentity, staffUser.uid, now, {
-          receivableBalance: balanceDue
+        const accountPartner = { ...customerProfile, type: existingCustomer?.type || customerProfile.type, ...existingCustomer };
+        const legacyDirectional = resolveLegacyDirectionalBalances(accountPartner, 'CUSTOMER');
+        const initialReceivableBalance = legacyDirectional.receivableBalance + balanceDue;
+        parseVnd(initialReceivableBalance, { allowZero: true, field: 'CUSTOMER_ACCOUNT_RECEIVABLE_BALANCE', max: Number.MAX_SAFE_INTEGER });
+        transaction.create(accountRef, newBranchPartyAccountRecord({ ...accountPartner, totalSpent: nextCustomerTotalSpent }, String(woData.branchId || ''), customerIdentity, staffUser.uid, now, {
+          payableBalance: legacyDirectional.payableBalance,
+          receivableBalance: initialReceivableBalance
         }));
       } else {
         transaction.update(accountRef, {
           legacyPartnerId: customerId,
-          receivableBalance: Number(existingAccount?.receivableBalance || 0) + balanceDue,
-          totalSales: Number(existingAccount?.totalSales || 0) + finalAmount,
+          receivableBalance: nextAccountReceivableBalance,
+          totalSales: nextAccountTotalSales,
           updatedByUid: staffUser.uid,
           updatedAt: now
         });
@@ -2098,8 +2270,8 @@ export async function processDeliverToCustomer(
         ...customerProfile,
         partyMasterId: customerIdentity.partyMasterId,
         branchPartyAccountId: customerIdentity.branchPartyAccountId,
-        outstandingDebt: Number(existingCustomer?.outstandingDebt || 0) + balanceDue,
-        totalSpent: Number(existingCustomer?.totalSpent || 0) + finalAmount,
+        outstandingDebt: nextCustomerOutstandingDebt,
+        totalSpent: nextCustomerTotalSpent,
         lastTechnicalWorkOrderId: workOrderId,
         updatedAt: now
       };
@@ -2123,6 +2295,23 @@ export async function processDeliverToCustomer(
           creditDecrease: paidAmount, actorUid: staffUser.uid, occurredAt: now, note: `Thu tiền sửa chữa ${woData.code || workOrderId}`
         }));
       }
+      if (finalAmount > 0) {
+        const openItem = newDebtOpenItemRecord({
+          branchId: String(woData.branchId || ''),
+          partyAccountId: customerIdentity.branchPartyAccountId,
+          partyMasterId: customerIdentity.partyMasterId,
+          legacyPartnerId: customerId,
+          direction: 'RECEIVABLE',
+          sourceType: 'TECHNICAL_WORK_ORDER',
+          sourceDocumentId: workOrderId,
+          sourceDocumentCode: String(woData.code || workOrderId),
+          originalAmount: finalAmount,
+          settledAmount: paidAmount,
+          actorUid: staffUser.uid,
+          occurredAt: now
+        });
+        transaction.create(db.collection('debtOpenItems').doc(openItem.id), openItem);
+      }
     }
     transaction.set(db.collection('repairPayments').doc(`REPAIR_PAYMENT_${workOrderId}`), {
       id: `REPAIR_PAYMENT_${workOrderId}`,
@@ -2131,6 +2320,8 @@ export async function processDeliverToCustomer(
       branchId: woData.branchId,
       customerName: woData.customerName || '',
       customerId,
+      partyMasterId: customerIdentity?.partyMasterId || null,
+      branchPartyAccountId: customerIdentity?.branchPartyAccountId || null,
       finalAmount,
       paidAmount,
       balanceDue,
@@ -2140,7 +2331,7 @@ export async function processDeliverToCustomer(
       collectedByUid: staffUser.uid,
       collectedByName: staffUser.name || 'Nhân viên bàn giao',
       collectedAt: now,
-      note: paymentInput?.note || '',
+      note: paymentNote,
       status: paymentStatus,
       createdAt: FieldValue.serverTimestamp()
     });
@@ -2159,15 +2350,26 @@ export async function processDeliverToCustomer(
       paymentMethod,
       paymentFundId: fundRef?.id || null,
       paymentTransactionId,
+      ...(customerIdentity ? {
+        customerId,
+        partyMasterId: customerIdentity.partyMasterId,
+        branchPartyAccountId: customerIdentity.branchPartyAccountId
+      } : {}),
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    if (woData.eligibilityRequiresCustomerDelivery || ['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(woData.workOrderType || ''))) {
+    if (shouldActivateDeliveryCommission) {
       for (const lineId of woData.taskLineIds || []) {
-        transaction.update(db.collection('commissionLedger').doc(`COMM_${lineId}`), {
+        const commissionId = `COMM_${lineId}`;
+        const commissionDoc = deliveryCommissionDocs.find((doc) => doc.id === commissionId);
+        if (!commissionDoc) throw new Error('TECHNICAL_COMMISSION_NOT_FOUND');
+        const commission = commissionDoc.data();
+        const staffUid = String(commission.staffUid || '').trim();
+        const assignedPeriod = String(commission.assignedPeriod || getVietnamMonthString(commission.assignedAt || now));
+        transaction.update(commissionDoc.ref, {
           status: 'ELIGIBLE',
           eligibleAt: now,
-          payrollPeriod: getVietnamMonthString(now),
+          ...deliveryCommissionPeriods.get(commissionPayrollResolutionKey(staffUid, assignedPeriod)),
           eligibilityReason: 'DELIVERED_TO_CUSTOMER',
           approvedByUid: staffUser.uid,
           customerDeliveryConfirmedAt: now,
@@ -2192,7 +2394,14 @@ export async function processDeliverToCustomer(
       });
     }
 
-    transaction.set(idemRef, { scope: 'DELIVER_CUSTOMER', workOrderId, createdAt: now });
+    transaction.set(idemRef, {
+      scope: 'DELIVER_CUSTOMER',
+      workOrderId,
+      payloadHash: deliveryPayloadHash,
+      actorUid,
+      branchId,
+      createdAt: now
+    });
 
     return { success: true, workOrderId };
   });
@@ -2204,13 +2413,19 @@ export async function processCollectTechnicalDebtPayment(
   input: { amount: number; paymentMethod: 'CASH' | 'BANK'; fundId: string; note?: string; idempotencyKey: string },
   actor: TechnicalActor
 ): Promise<{ success: boolean; balanceDue: number; paymentId: string }> {
-  const amount = Number(input.amount);
-  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('REPAIR_PAYMENT_AMOUNT_INVALID');
+  const amount = parseVnd(input.amount, { field: 'REPAIR_PAYMENT_AMOUNT' });
   const paymentMethod = String(input.paymentMethod || '').toUpperCase();
   if (!['CASH', 'BANK'].includes(paymentMethod)) throw new Error('REPAIR_PAYMENT_METHOD_INVALID');
   const fundId = String(input.fundId || '').trim();
   if (!fundId) throw new Error('REPAIR_PAYMENT_FUND_REQUIRED');
   const key = requireTechnicalIdempotencyKey(input.idempotencyKey);
+  const paymentPayloadHash = crypto.createHash('sha256').update(JSON.stringify({
+    workOrderId,
+    amount,
+    paymentMethod,
+    fundId,
+    note: String(input.note || '').trim()
+  })).digest('hex');
   const paymentId = `REPAIR_PAYMENT_${technicalIdempotencyId(workOrderId, key).slice(0, 28).toUpperCase()}`;
   const idemRef = db.collection('technicalOperationIdempotency').doc(technicalIdempotencyId(`TECH_DEBT_PAYMENT:${workOrderId}`, key));
   const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
@@ -2219,29 +2434,133 @@ export async function processCollectTechnicalDebtPayment(
     const [woSnap, fundSnap, idemSnap] = await Promise.all([transaction.get(woRef), transaction.get(fundRef), transaction.get(idemRef)]);
     if (!woSnap.exists) throw new Error('WORK_ORDER_NOT_FOUND');
     const wo = woSnap.data()!;
-    if (idemSnap.exists) return { success: true, balanceDue: Number(wo.balanceDue || 0), paymentId };
-    if (!canAccessBranch(actor, String(wo.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
+    const branchId = String(wo.branchId || '').trim();
+    if (!branchId || !canAccessBranch(actor, branchId)) throw new Error('BRANCH_FORBIDDEN');
+    if (idemSnap.exists) {
+      const idem = idemSnap.data()!;
+      if (String(idem.payloadHash || '') !== paymentPayloadHash || String(idem.actorUid || '') !== actor.uid || String(idem.branchId || '') !== branchId) {
+        throw new Error('TECHNICAL_PAYMENT_IDEMPOTENCY_CONFLICT');
+      }
+      if (!Object.prototype.hasOwnProperty.call(idem, 'resultBalanceDue')) {
+        throw new Error('TECHNICAL_PAYMENT_IDEMPOTENCY_RESULT_MISSING');
+      }
+      const resultBalanceDue = parseVnd(idem.resultBalanceDue, {
+        allowZero: true,
+        field: 'TECHNICAL_PAYMENT_IDEMPOTENCY_RESULT',
+        max: Number.MAX_SAFE_INTEGER
+      });
+      return { success: true, balanceDue: resultBalanceDue, paymentId };
+    }
     if (wo.status !== 'DELIVERED_TO_CUSTOMER') throw new Error('CUSTOMER_DELIVERY_REQUIRED');
-    const currentBalanceDue = Number(wo.balanceDue || 0);
-    if (!Number.isSafeInteger(currentBalanceDue) || amount > currentBalanceDue) throw new Error('REPAIR_PAYMENT_EXCEEDS_BALANCE');
+    const currentBalanceDue = parseVnd(wo.balanceDue ?? 0, {
+      allowZero: true,
+      field: 'REPAIR_PAYMENT_BALANCE_DUE',
+      max: Number.MAX_SAFE_INTEGER
+    });
+    const currentPaidAmount = parseVnd(wo.paidAmount ?? 0, {
+      allowZero: true,
+      field: 'REPAIR_PAYMENT_PAID_AMOUNT',
+      max: Number.MAX_SAFE_INTEGER
+    });
+    if (amount > currentBalanceDue) throw new Error('REPAIR_PAYMENT_EXCEEDS_BALANCE');
+    const nextPaidAmount = currentPaidAmount + amount;
+    parseVnd(nextPaidAmount, {
+      allowZero: true,
+      field: 'REPAIR_PAYMENT_PAID_AMOUNT',
+      max: Number.MAX_SAFE_INTEGER
+    });
     if (!fundSnap.exists) throw new Error('REPAIR_PAYMENT_FUND_NOT_FOUND');
     const fund = fundSnap.data()!;
-    if (String(fund.branchId || '') !== String(wo.branchId || '')) throw new Error('REPAIR_PAYMENT_FUND_BRANCH_MISMATCH');
+    if (String(fund.branchId || '') !== branchId) throw new Error('REPAIR_PAYMENT_FUND_BRANCH_MISMATCH');
     if (String(fund.type || '').toUpperCase() !== paymentMethod) throw new Error('REPAIR_PAYMENT_FUND_TYPE_MISMATCH');
     if (fund.isActive === false || fund.active === false || fund.isArchived) throw new Error('REPAIR_PAYMENT_FUND_INACTIVE');
     const customerId = String(wo.customerId || '').trim();
-    const customerRef = customerId ? db.collection('partners').doc(customerId) : null;
-    const customerSnap = customerRef ? await transaction.get(customerRef) : null;
-    const customer = customerSnap?.exists ? customerSnap.data()! : null;
-    const accountId = String(customer?.branchPartyAccountId || '').trim();
-    const accountRef = accountId ? db.collection('branchPartyAccounts').doc(accountId) : null;
-    const accountSnap = accountRef ? await transaction.get(accountRef) : null;
-    if (!customerRef || !customer || !accountRef || !accountSnap?.exists) throw new Error('CUSTOMER_DEBT_ACCOUNT_NOT_FOUND');
+    const partyMasterId = String(wo.partyMasterId || '').trim();
+    const accountId = String(wo.branchPartyAccountId || '').trim();
+    if (!customerId || !partyMasterId || !accountId) throw new Error('CUSTOMER_DEBT_IDENTITY_NOT_FOUND');
+    const customerRef = db.collection('partners').doc(customerId);
+    const masterRef = db.collection('partyMasters').doc(partyMasterId);
+    const accountRef = db.collection('branchPartyAccounts').doc(accountId);
+    const openItemRef = db.collection('debtOpenItems').doc(debtOpenItemId('TECHNICAL_WORK_ORDER', workOrderId, 'RECEIVABLE'));
+    const [customerSnap, masterSnap, accountSnap, openItemSnap] = await Promise.all([
+      transaction.get(customerRef),
+      transaction.get(masterRef),
+      transaction.get(accountRef),
+      transaction.get(openItemRef)
+    ]);
+    if (!customerSnap.exists || !masterSnap.exists || !accountSnap.exists) throw new Error('CUSTOMER_DEBT_ACCOUNT_NOT_FOUND');
+    const customer = customerSnap.data()!;
+    const master = masterSnap.data()!;
+    const account = accountSnap.data()!;
+    if (String(customer.id || customerSnap.id || '') !== customerId) throw new Error('CUSTOMER_DEBT_CUSTOMER_MISMATCH');
+    if (String(customer.branchId || '') !== branchId) throw new Error('CUSTOMER_DEBT_BRANCH_MISMATCH');
+    if (!['CUSTOMER', 'BOTH'].includes(String(customer.type || '').toUpperCase())) throw new Error('CUSTOMER_DEBT_TYPE_INVALID');
+    if (customer.isActive === false || customer.isArchived === true) throw new Error('CUSTOMER_DEBT_CUSTOMER_INACTIVE');
+    if (String(customer.partyMasterId || '') !== partyMasterId || String(customer.branchPartyAccountId || '') !== accountId) {
+      throw new Error('CUSTOMER_DEBT_IDENTITY_MISMATCH');
+    }
+    if (String(master.id || masterSnap.id || '') !== partyMasterId || String(master.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') {
+      throw new Error('CUSTOMER_DEBT_IDENTITY_MISMATCH');
+    }
+    if (String(account.branchId || '') !== branchId) throw new Error('CUSTOMER_DEBT_ACCOUNT_BRANCH_MISMATCH');
+    if (String(account.partyMasterId || '') !== partyMasterId || String(account.legacyPartnerId || '') !== customerId) {
+      throw new Error('CUSTOMER_DEBT_ACCOUNT_IDENTITY_MISMATCH');
+    }
+    if (!['CUSTOMER', 'BOTH'].includes(String(account.type || '').toUpperCase())) throw new Error('CUSTOMER_DEBT_ACCOUNT_TYPE_INVALID');
+    if (String(account.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') throw new Error('CUSTOMER_DEBT_ACCOUNT_INACTIVE');
+    const accountReceivableBalance = Number(account.receivableBalance);
+    const customerOutstandingDebt = Number(customer.outstandingDebt);
+    if (!Number.isSafeInteger(accountReceivableBalance) || accountReceivableBalance < currentBalanceDue) {
+      throw new Error('CUSTOMER_DEBT_ACCOUNT_BALANCE_MISMATCH');
+    }
+    if (!Number.isSafeInteger(customerOutstandingDebt) || customerOutstandingDebt < currentBalanceDue) {
+      throw new Error('CUSTOMER_DEBT_PROJECTION_MISMATCH');
+    }
     const now = new Date().toISOString();
+    const currentOpenItem = openItemSnap.exists
+      ? openItemSnap.data()!
+      : newDebtOpenItemRecord({
+        branchId,
+        partyAccountId: accountId,
+        partyMasterId,
+        legacyPartnerId: customerId,
+        direction: 'RECEIVABLE',
+        sourceType: 'TECHNICAL_WORK_ORDER',
+        sourceDocumentId: workOrderId,
+        sourceDocumentCode: String(wo.code || workOrderId),
+        originalAmount: currentPaidAmount + currentBalanceDue,
+        settledAmount: currentPaidAmount,
+        actorUid: actor.uid,
+        occurredAt: String(wo.deliveredAt || wo.createdAt || now)
+      });
+    assertDebtOpenItemScope(currentOpenItem, {
+      branchId,
+      partyAccountId: accountId,
+      partyMasterId,
+      legacyPartnerId: customerId,
+      direction: 'RECEIVABLE',
+      sourceType: 'TECHNICAL_WORK_ORDER',
+      sourceDocumentId: workOrderId,
+      openAmount: currentBalanceDue
+    });
     const nextBalanceDue = currentBalanceDue - amount;
+    const currentFundBalance = parseVnd(fund.currentBalance ?? 0, {
+      allowZero: true,
+      field: 'REPAIR_PAYMENT_FUND_BALANCE',
+      max: Number.MAX_SAFE_INTEGER
+    });
+    const currentTotalIncome = parseVnd(fund.totalIncome ?? 0, {
+      allowZero: true,
+      field: 'REPAIR_PAYMENT_FUND_TOTAL_INCOME',
+      max: Number.MAX_SAFE_INTEGER
+    });
+    const nextFundBalance = currentFundBalance + amount;
+    const nextTotalIncome = currentTotalIncome + amount;
+    parseVnd(nextFundBalance, { allowZero: true, field: 'REPAIR_PAYMENT_FUND_BALANCE', max: Number.MAX_SAFE_INTEGER });
+    parseVnd(nextTotalIncome, { allowZero: true, field: 'REPAIR_PAYMENT_FUND_TOTAL_INCOME', max: Number.MAX_SAFE_INTEGER });
     transaction.update(fundRef, {
-      currentBalance: Number(fund.currentBalance || 0) + amount,
-      totalIncome: Number(fund.totalIncome || 0) + amount,
+      currentBalance: nextFundBalance,
+      totalIncome: nextTotalIncome,
       updatedAt: now
     });
     transaction.create(db.collection('cashTransactions').doc(`TECH_DEBT_RECEIPT_${paymentId}`), {
@@ -2261,23 +2580,34 @@ export async function processCollectTechnicalDebtPayment(
     });
     const debtLedgerId = `DLE_TECH_${paymentId}`;
     transaction.create(db.collection('debtLedgerEntries').doc(debtLedgerId), debtLedgerEntry({
-      id: debtLedgerId, branchId: wo.branchId, partyAccountId: accountId,
-      partyMasterId: customer.partyMasterId, legacyPartnerId: customerId, direction: 'RECEIVABLE',
+      id: debtLedgerId, branchId, partyAccountId: accountId,
+      partyMasterId, legacyPartnerId: customerId, direction: 'RECEIVABLE',
       sourceType: 'PAYMENT', sourceDocumentId: workOrderId, sourceDocumentCode: wo.code || workOrderId,
       creditDecrease: amount, actorUid: actor.uid, occurredAt: now, note: input.note || `Thu công nợ sửa chữa ${wo.code || workOrderId}`
     }));
+    transaction.set(openItemRef, {
+      ...currentOpenItem,
+      ...settleDebtOpenItemRecord(currentOpenItem, amount, {
+        settlementId: paymentId,
+        actorUid: actor.uid,
+        occurredAt: now
+      })
+    });
     transaction.update(accountRef, {
-      receivableBalance: Math.max(0, Number(accountSnap.data()?.receivableBalance || 0) - amount),
+      receivableBalance: accountReceivableBalance - amount,
       updatedByUid: actor.uid, updatedAt: now
     });
-    transaction.update(customerRef, { outstandingDebt: Math.max(0, Number(customer.outstandingDebt || 0) - amount), updatedAt: now });
+    transaction.update(customerRef, { outstandingDebt: customerOutstandingDebt - amount, updatedAt: now });
     transaction.update(woRef, {
-      paidAmount: Number(wo.paidAmount || 0) + amount,
+      paidAmount: nextPaidAmount,
       balanceDue: nextBalanceDue,
       paymentStatus: nextBalanceDue === 0 ? 'PAID' : 'PARTIAL',
       updatedAt: FieldValue.serverTimestamp()
     });
-    transaction.create(idemRef, { scope: 'TECH_DEBT_PAYMENT', workOrderId, paymentId, createdAt: now });
+    transaction.create(idemRef, {
+      scope: 'TECH_DEBT_PAYMENT', workOrderId, paymentId, payloadHash: paymentPayloadHash,
+      actorUid: actor.uid, branchId, resultBalanceDue: nextBalanceDue, createdAt: now
+    });
     return { success: true, balanceDue: nextBalanceDue, paymentId };
   });
 }

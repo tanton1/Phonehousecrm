@@ -82,4 +82,17 @@ describe('POS accessory canonicalization', () => {
     })).rejects.toThrow('INSUFFICIENT_STOCK');
     expect(balanceReads).toBe(1);
   });
+
+  it.each([100_000.5, Infinity, Number.MAX_SAFE_INTEGER, 100_000_000_001])(
+    'rejects an unsafe POS price adjustment value %s',
+    unitPrice => {
+      const result = validateCheckoutPayload({
+        idempotencyKey: 'POS-PRICE-GUARD-001', branchId: 'CN01', warehouseId: 'KHO01',
+        deviceIds: ['DEV-01'], accessoryLines: [], payment: { method: 'CASH', fundId: 'FUND-01' },
+        priceAdjustments: [{ itemType: 'DEVICE', itemId: 'DEV-01', unitPrice, reason: 'Kiểm tra giới hạn giá' }]
+      });
+      expect(result.isValid).toBe(false);
+      expect(result.error).toContain('điều chỉnh giá');
+    }
+  );
 });

@@ -50,6 +50,7 @@ export function createUsersRouter(db: Firestore | null): Router {
         phone: String(data.phone || '').trim(),
         role: normalizeRole(data.role || req.user.role),
         branchId: String(data.branchId || req.user.branchId || '').trim(),
+        payrollBranchId: String(data.payrollBranchId || '').trim(),
         assignedBranchIds: Array.isArray(data.assignedBranchIds)
           ? data.assignedBranchIds.map(String)
           : (req.user.assignedBranchIds || []),
@@ -159,6 +160,7 @@ export function createUsersRouter(db: Firestore | null): Router {
         phone,
         role = 'SALES',
         branchId = '',
+        payrollBranchId = '',
         assignedBranchIds = [],
         workplaceAddresses = [],
         notes = ''
@@ -175,6 +177,9 @@ export function createUsersRouter(db: Firestore | null): Router {
       const branchIds = [...new Set([branchId, ...(Array.isArray(assignedBranchIds) ? assignedBranchIds : [])].filter(Boolean).map(String))];
       const branchSnapshots = await Promise.all(branchIds.map(id => db.collection('branches').doc(id).get()));
       if (branchSnapshots.some(snapshot => !snapshot.exists || snapshot.data()?.isActive === false)) throw new Error('USER_BRANCH_INVALID');
+      const resolvedPayrollBranchId = String(payrollBranchId || '').trim() || (branchIds.length === 1 ? branchIds[0] : '');
+      if (!resolvedPayrollBranchId) throw new Error('PAYROLL_HOME_BRANCH_REQUIRED: Nhân viên làm nhiều chi nhánh phải có một chi nhánh trả lương chính.');
+      if (!branchIds.includes(resolvedPayrollBranchId)) throw new Error('PAYROLL_HOME_BRANCH_INVALID: Chi nhánh trả lương phải nằm trong danh sách nơi làm việc.');
 
       const emailNormalized = email.trim().toLowerCase();
       const hasProvidedPassword = typeof password === 'string' && password.length > 0;
@@ -230,11 +235,13 @@ export function createUsersRouter(db: Firestore | null): Router {
       const userData = {
         id: uid,
         uid,
+        authUid: uid,
         email: emailNormalized,
         displayName,
         phone: phone || '',
         role: canonicalRole,
         branchId,
+        payrollBranchId: resolvedPayrollBranchId,
         assignedBranchIds: branchIds,
         workplaceAddresses,
         active: true,
@@ -253,11 +260,14 @@ export function createUsersRouter(db: Firestore | null): Router {
           await db.collection('staff').doc(uid).set({
             id: uid,
             uid,
+            authUid: uid,
             name: displayName,
             email: emailNormalized,
             phone: phone || '',
             role: canonicalRole,
             branchId,
+            payrollBranchId: resolvedPayrollBranchId,
+            assignedBranchIds: branchIds,
             active: true,
             updatedAt: FieldValue.serverTimestamp()
           }, { merge: true });
@@ -293,14 +303,28 @@ export function createUsersRouter(db: Firestore | null): Router {
   // 2. Set / Update Role & Branch (Admin Only) with Token Revocation
   router.post('/update-role', authenticateFirebase, requireRole('ADMIN'), async (req: Request, res: Response) => {
     try {
-      const { uid, role, branchId, active, displayName, phone, assignedBranchIds, workplaceAddresses, notes } = req.body;
+      const { uid, role, branchId, payrollBranchId, active, displayName, phone, assignedBranchIds, workplaceAddresses, notes } = req.body;
       if (!uid) {
         return res.status(400).json({ success: false, error: 'MISSING_UID', message: 'Thiếu UID người dùng.' });
       }
       if (!db) throw new Error('FIRESTORE_NOT_CONFIGURED');
-      const requestedBranches = [...new Set([branchId, ...(Array.isArray(assignedBranchIds) ? assignedBranchIds : [])].filter(Boolean).map(String))];
-      const requestedBranchSnapshots = await Promise.all(requestedBranches.map(id => db.collection('branches').doc(id).get()));
-      if (requestedBranchSnapshots.some(snapshot => !snapshot.exists || snapshot.data()?.isActive === false)) throw new Error('USER_BRANCH_INVALID');
+      const targetSnapshot = await db.collection('users').doc(String(uid)).get();
+      if (!targetSnapshot.exists) throw new Error('USER_NOT_FOUND');
+      const currentProfile = targetSnapshot.data() || {};
+      const branchConfigurationChanged = branchId !== undefined || Array.isArray(assignedBranchIds) || payrollBranchId !== undefined;
+      const effectivePrimaryBranchId = String(branchId ?? currentProfile.branchId ?? '').trim();
+      const effectiveAssignedBranchIds = [...new Set([
+        effectivePrimaryBranchId,
+        ...(Array.isArray(assignedBranchIds) ? assignedBranchIds : (currentProfile.assignedBranchIds || []))
+      ].filter(Boolean).map(String))];
+      let effectivePayrollBranchId = String(payrollBranchId ?? currentProfile.payrollBranchId ?? '').trim();
+      if (branchConfigurationChanged) {
+        if (!effectivePayrollBranchId && effectiveAssignedBranchIds.length === 1) effectivePayrollBranchId = effectiveAssignedBranchIds[0];
+        if (!effectivePayrollBranchId) throw new Error('PAYROLL_HOME_BRANCH_REQUIRED: Nhân viên làm nhiều chi nhánh phải có một chi nhánh trả lương chính.');
+        if (!effectiveAssignedBranchIds.includes(effectivePayrollBranchId)) throw new Error('PAYROLL_HOME_BRANCH_INVALID: Chi nhánh trả lương phải nằm trong danh sách nơi làm việc.');
+        const requestedBranchSnapshots = await Promise.all(effectiveAssignedBranchIds.map(id => db.collection('branches').doc(id).get()));
+        if (requestedBranchSnapshots.some(snapshot => !snapshot.exists || snapshot.data()?.isActive === false)) throw new Error('USER_BRANCH_INVALID');
+      }
 
       // Update Firebase Auth Claims
       if (role || branchId || displayName) {
@@ -328,10 +352,11 @@ export function createUsersRouter(db: Firestore | null): Router {
         };
         if (role) updatePayload.role = normalizeRole(role);
         if (branchId) updatePayload.branchId = branchId;
+        if (branchConfigurationChanged) updatePayload.payrollBranchId = effectivePayrollBranchId;
         if (typeof active === 'boolean') updatePayload.active = active;
         if (displayName !== undefined) updatePayload.displayName = String(displayName).trim();
         if (phone !== undefined) updatePayload.phone = String(phone || '').trim();
-        if (Array.isArray(assignedBranchIds)) updatePayload.assignedBranchIds = assignedBranchIds.map(String);
+        if (branchConfigurationChanged) updatePayload.assignedBranchIds = effectiveAssignedBranchIds;
         if (Array.isArray(workplaceAddresses)) updatePayload.workplaceAddresses = workplaceAddresses.map(String);
         if (notes !== undefined) updatePayload.notes = String(notes || '');
 

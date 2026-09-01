@@ -59,6 +59,9 @@ describe('Sprint 5: App Shell & Role-Based Navigation Test Suite', () => {
     expect(techItemIds).not.toContain('spare-parts');
     expect(techItemIds).toContain('tech-workspace');
     expect(techItemIds).toContain('checkin-portal');
+    expect(techItemIds).toContain('tradein');
+    expect(techItemIds).not.toContain('invoices');
+    expect(techItemIds).not.toContain('crm');
     expect(techItemIds).not.toContain('funds');
     expect(techItemIds).not.toContain('users');
   });

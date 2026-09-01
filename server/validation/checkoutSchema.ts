@@ -11,6 +11,7 @@ export const MAX_POS_ACCESSORY_SKUS = 50;
 export const MAX_POS_ACCESSORY_QUANTITY_PER_SKU = 100;
 export const MAX_POS_PAYMENT_LINES = 10;
 export const MAX_POS_PAYMENT_AMOUNT = 100_000_000_000;
+export const MAX_POS_PRICE_ADJUSTMENTS = MAX_POS_DEVICES + MAX_POS_ACCESSORY_SKUS;
 
 export interface CanonicalAccessoryLine {
   productId: string;
@@ -71,6 +72,12 @@ export interface PureIntentCheckoutPayload {
     itemType: 'DEVICE' | 'ACCESSORY';
     itemId: string;
     tagIds: string[];
+  }>;
+  priceAdjustments?: Array<{
+    itemType: 'DEVICE' | 'ACCESSORY';
+    itemId: string;
+    unitPrice: number;
+    reason: string;
   }>;
   customerId?: string;
   customerName?: string;
@@ -225,6 +232,38 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
       selectionKeys.add(key);
     }
 
+    const priceAdjustments = Array.isArray(body.priceAdjustments) ? body.priceAdjustments : [];
+    if (priceAdjustments.length > MAX_POS_PRICE_ADJUSTMENTS) {
+      return { isValid: false, error: 'Số dòng điều chỉnh giá vượt giới hạn của hóa đơn.' };
+    }
+    const adjustmentKeys = new Set<string>();
+    for (const adjustment of priceAdjustments) {
+      const itemType = String(adjustment?.itemType || '').toUpperCase();
+      const itemId = String(adjustment?.itemId || '').trim();
+      const unitPrice = adjustment?.unitPrice;
+      const reason = String(adjustment?.reason || '').trim();
+      const key = `${itemType}:${itemId}`;
+      if (
+        !['DEVICE', 'ACCESSORY'].includes(itemType)
+        || !itemId
+        || !Number.isSafeInteger(unitPrice)
+        || unitPrice <= 0
+        || unitPrice > MAX_POS_PAYMENT_AMOUNT
+        || !reason
+        || reason.length > 500
+        || adjustmentKeys.has(key)
+      ) {
+        return { isValid: false, error: 'Dữ liệu điều chỉnh giá bán không hợp lệ.' };
+      }
+      if (
+        (itemType === 'DEVICE' && !cartDeviceIds.has(itemId))
+        || (itemType === 'ACCESSORY' && !cartAccessoryIds.has(itemId))
+      ) {
+        return { isValid: false, error: `Dòng điều chỉnh giá "${key}" không có trong giỏ hàng.` };
+      }
+      adjustmentKeys.add(key);
+    }
+
     // Multi-Payment (Split Tender) Validation
     if (Array.isArray(body.payments) && body.payments.length > 0) {
       if (body.payments.length > MAX_POS_PAYMENT_LINES) {
@@ -308,7 +347,7 @@ export function validateCheckoutPayload(body: any): { isValid: boolean; error?: 
       }
     }
 
-    return { isValid: true, data: { ...body, accessoryLines } as PureIntentCheckoutPayload };
+    return { isValid: true, data: { ...body, accessoryLines, priceAdjustments } as PureIntentCheckoutPayload };
   }
 
   // 2. Legacy Format (Backward compatibility for non-production environments)

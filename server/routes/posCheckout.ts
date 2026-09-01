@@ -27,7 +27,8 @@ export function createPOSCheckoutRouter(db: Firestore): Router {
         console.error('[POS Checkout Error]:', error);
         const statusCode =
           error?.message?.includes('DEVICE_ALREADY_SOLD') ||
-          error?.message?.includes('INSUFFICIENT_STOCK')
+          error?.message?.includes('INSUFFICIENT_STOCK') ||
+          error?.message?.includes('IDEMPOTENCY_')
             ? 409
             : 400;
         return res.status(statusCode).json({
@@ -64,7 +65,7 @@ export function createPOSCheckoutRouter(db: Firestore): Router {
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[POS Refund Error]:', error);
-        const conflict = String(error?.message || '').includes('ALREADY_CANCELLED');
+        const conflict = /ALREADY_CANCELLED|IDEMPOTENCY_/.test(String(error?.message || ''));
         return res.status(conflict ? 409 : 400).json({
           success: false,
           error: error?.message || 'Lỗi xử lý hủy hóa đơn và hoàn tiền.'

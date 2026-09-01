@@ -4,6 +4,7 @@ import { resolveDepartment } from './shiftSchedulingService';
 import { resolveCompensationForPeriod } from './compensationService';
 import { assertFinanceIdempotencyRecord, financePayloadHash, parseVnd, requireFinanceIdempotencyKey } from '../utils/financeIntegrity';
 import { payrollPeriodLockId } from './payrollPeriodLockService';
+import { resolvePayrollHomeBranch } from './payrollStaffIdentity';
 
 export interface PayrollActor {
   uid: string;
@@ -14,10 +15,14 @@ export interface PayrollActor {
 }
 
 export interface PayrollRecordSnapshot {
+  staffUid: string;
   staffId: string;
+  userDocumentId: string;
   staffName: string;
   role: string;
   branchId: string;
+  payrollBranchId: string;
+  operationalBranchId: string;
   branchName: string;
   baseSalary: number;
   proratedBaseSalary: number;
@@ -31,6 +36,8 @@ export interface PayrollRecordSnapshot {
   advances: number;
   adjustmentEarnings: number;
   adjustmentDeductions: number;
+  rawNetSalary: number;
+  negativeCarry: number;
   netSalary: number;
   compensationId: string | null;
   compensationVersion: number | null;
@@ -39,7 +46,16 @@ export interface PayrollRecordSnapshot {
   attendanceRecordIds: string[];
   leaveRequestIds: string[];
   commissionEntryIds: string[];
+  commissionEntryAmounts: Record<string, number>;
+  commissionEntrySnapshots: Record<string, {
+    amount: number;
+    sourceBranchId: string;
+    payrollBranchId: string;
+    commissionCategory: string;
+  }>;
+  commissionSourceBranchIds: string[];
   adjustmentEntryIds: string[];
+  adjustmentEntryAmounts: Record<string, number>;
   blockingIssues: string[];
   warnings: string[];
 }
@@ -80,6 +96,190 @@ function safeSignedMoney(value: unknown): number {
   return Number.isFinite(parsed) && Number.isSafeInteger(parsed) && Math.abs(parsed) <= 100_000_000_000 ? parsed : 0;
 }
 
+function isCommissionInPayrollScope(
+  entry: Record<string, any>,
+  staffUids: Set<string>,
+  period: string,
+  payrollBranchId: string
+) {
+  const staffUid = String(entry.staffUid || '');
+  const sourceBranchId = String(entry.sourceBranchId || entry.branchId || '').trim();
+  return Boolean(staffUid)
+    && staffUids.has(staffUid)
+    && entry.status === 'ELIGIBLE'
+    && !entry.payrollPostingId
+    && Boolean(sourceBranchId)
+    && String(entry.payrollBranchId || '').trim() === payrollBranchId
+    && String(entry.payrollPeriod || '') === period;
+}
+
+function isAdjustmentInPayrollScope(
+  entry: Record<string, any>,
+  staffUids: Set<string>,
+  period: string,
+  branchId: string
+) {
+  const staffUid = String(entry.staffUid || '');
+  return Boolean(staffUid)
+    && staffUids.has(staffUid)
+    && entry.status === 'APPROVED'
+    && !entry.payrollPostingId
+    && String(entry.branchId || '') === branchId
+    && String(entry.period || '') === period;
+}
+
+function assertPostedPayrollEntriesInScope(
+  commissionEntries: Array<{ data(): Record<string, any> }>,
+  adjustmentEntries: Array<{ data(): Record<string, any> }>,
+  staffUids: Set<string>,
+  period: string,
+  branchId: string
+) {
+  // A posting query is keyed by payrollPostingId, but that key alone is not a
+  // sufficient accounting boundary. Older/hand-edited documents can carry a
+  // stale posting id, so refuse to pay rather than mutate a cross-branch or
+  // cross-period ledger. Missing canonical scope fields are intentionally
+  // fail-closed and must be repaired by a migration/reconciliation job.
+  const commissionOutOfScope = commissionEntries.some(({ data }) => {
+    const entry = data();
+    return entry.status !== 'ELIGIBLE'
+      || !staffUids.has(String(entry.staffUid || ''))
+      || !String(entry.sourceBranchId || entry.branchId || '').trim()
+      || String(entry.payrollBranchId || '').trim() !== branchId
+      || String(entry.payrollPeriod || '') !== period;
+  });
+  const adjustmentOutOfScope = adjustmentEntries.some(({ data }) => {
+    const entry = data();
+    return entry.status !== 'APPROVED'
+      || !staffUids.has(String(entry.staffUid || ''))
+      || String(entry.branchId || '') !== branchId
+      || String(entry.period || '') !== period;
+  });
+  if (commissionOutOfScope || adjustmentOutOfScope) {
+    throw new Error('PAYROLL_POSTING_SCOPE_MISMATCH: Ledger đã gắn vào kỳ lương nhưng khác chi nhánh hoặc kỳ; cần đối soát trước khi chi.');
+  }
+}
+
+function canonicalPayrollRunItemUid(
+  item: { id: string; data(): Record<string, any> },
+  runId: string
+): string {
+  const data = item.data();
+  const staffUid = String(data.staffUid || '').trim();
+  if (!staffUid
+    || String(data.staffId || '') !== staffUid
+    || String(data.runId || '') !== runId
+    || item.id !== `${runId}_${staffUid}`) {
+    throw new Error('PAYROLL_RUN_ITEM_IDENTITY_MISMATCH: Phiếu lương chưa dùng Firebase UID chuẩn; cần tính lại kỳ lương trước khi duyệt hoặc chi.');
+  }
+  return staffUid;
+}
+
+function assertCanonicalPayrollSlip(
+  item: { id: string; data(): Record<string, any> },
+  runId: string,
+  staffUid: string
+) {
+  if (canonicalPayrollRunItemUid(item, runId) !== staffUid) {
+    throw new Error('PAYROLL_SLIP_IDENTITY_MISMATCH: Phiếu lương không thuộc tài khoản Firebase hiện tại.');
+  }
+}
+
+function sortedUniqueIds(values: unknown): string[] {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))].sort();
+}
+
+function sameIds(left: unknown, right: string[]): boolean {
+  return JSON.stringify(sortedUniqueIds(left)) === JSON.stringify([...new Set(right)].sort());
+}
+
+function commissionEntrySnapshot(entry: Record<string, any>) {
+  return {
+    amount: safeSignedMoney(entry.commissionPayable ?? entry.amount),
+    sourceBranchId: String(entry.sourceBranchId || entry.branchId || '').trim(),
+    payrollBranchId: String(entry.payrollBranchId || '').trim(),
+    commissionCategory: String(entry.commissionCategory || entry.category || '').trim().toUpperCase()
+  };
+}
+
+function assertLedgerSnapshotMatches(
+  itemData: Record<string, any>,
+  commissionEntries: Array<{ id: string; data(): Record<string, any> }>,
+  adjustmentEntries: Array<{ id: string; data(): Record<string, any> }>
+) {
+  const commissionIds = commissionEntries.map((entry) => entry.id);
+  const adjustmentIds = adjustmentEntries.map((entry) => entry.id);
+  if (!sameIds(itemData.commissionEntryIds, commissionIds) || !sameIds(itemData.adjustmentEntryIds, adjustmentIds)) {
+    throw new Error('PAYROLL_SOURCES_CHANGED_RECALCULATE: Nguồn hoa hồng hoặc điều chỉnh đã thay đổi; cần tính lại kỳ lương.');
+  }
+  const commissionAmounts = itemData.commissionEntryAmounts || {};
+  const commissionSnapshots = itemData.commissionEntrySnapshots || {};
+  const adjustmentAmounts = itemData.adjustmentEntryAmounts || {};
+  const commissionChanged = commissionEntries.some((entry) => (
+    !Object.prototype.hasOwnProperty.call(commissionAmounts, entry.id)
+    || Number(commissionAmounts[entry.id]) !== safeSignedMoney(entry.data().commissionPayable ?? entry.data().amount)
+  ));
+  const adjustmentChanged = adjustmentEntries.some((entry) => (
+    !Object.prototype.hasOwnProperty.call(adjustmentAmounts, entry.id)
+    || Number(adjustmentAmounts[entry.id]) !== safeMoney(entry.data().amount)
+  ));
+  if (commissionChanged || adjustmentChanged) {
+    throw new Error('PAYROLL_SOURCE_AMOUNT_CHANGED_RECALCULATE: Số tiền nguồn đã thay đổi; cần tính lại kỳ lương.');
+  }
+  const commissionMetadataChanged = commissionEntries.some((entry) => {
+    const expected = commissionSnapshots[entry.id];
+    const actual = commissionEntrySnapshot(entry.data());
+    return !expected
+      || Number(expected.amount) !== actual.amount
+      || String(expected.sourceBranchId || '').trim() !== actual.sourceBranchId
+      || String(expected.payrollBranchId || '').trim() !== actual.payrollBranchId
+      || String(expected.commissionCategory || '').trim().toUpperCase() !== actual.commissionCategory;
+  });
+  if (commissionMetadataChanged) {
+    throw new Error('PAYROLL_SOURCE_METADATA_CHANGED_RECALCULATE: Chi nhánh nguồn hoặc loại hoa hồng đã thay đổi; cần tính lại kỳ lương.');
+  }
+  if (commissionEntries.length > 0) {
+    const sourceCommission = commissionEntries.reduce((sum, entry) => sum + safeSignedMoney(entry.data().commissionPayable ?? entry.data().amount), 0);
+    if (sourceCommission !== safeSignedMoney(itemData.posCommission) + safeSignedMoney(itemData.techCommission)) {
+      throw new Error('PAYROLL_COMMISSION_TOTAL_MISMATCH_RECALCULATE');
+    }
+  }
+  const sourceEarnings = adjustmentEntries
+    .filter((entry) => String(entry.data().type || '') === 'EARNING')
+    .reduce((sum, entry) => sum + safeMoney(entry.data().amount), 0);
+  const sourceDeductions = adjustmentEntries
+    .filter((entry) => String(entry.data().type || '') === 'DEDUCTION')
+    .reduce((sum, entry) => sum + safeMoney(entry.data().amount), 0);
+  if (sourceEarnings !== safeMoney(itemData.adjustmentEarnings)
+    || sourceDeductions !== safeMoney(itemData.adjustmentDeductions)) {
+    throw new Error('PAYROLL_ADJUSTMENT_TOTAL_MISMATCH_RECALCULATE');
+  }
+  const rawNetSalary =
+    safeMoney(itemData.proratedBaseSalary)
+    + safeSignedMoney(itemData.posCommission)
+    + safeSignedMoney(itemData.techCommission)
+    + safeMoney(itemData.allowances)
+    + safeMoney(itemData.adjustmentEarnings)
+    - safeMoney(itemData.advances);
+  const expectedNetSalary = Math.max(0, rawNetSalary);
+  if (expectedNetSalary !== safeMoney(itemData.netSalary)) {
+    throw new Error('PAYROLL_ITEM_TOTAL_MISMATCH_RECALCULATE');
+  }
+  if (rawNetSalary < 0 || Number(itemData.rawNetSalary ?? rawNetSalary) < 0 || safeMoney(itemData.negativeCarry) > 0) {
+    throw new Error('PAYROLL_NEGATIVE_NET_REQUIRES_RECOVERY_ADJUSTMENT: Lương thực nhận âm phải được chuyển thành phiếu thu hồi/điều chỉnh kỳ sau trước khi duyệt.');
+  }
+}
+
+function assertRunTotals(run: Record<string, any>, items: Array<{ data(): Record<string, any> }>) {
+  const totalPayroll = items.reduce((sum, item) => sum + safeMoney(item.data().netSalary), 0);
+  const totalCommission = items.reduce((sum, item) => sum + safeSignedMoney(item.data().posCommission) + safeSignedMoney(item.data().techCommission), 0);
+  if (Number(run.staffCount) !== items.length
+    || Number(run.totalPayroll) !== totalPayroll
+    || Number(run.totalCommission) !== totalCommission) {
+    throw new Error('PAYROLL_RUN_TOTAL_MISMATCH_RECALCULATE: Tổng kỳ lương không khớp chi tiết; cần tính lại.');
+  }
+}
+
 function datesInRange(startDate: string, endDate: string): string[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < startDate) return [];
   const dates: string[] = [];
@@ -117,11 +317,60 @@ export function buildPayrollRecords(input: {
   branchId: string;
 }) {
   const branchNames = new Map(input.branches.map((branch) => [branch.id, String(branch.data.name || branch.id)]));
-  const scopedUsers = input.users.filter(({ data }) => data.active !== false)
-    .filter(({ data }) => input.branchId === 'ALL' || data.branchId === input.branchId || (data.assignedBranchIds || []).includes(input.branchId));
+  const duplicatePrincipalUids = new Set<string>();
+  const legacyMigrationPrincipalUids = new Set<string>();
+  const groupedUsers = new Map<string, Array<{ id: string; data: Record<string, any> }>>();
+  const emailToPrincipalUid = new Map<string, string>();
+  const legacyCandidates: Array<{ id: string; data: Record<string, any> }> = [];
+  input.users.forEach((candidate) => {
+    const email = String(candidate.data.email || '').trim().toLowerCase();
+    const explicitUid = String(candidate.data.authUid || candidate.data.uid || '').trim();
+    const principalUid = explicitUid || (candidate.id.toLowerCase() !== email ? candidate.id : '');
+    if (!principalUid) {
+      legacyCandidates.push(candidate);
+      return;
+    }
+    groupedUsers.set(principalUid, [...(groupedUsers.get(principalUid) || []), candidate]);
+    if (email) emailToPrincipalUid.set(email, principalUid);
+  });
+  legacyCandidates.forEach((candidate) => {
+    const email = String(candidate.data.email || candidate.id || '').trim().toLowerCase();
+    const principalUid = emailToPrincipalUid.get(email) || candidate.id;
+    groupedUsers.set(principalUid, [...(groupedUsers.get(principalUid) || []), candidate]);
+  });
+  const usersByPrincipalUid = new Map<string, { id: string; data: Record<string, any> }>();
+  groupedUsers.forEach((candidates, groupedPrincipalUid) => {
+    const canonicalCandidates = candidates.filter((candidate) => {
+      const explicitUid = String(candidate.data.authUid || candidate.data.uid || '').trim();
+      const email = String(candidate.data.email || '').trim().toLowerCase();
+      return Boolean(explicitUid) || candidate.id.toLowerCase() !== email;
+    });
+    const selected = canonicalCandidates.find((candidate) => candidate.id === groupedPrincipalUid)
+      || canonicalCandidates[0]
+      || candidates[0];
+    const principalUid = String(selected.data.authUid || selected.data.uid || groupedPrincipalUid || selected.id).trim();
+    if (!principalUid) return;
+    if (candidates.length > 1) duplicatePrincipalUids.add(principalUid);
+    if (selected.id !== principalUid
+      || canonicalCandidates.length === 0
+      || candidates.some((candidate) => candidate !== selected && !candidate.data.authUid && !candidate.data.uid)) {
+      legacyMigrationPrincipalUids.add(principalUid);
+    }
+    // Active filtering happens after identity resolution. Therefore an inactive
+    // canonical profile suppresses an older active email-keyed duplicate.
+    usersByPrincipalUid.set(principalUid, selected);
+  });
+  const scopedUsers = [...usersByPrincipalUid.values()]
+    .filter(({ data }) => data.active !== false)
+    .map((candidate) => ({ ...candidate, payrollHome: resolvePayrollHomeBranch(candidate.data) }))
+    .filter(({ payrollHome }) => input.branchId === 'ALL' || payrollHome.branchId === input.branchId);
 
-  return scopedUsers.map(({ id, data }) => {
+  return scopedUsers.map(({ id, data, payrollHome }) => {
+    const principalUid = String(data.authUid || data.uid || id).trim();
     const authIds = new Set([id, data.id, data.uid, data.authUid].filter(Boolean).map(String));
+    // Financial ledgers must resolve through canonical UID fields. Legacy staffId/data.id
+    // aliases remain supported for attendance history only and require migration before payroll.
+    const payrollStaffUids = new Set([principalUid]);
     const staffAttendance = input.attendance.filter((record) => authIds.has(String(record.staffId || '')) && String(record.date || '').startsWith(input.period));
     const workdayCredits = new Map<string, number>();
     staffAttendance.forEach((record) => {
@@ -130,7 +379,7 @@ export function buildPayrollRecords(input: {
       workdayCredits.set(date, Math.max(workdayCredits.get(date) || 0, resolveAttendanceWorkday(record).credit));
     });
     const scheduledDates = new Set<string>();
-    const payrollBranchId = input.branchId === 'ALL' ? String(data.branchId || '') : input.branchId;
+    const payrollBranchId = payrollHome.branchId;
     const department = resolveDepartment(data);
     const fixedPolicy = (input.departmentPolicies || []).find((policy) => (
       policy.active !== false
@@ -144,14 +393,21 @@ export function buildPayrollRecords(input: {
         if (workDayIndexes.has(mondayBasedDayIndex(date))) scheduledDates.add(date);
       });
     }
+    const publishedAssignments = new Map<string, { assigned: boolean; off: boolean }>();
     input.schedules
       .filter((schedule) => authIds.has(String(schedule.staffId || '')) && schedule.status === 'PUBLISHED')
-      .filter((schedule) => !schedule.branchId || schedule.branchId === payrollBranchId)
+      .filter((schedule) => !schedule.branchId || payrollHome.assignedBranchIds.includes(String(schedule.branchId)))
       .forEach((schedule) => Object.entries(schedule.days || {}).forEach(([date, assignment]: [string, any]) => {
         if (!date.startsWith(input.period)) return;
-        if (assignment?.shiftId === 'OFF' || assignment?.isOff === true) scheduledDates.delete(date);
-        else if (assignment?.shiftId) scheduledDates.add(date);
+        const current = publishedAssignments.get(date) || { assigned: false, off: false };
+        if (assignment?.shiftId === 'OFF' || assignment?.isOff === true) current.off = true;
+        else if (assignment?.shiftId) current.assigned = true;
+        publishedAssignments.set(date, current);
       }));
+    publishedAssignments.forEach((assignment, date) => {
+      if (assignment.assigned) scheduledDates.add(date);
+      else if (assignment.off) scheduledDates.delete(date);
+    });
 
     const payrollDates = periodDates(input.period);
     const periodStartDate = payrollDates[0];
@@ -179,11 +435,13 @@ export function buildPayrollRecords(input: {
 
     const standardWorkDays = scheduledDates.size;
     const workDays = Math.round([...workdayCredits.values()].reduce((sum, credit) => sum + credit, 0) * 2) / 2;
-    const compensation = resolveCompensationForPeriod(input.compensations || [], id, input.period);
+    const compensation = resolveCompensationForPeriod(input.compensations || [], principalUid, input.period);
     const baseSalary = safeMoney(compensation?.baseSalary ?? data.baseSalary);
     const allowances = safeMoney(compensation?.allowance ?? data.allowance);
     const proratedBase = standardWorkDays > 0 ? Math.round(baseSalary / standardWorkDays * Math.min(workDays, standardWorkDays)) : 0;
-    const technicalEntries = input.commissions.filter((entry) => authIds.has(String(entry.staffUid || entry.staffId || '')) && entry.status === 'ELIGIBLE' && !entry.payrollPostingId);
+    const technicalEntries = input.commissions.filter((entry) => (
+      isCommissionInPayrollScope(entry, payrollStaffUids, input.period, payrollBranchId)
+    ));
     const salesEntries = technicalEntries.filter((entry) => String(entry.commissionCategory || entry.category || '').toUpperCase() === 'SALES');
     const technicianEntries = technicalEntries.filter((entry) => !salesEntries.includes(entry));
     const techCommission = technicianEntries.reduce((sum, entry) => sum + safeSignedMoney(entry.commissionPayable ?? entry.amount), 0);
@@ -191,10 +449,7 @@ export function buildPayrollRecords(input: {
       ? salesEntries.reduce((sum, entry) => sum + safeSignedMoney(entry.commissionPayable ?? entry.amount), 0)
       : safeMoney(data.salesCommission) + safeMoney(data.kpiSalesBonus);
     const adjustmentEntries = (input.adjustments || []).filter((entry) => (
-      authIds.has(String(entry.staffUid || ''))
-      && entry.status === 'APPROVED'
-      && !entry.payrollPostingId
-      && String(entry.period || '') === input.period
+      isAdjustmentInPayrollScope(entry, payrollStaffUids, input.period, payrollBranchId)
     ));
     const adjustmentEarnings = adjustmentEntries
       .filter((entry) => String(entry.type || '') === 'EARNING')
@@ -206,17 +461,46 @@ export function buildPayrollRecords(input: {
     const staffBranchId = String(data.branchId || '');
     const blockingIssues: string[] = [];
     const warnings: string[] = [];
+    const unresolvedCommissionScope = input.commissions.some((entry) => (
+      authIds.has(String(entry.staffUid || entry.staffId || ''))
+      && entry.status === 'ELIGIBLE'
+      && !entry.payrollPostingId
+      && String(entry.payrollPeriod || '') === input.period
+      && (String(entry.staffUid || '') !== principalUid
+        || !String(entry.sourceBranchId || entry.branchId || '').trim()
+        || String(entry.payrollBranchId || '').trim() !== payrollBranchId)
+    ));
+    const unresolvedAdjustmentScope = (input.adjustments || []).some((entry) => (
+      authIds.has(String(entry.staffUid || entry.staffId || ''))
+      && entry.status === 'APPROVED'
+      && !entry.payrollPostingId
+      && String(entry.period || '') === input.period
+      && (String(entry.staffUid || '') !== principalUid || !String(entry.branchId || '').trim())
+    ));
     if (baseSalary <= 0) blockingIssues.push('BASE_SALARY_MISSING');
     if (standardWorkDays <= 0) blockingIssues.push('SCHEDULE_MISSING');
+    if (payrollHome.blockingIssue) blockingIssues.push(payrollHome.blockingIssue);
+    if (duplicatePrincipalUids.has(principalUid)) blockingIssues.push('DUPLICATE_USER_PROFILE');
+    if (legacyMigrationPrincipalUids.has(principalUid)) blockingIssues.push('LEGACY_USER_UID_MIGRATION_REQUIRED');
+    if (unresolvedCommissionScope) blockingIssues.push('COMMISSION_LEDGER_MIGRATION_REQUIRED');
+    if (unresolvedAdjustmentScope) blockingIssues.push('PAYROLL_ADJUSTMENT_MIGRATION_REQUIRED');
     if (!compensation) warnings.push('LEGACY_COMPENSATION_SOURCE');
     if (salesEntries.length === 0 && (safeMoney(data.salesCommission) > 0 || safeMoney(data.kpiSalesBonus) > 0)) warnings.push('LEGACY_SALES_COMMISSION_SOURCE');
 
+    const rawNetSalary = proratedBase + posCommission + techCommission + allowances + adjustmentEarnings - advances;
+    const negativeCarry = Math.max(0, -rawNetSalary);
+    if (rawNetSalary < 0) blockingIssues.push('NEGATIVE_NET_REQUIRES_RECOVERY_ADJUSTMENT');
+
     return {
-      staffId: id,
+      staffUid: principalUid,
+      staffId: principalUid,
+      userDocumentId: id,
       staffName: String(data.displayName || data.name || id),
       role: String(data.role || 'STAFF'),
-      branchId: staffBranchId,
-      branchName: branchNames.get(staffBranchId) || 'Chưa phân chi nhánh',
+      branchId: payrollBranchId,
+      payrollBranchId,
+      operationalBranchId: staffBranchId,
+      branchName: branchNames.get(payrollBranchId) || 'Chưa phân chi nhánh trả lương',
       baseSalary,
       proratedBaseSalary: proratedBase,
       workDays,
@@ -229,7 +513,9 @@ export function buildPayrollRecords(input: {
       advances,
       adjustmentEarnings,
       adjustmentDeductions,
-      netSalary: Math.max(0, proratedBase + posCommission + techCommission + allowances + adjustmentEarnings - advances),
+      rawNetSalary,
+      negativeCarry,
+      netSalary: Math.max(0, rawNetSalary),
       compensationId: compensation?.id || null,
       compensationVersion: compensation ? Number(compensation.version || 1) : null,
       compensationEffectiveFrom: compensation?.effectiveFrom || null,
@@ -237,7 +523,19 @@ export function buildPayrollRecords(input: {
       attendanceRecordIds: staffAttendance.map((record) => String(record.id || '')).filter(Boolean),
       leaveRequestIds: staffLeaves.map((leave) => String(leave.id || '')).filter(Boolean),
       commissionEntryIds: technicalEntries.map((entry) => String(entry.id || '')).filter(Boolean),
+      commissionEntryAmounts: Object.fromEntries(technicalEntries
+        .map((entry) => [String(entry.id || '').trim(), safeSignedMoney(entry.commissionPayable ?? entry.amount)] as const)
+        .filter(([id]) => Boolean(id))),
+      commissionEntrySnapshots: Object.fromEntries(technicalEntries
+        .map((entry) => [String(entry.id || '').trim(), commissionEntrySnapshot(entry)] as const)
+        .filter(([id]) => Boolean(id))),
+      commissionSourceBranchIds: [...new Set(technicalEntries
+        .map((entry) => String(entry.sourceBranchId || entry.branchId || '').trim())
+        .filter(Boolean))],
       adjustmentEntryIds: adjustmentEntries.map((entry) => String(entry.id || '')).filter(Boolean),
+      adjustmentEntryAmounts: Object.fromEntries(adjustmentEntries
+        .map((entry) => [String(entry.id || '').trim(), safeMoney(entry.amount)] as const)
+        .filter(([id]) => Boolean(id))),
       blockingIssues,
       warnings
     } satisfies PayrollRecordSnapshot;
@@ -311,10 +609,16 @@ export async function getMyPayrollSlip(db: Firestore | null, actor: PayrollActor
       db.collection('payrollRunItems').doc(`${lockedRunId}_${actor.uid}`).get()
     ]);
     if (runSnapshot.exists && itemSnapshot.exists && ['APPROVED', 'PAID'].includes(String(runSnapshot.data()?.status || ''))) {
+      if (String(staffLock.data()?.staffUid || '') !== actor.uid) {
+        throw new Error('PAYROLL_STAFF_LOCK_IDENTITY_MISMATCH: Khóa kỳ lương chưa dùng Firebase UID chuẩn.');
+      }
+      assertCanonicalPayrollSlip(itemSnapshot as any, lockedRunId, actor.uid);
       return { id: itemSnapshot.id, ...itemSnapshot.data(), runStatus: runSnapshot.data()?.status, approvedAt: runSnapshot.data()?.approvedAt, paidAt: runSnapshot.data()?.paidAt };
     }
   }
-  const candidateBranches = [...new Set([actor.branchId, 'ALL'].filter(Boolean))] as string[];
+  const profileSnapshot = await db.collection('users').doc(actor.uid).get();
+  const payrollHome = profileSnapshot.exists ? resolvePayrollHomeBranch(profileSnapshot.data() || {}) : null;
+  const candidateBranches = [...new Set([payrollHome?.branchId, actor.branchId, 'ALL'].filter(Boolean))] as string[];
   const candidates = candidateBranches.map((branchId) => {
     const runId = `PAYROLL_${period}_${branchId}`;
     return {
@@ -328,6 +632,7 @@ export async function getMyPayrollSlip(db: Firestore | null, actor: PayrollActor
     const runSnapshot = snapshots[index * 2];
     const itemSnapshot = snapshots[index * 2 + 1];
     if (runSnapshot.exists && itemSnapshot.exists && ['APPROVED', 'PAID'].includes(String(runSnapshot.data()?.status || ''))) {
+      assertCanonicalPayrollSlip(itemSnapshot as any, candidates[index].runId, actor.uid);
       return { id: itemSnapshot.id, ...itemSnapshot.data(), runStatus: runSnapshot.data()?.status, approvedAt: runSnapshot.data()?.approvedAt };
     }
   }
@@ -418,8 +723,28 @@ export async function approvePayrollRun(db: Firestore | null, actor: PayrollActo
     const commissionSnapshot = await transaction.get(db.collection('commissionLedger').where('payrollPeriod', '==', run.period).limit(5001));
     const adjustmentSnapshot = await transaction.get(db.collection('payrollAdjustments').where('period', '==', run.period).where('status', '==', 'APPROVED').limit(5001));
     if (commissionSnapshot.size > 5000 || adjustmentSnapshot.size > 5000) throw new Error('PAYROLL_SOURCE_LIMIT');
-    const itemStaffIds = new Set(itemSnapshot.docs.map((doc) => String(doc.data().staffId || '')));
-    const lockRefs = [...itemStaffIds].map((staffId) => db.collection('payrollStaffLocks').doc(`${run.period}_${staffId}`));
+    const itemStaffUids = itemSnapshot.docs.map((doc) => canonicalPayrollRunItemUid(doc as any, runId));
+    if (new Set(itemStaffUids).size !== itemStaffUids.length) throw new Error('PAYROLL_RUN_DUPLICATE_STAFF_UID');
+    const itemStaffIds = new Set(itemStaffUids);
+    if (run.status !== 'APPROVED') {
+      if (itemSnapshot.docs.some((doc) => String(doc.data().status || '') !== 'DRAFT')) {
+        throw new Error('PAYROLL_RUN_ITEM_STATUS_MISMATCH_RECALCULATE');
+      }
+      assertRunTotals(run, itemSnapshot.docs);
+    }
+    const currentUserSnapshots = await Promise.all(itemStaffUids.map((staffUid) => transaction.get(db.collection('users').doc(staffUid))));
+    currentUserSnapshots.forEach((snapshot, index) => {
+      if (!snapshot.exists || snapshot.data()?.active === false) throw new Error('PAYROLL_STAFF_INACTIVE_RECALCULATE');
+      const home = resolvePayrollHomeBranch(snapshot.data() || {});
+      if (home.blockingIssue || home.branchId !== String(run.branchId || '')) {
+        throw new Error('PAYROLL_HOME_BRANCH_CHANGED_RECALCULATE: Chi nhánh trả lương của nhân viên đã thay đổi; cần tính lại kỳ.');
+      }
+      const item = itemSnapshot.docs[index].data();
+      if (String(item.payrollBranchId || item.branchId || '') !== home.branchId) {
+        throw new Error('PAYROLL_HOME_BRANCH_CHANGED_RECALCULATE: Bản nháp không còn đúng chi nhánh trả lương hiện tại.');
+      }
+    });
+    const lockRefs = itemStaffUids.map((staffUid) => db.collection('payrollStaffLocks').doc(`${run.period}_${staffUid}`));
     const lockSnapshots = await Promise.all(lockRefs.map((ref) => transaction.get(ref)));
     lockSnapshots.forEach((snapshot) => {
       if (snapshot.exists && snapshot.data()?.runId !== runId) {
@@ -427,21 +752,32 @@ export async function approvePayrollRun(db: Firestore | null, actor: PayrollActo
       }
     });
     const now = new Date().toISOString();
-    const commissionWrites = commissionSnapshot.docs.filter((doc) => {
-      const data = doc.data();
-      return data.status === 'ELIGIBLE' && !data.payrollPostingId && itemStaffIds.has(String(data.staffUid || data.staffId || ''));
-    }).length;
-    const adjustmentWrites = adjustmentSnapshot.docs.filter((doc) => {
-      const data = doc.data();
-      return !data.payrollPostingId && itemStaffIds.has(String(data.staffUid || '')) && String(data.branchId || '') === String(run.branchId || '');
-    }).length;
+    const commissionDocsToPost = commissionSnapshot.docs.filter((doc) => (
+      isCommissionInPayrollScope(doc.data(), itemStaffIds, String(run.period), String(run.branchId))
+    ));
+    const adjustmentDocsToPost = adjustmentSnapshot.docs.filter((doc) => (
+      isAdjustmentInPayrollScope(doc.data(), itemStaffIds, String(run.period), String(run.branchId))
+    ));
+    if (run.status !== 'APPROVED') {
+      itemSnapshot.docs.forEach((itemDoc) => {
+        const staffUid = String(itemDoc.data().staffUid || '');
+        assertLedgerSnapshotMatches(
+          itemDoc.data(),
+          commissionDocsToPost.filter((entry) => String(entry.data().staffUid || '') === staffUid),
+          adjustmentDocsToPost.filter((entry) => String(entry.data().staffUid || '') === staffUid)
+        );
+      });
+    }
+    const commissionWrites = commissionDocsToPost.length;
+    const adjustmentWrites = adjustmentDocsToPost.length;
     if (itemSnapshot.size + lockRefs.length + commissionWrites + adjustmentWrites + 3 > 490) {
       throw new Error('PAYROLL_TRANSACTION_TOO_LARGE: Hãy chốt bảng lương theo phạm vi nhỏ hơn.');
     }
     lockRefs.forEach((ref, index) => transaction.set(ref, {
       id: ref.id,
       period: run.period,
-      staffId: [...itemStaffIds][index],
+      staffUid: itemStaffUids[index],
+      staffId: itemStaffUids[index],
       runId,
       branchId: run.branchId,
       lockedAt: lockSnapshots[index].data()?.lockedAt || now,
@@ -460,17 +796,11 @@ export async function approvePayrollRun(db: Firestore | null, actor: PayrollActo
       updatedAt: now
     }, { merge: true });
     itemSnapshot.docs.forEach((doc) => transaction.update(doc.ref, { status: 'APPROVED', updatedAt: now }));
-    commissionSnapshot.docs.forEach((doc) => {
-      const data = doc.data();
-      if (data.status === 'ELIGIBLE' && !data.payrollPostingId && itemStaffIds.has(String(data.staffUid || data.staffId || ''))) {
-        transaction.update(doc.ref, { payrollPostingId: runId, payrollPostedAt: now, updatedAt: now });
-      }
+    commissionDocsToPost.forEach((doc) => {
+      transaction.update(doc.ref, { payrollPostingId: runId, payrollPostedAt: now, updatedAt: now });
     });
-    adjustmentSnapshot.docs.forEach((doc) => {
-      const data = doc.data();
-      if (!data.payrollPostingId && itemStaffIds.has(String(data.staffUid || '')) && String(data.branchId || '') === String(run.branchId || '')) {
-        transaction.update(doc.ref, { payrollPostingId: runId, payrollPostedAt: now, updatedAt: now });
-      }
+    adjustmentDocsToPost.forEach((doc) => {
+      transaction.update(doc.ref, { payrollPostingId: runId, payrollPostedAt: now, updatedAt: now });
     });
     transaction.set(db.collection('payrollAuditLogs').doc(), { runId, action: 'APPROVED', actorUid: actor.uid, actorName: actor.name || actor.uid, occurredAt: now });
     return { id: runId, ...run, status: 'APPROVED', approvedAt: now, approvedBy: actor.uid, idempotentReplay: false };
@@ -524,6 +854,28 @@ export async function payPayrollRun(
     if (String(run.branchId || '') === 'ALL') throw new Error('PAYROLL_ALL_PAYMENT_NOT_ALLOWED: Cần chi lương theo từng chi nhánh/quỹ.');
     if (String(fund.branchId || '') !== String(run.branchId || '')) throw new Error('PAYROLL_FUND_BRANCH_MISMATCH');
     if (fund.isActive === false || fund.active === false || fund.isArchived === true) throw new Error('PAYROLL_FUND_NOT_ACTIVE');
+    const canonicalItemUids = itemSnapshot.docs.map((doc) => canonicalPayrollRunItemUid(doc as any, runId));
+    if (new Set(canonicalItemUids).size !== canonicalItemUids.length) throw new Error('PAYROLL_RUN_DUPLICATE_STAFF_UID');
+    const itemStaffUids = new Set(canonicalItemUids);
+    if (itemSnapshot.docs.some((doc) => String(doc.data().status || '') !== 'APPROVED')) {
+      throw new Error('PAYROLL_RUN_ITEM_STATUS_MISMATCH');
+    }
+    assertRunTotals(run, itemSnapshot.docs);
+    assertPostedPayrollEntriesInScope(
+      commissionSnapshot.docs,
+      adjustmentSnapshot.docs,
+      itemStaffUids,
+      String(run.period),
+      String(run.branchId)
+    );
+    itemSnapshot.docs.forEach((itemDoc) => {
+      const staffUid = String(itemDoc.data().staffUid || '');
+      assertLedgerSnapshotMatches(
+        itemDoc.data(),
+        commissionSnapshot.docs.filter((entry) => String(entry.data().staffUid || '') === staffUid),
+        adjustmentSnapshot.docs.filter((entry) => String(entry.data().staffUid || '') === staffUid)
+      );
+    });
     const amount = parseVnd(run.totalPayroll, { field: 'PAYROLL_TOTAL' });
     const currentBalance = parseVnd(fund.currentBalance ?? 0, { allowZero: true, field: 'FUND_BALANCE' });
     const totalExpense = parseVnd(fund.totalExpense ?? 0, { allowZero: true, field: 'FUND_TOTAL_EXPENSE' });

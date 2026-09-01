@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PARTNER_OPERATION_ROLES } from '../server/routes/partners';
+import { PARTNER_FINANCE_ROLES, PARTNER_OPERATION_ROLES } from '../server/routes/partners';
 
 const source = (file: string) => readFileSync(resolve(process.cwd(), file), 'utf8');
 
@@ -32,5 +32,13 @@ describe('Purchase-order quick supplier creation', () => {
       'STORE_MANAGER',
       'REGIONAL_MANAGER'
     ]));
+  });
+
+  it('keeps directional partner balances limited to finance-view roles', () => {
+    expect(PARTNER_FINANCE_ROLES).toEqual(expect.arrayContaining([
+      'ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'
+    ]));
+    ['SALES', 'CUSTOMER_CARE', 'CASHIER', 'INVENTORY_MANAGER', 'WAREHOUSE']
+      .forEach(role => expect(PARTNER_FINANCE_ROLES).not.toContain(role));
   });
 });

@@ -28,7 +28,10 @@ function checkoutDb() {
     delete: () => { writeStarted = true; }
   };
   const db: any = {
-    collection: (col: string) => ({ doc: (docId?: string) => ({ col, docId: docId || `${col}-generated` }) }),
+    collection: (col: string) => ({ doc: (docId?: string) => {
+      const id = docId || `${col}-generated`;
+      return { col, docId: id, id };
+    } }),
     runTransaction: async (callback: any) => callback(transaction),
     __writes: writes
   };
@@ -76,5 +79,18 @@ describe('Retail pricing and Firestore POS transaction order', () => {
       deviceIds: ['DEV-01'], branchId: 'CN01', warehouseId: 'KHO01', payment: { method: 'CASH', fundId: 'FUND-01' },
       priceAdjustments: [{ itemType: 'DEVICE', itemId: 'DEV-01', unitPrice: 25000000, reason: 'Xin giảm sâu' }]
     }, { uid: 'SALE-01', role: 'SALES', branchId: 'CN01' })).rejects.toThrow('POS_PRICE_BELOW_FLOOR');
+  });
+
+  it('creates one canonical receivable open item in the checkout transaction for a debt invoice', async () => {
+    const db = checkoutDb();
+    const result = await executeAtomicCheckout(db, {
+      deviceIds: ['DEV-01'], branchId: 'CN01', warehouseId: 'KHO01', customerId: 'CUST-01',
+      payment: { method: 'DEBT' }
+    }, { uid: 'SALE-01', role: 'SALES', name: 'Sale 01', branchId: 'CN01' });
+    const openItem = db.__writes.find((write: any) => write.ref.col === 'debtOpenItems')?.data;
+    expect(openItem).toMatchObject({
+      branchId: 'CN01', direction: 'RECEIVABLE', sourceType: 'INVOICE', sourceId: result.invoiceId,
+      originalAmount: 28_000_000, settledAmount: 0, openAmount: 28_000_000, status: 'OPEN', isOpen: true
+    });
   });
 });

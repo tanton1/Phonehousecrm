@@ -3,6 +3,8 @@ import { FieldValue, Firestore } from 'firebase-admin/firestore';
 
 export type BranchPartyType = 'CUSTOMER' | 'SUPPLIER' | 'BOTH' | 'STAFF';
 export type DebtDirection = 'RECEIVABLE' | 'PAYABLE';
+export type DebtOpenItemSourceType = 'PURCHASE_ORDER' | 'INVOICE' | 'TECHNICAL_WORK_ORDER';
+export type DebtOpenItemStatus = 'OPEN' | 'PARTIAL' | 'SETTLED' | 'REVERSED';
 export type DebtLedgerSourceType =
   | 'PURCHASE_ORDER'
   | 'INVOICE'
@@ -21,6 +23,165 @@ export interface PartyIdentity {
 
 function hashId(prefix: string, value: string, length = 24): string {
   return `${prefix}_${crypto.createHash('sha256').update(value).digest('hex').slice(0, length).toUpperCase()}`;
+}
+
+function requireDebtMoney(value: unknown, field: string, allowZero = true): number {
+  const amount = Number(value);
+  if (!Number.isSafeInteger(amount) || amount < 0 || (!allowZero && amount === 0)) {
+    throw new Error(`${field}_INVALID`);
+  }
+  return amount;
+}
+
+export function debtOpenItemId(
+  sourceType: DebtOpenItemSourceType,
+  sourceDocumentId: string,
+  direction: DebtDirection
+): string {
+  const normalizedSourceId = String(sourceDocumentId || '').trim();
+  if (!normalizedSourceId) throw new Error('DEBT_OPEN_ITEM_SOURCE_REQUIRED');
+  return hashId('DOI', `${sourceType}:${normalizedSourceId}:${direction}`, 32);
+}
+
+export function debtOpenItemAllocationKey(partyAccountId: string, direction: DebtDirection): string {
+  const normalizedAccountId = String(partyAccountId || '').trim();
+  if (!normalizedAccountId) throw new Error('DEBT_OPEN_ITEM_ACCOUNT_REQUIRED');
+  return `${normalizedAccountId}:${direction}:OPEN`;
+}
+
+export function newDebtOpenItemRecord(input: {
+  branchId: string;
+  partyAccountId: string;
+  partyMasterId: string;
+  legacyPartnerId: string;
+  direction: DebtDirection;
+  sourceType: DebtOpenItemSourceType;
+  sourceDocumentId: string;
+  sourceDocumentCode?: string;
+  originalAmount: number;
+  settledAmount?: number;
+  reversedAmount?: number;
+  dueDate?: string | null;
+  actorUid: string;
+  occurredAt: string;
+}) {
+  const originalAmount = requireDebtMoney(input.originalAmount, 'DEBT_OPEN_ITEM_ORIGINAL_AMOUNT', false);
+  const settledAmount = requireDebtMoney(input.settledAmount || 0, 'DEBT_OPEN_ITEM_SETTLED_AMOUNT');
+  const reversedAmount = requireDebtMoney(input.reversedAmount || 0, 'DEBT_OPEN_ITEM_REVERSED_AMOUNT');
+  if (settledAmount + reversedAmount > originalAmount) throw new Error('DEBT_OPEN_ITEM_AMOUNT_MISMATCH');
+  const openAmount = originalAmount - settledAmount - reversedAmount;
+  const status: DebtOpenItemStatus = openAmount > 0
+    ? settledAmount > 0 || reversedAmount > 0 ? 'PARTIAL' : 'OPEN'
+    : reversedAmount > 0 ? 'REVERSED' : 'SETTLED';
+  const id = debtOpenItemId(input.sourceType, input.sourceDocumentId, input.direction);
+  return {
+    id,
+    branchId: String(input.branchId || '').trim(),
+    partyAccountId: String(input.partyAccountId || '').trim(),
+    partyMasterId: String(input.partyMasterId || '').trim(),
+    legacyPartnerId: String(input.legacyPartnerId || '').trim(),
+    direction: input.direction,
+    sourceType: input.sourceType,
+    sourceId: String(input.sourceDocumentId || '').trim(),
+    sourceCode: String(input.sourceDocumentCode || input.sourceDocumentId).trim(),
+    sourceDocumentId: String(input.sourceDocumentId || '').trim(),
+    sourceDocumentCode: String(input.sourceDocumentCode || input.sourceDocumentId).trim(),
+    originalAmount,
+    settledAmount,
+    reversedAmount,
+    openAmount,
+    status,
+    isOpen: openAmount > 0,
+    allocationKey: openAmount > 0 ? debtOpenItemAllocationKey(input.partyAccountId, input.direction) : null,
+    dueDate: input.dueDate || null,
+    settlementCount: 0,
+    lastSettlementId: null,
+    openedAt: input.occurredAt,
+    openedByUid: input.actorUid,
+    occurredAt: input.occurredAt,
+    createdAt: input.occurredAt,
+    updatedAt: input.occurredAt,
+    updatedByUid: input.actorUid
+  };
+}
+
+function assertDebtOpenItemInvariant(item: any): { originalAmount: number; settledAmount: number; reversedAmount: number; openAmount: number } {
+  const originalAmount = requireDebtMoney(item?.originalAmount, 'DEBT_OPEN_ITEM_ORIGINAL_AMOUNT', false);
+  const settledAmount = requireDebtMoney(item?.settledAmount || 0, 'DEBT_OPEN_ITEM_SETTLED_AMOUNT');
+  const reversedAmount = requireDebtMoney(item?.reversedAmount ?? item?.cancelledAmount ?? 0, 'DEBT_OPEN_ITEM_REVERSED_AMOUNT');
+  const openAmount = requireDebtMoney(item?.openAmount, 'DEBT_OPEN_ITEM_OPEN_AMOUNT');
+  if (originalAmount !== settledAmount + reversedAmount + openAmount) throw new Error('DEBT_OPEN_ITEM_AMOUNT_MISMATCH');
+  return { originalAmount, settledAmount, reversedAmount, openAmount };
+}
+
+export function settleDebtOpenItemRecord(
+  item: any,
+  amountValue: unknown,
+  input: { settlementId: string; actorUid: string; occurredAt: string }
+) {
+  const amount = requireDebtMoney(amountValue, 'DEBT_OPEN_ITEM_SETTLEMENT_AMOUNT', false);
+  const current = assertDebtOpenItemInvariant(item);
+  if (String(item?.status || '').toUpperCase() === 'REVERSED') throw new Error('DEBT_OPEN_ITEM_REVERSED');
+  if (amount > current.openAmount) throw new Error('DEBT_OPEN_ITEM_SETTLEMENT_EXCEEDS_OPEN');
+  const openAmount = current.openAmount - amount;
+  const settledAmount = current.settledAmount + amount;
+  return {
+    settledAmount,
+    openAmount,
+    status: openAmount === 0 ? 'SETTLED' : 'PARTIAL',
+    isOpen: openAmount > 0,
+    allocationKey: openAmount > 0 ? debtOpenItemAllocationKey(item.partyAccountId, item.direction) : null,
+    settlementCount: requireDebtMoney(item?.settlementCount || 0, 'DEBT_OPEN_ITEM_SETTLEMENT_COUNT') + 1,
+    lastSettlementId: String(input.settlementId || '').trim(),
+    lastSettledAt: input.occurredAt,
+    updatedAt: input.occurredAt,
+    updatedByUid: input.actorUid
+  };
+}
+
+export function assertDebtOpenItemScope(item: any, expected: {
+  branchId: string;
+  partyAccountId: string;
+  partyMasterId?: string;
+  legacyPartnerId?: string;
+  direction: DebtDirection;
+  sourceType: DebtOpenItemSourceType;
+  sourceDocumentId: string;
+  openAmount?: number;
+}): void {
+  if (String(item?.branchId || '') !== expected.branchId) throw new Error('DEBT_OPEN_ITEM_BRANCH_MISMATCH');
+  if (String(item?.partyAccountId || '') !== expected.partyAccountId) throw new Error('DEBT_OPEN_ITEM_ACCOUNT_MISMATCH');
+  if (expected.partyMasterId && String(item?.partyMasterId || '') !== expected.partyMasterId) throw new Error('DEBT_OPEN_ITEM_IDENTITY_MISMATCH');
+  if (expected.legacyPartnerId && String(item?.legacyPartnerId || '') !== expected.legacyPartnerId) throw new Error('DEBT_OPEN_ITEM_PARTNER_MISMATCH');
+  if (String(item?.direction || '') !== expected.direction) throw new Error('DEBT_OPEN_ITEM_DIRECTION_MISMATCH');
+  if (String(item?.sourceType || '') !== expected.sourceType) throw new Error('DEBT_OPEN_ITEM_SOURCE_TYPE_MISMATCH');
+  if (String(item?.sourceDocumentId || '') !== expected.sourceDocumentId) throw new Error('DEBT_OPEN_ITEM_SOURCE_MISMATCH');
+  if (expected.openAmount !== undefined && Number(item?.openAmount) !== expected.openAmount) throw new Error('DEBT_OPEN_ITEM_SOURCE_BALANCE_MISMATCH');
+  assertDebtOpenItemInvariant(item);
+}
+
+export function cancelDebtOpenItemRecord(
+  item: any,
+  amountValue: unknown,
+  input: { cancellationId: string; reason?: string; actorUid: string; occurredAt: string }
+) {
+  const amount = requireDebtMoney(amountValue, 'DEBT_OPEN_ITEM_CANCELLATION_AMOUNT');
+  const current = assertDebtOpenItemInvariant(item);
+  if (amount > current.openAmount) throw new Error('DEBT_OPEN_ITEM_CANCELLATION_EXCEEDS_OPEN');
+  const openAmount = current.openAmount - amount;
+  const reversedAmount = current.reversedAmount + amount;
+  return {
+    reversedAmount,
+    openAmount,
+    status: openAmount === 0 ? 'REVERSED' : 'PARTIAL',
+    isOpen: openAmount > 0,
+    allocationKey: openAmount > 0 ? debtOpenItemAllocationKey(item.partyAccountId, item.direction) : null,
+    lastCancellationId: String(input.cancellationId || '').trim(),
+    lastCancelledAt: input.occurredAt,
+    cancellationReason: String(input.reason || '').trim(),
+    updatedAt: input.occurredAt,
+    updatedByUid: input.actorUid
+  };
 }
 
 export function normalizePartyPhone(value: unknown): string {
@@ -119,6 +280,33 @@ export function mergeBranchPartyType(current: unknown, requested: unknown): Bran
   throw new Error('PARTNER_ACCOUNT_TYPE_CONFLICT');
 }
 
+export function resolveLegacyDirectionalBalances(
+  partner: any,
+  errorPrefix = 'PARTNER'
+): { payableBalance: number; receivableBalance: number } {
+  const type = String(partner?.type || '').trim().toUpperCase() as BranchPartyType;
+  const scalar = Number(partner?.outstandingDebt || 0);
+  if (!Number.isSafeInteger(scalar) || scalar < 0) throw new Error(`${errorPrefix}_DEBT_PROJECTION_INVALID`);
+  const explicitPayable = partner?.payableOutstandingDebt;
+  const explicitReceivable = partner?.receivableOutstandingDebt;
+  const hasPayable = explicitPayable !== undefined && explicitPayable !== null;
+  const hasReceivable = explicitReceivable !== undefined && explicitReceivable !== null;
+  const payable = hasPayable ? Number(explicitPayable) : 0;
+  const receivable = hasReceivable ? Number(explicitReceivable) : 0;
+  if (!Number.isSafeInteger(payable) || payable < 0 || !Number.isSafeInteger(receivable) || receivable < 0) {
+    throw new Error(`${errorPrefix}_DIRECTIONAL_DEBT_INVALID`);
+  }
+  if (type === 'BOTH') {
+    if (scalar > 0 && (!hasPayable || !hasReceivable)) {
+      throw new Error(`${errorPrefix}_DIRECTIONAL_DEBT_MIGRATION_REQUIRED`);
+    }
+    return { payableBalance: payable, receivableBalance: receivable };
+  }
+  if (type === 'SUPPLIER') return { payableBalance: hasPayable ? payable : scalar, receivableBalance: 0 };
+  if (type === 'CUSTOMER') return { payableBalance: 0, receivableBalance: hasReceivable ? receivable : scalar };
+  return { payableBalance: 0, receivableBalance: 0 };
+}
+
 /**
  * Idempotently creates or repairs the branch-owned partner projection. This
  * handles the production migration case where the deterministic account was
@@ -204,10 +392,10 @@ export async function ensureBranchPartner(
 
     if (!masterSnap.exists) transaction.create(masterRef, newPartyMasterRecord(partner, identity, actorUid, now));
     if (!accountSnap.exists) {
-      const supplierSide = type === 'SUPPLIER' || type === 'BOTH';
+      const directional = resolveLegacyDirectionalBalances({ ...partner, type }, 'PARTNER');
       transaction.create(accountRef, newBranchPartyAccountRecord(partner, input.branchId, identity, actorUid, now, {
-        payableBalance: supplierSide ? Number(partner.outstandingDebt || 0) : 0,
-        receivableBalance: supplierSide ? 0 : Number(partner.outstandingDebt || 0)
+        payableBalance: directional.payableBalance,
+        receivableBalance: directional.receivableBalance
       }));
     } else {
       transaction.update(accountRef, {

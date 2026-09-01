@@ -10,6 +10,13 @@ import {
   processDeliverToCustomer
 } from '../server/services/technicalService';
 import { REQUIRED_QC_CHECKLIST_STEPS } from '../server/services/technicalStateMachine';
+import { getVietnamMonthString } from '../shared/vietnamTime';
+
+function nextMonth(period: string) {
+  const [year, month] = period.split('-').map(Number);
+  const value = year * 12 + month;
+  return `${Math.floor(value / 12)}-${String(value % 12 + 1).padStart(2, '0')}`;
+}
 
 describe('Technical Work Order, Custody Movement & Independent QC Engine Suite', () => {
 
@@ -239,6 +246,9 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
 
     it('activates commission to ELIGIBLE when independent QC passes', async () => {
       let commissionStatus = '';
+      let commissionPayrollPeriod = '';
+      let carriedFromPeriod = '';
+      const currentPeriod = getVietnamMonthString();
 
       const mockDb: any = {
         collection: (col: string) => ({
@@ -260,12 +270,19 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
                   data: () => ({ id: 'WO_01', status: 'TECH_COMPLETED', imei: '356789012345678', branchId: 'CN01', reworkCount: 0 })
                 };
               }
+              if (refOrQuery.col === 'users') return { exists: true, data: () => ({ authUid: 'UID_KTV_NAM', branchId: 'CN01', payrollBranchId: 'CN01' }) };
+              if (refOrQuery.col === 'payrollPeriods') return refOrQuery.docId === `${currentPeriod}_CN01`
+                ? { exists: true, data: () => ({ status: 'APPROVED' }) }
+                : { exists: false, data: () => undefined };
+              if (refOrQuery.col === 'payrollStaffLocks') return { exists: false, data: () => undefined };
               return { docs: [{ id: 'WOL_01', ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED', taskName: 'Lên vỏ' }) }] };
             },
             set: () => {},
             update: (ref: any, fields: any) => {
               if (ref.col === 'commissionLedger') {
                 commissionStatus = fields.status;
+                commissionPayrollPeriod = fields.payrollPeriod;
+                carriedFromPeriod = fields.carriedFromPeriod;
               }
             }
           };
@@ -282,6 +299,49 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
       expect(result.success).toBe(true);
       expect(result.result).toBe('PASS');
       expect(commissionStatus).toBe('ELIGIBLE');
+      expect(commissionPayrollPeriod).toBe(nextMonth(currentPeriod));
+      expect(carriedFromPeriod).toBe(currentPeriod);
+    });
+
+    it('preserves each task assigned period when one technician has tasks from different months', async () => {
+      const currentPeriod = getVietnamMonthString();
+      const lines = [
+        { id: 'WOL_OLD', ref: { col: 'lines', id: 'WOL_OLD' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', assignedPeriod: '2026-06', status: 'COMPLETED', taskName: 'Sửa main' }) },
+        { id: 'WOL_NEW', ref: { col: 'lines', id: 'WOL_NEW' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', assignedPeriod: '2026-07', status: 'COMPLETED', taskName: 'Thay pin' }) }
+      ];
+      const assignedPeriods = new Map<string, string>();
+      const mockDb: any = {
+        collection: (col: string) => ({
+          doc: (docId: string) => ({ col, docId, id: docId }),
+          where: () => ({ col: 'linesQuery' })
+        }),
+        runTransaction: async (cb: any) => cb({
+          get: async (target: any) => {
+            if (target.col === 'technicalWorkOrders') return {
+              exists: true,
+              data: () => ({ id: 'WO_MULTI_PERIOD', status: 'TECH_COMPLETED', imei: '356789012345678', branchId: 'CN01', reworkCount: 0 })
+            };
+            if (target.col === 'users') return { exists: true, data: () => ({ authUid: 'UID_KTV_NAM', branchId: 'CN01', payrollBranchId: 'CN01', active: true }) };
+            if (target.col === 'payrollPeriods') return target.docId === `${currentPeriod}_CN01`
+              ? { exists: true, data: () => ({ status: 'APPROVED' }) }
+              : { exists: false, data: () => undefined };
+            if (target.col === 'payrollStaffLocks') return { exists: false, data: () => undefined };
+            return { docs: lines };
+          },
+          set: () => {},
+          update: (ref: any, fields: any) => {
+            if (ref.col === 'commissionLedger') assignedPeriods.set(ref.docId, fields.assignedPeriod);
+          }
+        })
+      };
+
+      await processQCInspection(mockDb, 'WO_MULTI_PERIOD', {
+        checklistResults: fullPassingChecklist,
+        overallResult: 'PASS'
+      }, { uid: 'UID_QC_INSPECTOR', role: 'TECH_LEAD', branchId: 'CN01' });
+
+      expect(assignedPeriods.get('COMM_WOL_OLD')).toBe('2026-06');
+      expect(assignedPeriods.get('COMM_WOL_NEW')).toBe('2026-07');
     });
 
     it('allows a complete passing checklist when no photo is attached', async () => {
@@ -295,9 +355,12 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
           })
         }),
         runTransaction: async (cb: any) => cb({
-          get: async (refOrQuery: any) => refOrQuery.col === 'technicalWorkOrders'
-            ? { exists: true, data: () => ({ id: 'WO_01', status: 'TECH_COMPLETED', imei: '356789012345678', branchId: 'CN01', reworkCount: 0 }) }
-            : { docs: [{ id: 'WOL_01', ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED', taskName: 'Lên vỏ' }) }] },
+          get: async (refOrQuery: any) => {
+            if (refOrQuery.col === 'technicalWorkOrders') return { exists: true, data: () => ({ id: 'WO_01', status: 'TECH_COMPLETED', imei: '356789012345678', branchId: 'CN01', reworkCount: 0 }) };
+            if (refOrQuery.col === 'users') return { exists: true, data: () => ({ authUid: 'UID_KTV_NAM', branchId: 'CN01', payrollBranchId: 'CN01', active: true }) };
+            if (refOrQuery.col === 'payrollPeriods' || refOrQuery.col === 'payrollStaffLocks') return { exists: false, data: () => undefined };
+            return { docs: [{ id: 'WOL_01', ref: { col: 'lines' }, data: () => ({ assigneeUid: 'UID_KTV_NAM', status: 'COMPLETED', taskName: 'Lên vỏ' }) }] };
+          },
           set: () => {},
           update: () => {}
         })
@@ -314,6 +377,8 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
   describe('5. Return to Stock after QC Pass', () => {
     it('allows returning device to in_stock only when status is QC_PASSED', async () => {
       let updatedDeviceStatus = '';
+      let commissionUpdate: any = null;
+      const currentPeriod = getVietnamMonthString();
 
       const mockDb: any = {
         collection: (col: string) => ({
@@ -321,25 +386,34 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
         }),
         runTransaction: async (cb: any) => {
           const mockTransaction = {
-            get: async (ref: any) => ref.col === 'warehouses' ? ({
-              exists: true,
-              data: () => ({ id: 'KHO_TONG', branchId: 'CN01', type: 'CENTRAL', isActive: true })
-            }) : ({
-              exists: true,
-              data: () => ({
+            get: async (ref: any) => {
+              if (ref.col === 'warehouses') return { exists: true, data: () => ({ id: 'KHO_TONG', branchId: 'CN01', type: 'CENTRAL', isActive: true }) };
+              if (ref.col === 'commissionLedger') return { id: ref.docId, ref, exists: true, data: () => ({ id: ref.docId, staffUid: 'UID_KTV_NAM', branchId: 'CN01', assignedPeriod: '2026-07' }) };
+              if (ref.col === 'users') return { exists: true, data: () => ({ authUid: 'UID_KTV_NAM', branchId: 'CN01', payrollBranchId: 'CN01' }) };
+              if (ref.col === 'payrollPeriods') return ref.docId === `${currentPeriod}_CN01`
+                ? { exists: true, data: () => ({ status: 'PAID' }) }
+                : { exists: false, data: () => undefined };
+              if (ref.col === 'payrollStaffLocks') return { exists: false, data: () => undefined };
+              return {
+                exists: true,
+                data: () => ({
                 id: 'WO_01',
                 workOrderType: 'INBOUND_PREP',
                 status: 'QC_PASSED',
                 costPostingStatus: 'POSTED',
                 deviceId: 'DEV-01',
                 imei: '356789012345678',
-                branchId: 'CN01'
+                branchId: 'CN01',
+                taskLineIds: ['WOL_01'],
+                eligibilityRequiresStockReturn: true
               })
-            }),
+              };
+            },
             update: (ref: any, fields: any) => {
               if (ref.col === 'devices') {
                 updatedDeviceStatus = fields.status;
               }
+              if (ref.col === 'commissionLedger') commissionUpdate = fields;
             },
             set: () => {}
           };
@@ -350,6 +424,10 @@ describe('Technical Work Order, Custody Movement & Independent QC Engine Suite',
       const result = await processReturnToStock(mockDb, 'WO_01', 'KHO_TONG', '356789012345678', { uid: 'UID_WAREHOUSE_01', name: 'Thủ Kho', branchId: 'CN01' });
       expect(result.success).toBe(true);
       expect(updatedDeviceStatus).toBe('in_stock');
+      expect(commissionUpdate).toMatchObject({
+        status: 'ELIGIBLE', assignedPeriod: '2026-07', originalPayrollPeriod: currentPeriod,
+        payrollPeriod: nextMonth(currentPeriod), carriedFromPeriod: currentPeriod, carryForwardReason: 'PAYROLL_PERIOD_PAID'
+      });
     });
   });
 

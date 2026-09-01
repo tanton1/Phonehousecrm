@@ -1,7 +1,27 @@
-import { CashTransaction, FundAccount, Partner, SalesInvoice } from '../types';
+import { BranchPartyAccount, CashTransaction, FundAccount, Partner, SalesInvoice } from '../types';
 import { apiJson } from './apiClient';
 
 export type PartnerDebtSettlementDirection = 'PAYMENT' | 'RECEIPT';
+
+export async function requestPartnerAccounts(branchId: string): Promise<BranchPartyAccount[]> {
+  const accounts: BranchPartyAccount[] = [];
+  let cursor = '';
+  for (let page = 0; page < 25; page += 1) {
+    const params = new URLSearchParams({ branchId, limit: '200' });
+    if (cursor) params.set('afterAccountId', cursor);
+    const response = await apiJson<{
+      success: boolean;
+      accounts: BranchPartyAccount[];
+      hasMore: boolean;
+      nextCursor: string | null;
+    }>(`/api/partners/accounts?${params.toString()}`, { method: 'GET' });
+    accounts.push(...(response.accounts || []));
+    if (!response.hasMore) return accounts;
+    if (!response.nextCursor || response.nextCursor === cursor) throw new Error('PARTNER_ACCOUNTS_CURSOR_INVALID');
+    cursor = response.nextCursor;
+  }
+  throw new Error('PARTNER_ACCOUNTS_RESULT_LIMIT: Cần lọc theo chi nhánh nhỏ hơn.');
+}
 
 export async function requestPaymentAccounts(branchId: string): Promise<FundAccount[]> {
   const response = await apiJson<{ success: boolean; accounts: Array<Partial<FundAccount> & Pick<FundAccount, 'id' | 'branchId' | 'name' | 'type'>> }>(

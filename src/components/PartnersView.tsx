@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Users,
   Truck,
@@ -41,9 +41,10 @@ import {
   SupplierCategory,
   DeviceItem,
   PartnerDebtTransaction,
-  StoreBranch
+  StoreBranch,
+  BranchPartyAccount
 } from '../types';
-import { createPartnerDebtIdempotencyKey, type PartnerDebtSettlementDirection } from '../services/financeApiClient';
+import { createPartnerDebtIdempotencyKey, requestPartnerAccounts, type PartnerDebtSettlementDirection } from '../services/financeApiClient';
 import { CreatePartnerModal } from './CreatePartnerModal';
 
 interface PartnersViewProps {
@@ -120,6 +121,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   const [settleIdempotencyKey, setSettleIdempotencyKey] = useState('');
   const [isDebtSubmitting, setIsDebtSubmitting] = useState(false);
   const [debtSubmitError, setDebtSubmitError] = useState('');
+  const [partyAccounts, setPartyAccounts] = useState<BranchPartyAccount[]>([]);
+  const [partyAccountsError, setPartyAccountsError] = useState('');
 
   // AI Loyalty & Retention Simulation
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
@@ -163,6 +166,59 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
     NAME_AZ: 'Tên (A-Z)'
   };
 
+  const partnerBranchIds = useMemo(() => [...new Set(partners.map(partner => String(partner.branchId || '')).filter(Boolean))].sort(), [partners]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (partnerBranchIds.length === 0) {
+      setPartyAccounts([]);
+      setPartyAccountsError('');
+      return () => { cancelled = true; };
+    }
+    Promise.all(partnerBranchIds.map(branchId => requestPartnerAccounts(branchId)))
+      .then(results => {
+        if (cancelled) return;
+        setPartyAccounts(results.flat());
+        setPartyAccountsError('');
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setPartyAccounts([]);
+        setPartyAccountsError(error?.message || 'Không thể tải số dư công nợ theo chiều.');
+      });
+    return () => { cancelled = true; };
+  }, [partnerBranchIds]);
+
+  const accountByPartnerId = useMemo(() => {
+    const result = new Map<string, BranchPartyAccount>();
+    partyAccounts.forEach(account => {
+      if (account.legacyPartnerId) result.set(String(account.legacyPartnerId), account);
+      result.set(String(account.id), account);
+    });
+    partners.forEach(partner => {
+      if (!partner.branchPartyAccountId) return;
+      const account = partyAccounts.find(item => item.id === partner.branchPartyAccountId);
+      if (account) result.set(partner.id, account);
+    });
+    return result;
+  }, [partners, partyAccounts]);
+
+  const receivableDebt = (partner: Partner) => {
+    if (partner.supplierCategory === 'FINANCE_PARTNER') return Number(partner.outstandingDebt || 0);
+    const account = accountByPartnerId.get(partner.id);
+    if (account) return Number(account.receivableBalance || 0);
+    if (typeof partner.receivableOutstandingDebt === 'number' && Number.isSafeInteger(partner.receivableOutstandingDebt)) return partner.receivableOutstandingDebt;
+    return partner.type === 'CUSTOMER' ? Number(partner.outstandingDebt || 0) : 0;
+  };
+  const payableDebt = (partner: Partner) => {
+    if (partner.supplierCategory === 'FINANCE_PARTNER') return 0;
+    const account = accountByPartnerId.get(partner.id);
+    if (account) return Number(account.payableBalance || 0);
+    if (typeof partner.payableOutstandingDebt === 'number' && Number.isSafeInteger(partner.payableOutstandingDebt)) return partner.payableOutstandingDebt;
+    return partner.type === 'SUPPLIER' ? Number(partner.outstandingDebt || 0) : 0;
+  };
+  const debtExposure = (partner: Partner) => receivableDebt(partner) + payableDebt(partner);
+
   // Calculations for Metrics Banner
   const totalCustomers = partners.filter(p => p.type === 'CUSTOMER' || p.type === 'BOTH').length;
   const totalSuppliers = partners.filter(p => p.type === 'SUPPLIER' || p.type === 'BOTH').length;
@@ -170,11 +226,11 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
   // Outstanding Receivables (Phải thu từ khách) & Payables (Phải trả NCC)
   const totalReceivables = partners
     .filter(p => p.type === 'CUSTOMER' || p.type === 'BOTH' || p.supplierCategory === 'FINANCE_PARTNER')
-    .reduce((sum, p) => sum + (p.outstandingDebt || 0), 0);
+    .reduce((sum, p) => sum + receivableDebt(p), 0);
 
   const totalPayables = partners
     .filter(p => (p.type === 'SUPPLIER' || p.type === 'BOTH') && p.supplierCategory !== 'FINANCE_PARTNER')
-    .reduce((sum, p) => sum + (p.outstandingDebt || 0), 0);
+    .reduce((sum, p) => sum + payableDebt(p), 0);
 
   const eligibleDebtFunds = funds.filter(fund =>
     fund.isActive !== false && !fund.isArchived &&
@@ -188,11 +244,11 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
       // Tab filtering
       if (activeTab === 'CUSTOMERS' && p.type !== 'CUSTOMER' && p.type !== 'BOTH') return false;
       if (activeTab === 'SUPPLIERS' && p.type !== 'SUPPLIER' && p.type !== 'BOTH') return false;
-      if (activeTab === 'DEBT_HUB' && (!p.outstandingDebt || p.outstandingDebt <= 0)) return false;
+      if (activeTab === 'DEBT_HUB' && debtExposure(p) <= 0) return false;
 
       // Quick debt filter
-      if (quickDebtFilter === 'HAS_DEBT' && (!p.outstandingDebt || p.outstandingDebt <= 0)) return false;
-      if (quickDebtFilter === 'NO_DEBT' && (p.outstandingDebt && p.outstandingDebt > 0)) return false;
+      if (quickDebtFilter === 'HAS_DEBT' && debtExposure(p) <= 0) return false;
+      if (quickDebtFilter === 'NO_DEBT' && debtExposure(p) > 0) return false;
       if (quickDebtFilter === 'VIP_WHOLESALE' && p.customerTier !== 'WHOLESALE' && p.customerTier !== 'DIAMOND' && p.supplierCategory !== 'LIKE_NEW_WHOLESALER') return false;
 
       // Search
@@ -221,10 +277,10 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         return new Date(a.createdAt || '').getTime() - new Date(b.createdAt || '').getTime();
       }
       if (sortOption === 'AMOUNT_ASC') {
-        return (a.outstandingDebt || 0) - (b.outstandingDebt || 0);
+        return debtExposure(a) - debtExposure(b);
       }
       if (sortOption === 'AMOUNT_DESC') {
-        return (b.outstandingDebt || 0) - (a.outstandingDebt || 0);
+        return debtExposure(b) - debtExposure(a);
       }
       if (sortOption === 'NAME_AZ') {
         return a.name.localeCompare(b.name, 'vi');
@@ -344,14 +400,18 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
       else alert('Công nợ công ty tài chính phải đối soát tại trang Giải ngân trả góp.');
       return;
     }
-    const direction = partner.type === 'SUPPLIER' ? 'PAYMENT' : 'RECEIPT';
+    const direction = partner.type === 'SUPPLIER'
+      ? 'PAYMENT'
+      : partner.type === 'BOTH' && receivableDebt(partner) <= 0 && payableDebt(partner) > 0
+        ? 'PAYMENT'
+        : 'RECEIPT';
     const eligibleFunds = funds.filter(fund =>
       fund.isActive !== false && !fund.isArchived &&
       ['CASH', 'BANK'].includes(fund.type) &&
       (!partner.branchId || fund.branchId === partner.branchId)
     );
     setDebtActionPartner(partner);
-    setSettleAmount(partner.outstandingDebt || 0);
+    setSettleAmount(direction === 'PAYMENT' ? payableDebt(partner) : receivableDebt(partner));
     setSettleNote(`Thanh toán đối soát công nợ ngày ${new Date().toLocaleDateString('vi-VN')}`);
     setSettleFundId(eligibleFunds.find(f => f.type === 'BANK')?.id || eligibleFunds[0]?.id || '');
     setSettleDirection(direction);
@@ -365,7 +425,8 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
     if (!debtActionPartner) return;
     setDebtSubmitError('');
     if (!Number.isSafeInteger(settleAmount) || settleAmount <= 0) return setDebtSubmitError('Số tiền phải là số nguyên VND lớn hơn 0.');
-    if (settleAmount > Number(debtActionPartner.outstandingDebt || 0)) return setDebtSubmitError('Số tiền không được lớn hơn dư nợ hiện tại.');
+    const directionalBalance = settleDirection === 'PAYMENT' ? payableDebt(debtActionPartner) : receivableDebt(debtActionPartner);
+    if (settleAmount > directionalBalance) return setDebtSubmitError('Số tiền không được lớn hơn số dư của đúng chiều công nợ.');
     if (!debtActionPartner.branchId) return setDebtSubmitError('Đối tác chưa được định danh chi nhánh. Hãy cập nhật chi nhánh trước khi đối soát.');
     const fund = funds.find(item => item.id === settleFundId);
     if (!fund) return setDebtSubmitError('Vui lòng chọn tài khoản tiền của chi nhánh.');
@@ -405,7 +466,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
         );
       } else {
         setAiAnalysis(
-          `Đối tác cung ứng **${partner.name}** (${partner.supplierCategory || 'Nguồn hàng sỉ'}), công nợ hiện tại: **${(partner.outstandingDebt || 0).toLocaleString('vi-VN')} đ**. ` +
+          `Đối tác cung ứng **${partner.name}** (${partner.supplierCategory || 'Nguồn hàng sỉ'}), phải trả hiện tại: **${payableDebt(partner).toLocaleString('vi-VN')} đ**. ` +
           `\n\n📦 **Đánh giá nguồn hàng & Tối ưu chi phí:**` +
           `\n1. Nguồn máy Like New cam kết màn zin vỏ zin chất lượng cao, chính sách bảo hành **${partner.warrantyPolicyDays || 30} ngày** rất uy tín.` +
           `\n2. Hạn mức công nợ khả dụng: **${(partner.creditLimit || 0).toLocaleString('vi-VN')} đ**. Đề xuất đối soát thứ 6 hàng tuần để duy trì ưu đãi chiết khấu 1.5% - 2% khi lấy nguyên lô.`
@@ -490,7 +551,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
               : 'text-rose-600 hover:bg-rose-50'
           }`}
         >
-          💳 Sổ Nợ ({partners.filter(p => (p.outstandingDebt || 0) > 0).length})
+          💳 Sổ Nợ ({partners.filter(p => debtExposure(p) > 0).length})
         </button>
       </div>
 
@@ -661,7 +722,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                 : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/60'
             }`}
           >
-            Đang có nợ ({partners.filter(p => (p.outstandingDebt || 0) > 0).length})
+            Đang có nợ ({partners.filter(p => debtExposure(p) > 0).length})
           </button>
           <button
             onClick={() => setQuickDebtFilter('NO_DEBT')}
@@ -734,7 +795,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
 
                 <div className="text-right shrink-0">
                   <div className="font-black text-sm sm:text-base text-rose-600 tracking-tight">
-                    {(partner.outstandingDebt || 0).toLocaleString('vi-VN')} <span className="text-[10px] font-normal text-zinc-400">đ</span>
+                    {debtExposure(partner).toLocaleString('vi-VN')} <span className="text-[10px] font-normal text-zinc-400">đ</span>
                   </div>
                   <span className="text-[10px] text-zinc-400 group-hover:text-orange-600 transition-colors">
                     Chi tiết & Đối soát ➔
@@ -788,7 +849,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="font-black text-sm text-rose-600">
-                        {(partner.outstandingDebt || 0).toLocaleString('vi-VN')} đ
+                        {debtExposure(partner).toLocaleString('vi-VN')} đ
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right text-zinc-600 font-medium">
@@ -846,7 +907,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
               <div className="bg-rose-50/70 border border-rose-100 p-3 rounded-2xl">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-rose-700">Công Nợ Hiện Tại</div>
                 <div className="text-lg font-black text-rose-600 mt-1">
-                  {(selectedPartner.outstandingDebt || 0).toLocaleString('vi-VN')} đ
+                  {debtExposure(selectedPartner).toLocaleString('vi-VN')} đ
                 </div>
               </div>
               <div className="bg-orange-50/70 border border-orange-100 p-3 rounded-2xl">
@@ -943,17 +1004,19 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
             <form onSubmit={handleConfirmDebtSettle} className="space-y-3.5">
               <div className="p-3 bg-zinc-50 rounded-2xl border border-zinc-200 space-y-1">
                 <div className="text-xs text-zinc-500">Đối tác: <strong>{debtActionPartner.name}</strong></div>
-                <div className="text-xs text-rose-600 font-bold">
-                  Dư nợ hiện tại: {(debtActionPartner.outstandingDebt || 0).toLocaleString('vi-VN')} đ
-                </div>
+                <div className="text-xs font-bold text-emerald-700">Phải thu: {receivableDebt(debtActionPartner).toLocaleString('vi-VN')} đ</div>
+                <div className="text-xs font-bold text-rose-600">Phải trả: {payableDebt(debtActionPartner).toLocaleString('vi-VN')} đ</div>
+                {partyAccountsError && debtActionPartner.type === 'BOTH' && (
+                  <div className="pt-1 text-[11px] font-bold text-amber-700">Chưa tải được sổ dư hai chiều: {partyAccountsError}</div>
+                )}
               </div>
 
               {debtActionPartner.type === 'BOTH' ? (
                 <div>
                   <label className="block text-xs font-bold text-zinc-700 mb-1">Loại đối soát</label>
                   <div className="grid grid-cols-2 gap-2 rounded-xl bg-zinc-100 p-1">
-                    <button type="button" onClick={() => setSettleDirection('RECEIPT')} className={`rounded-lg px-3 py-2 text-xs font-black ${settleDirection === 'RECEIPT' ? 'bg-emerald-600 text-white' : 'text-zinc-600'}`}>Thu nợ khách</button>
-                    <button type="button" onClick={() => setSettleDirection('PAYMENT')} className={`rounded-lg px-3 py-2 text-xs font-black ${settleDirection === 'PAYMENT' ? 'bg-rose-600 text-white' : 'text-zinc-600'}`}>Trả nợ NCC</button>
+                    <button type="button" onClick={() => { setSettleDirection('RECEIPT'); setSettleAmount(receivableDebt(debtActionPartner)); }} className={`rounded-lg px-3 py-2 text-xs font-black ${settleDirection === 'RECEIPT' ? 'bg-emerald-600 text-white' : 'text-zinc-600'}`}>Thu nợ khách</button>
+                    <button type="button" onClick={() => { setSettleDirection('PAYMENT'); setSettleAmount(payableDebt(debtActionPartner)); }} className={`rounded-lg px-3 py-2 text-xs font-black ${settleDirection === 'PAYMENT' ? 'bg-rose-600 text-white' : 'text-zinc-600'}`}>Trả nợ NCC</button>
                   </div>
                 </div>
               ) : (
@@ -1224,7 +1287,7 @@ export const PartnersView: React.FC<PartnersViewProps> = ({
             <div className="p-4 border-t border-zinc-100 bg-zinc-50/50">
               <div className="flex justify-between items-center text-sm">
                 <span className="text-zinc-600 font-semibold">Dư nợ hiện tại:</span>
-                <span className="font-black text-rose-600 text-base">{(historyPartner.outstandingDebt || 0).toLocaleString('vi-VN')} đ</span>
+                <span className="font-black text-rose-600 text-base">{debtExposure(historyPartner).toLocaleString('vi-VN')} đ</span>
               </div>
             </div>
           </div>

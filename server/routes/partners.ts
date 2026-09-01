@@ -27,6 +27,16 @@ export const PARTNER_OPERATION_ROLES = [
   'CUSTOMER_CARE'
 ] as const;
 
+// Directional balances are financial data, not partner-directory metadata.
+// Keep this aligned with FINANCE_VIEW in shared/permissions.ts and Firestore Rules.
+export const PARTNER_FINANCE_ROLES = [
+  'ADMIN',
+  'REGIONAL_MANAGER',
+  'MANAGER',
+  'STORE_MANAGER',
+  'ACCOUNTANT'
+] as const;
+
 function text(value: unknown, maxLength = 500): string {
   return String(value || '').trim().slice(0, maxLength);
 }
@@ -71,18 +81,31 @@ export function createPartnersRouter(db: Firestore | null): Router {
   const router = Router();
   router.use(authenticateFirebase);
 
-  router.get('/accounts', requireRole(...PARTNER_OPERATION_ROLES), async (req: Request, res: Response) => {
+  router.get('/accounts', requireRole(...PARTNER_FINANCE_ROLES), async (req: Request, res: Response) => {
     if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
     try {
       const branchId = text(req.query.branchId, 100);
       const requestedType = text(req.query.type, 30).toUpperCase();
+      const afterAccountId = text(req.query.afterAccountId, 200);
+      const pageSize = Math.min(200, Math.max(25, Number(req.query.limit) || 200));
       if (!canAccessBranch(req.user, branchId)) throw new Error('PARTNER_BRANCH_FORBIDDEN');
-      const snapshot = await db.collection('branchPartyAccounts').where('branchId', '==', branchId).limit(300).get();
-      const accounts = snapshot.docs
+      let query: Query = db.collection('branchPartyAccounts')
+        .where('branchId', '==', branchId)
+        .orderBy(FieldPath.documentId())
+        .limit(pageSize + 1);
+      if (afterAccountId) query = query.startAfter(afterAccountId);
+      const snapshot = await query.get();
+      const pageDocs = snapshot.docs.slice(0, pageSize);
+      const accounts = pageDocs
         .map(doc => ({ ...doc.data(), id: doc.id }))
         .filter((account: any) => account.status === 'ACTIVE')
         .filter((account: any) => !requestedType || account.type === requestedType || account.type === 'BOTH');
-      return res.json({ success: true, accounts });
+      return res.json({
+        success: true,
+        accounts,
+        hasMore: snapshot.size > pageSize,
+        nextCursor: snapshot.size > pageSize ? pageDocs.at(-1)?.id || null : null
+      });
     } catch (error: any) {
       return res.status(400).json({ success: false, error: error.message || 'PARTNER_ACCOUNT_LIST_FAILED' });
     }

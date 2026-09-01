@@ -2,12 +2,19 @@ import crypto from 'crypto';
 import { Firestore } from 'firebase-admin/firestore';
 import { imeiRegistryId, normalizeImei, InventoryActor } from './inventoryDeviceService';
 import {
+  assertDebtOpenItemScope,
   assertPartnerForBranch,
+  cancelDebtOpenItemRecord,
+  debtOpenItemId,
   debtLedgerEntry,
   newBranchPartyAccountRecord,
+  newDebtOpenItemRecord,
   newPartyMasterRecord,
-  resolvePartyIdentity
+  resolveLegacyDirectionalBalances,
+  resolvePartyIdentity,
+  settleDebtOpenItemRecord
 } from './branchPartyService';
+import { parseVnd } from '../utils/financeIntegrity';
 
 interface ReceiptDeviceDraft {
   imei: string;
@@ -1006,10 +1013,14 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
     }
     const supplierAccount = branchSupplierAccountSnap.exists ? branchSupplierAccountSnap.data()! : null;
     if (!supplierAccount) {
+      const legacyDirectional = resolveLegacyDirectionalBalances(supplier, 'PURCHASE_SUPPLIER');
       transaction.set(branchSupplierAccountRef, newBranchPartyAccountRecord(
         { id: supplierSnap.id, ...supplier, totalPurchasedFrom: Number(supplier.totalPurchasedFrom || 0) + receipt.totalAmount },
         receipt.branchId, supplierIdentity, actor.uid, now,
-        { payableBalance: Number(supplier.outstandingDebt || 0) + receipt.debtAmount }
+        {
+          payableBalance: legacyDirectional.payableBalance + receipt.debtAmount,
+          receivableBalance: legacyDirectional.receivableBalance
+        }
       ));
     } else {
       transaction.update(branchSupplierAccountRef, {
@@ -1051,6 +1062,21 @@ export async function processPurchaseOrderReceipt(db: Firestore, input: any, act
         note: `Thanh toán ngay phiếu nhập ${serverOrderCode}`
       }));
     }
+    const purchaseOpenItem = newDebtOpenItemRecord({
+      branchId: receipt.branchId,
+      partyAccountId: supplierIdentity.branchPartyAccountId,
+      partyMasterId: supplierIdentity.partyMasterId,
+      legacyPartnerId: receipt.supplierId,
+      direction: 'PAYABLE',
+      sourceType: 'PURCHASE_ORDER',
+      sourceDocumentId: receipt.order.id,
+      sourceDocumentCode: serverOrderCode,
+      originalAmount: receipt.totalAmount,
+      settledAmount: receipt.paidAmount,
+      actorUid: actor.uid,
+      occurredAt: now
+    });
+    transaction.set(db.collection('debtOpenItems').doc(purchaseOpenItem.id), purchaseOpenItem);
 
     if (receipt.paidAmount > 0) {
       transaction.update(fundRef, {
@@ -1114,15 +1140,24 @@ export async function processPayPurchaseOrderDebt(
     id: `PPA_${crypto.createHash('sha256').update(`${idempotencyKey}:${index}`).digest('hex').slice(0, 20).toUpperCase()}`,
     fundId: String(allocation?.fundId || '').trim(),
     method: String(allocation?.method || '') as PurchasePaymentAllocationInput['method'],
-    amount: Number(allocation?.amount)
+    amount: parseVnd(allocation?.amount, { field: 'PURCHASE_PAYMENT_AMOUNT' })
   }));
-  if (allocations.some(allocation => !allocation.fundId || !['CASH', 'BANK_TRANSFER'].includes(allocation.method) || !Number.isFinite(allocation.amount) || allocation.amount <= 0)) {
+  if (allocations.some(allocation => !allocation.fundId || !['CASH', 'BANK_TRANSFER'].includes(allocation.method))) {
     throw new Error('PURCHASE_PAYMENT_ALLOCATION_INVALID');
   }
   if (new Set(allocations.map(allocation => allocation.fundId)).size !== allocations.length) {
     throw new Error('PURCHASE_PAYMENT_FUND_DUPLICATE');
   }
-  const paymentAmount = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
+  const paymentAmount = parseVnd(
+    allocations.reduce((sum, allocation) => sum + allocation.amount, 0),
+    { field: 'PURCHASE_PAYMENT_TOTAL' }
+  );
+  if (!Number.isSafeInteger(paymentAmount) || paymentAmount <= 0) throw new Error('PURCHASE_PAYMENT_ALLOCATION_INVALID');
+  const paymentPayloadHash = crypto.createHash('sha256').update(JSON.stringify({
+    orderId: normalizedOrderId,
+    allocations: allocations.map(({ fundId, method, amount }) => ({ fundId, method, amount })),
+    note: String(input.note || '').trim()
+  })).digest('hex');
   const idempotencyId = crypto.createHash('sha256').update(`PURCHASE_PAYMENT:${normalizedOrderId}:${idempotencyKey}`).digest('hex');
   const idemRef = db.collection('purchasePaymentIdempotency').doc(idempotencyId);
   const orderRef = db.collection('purchaseOrders').doc(normalizedOrderId);
@@ -1131,16 +1166,20 @@ export async function processPayPurchaseOrderDebt(
     const idemSnap = await transaction.get(idemRef);
     const orderSnap = await transaction.get(orderRef);
     if (!orderSnap.exists) throw new Error('PURCHASE_ORDER_NOT_FOUND');
+    const order = orderSnap.data()!;
+    const branchId = String(order.branchId || '');
+    if (!canAccessBranch(actor, branchId)) throw new Error('PURCHASE_BRANCH_FORBIDDEN');
     if (idemSnap.exists) {
+      const idem = idemSnap.data()!;
+      if (String(idem.payloadHash || '') !== paymentPayloadHash || String(idem.actorUid || '') !== actor.uid || String(idem.branchId || '') !== branchId) {
+        throw new Error('PURCHASE_PAYMENT_IDEMPOTENCY_CONFLICT');
+      }
       return {
         order: { id: orderSnap.id, ...orderSnap.data() },
         paymentTransactionIds: idemSnap.data()?.paymentTransactionIds || [],
         idempotentReplay: true
       };
     }
-    const order = orderSnap.data()!;
-    const branchId = String(order.branchId || '');
-    if (!canAccessBranch(actor, branchId)) throw new Error('PURCHASE_BRANCH_FORBIDDEN');
     if (order.status !== 'COMPLETED' || order.inventoryPostingStatus !== 'POSTED') throw new Error('PURCHASE_ORDER_NOT_PAYABLE');
     const currentDebt = Number(order.debtAmount || 0);
     if (!Number.isFinite(currentDebt) || paymentAmount > currentDebt + 1) throw new Error('PURCHASE_PAYMENT_EXCEEDS_DEBT');
@@ -1153,8 +1192,9 @@ export async function processPayPurchaseOrderDebt(
     const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplier }, branchId);
     const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
     const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
-    const [partyMasterSnap, branchSupplierAccountSnap] = await Promise.all([
-      transaction.get(partyMasterRef), transaction.get(branchSupplierAccountRef)
+    const purchaseOpenItemRef = db.collection('debtOpenItems').doc(debtOpenItemId('PURCHASE_ORDER', normalizedOrderId, 'PAYABLE'));
+    const [partyMasterSnap, branchSupplierAccountSnap, purchaseOpenItemSnap] = await Promise.all([
+      transaction.get(partyMasterRef), transaction.get(branchSupplierAccountRef), transaction.get(purchaseOpenItemRef)
     ]);
     if (branchSupplierAccountSnap.exists) {
       const account = branchSupplierAccountSnap.data()!;
@@ -1173,20 +1213,65 @@ export async function processPayPurchaseOrderDebt(
       if (String(fund.branchId || '') !== branchId) throw new Error(`PURCHASE_FUND_BRANCH_MISMATCH: ${allocation.fundId}`);
       const expectedType = allocation.method === 'CASH' ? 'CASH' : 'BANK';
       if (fund.type !== expectedType) throw new Error(`PURCHASE_FUND_TYPE_MISMATCH: ${allocation.fundId}`);
-      if (Number(fund.currentBalance || 0) < allocation.amount) throw new Error(`INSUFFICIENT_FUNDS: ${allocation.fundId}`);
+      const currentBalance = parseVnd(fund.currentBalance ?? 0, {
+        allowZero: true,
+        field: 'PURCHASE_FUND_BALANCE',
+        max: Number.MAX_SAFE_INTEGER
+      });
+      if (currentBalance < allocation.amount) throw new Error(`INSUFFICIENT_FUNDS: ${allocation.fundId}`);
     });
 
     const now = new Date().toISOString();
     const nextPaidAmount = Number(order.paidAmount || 0) + paymentAmount;
     const nextDebtAmount = Math.max(0, Number(order.totalAmount || 0) - nextPaidAmount);
+    const currentOpenItem = purchaseOpenItemSnap.exists
+      ? purchaseOpenItemSnap.data()!
+      : newDebtOpenItemRecord({
+        branchId,
+        partyAccountId: supplierIdentity.branchPartyAccountId,
+        partyMasterId: supplierIdentity.partyMasterId,
+        legacyPartnerId: String(order.supplierId || ''),
+        direction: 'PAYABLE',
+        sourceType: 'PURCHASE_ORDER',
+        sourceDocumentId: normalizedOrderId,
+        sourceDocumentCode: String(order.code || normalizedOrderId),
+        originalAmount: Number(order.totalAmount || 0),
+        settledAmount: Number(order.paidAmount || 0),
+        actorUid: actor.uid,
+        occurredAt: String(order.createdAt || order.orderDate || now)
+      });
+    assertDebtOpenItemScope(currentOpenItem, {
+      branchId,
+      partyAccountId: supplierIdentity.branchPartyAccountId,
+      partyMasterId: supplierIdentity.partyMasterId,
+      legacyPartnerId: String(order.supplierId || ''),
+      direction: 'PAYABLE',
+      sourceType: 'PURCHASE_ORDER',
+      sourceDocumentId: normalizedOrderId,
+      openAmount: currentDebt
+    });
     const paymentTransactionIds: string[] = [];
     const paymentSnapshots = allocations.map((allocation, index) => {
       const fund = fundSnapshots.get(allocation.fundId).data();
+      const currentFundBalance = parseVnd(fund.currentBalance ?? 0, {
+        allowZero: true,
+        field: 'PURCHASE_FUND_BALANCE',
+        max: Number.MAX_SAFE_INTEGER
+      });
+      const currentTotalExpense = parseVnd(fund.totalExpense ?? 0, {
+        allowZero: true,
+        field: 'PURCHASE_FUND_TOTAL_EXPENSE',
+        max: Number.MAX_SAFE_INTEGER
+      });
+      const nextFundBalance = currentFundBalance - allocation.amount;
+      const nextTotalExpense = currentTotalExpense + allocation.amount;
+      parseVnd(nextFundBalance, { allowZero: true, field: 'PURCHASE_FUND_BALANCE', max: Number.MAX_SAFE_INTEGER });
+      parseVnd(nextTotalExpense, { allowZero: true, field: 'PURCHASE_FUND_TOTAL_EXPENSE', max: Number.MAX_SAFE_INTEGER });
       const transactionId = `PURCHASE_PAYMENT_${idempotencyId.slice(0, 20).toUpperCase()}_${index + 1}`;
       paymentTransactionIds.push(transactionId);
       transaction.update(db.collection('funds').doc(allocation.fundId), {
-        currentBalance: Number(fund.currentBalance || 0) - allocation.amount,
-        totalExpense: Number(fund.totalExpense || 0) + allocation.amount,
+        currentBalance: nextFundBalance,
+        totalExpense: nextTotalExpense,
         updatedAt: now
       });
       transaction.set(db.collection('cashTransactions').doc(transactionId), {
@@ -1221,7 +1306,7 @@ export async function processPayPurchaseOrderDebt(
     });
 
     const supplierOutstandingDebt = Number(supplier.outstandingDebt || 0);
-    if (!Number.isFinite(supplierOutstandingDebt) || supplierOutstandingDebt + 1 < paymentAmount) {
+    if (!Number.isSafeInteger(supplierOutstandingDebt) || supplierOutstandingDebt < paymentAmount) {
       throw new Error('PURCHASE_SUPPLIER_DEBT_MISMATCH');
     }
     const debtTransaction = {
@@ -1243,7 +1328,7 @@ export async function processPayPurchaseOrderDebt(
       } : {}),
       partyMasterId: supplierIdentity.partyMasterId,
       branchPartyAccountId: supplierIdentity.branchPartyAccountId,
-      outstandingDebt: Math.max(0, supplierOutstandingDebt - paymentAmount),
+      outstandingDebt: supplierOutstandingDebt - paymentAmount,
       debtTransactions: [debtTransaction, ...(Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : [])].slice(0, 200),
       lastInteraction: now.slice(0, 10)
     });
@@ -1252,15 +1337,20 @@ export async function processPayPurchaseOrderDebt(
     }
     const supplierAccount = branchSupplierAccountSnap.exists ? branchSupplierAccountSnap.data()! : null;
     if (!supplierAccount) {
+      const legacyDirectional = resolveLegacyDirectionalBalances(supplier, 'PURCHASE_SUPPLIER');
+      if (legacyDirectional.payableBalance < paymentAmount) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
       transaction.set(branchSupplierAccountRef, newBranchPartyAccountRecord(
         { id: supplierSnap.id, ...supplier }, branchId, supplierIdentity, actor.uid, now,
-        { payableBalance: Math.max(0, supplierOutstandingDebt - paymentAmount) }
+        {
+          payableBalance: legacyDirectional.payableBalance - paymentAmount,
+          receivableBalance: legacyDirectional.receivableBalance
+        }
       ));
     } else {
       const payableBalance = Number(supplierAccount.payableBalance || 0);
-      if (!Number.isSafeInteger(payableBalance) || payableBalance + 1 < paymentAmount) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
+      if (!Number.isSafeInteger(payableBalance) || payableBalance < paymentAmount) throw new Error('PURCHASE_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
       transaction.update(branchSupplierAccountRef, {
-        payableBalance: Math.max(0, payableBalance - paymentAmount),
+        payableBalance: payableBalance - paymentAmount,
         updatedAt: now,
         updatedByUid: actor.uid
       });
@@ -1281,6 +1371,14 @@ export async function processPayPurchaseOrderDebt(
       occurredAt: now,
       note: debtTransaction.note
     }));
+    transaction.set(purchaseOpenItemRef, {
+      ...currentOpenItem,
+      ...settleDebtOpenItemRecord(currentOpenItem, paymentAmount, {
+        settlementId: `PURCHASE_PAYMENT:${idempotencyId}`,
+        actorUid: actor.uid,
+        occurredAt: now
+      })
+    });
     const updatedOrder = {
       ...order,
       id: orderSnap.id,
@@ -1301,7 +1399,10 @@ export async function processPayPurchaseOrderDebt(
       paymentAllocations: updatedOrder.paymentAllocations,
       updatedAt: now
     });
-    transaction.set(idemRef, { orderId: normalizedOrderId, paymentTransactionIds, paymentAmount, createdAt: now });
+    transaction.set(idemRef, {
+      orderId: normalizedOrderId, paymentTransactionIds, paymentAmount, payloadHash: paymentPayloadHash,
+      actorUid: actor.uid, branchId, createdAt: now
+    });
     return { order: updatedOrder, paymentTransactionIds };
   });
 }
@@ -1345,8 +1446,9 @@ export async function processCancelPurchaseOrderReceipt(
     const supplierIdentity = resolvePartyIdentity({ id: supplierSnap.id, ...supplierData }, branchId);
     const partyMasterRef = db.collection('partyMasters').doc(supplierIdentity.partyMasterId);
     const branchSupplierAccountRef = db.collection('branchPartyAccounts').doc(supplierIdentity.branchPartyAccountId);
-    const [partyMasterSnap, branchSupplierAccountSnap] = await Promise.all([
-      transaction.get(partyMasterRef), transaction.get(branchSupplierAccountRef)
+    const purchaseOpenItemRef = db.collection('debtOpenItems').doc(debtOpenItemId('PURCHASE_ORDER', normalizedOrderId, 'PAYABLE'));
+    const [partyMasterSnap, branchSupplierAccountSnap, purchaseOpenItemSnap] = await Promise.all([
+      transaction.get(partyMasterRef), transaction.get(branchSupplierAccountRef), transaction.get(purchaseOpenItemRef)
     ]);
     if (branchSupplierAccountSnap.exists && String(branchSupplierAccountSnap.data()?.branchId || '') !== branchId) {
       throw new Error('PURCHASE_SUPPLIER_ACCOUNT_BRANCH_MISMATCH');
@@ -1426,12 +1528,59 @@ export async function processCancelPurchaseOrderReceipt(
     });
 
     const now = new Date().toISOString();
+    const orderDebt = Number(order.debtAmount || 0);
+    const currentOpenItem = purchaseOpenItemSnap.exists
+      ? purchaseOpenItemSnap.data()!
+      : newDebtOpenItemRecord({
+        branchId,
+        partyAccountId: supplierIdentity.branchPartyAccountId,
+        partyMasterId: supplierIdentity.partyMasterId,
+        legacyPartnerId: String(order.supplierId || ''),
+        direction: 'PAYABLE',
+        sourceType: 'PURCHASE_ORDER',
+        sourceDocumentId: normalizedOrderId,
+        sourceDocumentCode: String(order.code || normalizedOrderId),
+        originalAmount: Number(order.totalAmount || 0),
+        settledAmount: Number(order.paidAmount || 0),
+        actorUid: actor.uid,
+        occurredAt: String(order.createdAt || order.orderDate || now)
+      });
+    assertDebtOpenItemScope(currentOpenItem, {
+      branchId,
+      partyAccountId: supplierIdentity.branchPartyAccountId,
+      partyMasterId: supplierIdentity.partyMasterId,
+      legacyPartnerId: String(order.supplierId || ''),
+      direction: 'PAYABLE',
+      sourceType: 'PURCHASE_ORDER',
+      sourceDocumentId: normalizedOrderId,
+      openAmount: orderDebt
+    });
     const removedDeviceIds: string[] = [];
     for (const deviceDoc of devicesSnap.docs) {
       const device = deviceDoc.data();
+      const tombstoneRef = db.collection('inventoryDeviceTombstones').doc(deviceDoc.id);
+      transaction.set(tombstoneRef, {
+        ...device,
+        id: deviceDoc.id,
+        originalCollection: 'devices',
+        lifecycleStatus: 'VOIDED',
+        voidedBySourceType: 'PURCHASE_ORDER',
+        voidedBySourceId: normalizedOrderId,
+        voidedByUid: actor.uid,
+        voidedAt: now,
+        voidReason: reason || 'Hủy phiếu nhập hàng'
+      });
       transaction.delete(deviceDoc.ref);
       transaction.delete(db.collection('deviceFinancials').doc(deviceDoc.id));
-      if (device.imei) transaction.delete(db.collection('imeiRegistry').doc(imeiRegistryId(device.imei)));
+      if (device.imei) transaction.set(db.collection('imeiRegistry').doc(imeiRegistryId(device.imei)), {
+        imei: normalizeImei(device.imei),
+        deviceId: deviceDoc.id,
+        branchId,
+        status: 'VOIDED',
+        voidedAt: now,
+        voidedByUid: actor.uid,
+        voidedBySourceId: normalizedOrderId
+      }, { merge: true });
       transaction.set(db.collection('deviceCostEvents').doc(`DCE_REV_${normalizedOrderId}_${deviceDoc.id}`), {
         id: `DCE_REV_${normalizedOrderId}_${deviceDoc.id}`,
         deviceId: deviceDoc.id,
@@ -1477,19 +1626,36 @@ export async function processCancelPurchaseOrderReceipt(
         }, { merge: true });
       }
     });
-    movementsSnap.docs.forEach(movementDoc => transaction.update(movementDoc.ref, {
-      movementType: 'STOCK_RECEIPT_CANCELLED',
-      reversed: true,
-      reversedAt: now,
-      reversedByUid: actor.uid,
-      reversalReason: reason || 'Hủy phiếu nhập hàng'
-    }));
+    movementsSnap.docs.forEach((movementDoc, index) => {
+      const movement = movementDoc.data();
+      const reversalId = `MOV_REV_PURCHASE_${normalizedOrderId}_${index + 1}`;
+      transaction.set(db.collection('inventoryMovements').doc(reversalId), {
+        id: reversalId,
+        itemType: movement.itemType || (movement.deviceId ? 'DEVICE' : movement.productId ? 'ACCESSORY' : 'PART'),
+        deviceId: movement.deviceId || null,
+        imei: movement.imei || null,
+        productId: movement.productId || null,
+        productMasterId: movement.productMasterId || null,
+        sku: movement.sku || null,
+        quantity: Number(movement.quantity || (movement.deviceId ? 1 : 0)),
+        branchId,
+        movementType: 'STOCK_RECEIPT_REVERSAL',
+        fromLocationId: movement.toLocationId || warehouseId,
+        toLocationId: null,
+        sourceType: 'PURCHASE_ORDER_REVERSAL',
+        sourceId: normalizedOrderId,
+        reversalOfMovementId: movementDoc.id,
+        performedByUid: actor.uid,
+        note: reason || 'Hủy phiếu nhập hàng',
+        occurredAt: now,
+        createdAt: now
+      });
+    });
 
     if (supplierRef && supplierSnap?.exists) {
       const supplier = supplierData;
-      const orderDebt = Number(order.debtAmount || 0);
       const supplierOutstandingDebt = Number(supplier.outstandingDebt || 0);
-      if (!Number.isFinite(supplierOutstandingDebt) || supplierOutstandingDebt + 1 < orderDebt) {
+      if (!Number.isSafeInteger(supplierOutstandingDebt) || supplierOutstandingDebt < orderDebt) {
         throw new Error('PURCHASE_CANCEL_SUPPLIER_DEBT_MISMATCH');
       }
       const referenceIds = new Set([normalizedOrderId, String(order.code || '')]);
@@ -1501,7 +1667,7 @@ export async function processCancelPurchaseOrderReceipt(
         } : {}),
         partyMasterId: supplierIdentity.partyMasterId,
         branchPartyAccountId: supplierIdentity.branchPartyAccountId,
-        outstandingDebt: Math.max(0, supplierOutstandingDebt - orderDebt),
+        outstandingDebt: supplierOutstandingDebt - orderDebt,
         totalPurchasedFrom: Math.max(0, Number(supplier.totalPurchasedFrom || 0) - Number(order.totalAmount || 0)),
         debtTransactions: (Array.isArray(supplier.debtTransactions) ? supplier.debtTransactions : []).filter((item: any) => !referenceIds.has(String(item.referenceId || ''))),
         lastInteraction: now.slice(0, 10)
@@ -1511,16 +1677,21 @@ export async function processCancelPurchaseOrderReceipt(
       }
       const account = branchSupplierAccountSnap.exists ? branchSupplierAccountSnap.data()! : null;
       if (!account) {
+        const legacyDirectional = resolveLegacyDirectionalBalances(supplier, 'PURCHASE_SUPPLIER');
+        if (legacyDirectional.payableBalance < orderDebt) throw new Error('PURCHASE_CANCEL_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
         transaction.set(branchSupplierAccountRef, newBranchPartyAccountRecord(
           { id: supplierSnap.id, ...supplier, totalPurchasedFrom: Math.max(0, Number(supplier.totalPurchasedFrom || 0) - Number(order.totalAmount || 0)) },
           branchId, supplierIdentity, actor.uid, now,
-          { payableBalance: Math.max(0, supplierOutstandingDebt - orderDebt) }
+          {
+            payableBalance: legacyDirectional.payableBalance - orderDebt,
+            receivableBalance: legacyDirectional.receivableBalance
+          }
         ));
       } else {
         const payableBalance = Number(account.payableBalance || 0);
-        if (!Number.isSafeInteger(payableBalance) || payableBalance + 1 < orderDebt) throw new Error('PURCHASE_CANCEL_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
+        if (!Number.isSafeInteger(payableBalance) || payableBalance < orderDebt) throw new Error('PURCHASE_CANCEL_SUPPLIER_ACCOUNT_DEBT_MISMATCH');
         transaction.update(branchSupplierAccountRef, {
-          payableBalance: Math.max(0, payableBalance - orderDebt),
+          payableBalance: payableBalance - orderDebt,
           totalPurchases: Math.max(0, Number(account.totalPurchases || 0) - Number(order.totalAmount || 0)),
           updatedAt: now,
           updatedByUid: actor.uid
@@ -1560,6 +1731,15 @@ export async function processCancelPurchaseOrderReceipt(
           note: `Hoàn các khoản đã thanh toán khi hủy phiếu ${order.code || normalizedOrderId}`
         }));
       }
+      transaction.set(purchaseOpenItemRef, {
+        ...currentOpenItem,
+        ...cancelDebtOpenItemRecord(currentOpenItem, orderDebt, {
+          cancellationId: `PURCHASE_CANCEL:${normalizedOrderId}`,
+          reason: reason || `Hủy phiếu nhập ${order.code || normalizedOrderId}`,
+          actorUid: actor.uid,
+          occurredAt: now
+        })
+      });
     }
     for (const [fundId, refundAmount] of refundByFund) {
       const fundSnap = fundSnapshots.get(fundId);

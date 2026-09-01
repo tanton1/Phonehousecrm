@@ -81,7 +81,7 @@ describe('Inventory device canonical single writer', () => {
     const input: ImportInventoryDevicesInput = {
       branchId: 'CN01',
       locationId: 'KHO_CN01',
-      sourceType: 'PURCHASE_ORDER',
+      sourceType: 'MANUAL_IMPORT',
       sourceId: 'PO_01',
       idempotencyKey: 'purchase-order:PO_01',
       devices: [{ id: 'DEV_01', imei: '356789012345678', model: 'iPhone 15 Pro', buyPrice: 20_000_000 }]
@@ -119,6 +119,24 @@ describe('Inventory device canonical single writer', () => {
       idempotencyKey: 'manual-import:0001',
       devices: [{ id: 'NEW_01', imei: '356789012345678', model: 'iPhone 15 Pro', buyPrice: 20_000_000 }]
     }, actor)).rejects.toThrow('IMEI_ALREADY_EXISTS');
+  });
+
+  it('rejects attempts to impersonate purchase or trade-in posting through the manual import endpoint', async () => {
+    const store = createInventoryDb({ warehouses: { KHO_CN01: { id: 'KHO_CN01', branchId: 'CN01', isActive: true } } });
+    await expect(processImportInventoryDevices(store.db, {
+      branchId: 'CN01', locationId: 'KHO_CN01', sourceType: 'PURCHASE_ORDER', sourceId: 'PO_FAKE',
+      idempotencyKey: 'fake-purchase:0001',
+      devices: [{ imei: '356789012345678', model: 'iPhone 15 Pro', buyPrice: 20_000_000 }]
+    }, actor)).rejects.toThrow('INVENTORY_IMPORT_SOURCE_FORBIDDEN');
+  });
+
+  it('rejects unsafe or fractional manual-import money values', async () => {
+    const store = createInventoryDb({ warehouses: { KHO_CN01: { id: 'KHO_CN01', branchId: 'CN01', isActive: true } } });
+    await expect(processImportInventoryDevices(store.db, {
+      branchId: 'CN01', locationId: 'KHO_CN01', sourceType: 'MANUAL_IMPORT', sourceId: 'MANUAL_BAD_MONEY',
+      idempotencyKey: 'manual-import:bad-money',
+      devices: [{ imei: '356789012345678', model: 'iPhone 15 Pro', buyPrice: 20_000_000.5 }]
+    }, actor)).rejects.toThrow('DEVICE_COST_INVALID');
   });
 
   it('reports drift in dry-run mode without changing any device', async () => {

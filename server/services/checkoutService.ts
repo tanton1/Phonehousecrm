@@ -1,16 +1,28 @@
-import { Firestore, FieldValue, DocumentReference } from 'firebase-admin/firestore';
+import { Firestore, FieldValue, DocumentReference, Transaction } from 'firebase-admin/firestore';
 import crypto from 'crypto';
 import { imeiRegistryId, normalizeImei } from './inventoryDeviceService';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
 import { buildCrmSearchPrefixes, normalizeCrmPhone, prepareCrmPostSalePlan } from './crmOperationsService';
 import {
+  assertDebtOpenItemScope,
   assertPartnerForBranch,
+  cancelDebtOpenItemRecord,
+  debtOpenItemId,
   debtLedgerEntry,
   newBranchPartyAccountRecord,
+  newDebtOpenItemRecord,
   newPartyMasterRecord,
+  resolveLegacyDirectionalBalances,
   resolvePartyIdentity
 } from './branchPartyService';
 import { MAX_POS_DEVICES, normalizeCheckoutAccessoryLines } from '../validation/checkoutSchema';
+import {
+  assertFinanceIdempotencyRecord,
+  financePayloadHash,
+  parseVnd,
+  requireFinanceIdempotencyKey
+} from '../utils/financeIntegrity';
+import { resolveCommissionPayrollPeriod } from './commissionPayrollPeriodService';
 
 export interface CheckoutResult {
   success: boolean;
@@ -140,6 +152,23 @@ export function buildSalesCommissionLedgerEntries(input: {
   })).filter((entry) => entry.commissionPayable > 0);
 }
 
+export async function prepareEligibleSalesCommissionLedgerEntries(
+  transaction: Transaction,
+  db: Firestore,
+  input: Parameters<typeof buildSalesCommissionLedgerEntries>[0]
+) {
+  const entries = buildSalesCommissionLedgerEntries(input);
+  if (entries.length === 0) return entries;
+  const requestedPeriod = vietnamMonthAt(input.occurredAt);
+  const resolution = await resolveCommissionPayrollPeriod(transaction, db, {
+    staffUid: input.staffUid,
+    sourceBranchId: input.branchId,
+    requestedPeriod,
+    assignedPeriod: requestedPeriod
+  });
+  return entries.map((entry) => ({ ...entry, ...resolution }));
+}
+
 function resolveRetailPriceEntry(policy: any, branchId: string, itemType: 'DEVICE' | 'ACCESSORY', itemId: string, data: any): any | undefined {
   const entries = Array.isArray(policy?.entries) ? policy.entries : [];
   const matches = entries.filter((entry: any) => {
@@ -208,9 +237,17 @@ export async function executeAtomicCheckout(
       model: payload.tradeInDevice.model,
       buyPrice: payload.tradeInDevice.buyPrice,
       warehouseId: payload.tradeInDevice.currentLocationId || payload.tradeInDevice.warehouseId || payload.tradeInDevice.warehouse
-    } : null
+    } : null,
+    customerId: String(payload.customerId || payload.customerPartner?.id || '').trim() || null,
+    customerName: String(payload.customerName || payload.invoice?.customerName || payload.customerPartner?.name || '').trim() || null,
+    customerPhone: String(payload.customerPhone || payload.invoice?.customerPhone || payload.customerPartner?.phone || '').replace(/\D/g, '') || null,
+    leadId: String(payload.leadId || payload.invoice?.leadId || '').trim() || null,
+    quoteId: String(payload.quoteId || payload.invoice?.quoteId || '').trim() || null,
+    notes: String(payload.notes || payload.invoice?.notes || '').trim() || null,
+    actorUid: String(authenticatedStaff?.uid || '').trim() || null
   };
   const currentPayloadHash = crypto.createHash('sha256').update(JSON.stringify(canonicalPayloadObj)).digest('hex');
+  const commissionOccurredAt = new Date().toISOString();
   const checkoutBranchForCare = String(payload.branchId || payload.invoice?.branchId || authenticatedStaff?.branchId || '').trim();
   if (!checkoutBranchForCare) throw new Error('BRANCH_REQUIRED: Hóa đơn phải được định danh theo chi nhánh.');
   const rawCustomerPhone = String(payload.customerPhone || payload.invoice?.customerPhone || payload.customerPartner?.phone || '').trim();
@@ -429,11 +466,16 @@ export async function executeAtomicCheckout(
       const itemType = String(adjustment?.itemType || '').toUpperCase();
       const itemId = String(adjustment?.itemId || '').trim();
       const key = `${itemType}:${itemId}`;
-      const unitPrice = Number(adjustment?.unitPrice);
-      if (!['DEVICE', 'ACCESSORY'].includes(itemType) || !itemId || !Number.isFinite(unitPrice) || unitPrice <= 0 || adjustmentMap.has(key)) {
+      let unitPrice: number;
+      try {
+        unitPrice = parseVnd(adjustment?.unitPrice, { field: 'POS_PRICE_ADJUSTMENT' });
+      } catch {
         throw new Error('POS_PRICE_ADJUSTMENT_INVALID: Giá điều chỉnh trên phiếu bán không hợp lệ.');
       }
-      adjustmentMap.set(key, { unitPrice: Math.round(unitPrice), reason: String(adjustment?.reason || '').trim() });
+      if (!['DEVICE', 'ACCESSORY'].includes(itemType) || !itemId || adjustmentMap.has(key)) {
+        throw new Error('POS_PRICE_ADJUSTMENT_INVALID: Giá điều chỉnh trên phiếu bán không hợp lệ.');
+      }
+      adjustmentMap.set(key, { unitPrice, reason: String(adjustment?.reason || '').trim() });
     }
     const applyRetailPrice = (itemType: 'DEVICE' | 'ACCESSORY', item: any) => {
       const entry = resolveRetailPriceEntry(retailPricing, branchId, itemType, item.id, item.data);
@@ -666,7 +708,10 @@ export async function executeAtomicCheckout(
       };
     }
 
-    const finalAmount = Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction);
+    const finalAmount = parseVnd(
+      Math.max(0, subTotal - authoritativeDiscount - authoritativeTradeInDeduction),
+      { allowZero: true, field: 'POS_FINAL_AMOUNT' }
+    );
 
     // 7. Settlement Model: Fix Installment Debt Double-Counting
     let downPayment = 0;
@@ -788,6 +833,24 @@ export async function executeAtomicCheckout(
     const effectiveCustomerId = customerId || checkoutLeadData?.customerId
       || (normalizedCustomerPhone ? `CUST_${normalizedCustomerPhone}` : `CUST_LEAD_${String(effectiveLeadId || invoiceId).replace(/[^A-Za-z0-9_-]/g, '_')}`);
 
+    const salesCommissionEntries = await prepareEligibleSalesCommissionLedgerEntries(transaction, db, {
+      invoiceId,
+      invoiceCode,
+      branchId,
+      staffUid: authenticatedStaff?.uid || 'SYSTEM',
+      staffName: authenticatedStaff?.name || 'Nhân viên bán hàng',
+      occurredAt: commissionOccurredAt,
+      items: [
+        ...loadedDevices.map((item) => ({
+          id: item.id, itemType: 'DEVICE' as const, name: String(item.data.model || item.id), quantity: 1,
+          lineAmount: item.authoritativePrice, commissionTags: item.commissionTags || []
+        })),
+        ...loadedAccessories.map((item) => ({
+          id: item.id, itemType: 'ACCESSORY' as const, name: String(item.data.name || item.id), quantity: item.quantity,
+          lineAmount: item.authoritativePrice * item.quantity, commissionTags: item.commissionTags || []
+        }))
+      ]
+    });
     // 8. Single Writer: Mark Devices as Sold in POS Transaction & Release/Consume Reservations
     for (const dev of loadedDevices) {
       transaction.update(dev.ref, {
@@ -1026,32 +1089,6 @@ export async function executeAtomicCheckout(
 
     // Canonical sales commission ledger. Payroll consumes this ledger by
     // eligibility period instead of mutable totals stored on the user profile.
-    const salesCommissionEntries = buildSalesCommissionLedgerEntries({
-      invoiceId,
-      invoiceCode,
-      branchId,
-      staffUid: authenticatedStaff?.uid || 'SYSTEM',
-      staffName: authenticatedStaff?.name || 'Nhân viên bán hàng',
-      occurredAt: new Date().toISOString(),
-      items: [
-        ...loadedDevices.map((item) => ({
-          id: item.id,
-          itemType: 'DEVICE' as const,
-          name: String(item.data.model || item.id),
-          quantity: 1,
-          lineAmount: item.authoritativePrice,
-          commissionTags: item.commissionTags || []
-        })),
-        ...loadedAccessories.map((item) => ({
-          id: item.id,
-          itemType: 'ACCESSORY' as const,
-          name: String(item.data.name || item.id),
-          quantity: item.quantity,
-          lineAmount: item.authoritativePrice * item.quantity,
-          commissionTags: item.commissionTags || []
-        }))
-      ]
-    });
     salesCommissionEntries.forEach((entry) => transaction.set(db.collection('commissionLedger').doc(entry.id), entry, { merge: false }));
 
     // 13. Standardized Cash Transactions (Full Branch, InvoiceId & Creator Linkage)
@@ -1257,15 +1294,18 @@ export async function executeAtomicCheckout(
         if (!customerMasterSnap?.exists) {
           transaction.set(customerMasterRef, newPartyMasterRecord({ id: customerId, ...customerProfile }, customerIdentity, authenticatedStaff?.uid || 'SYSTEM', now));
         }
-        const currentLegacyDebt = Number(customerProfile.outstandingDebt || 0);
         if (!customerAccountSnap?.exists) {
+          const legacyDirectional = resolveLegacyDirectionalBalances(customerProfile, 'POS_CUSTOMER');
           transaction.set(customerAccountRef, newBranchPartyAccountRecord(
             { id: customerId, ...customerProfile, totalSpent: Number(customerProfile.totalSpent || 0) + finalAmount },
             branchId,
             customerIdentity,
             authenticatedStaff?.uid || 'SYSTEM',
             now,
-            { receivableBalance: currentLegacyDebt + customerDebtAmount }
+            {
+              payableBalance: legacyDirectional.payableBalance,
+              receivableBalance: legacyDirectional.receivableBalance + customerDebtAmount
+            }
           ));
         } else {
           transaction.update(customerAccountRef, {
@@ -1292,6 +1332,20 @@ export async function executeAtomicCheckout(
             occurredAt: now,
             note: `Công nợ hóa đơn ${invoiceCode}`
           }));
+          const openItem = newDebtOpenItemRecord({
+            branchId,
+            partyAccountId: customerIdentity.branchPartyAccountId,
+            partyMasterId: customerIdentity.partyMasterId,
+            legacyPartnerId: customerId,
+            direction: 'RECEIVABLE',
+            sourceType: 'INVOICE',
+            sourceDocumentId: invoiceId,
+            sourceDocumentCode: invoiceCode,
+            originalAmount: customerDebtAmount,
+            actorUid: authenticatedStaff?.uid || 'SYSTEM',
+            occurredAt: now
+          });
+          transaction.set(db.collection('debtOpenItems').doc(openItem.id), openItem);
         }
       }
     }
@@ -1428,16 +1482,21 @@ export async function executeAtomicInvoiceRefund(
   const branchId = String(payload.branchId || '').trim();
   const fundId = String(payload.fundId || '').trim();
   const reason = String(payload.reason || '').trim();
-  const idempotencyKey = String(payload.idempotencyKey || '').trim();
-  if (!invoiceId || !branchId || branchId === 'ALL' || !reason || !idempotencyKey) {
+  const idempotencyKey = requireFinanceIdempotencyKey(payload.idempotencyKey, undefined);
+  const actorUid = String(authenticatedStaff?.uid || '').trim();
+  if (!invoiceId || !branchId || branchId === 'ALL' || !reason || !actorUid) {
     throw new Error('REFUND_REQUIRED_FIELDS');
   }
+  const payloadHash = financePayloadHash('INVOICE_REFUND', { invoiceId, branchId, fundId, reason });
 
   return db.runTransaction(async transaction => {
     const idemRef = db.collection('invoiceRefundRequests').doc(idempotencyKey);
     const idemSnap = await transaction.get(idemRef);
-    if (idemSnap.exists && idemSnap.data()?.status === 'COMPLETED') {
-      return idemSnap.data()!.result as InvoiceRefundResult;
+    if (idemSnap.exists) {
+      const existing = idemSnap.data()!;
+      assertFinanceIdempotencyRecord(existing, { operationType: 'INVOICE_REFUND', payloadHash, actorUid });
+      if (existing.status !== 'COMPLETED') throw new Error('IDEMPOTENCY_REQUEST_IN_PROGRESS');
+      return existing.result as InvoiceRefundResult;
     }
 
     const invoiceRef = db.collection('invoices').doc(invoiceId);
@@ -1452,8 +1511,9 @@ export async function executeAtomicInvoiceRefund(
     if (invoice.installmentDisbursementStatus === 'DISBURSED') {
       throw new Error('INVOICE_REFUND_REQUIRES_INSTALLMENT_REVERSAL');
     }
+    const customerDebtToReverse = parseVnd(invoice.debtAmount || 0, { allowZero: true, field: 'REFUND_CUSTOMER_DEBT' });
 
-    const refundAmount = Number(invoice.paidAmount ?? invoice.finalAmount ?? 0);
+    const refundAmount = parseVnd(invoice.paidAmount ?? invoice.finalAmount ?? 0, { allowZero: true, field: 'REFUND_AMOUNT' });
     const splitPayments = Array.isArray(invoice.splitPayments) ? invoice.splitPayments.filter((line: any) =>
       Number(line.amount || 0) > 0 && line.fundId && !['DEBT', 'INSTALLMENT'].includes(String(line.method || '').toUpperCase())
     ) : [];
@@ -1471,7 +1531,8 @@ export async function executeAtomicInvoiceRefund(
       fund = fundSnap.data()!;
       if (!fund.branchId || fund.branchId === 'ALL' || fund.branchId !== branchId) throw new Error('REFUND_FUND_BRANCH_MISMATCH');
       if (fund.isArchived === true || fund.isActive === false || fund.active === false) throw new Error('REFUND_FUND_INACTIVE');
-      if (Number(fund.currentBalance || 0) < refundAmount) throw new Error('REFUND_FUND_INSUFFICIENT_BALANCE');
+      const currentFundBalance = parseVnd(fund.currentBalance ?? 0, { allowZero: true, field: 'REFUND_FUND_BALANCE' });
+      if (currentFundBalance < refundAmount) throw new Error('REFUND_FUND_INSUFFICIENT_BALANCE');
     }
 
     const salesCommissionSnapshot = await transaction.get(
@@ -1479,19 +1540,49 @@ export async function executeAtomicInvoiceRefund(
     );
     if (salesCommissionSnapshot.size > 200) throw new Error('REFUND_COMMISSION_LIMIT');
 
+    const invoiceDeviceRows = [
+      ...(Array.isArray(invoice.devices) ? invoice.devices : []),
+      ...(Array.isArray(invoice.items) ? invoice.items.filter((item: any) => (
+        Boolean(item?.imei) || ['DEVICE', 'device'].includes(String(item?.itemType || item?.type || ''))
+      )) : [])
+    ];
+    const expectedDeviceIds = new Set<string>([
+      ...(Array.isArray(invoice.deviceIds) ? invoice.deviceIds : []),
+      ...invoiceDeviceRows.map((item: any) => item?.deviceId || item?.id)
+    ].map((value) => String(value || '').trim()).filter(Boolean));
+    const expectedImeis = new Set<string>([
+      ...(Array.isArray(invoice.imeiList) ? invoice.imeiList : []),
+      ...invoiceDeviceRows.map((item: any) => item?.imei)
+    ].map((value) => String(value || '').trim()).filter(Boolean));
     const deviceSnapshots = new Map<string, any>();
-    const soldDevices = await transaction.get(db.collection('devices').where('soldInvoiceId', '==', invoiceId));
-    soldDevices.docs.forEach(item => deviceSnapshots.set(item.id, item));
-    if (deviceSnapshots.size === 0) {
-      const imeis = [...new Set([
-        ...(Array.isArray(invoice.imeiList) ? invoice.imeiList : []),
-        ...(Array.isArray(invoice.devices) ? invoice.devices.map((item: any) => item.imei) : []),
-        ...(Array.isArray(invoice.items) ? invoice.items.map((item: any) => item.imei) : [])
-      ].filter(Boolean))];
-      for (const imei of imeis) {
-        const matches = await transaction.get(db.collection('devices').where('imei', '==', imei).limit(1));
-        matches.docs.forEach(item => deviceSnapshots.set(item.id, item));
+
+    for (const deviceId of expectedDeviceIds) {
+      const deviceSnapshot = await transaction.get(db.collection('devices').doc(deviceId));
+      if (!deviceSnapshot.exists) throw new Error('REFUND_DEVICE_COVERAGE_MISMATCH: Hóa đơn tham chiếu máy không còn tồn tại.');
+      deviceSnapshots.set(deviceSnapshot.id, deviceSnapshot);
+    }
+    const coveredImeis = new Set([...deviceSnapshots.values()].map((snapshot) => String(snapshot.data()?.imei || '').trim()).filter(Boolean));
+    for (const imei of expectedImeis) {
+      if (coveredImeis.has(imei)) continue;
+      const matches = await transaction.get(db.collection('devices').where('imei', '==', imei).limit(2));
+      if (matches.docs.length !== 1) throw new Error('REFUND_DEVICE_COVERAGE_MISMATCH: Không xác định duy nhất máy theo IMEI trên hóa đơn.');
+      deviceSnapshots.set(matches.docs[0].id, matches.docs[0]);
+      coveredImeis.add(imei);
+    }
+
+    for (const deviceSnapshot of deviceSnapshots.values()) {
+      const device = deviceSnapshot.data() || {};
+      if (String(device.soldInvoiceId || '') !== invoiceId || String(device.status || '').toLowerCase() !== 'sold') {
+        throw new Error('REFUND_DEVICE_OWNERSHIP_MISMATCH: Máy không còn thuộc hóa đơn hoặc đã được bán lại; không thể tự động nhập kho.');
       }
+    }
+    const soldDevices = await transaction.get(db.collection('devices').where('soldInvoiceId', '==', invoiceId));
+    const soldDeviceIds = new Set(soldDevices.docs.map((snapshot) => snapshot.id));
+    const resolvedDeviceIds = new Set(deviceSnapshots.keys());
+    const exactCoverage = soldDeviceIds.size === resolvedDeviceIds.size
+      && [...resolvedDeviceIds].every((deviceId) => soldDeviceIds.has(deviceId));
+    if (!exactCoverage) {
+      throw new Error('REFUND_DEVICE_COVERAGE_MISMATCH: Danh sách máy đã bán không khớp đầy đủ với hóa đơn; cần đối soát trước khi hoàn.');
     }
 
     const accessoryRestores: Array<{
@@ -1562,11 +1653,16 @@ export async function executeAtomicInvoiceRefund(
         customerData = matches.docs[0].data();
       }
     }
+    if (customerDebtToReverse > 0 && (!customerRef || !customerData)) {
+      throw new Error('REFUND_CUSTOMER_REQUIRED_FOR_DEBT_REVERSAL');
+    }
     let refundCustomerIdentity: ReturnType<typeof resolvePartyIdentity> | null = null;
     let refundCustomerMasterRef: DocumentReference | null = null;
     let refundCustomerAccountRef: DocumentReference | null = null;
     let refundCustomerMasterSnap: any = null;
     let refundCustomerAccountSnap: any = null;
+    let refundDebtOpenItemRef: DocumentReference | null = null;
+    let refundDebtOpenItemSnap: any = null;
     if (customerRef && customerData) {
       assertPartnerForBranch(customerData, branchId, ['CUSTOMER', 'BOTH'], 'REFUND_CUSTOMER');
       refundCustomerIdentity = resolvePartyIdentity({ id: customerRef.id, ...customerData }, branchId);
@@ -1577,6 +1673,13 @@ export async function executeAtomicInvoiceRefund(
       ]);
       if (refundCustomerAccountSnap.exists && String(refundCustomerAccountSnap.data()?.branchId || '') !== branchId) {
         throw new Error('REFUND_CUSTOMER_ACCOUNT_BRANCH_MISMATCH');
+      }
+      if (customerDebtToReverse > 0) {
+        refundDebtOpenItemRef = db.collection('debtOpenItems').doc(debtOpenItemId('INVOICE', invoiceId, 'RECEIVABLE'));
+        refundDebtOpenItemSnap = await transaction.get(refundDebtOpenItemRef);
+        if (!refundCustomerMasterSnap.exists) throw new Error('REFUND_CUSTOMER_MASTER_REQUIRED');
+        if (!refundCustomerAccountSnap.exists) throw new Error('REFUND_CUSTOMER_ACCOUNT_REQUIRED');
+        if (!refundDebtOpenItemSnap.exists) throw new Error('REFUND_CUSTOMER_DEBT_OPEN_ITEM_REQUIRED');
       }
     }
 
@@ -1597,6 +1700,20 @@ export async function executeAtomicInvoiceRefund(
     }
 
     const now = new Date().toISOString();
+    const reversalPeriod = vietnamMonthAt(now);
+    const reversalPeriodByStaff = new Map<string, Awaited<ReturnType<typeof resolveCommissionPayrollPeriod>>>();
+    for (const doc of salesCommissionSnapshot.docs) {
+      const commission = doc.data();
+      if ((!commission.payrollPostingId && commission.status !== 'PAID') || commission.status === 'REVERSED') continue;
+      const staffUid = String(commission.staffUid || '').trim();
+      if (!staffUid || reversalPeriodByStaff.has(staffUid)) continue;
+      reversalPeriodByStaff.set(staffUid, await resolveCommissionPayrollPeriod(transaction, db, {
+        staffUid,
+        sourceBranchId: String(commission.sourceBranchId || commission.branchId || branchId),
+        requestedPeriod: reversalPeriod,
+        assignedPeriod: reversalPeriod
+      }));
+    }
     const refundTxId = refundAmount > 0 ? `TX_REFUND_${Date.now()}` : '';
     const refundTransaction = refundAmount > 0 ? {
       id: refundTxId,
@@ -1627,7 +1744,6 @@ export async function executeAtomicInvoiceRefund(
       debtAmount: 0,
       ...(pendingFinanceAmount > 0 ? { installmentDisbursementStatus: 'CANCELLED' } : {})
     });
-    const reversalPeriod = vietnamMonthAt(now);
     salesCommissionSnapshot.docs.forEach((doc) => {
       const commission = doc.data();
       if (String(commission.commissionCategory || '').toUpperCase() !== 'SALES' || commission.status === 'REVERSED') return;
@@ -1642,7 +1758,7 @@ export async function executeAtomicInvoiceRefund(
           status: 'ELIGIBLE',
           assignedAt: now,
           eligibleAt: now,
-          payrollPeriod: reversalPeriod,
+          ...reversalPeriodByStaff.get(String(commission.staffUid || '').trim()),
           eligibilityReason: 'POS_INVOICE_REFUNDED',
           reversalOfLedgerId: doc.id,
           payrollPostingId: null,
@@ -1691,16 +1807,20 @@ export async function executeAtomicInvoiceRefund(
       });
     });
     if (fundRef && refundTransaction) {
+      const currentBalance = parseVnd(fund.currentBalance ?? 0, { allowZero: true, field: 'REFUND_FUND_BALANCE' });
+      const totalExpense = parseVnd(fund.totalExpense ?? 0, { allowZero: true, field: 'REFUND_FUND_TOTAL_EXPENSE' });
       transaction.update(fundRef, {
-        currentBalance: Number(fund.currentBalance || 0) - refundAmount,
-        totalExpense: Number(fund.totalExpense || 0) + refundAmount,
+        currentBalance: currentBalance - refundAmount,
+        totalExpense: parseVnd(totalExpense + refundAmount, { allowZero: true, field: 'REFUND_FUND_TOTAL_EXPENSE' }),
         updatedAt: now
       });
       transaction.set(db.collection('cashTransactions').doc(refundTxId), refundTransaction);
     }
     if (customerRef && customerData) {
-      const customerDebtToReverse = Number(invoice.debtAmount || 0);
-      const customerOutstandingDebt = Number(customerData.outstandingDebt || 0);
+      const customerOutstandingDebt = parseVnd(customerData.outstandingDebt || 0, {
+        allowZero: true,
+        field: 'REFUND_CUSTOMER_OUTSTANDING_DEBT'
+      });
       if (customerDebtToReverse > 0 && customerOutstandingDebt < customerDebtToReverse) throw new Error('REFUND_CUSTOMER_DEBT_MISMATCH');
       transaction.update(customerRef, {
         ...(refundCustomerIdentity ? {
@@ -1708,7 +1828,7 @@ export async function executeAtomicInvoiceRefund(
           branchPartyAccountId: refundCustomerIdentity.branchPartyAccountId
         } : {}),
         totalSpent: Math.max(0, Number(customerData.totalSpent || 0) - Number(invoice.finalAmount || 0)),
-        outstandingDebt: Math.max(0, customerOutstandingDebt - customerDebtToReverse),
+        outstandingDebt: customerOutstandingDebt - customerDebtToReverse,
         debtTransactions: (Array.isArray(customerData.debtTransactions) ? customerData.debtTransactions : [])
           .filter((item: any) => String(item.referenceId || '') !== invoiceId),
         updatedAt: now
@@ -1720,6 +1840,8 @@ export async function executeAtomicInvoiceRefund(
           ));
         }
         if (!refundCustomerAccountSnap?.exists) {
+          if (customerDebtToReverse > 0) throw new Error('REFUND_CUSTOMER_ACCOUNT_REQUIRED');
+          const legacyDirectional = resolveLegacyDirectionalBalances(customerData, 'REFUND_CUSTOMER');
           transaction.set(refundCustomerAccountRef, newBranchPartyAccountRecord(
             {
               id: customerRef.id,
@@ -1730,15 +1852,18 @@ export async function executeAtomicInvoiceRefund(
             refundCustomerIdentity,
             authenticatedStaff?.uid || 'SYSTEM',
             now,
-            { receivableBalance: Math.max(0, customerOutstandingDebt - customerDebtToReverse) }
+            legacyDirectional
           ));
         } else {
-          const receivableBalance = Number(refundCustomerAccountSnap.data()?.receivableBalance || 0);
-          if (!Number.isSafeInteger(receivableBalance) || receivableBalance + 1 < customerDebtToReverse) {
+          const receivableBalance = parseVnd(refundCustomerAccountSnap.data()?.receivableBalance || 0, {
+            allowZero: true,
+            field: 'REFUND_CUSTOMER_ACCOUNT_RECEIVABLE'
+          });
+          if (receivableBalance < customerDebtToReverse) {
             throw new Error('REFUND_CUSTOMER_ACCOUNT_DEBT_MISMATCH');
           }
           transaction.update(refundCustomerAccountRef, {
-            receivableBalance: Math.max(0, receivableBalance - customerDebtToReverse),
+            receivableBalance: receivableBalance - customerDebtToReverse,
             totalSales: Math.max(0, Number(refundCustomerAccountSnap.data()?.totalSales || 0) - Number(invoice.finalAmount || 0)),
             updatedAt: now,
             updatedByUid: authenticatedStaff?.uid || 'SYSTEM'
@@ -1762,6 +1887,28 @@ export async function executeAtomicInvoiceRefund(
             reversalOf: `DLE_INV_${invoiceId}_SALE`,
             note: reason || `Hủy hóa đơn ${invoice.invoiceCode || invoiceId}`
           }));
+          if (!refundDebtOpenItemSnap?.exists) throw new Error('REFUND_CUSTOMER_DEBT_OPEN_ITEM_REQUIRED');
+          const existingOpenItem = refundDebtOpenItemSnap.data();
+          assertDebtOpenItemScope(existingOpenItem, {
+            branchId,
+            partyAccountId: refundCustomerIdentity.branchPartyAccountId,
+            partyMasterId: refundCustomerIdentity.partyMasterId,
+            legacyPartnerId: customerRef.id,
+            direction: 'RECEIVABLE',
+            sourceType: 'INVOICE',
+            sourceDocumentId: invoiceId,
+            openAmount: customerDebtToReverse
+          });
+          const cancelledOpenItem = {
+            ...existingOpenItem,
+            ...cancelDebtOpenItemRecord(existingOpenItem, customerDebtToReverse, {
+              cancellationId: `INVOICE_REFUND:${invoiceId}`,
+              reason,
+              actorUid,
+              occurredAt: now
+            })
+          };
+          transaction.set(refundDebtOpenItemRef!, cancelledOpenItem);
         }
       }
     }
@@ -1775,7 +1922,16 @@ export async function executeAtomicInvoiceRefund(
     }
 
     const result = { invoiceId, refundTransaction, restoredDeviceIds: [...deviceSnapshots.keys()] };
-    transaction.set(idemRef, { status: 'COMPLETED', result, invoiceId, createdAt: now, actorUid: authenticatedStaff?.uid || '' });
+    transaction.set(idemRef, {
+      status: 'COMPLETED',
+      type: 'INVOICE_REFUND',
+      payloadHash,
+      result,
+      invoiceId,
+      branchId,
+      createdAt: now,
+      creatorUid: actorUid
+    });
     return result;
   });
 }

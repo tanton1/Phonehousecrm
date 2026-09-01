@@ -5,6 +5,7 @@ import {
   ensureBranchPartner,
   mergeBranchPartyType,
   newBranchPartyAccountRecord,
+  resolveLegacyDirectionalBalances,
   resolvePartyIdentity
 } from '../server/services/branchPartyService';
 
@@ -43,6 +44,14 @@ function branchPartyDb(seed: Record<string, Record<string, any>>) {
 }
 
 describe('Shared party identity with isolated branch accounts', () => {
+  it('requires directional migration for ambiguous BOTH debt but trusts complete directional projections', () => {
+    expect(() => resolveLegacyDirectionalBalances({ type: 'BOTH', outstandingDebt: 5_000_000 }, 'TEST_PARTNER'))
+      .toThrow('TEST_PARTNER_DIRECTIONAL_DEBT_MIGRATION_REQUIRED');
+    expect(resolveLegacyDirectionalBalances({
+      type: 'BOTH', outstandingDebt: 1,
+      payableOutstandingDebt: 7_000_000, receivableOutstandingDebt: 4_000_000
+    }, 'TEST_PARTNER')).toEqual({ payableBalance: 7_000_000, receivableBalance: 4_000_000 });
+  });
   it('reuses one master identity but creates a different account for every branch', () => {
     const partner = { id: 'SUP_A', type: 'SUPPLIER', name: 'Công ty XYZ', phone: '+84 905 000 001' };
     const branchA = resolvePartyIdentity(partner, 'CN_A');

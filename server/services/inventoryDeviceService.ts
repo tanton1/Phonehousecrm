@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { FieldPath, FieldValue, Firestore } from 'firebase-admin/firestore';
+import { parseVnd } from '../utils/financeIntegrity';
 
 export interface InventoryActor {
   uid: string;
@@ -62,6 +63,16 @@ function assertImportInput(input: ImportInventoryDevicesInput, actor: InventoryA
   if (!input.branchId || !input.locationId) throw new Error('INVENTORY_DESTINATION_REQUIRED');
   if (!canAccessBranch(actor, input.branchId)) throw new Error('INVENTORY_BRANCH_FORBIDDEN');
   if (!input.sourceId || !input.sourceType) throw new Error('INVENTORY_SOURCE_REQUIRED');
+  const actorRole = String(actor.role || '').toUpperCase();
+  if (!['MANUAL_IMPORT', 'DATA_MIGRATION'].includes(String(input.sourceType || ''))) {
+    throw new Error('INVENTORY_IMPORT_SOURCE_FORBIDDEN: Phiếu mua hàng và thu cũ phải đi qua luồng chứng từ chuẩn.');
+  }
+  if (input.sourceType === 'DATA_MIGRATION' && actorRole !== 'ADMIN') {
+    throw new Error('INVENTORY_DATA_MIGRATION_ADMIN_REQUIRED');
+  }
+  if (!['ADMIN', 'INVENTORY_MANAGER'].includes(actorRole)) {
+    throw new Error('INVENTORY_MANUAL_IMPORT_ROLE_FORBIDDEN');
+  }
   if (!input.idempotencyKey || input.idempotencyKey.length < 8 || input.idempotencyKey.length > 160) throw new Error('IDEMPOTENCY_KEY_REQUIRED');
   if (!Array.isArray(input.devices) || input.devices.length === 0 || input.devices.length > 100) throw new Error('INVENTORY_DEVICE_COUNT_INVALID');
   const normalizedImeis = input.devices.map(device => normalizeImei(device.imei));
@@ -69,7 +80,12 @@ function assertImportInput(input: ImportInventoryDevicesInput, actor: InventoryA
   if (new Set(normalizedImeis).size !== normalizedImeis.length) throw new Error('DUPLICATE_IMEI_IN_REQUEST');
   input.devices.forEach(device => {
     if (!device.model?.trim()) throw new Error(`DEVICE_MODEL_REQUIRED: ${device.imei}`);
-    if (!Number.isFinite(Number(device.buyPrice)) || Number(device.buyPrice) < 0) throw new Error(`DEVICE_COST_INVALID: ${device.imei}`);
+    try {
+      parseVnd(device.buyPrice, { allowZero: true, field: 'DEVICE_COST' });
+      parseVnd(device.sellPrice ?? device.buyPrice, { allowZero: true, field: 'DEVICE_SELL_PRICE' });
+    } catch {
+      throw new Error(`DEVICE_COST_INVALID: ${device.imei}`);
+    }
   });
 }
 
@@ -475,6 +491,7 @@ export async function buildInventoryAuditReport(db: Firestore) {
 
   for (const [imei, ids] of imeiGroups) if (ids.length > 1) issues.push({ code: 'DUPLICATE_IMEI', imei, details: { deviceIds: ids } });
   for (const registry of registries.values()) {
+    if (String(registry.status || '').toUpperCase() === 'VOIDED') continue;
     if (!devices.has(registry.deviceId)) issues.push({ code: 'IMEI_REGISTRY_DEVICE_MISSING', deviceId: registry.deviceId, imei: normalizeImei(registry.imei), details: { registryId: registry.id } });
   }
   for (const [transferId, transfer] of transfers) {

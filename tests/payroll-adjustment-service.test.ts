@@ -46,4 +46,14 @@ describe('payroll adjustment ledger', () => {
       staffUid: 'STAFF_01', period: '2026-08', type: 'DEDUCTION', category: 'ADVANCE', amount: 500_000, reason: 'Tạm ứng trong tháng'
     })).rejects.toThrow('PAYROLL_PERIOD_LOCKED');
   });
+
+  it('rejects a backdated adjustment when the staff period is already locked by another home-branch run', async () => {
+    const fixture = createDb({
+      users: { STAFF_01: { authUid: 'STAFF_01', displayName: 'Sale A', branchId: 'CN02', payrollBranchId: 'CN02', assignedBranchIds: ['CN01', 'CN02'], active: true } },
+      payrollStaffLocks: { '2026-08_STAFF_01': { staffUid: 'STAFF_01', period: '2026-08', runId: 'PAYROLL_2026_08_CN01' } }
+    });
+    await expect(createPayrollAdjustment(fixture.db, { uid: 'ACCOUNTANT_01', role: 'ACCOUNTANT', branchId: 'CN02' }, {
+      staffUid: 'STAFF_01', period: '2026-08', type: 'EARNING', category: 'MANUAL', amount: 100_000, reason: 'Điều chỉnh sau chuyển chi nhánh'
+    })).rejects.toThrow('PAYROLL_STAFF_ALREADY_LOCKED');
+  });
 });
