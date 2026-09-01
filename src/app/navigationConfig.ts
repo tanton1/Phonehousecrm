@@ -24,7 +24,8 @@ import {
   Camera,
   Grid3X3,
   FileScan,
-  Megaphone
+  Megaphone,
+  ClipboardList
 } from 'lucide-react';
 import React from 'react';
 import type { Permission } from '../../shared/permissions';
@@ -71,6 +72,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     label: 'Khách Hàng & Giao Tiếp',
     items: [
       { id: 'crm', label: 'Pipeline Lead CRM', icon: Users, shortcut: 'Alt+4', permission: 'CRM_READ' },
+      { id: 'quick-quote-requests', label: 'Báo giá miniweb', icon: ClipboardList, roles: ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'] },
       { id: 'customer-service-requests', label: 'Yêu cầu sửa từ khách', icon: Wrench, roles: ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'CUSTOMER_CARE', 'CSKH'] },
       { id: 'promotion-campaigns', label: 'Ưu đãi PhoneHouse Care', icon: Megaphone, roles: ['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'] },
       { id: 'omnichannel-chat', label: 'Inbox Chat Đa Kênh', icon: MessageSquare },

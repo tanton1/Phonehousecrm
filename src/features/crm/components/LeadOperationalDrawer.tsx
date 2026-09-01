@@ -571,12 +571,14 @@ export const LeadOperationalDrawer: React.FC<LeadOperationalDrawerProps> = ({
                       <div className="font-bold text-zinc-900">{q.model}</div>
                       <div className="flex items-center justify-between text-zinc-600 pt-1 border-t border-zinc-100">
                         <span>Giá chốt: <strong className="text-zinc-900">{Number(q.finalPrice || 0).toLocaleString('vi-VN')} đ</strong></span>
-                        <button
-                          onClick={() => onConvertQuoteToPOS(q, lead)}
-                          className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer shadow-xs"
-                        >
-                          Tạo Đơn POS →
-                        </button>
+                        {(!q.quoteType || q.quoteType === 'DEVICE') && (
+                          <button
+                            onClick={() => onConvertQuoteToPOS(q, lead)}
+                            className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer shadow-xs"
+                          >
+                            Tạo Đơn POS →
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

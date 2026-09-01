@@ -349,7 +349,7 @@ export async function processConvertQuoteToPOS(
   }
 
   const quoteRef = db.collection('leadQuotes').doc(quoteId);
-  const invRef = db.collection('invoices').doc(invoiceId);
+    const invRef = db.collection('invoices').doc(invoiceId);
 
   return await db.runTransaction(async (transaction) => {
     const qSnap = await transaction.get(quoteRef);
@@ -372,16 +372,38 @@ export async function processConvertQuoteToPOS(
     if (!invSnap.exists) {
       throw new Error(`INVOICE_NOT_FOUND: Không tìm thấy hóa đơn POS "${invoiceId}". Vui lòng tạo đơn thanh toán trước.`);
     }
-    const invData = invSnap.data()!;
-    if (invData.status !== 'completed') {
+      const invData = invSnap.data()!;
+      if (invData.status !== 'completed') {
       throw new Error(`INVOICE_NOT_COMPLETED: Hóa đơn "${invoiceId}" chưa hoàn tất thanh toán.`);
-    }
+      }
 
-    transaction.update(quoteRef, {
+      const sourceRequestId = String((qData as any).sourceRequestId || '');
+      const sourceRequestRef = sourceRequestId ? db.collection('customerQuoteRequests').doc(sourceRequestId) : null;
+      const sourceRequestSnap = sourceRequestRef ? await transaction.get(sourceRequestRef) : null;
+
+      transaction.update(quoteRef, {
       status: 'CONVERTED_POS',
       convertedInvoiceId: invoiceId,
       updatedAt: FieldValue.serverTimestamp()
-    });
+      });
+      if (sourceRequestRef && sourceRequestSnap?.exists) {
+        transaction.update(sourceRequestRef, {
+          status: 'CONVERTED',
+          convertedInvoiceId: invoiceId,
+          convertedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        transaction.set(db.collection('customerQuoteAnalytics').doc(`CONVERSION_${sourceRequestId}`), {
+          event: 'CONVERTED_POS',
+          requestId: sourceRequestId,
+          requestCode: String(sourceRequestSnap.data()?.requestCode || ''),
+          quoteId,
+          invoiceId,
+          quoteType: String((qData as any).quoteType || sourceRequestSnap.data()?.quoteType || ''),
+          branchId: String((qData as any).branchId || sourceRequestSnap.data()?.branchId || ''),
+          createdAt: FieldValue.serverTimestamp()
+        }, { merge: false });
+      }
 
     return { alreadyConverted: false, invoiceId };
   });

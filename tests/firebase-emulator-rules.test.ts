@@ -70,6 +70,12 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'customerEvidenceUploadSessions/CEUS-1'), { id: 'CEUS-1', customerAccountUid: 'customer-a', requestId: 'CSR-1' });
     await setDoc(doc(context.firestore(), 'customerEvidenceRecords/CEVD-1'), { id: 'CEVD-1', customerAccountUid: 'customer-a', requestId: 'CSR-1' });
     await setDoc(doc(context.firestore(), 'customerPortalIdempotency/CPI-1'), { id: 'CPI-1', customerAccountUid: 'customer-a', requestId: 'CSR-1' });
+    await setDoc(doc(context.firestore(), 'customerQuoteRequests/CQR-1'), { id: 'CQR-1', branchId: 'CN01', customerPhone: '0905000001' });
+    await setDoc(doc(context.firestore(), 'customerQuoteRequestOperations/CQRO-1'), { requestId: 'CQR-1', payloadHash: 'private' });
+    await setDoc(doc(context.firestore(), 'customerQuoteRequestDedup/CQRD-1'), { requestId: 'CQR-1' });
+    await setDoc(doc(context.firestore(), 'customerQuoteRateLimits/CQRL-1'), { count: 1 });
+    await setDoc(doc(context.firestore(), 'customerPortalConfigs/quickQuote'), { enabled: true });
+    await setDoc(doc(context.firestore(), 'customerQuoteAnalytics/CQRA-1'), { event: 'PAGE_VIEW', sessionFingerprint: 'private' });
   });
 });
 
@@ -123,7 +129,13 @@ afterAll(async () => { await env?.cleanup(); });
       'customerPushSubscriptions/CPS-1',
       'customerEvidenceUploadSessions/CEUS-1',
       'customerEvidenceRecords/CEVD-1',
-      'customerPortalIdempotency/CPI-1'
+      'customerPortalIdempotency/CPI-1',
+      'customerQuoteRequests/CQR-1',
+      'customerQuoteRequestOperations/CQRO-1',
+      'customerQuoteRequestDedup/CQRD-1',
+      'customerQuoteRateLimits/CQRL-1',
+      'customerPortalConfigs/quickQuote',
+      'customerQuoteAnalytics/CQRA-1'
     ];
     for (const path of paths) {
       await assertFails(getDoc(doc(customerA, path)));

@@ -866,6 +866,30 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /customerQuoteRequests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /customerQuoteRequestOperations/{operationId} {
+      allow read, write: if false;
+    }
+
+    match /customerQuoteRequestDedup/{dedupId} {
+      allow read, write: if false;
+    }
+
+    match /customerQuoteRateLimits/{bucketId} {
+      allow read, write: if false;
+    }
+
+    match /customerPortalConfigs/{configId} {
+      allow read, write: if false;
+    }
+
+    match /customerQuoteAnalytics/{eventId} {
+      allow read, write: if false;
+    }
+
     // Default fallback is deny-by-default. Admin SDK server calls bypass rules;
     // no browser role, including ADMIN, may bypass a collection's server-only contract.
     match /{document=**} {

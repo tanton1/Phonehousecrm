@@ -18,6 +18,20 @@ export interface ApiRequestInit extends RequestInit {
   timeoutMs?: number;
 }
 
+export class ApiClientError extends Error {
+  status: number;
+  code: string;
+  data?: unknown;
+
+  constructor(message: string, status: number, code = '', data?: unknown) {
+    super(message);
+    this.name = 'ApiClientError';
+    this.status = status;
+    this.code = code;
+    this.data = data;
+  }
+}
+
 /**
  * Universal, Safe API Request Helper with Content-Type & Status Validation
  */
@@ -26,7 +40,9 @@ export async function apiJson<T>(
   init: ApiRequestInit = {}
 ): Promise<T> {
   const { timeoutMs = 15000, ...requestInit } = init;
-  const authPrincipal = path.startsWith('/api/customer-portal') ? customerAuth.currentUser : auth.currentUser;
+  const isCustomerPortal = path.startsWith('/api/customer-portal');
+  const isStaffPortal = path.startsWith('/api/customer-portal/staff');
+  const authPrincipal = isCustomerPortal && !isStaffPortal ? customerAuth.currentUser : auth.currentUser;
   const [token, appCheckToken] = await Promise.all([
     authPrincipal?.getIdToken(false).catch(() => null),
     getPhoneHouseAppCheckToken()
@@ -82,7 +98,7 @@ export async function apiJson<T>(
       } else {
         errMsg = `HTTP ${response.status}: Yêu cầu thất bại.`;
       }
-      throw new Error(errMsg);
+      throw new ApiClientError(errMsg, response.status, String(parsed?.code || parsed?.error || ''), parsed?.data);
     }
 
     return parsed as T;
@@ -90,6 +106,7 @@ export async function apiJson<T>(
     if (err?.name === 'AbortError') {
       throw new Error(`Yêu cầu tới "${cleanPath}" đã quá thời gian chờ (${Math.round(timeoutMs / 1000)}s). Vui lòng thử lại.`);
     }
+    if (err instanceof ApiClientError) throw err;
     const finalMsg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err) || 'Lỗi kết nối không xác định.');
     throw new Error(finalMsg);
   } finally {
@@ -99,7 +116,9 @@ export async function apiJson<T>(
 
 /** Authenticated binary upload helper for evidence fallback routes. */
 export async function apiBinary<T>(path: string, body: Blob, contentType: string, timeoutMs = 45_000): Promise<T> {
-  const authPrincipal = path.startsWith('/api/customer-portal') ? customerAuth.currentUser : auth.currentUser;
+  const isCustomerPortal = path.startsWith('/api/customer-portal');
+  const isStaffPortal = path.startsWith('/api/customer-portal/staff');
+  const authPrincipal = isCustomerPortal && !isStaffPortal ? customerAuth.currentUser : auth.currentUser;
   const [token, appCheckToken] = await Promise.all([
     authPrincipal?.getIdToken(false).catch(() => null),
     getPhoneHouseAppCheckToken()

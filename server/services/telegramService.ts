@@ -119,7 +119,19 @@ export interface CrmDailyDigestTelegramOutboxRecord extends TelegramOutboxBase {
   items: CrmDailyDigestItem[];
 }
 
-export type TelegramOutboxRecord = AttendanceTelegramOutboxRecord | CrmDailyDigestTelegramOutboxRecord;
+export interface QuickQuoteUnassignedTelegramOutboxRecord extends TelegramOutboxBase {
+  eventType: 'QUICK_QUOTE_UNASSIGNED';
+  requestId: string;
+  requestCode: string;
+  branchId: string;
+  branchName: string;
+  quoteType: 'DEVICE' | 'REPAIR' | 'ACCESSORY';
+  customerName: string;
+  estimatedTotal: number;
+  responseDueAt: string;
+}
+
+export type TelegramOutboxRecord = AttendanceTelegramOutboxRecord | CrmDailyDigestTelegramOutboxRecord | QuickQuoteUnassignedTelegramOutboxRecord;
 
 type TelegramIntent =
   | { kind: 'HELP' }
@@ -492,6 +504,40 @@ export function createCrmDailyDigestTelegramOutboxRecord(input: {
   };
 }
 
+export function quickQuoteUnassignedOutboxId(requestId: string): string {
+  return crypto.createHash('sha256').update(`QUICK_QUOTE_UNASSIGNED:${requestId}`).digest('hex');
+}
+
+export function createQuickQuoteUnassignedTelegramOutboxRecord(input: {
+  requestId: string;
+  requestCode: string;
+  branchId: string;
+  branchName: string;
+  quoteType: 'DEVICE' | 'REPAIR' | 'ACCESSORY';
+  customerName: string;
+  estimatedTotal: number;
+  responseDueAt: string;
+}): QuickQuoteUnassignedTelegramOutboxRecord {
+  return {
+    eventType: 'QUICK_QUOTE_UNASSIGNED',
+    requestId: String(input.requestId || '').slice(0, 160),
+    requestCode: String(input.requestCode || '').slice(0, 40),
+    branchId: String(input.branchId || '').slice(0, 120),
+    branchName: String(input.branchName || input.branchId || 'Chi nhánh').slice(0, 160),
+    quoteType: input.quoteType,
+    customerName: String(input.customerName || 'Khách hàng').slice(0, 160),
+    estimatedTotal: Math.max(0, Math.round(Number(input.estimatedTotal || 0))),
+    responseDueAt: String(input.responseDueAt || '').slice(0, 50),
+    status: 'PENDING',
+    attempts: 0,
+    destination: 'PRIMARY_GROUP',
+    createdAt: FieldValue.serverTimestamp(),
+    createdAtIso: new Date().toISOString(),
+    nextAttemptAt: null,
+    lastErrorCode: null
+  };
+}
+
 export function escapeTelegramHtml(value: unknown): string {
   return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -829,8 +875,26 @@ function formatCrmDailyDigestAlert(record: CrmDailyDigestTelegramOutboxRecord): 
   ].filter(Boolean).join('\n');
 }
 
+function formatQuickQuoteUnassignedAlert(record: QuickQuoteUnassignedTelegramOutboxRecord): string {
+  const dueTimestamp = Date.parse(record.responseDueAt);
+  const dueTime = Number.isFinite(dueTimestamp)
+    ? new Date(dueTimestamp).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+    : 'chưa đặt';
+  return [
+    `<b>🚨 BÁO GIÁ MINIWEB CHƯA CÓ SALE</b>`,
+    `• Mã: <b>${escapeTelegramHtml(record.requestCode)}</b>`,
+    `• Chi nhánh: <b>${escapeTelegramHtml(record.branchName)}</b>`,
+    `• Khách: ${escapeTelegramHtml(record.customerName)}`,
+    `• Loại: ${escapeTelegramHtml(record.quoteType)} · tạm tính <b>${escapeTelegramHtml(formatVnd(record.estimatedTotal))}</b>`,
+    `• Hạn phản hồi: <b>${escapeTelegramHtml(dueTime)}</b>`,
+    '',
+    '<i>Quản lý vui lòng mở CRM → Báo giá miniweb để nhận và phân công yêu cầu.</i>'
+  ].join('\n');
+}
+
 function formatTelegramOutboxAlert(record: TelegramOutboxRecord): string {
   if (record.eventType === 'CRM_DAILY_DIGEST') return formatCrmDailyDigestAlert(record);
+  if (record.eventType === 'QUICK_QUOTE_UNASSIGNED') return formatQuickQuoteUnassignedAlert(record);
   return formatAttendanceAlert(record);
 }
 

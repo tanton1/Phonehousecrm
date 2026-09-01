@@ -9,6 +9,7 @@ import {
   CircleAlert,
   ClipboardCheck,
   Headphones,
+  Globe2,
   Loader2,
   Tags,
   RefreshCw,
@@ -38,8 +39,9 @@ import {
 import { SOPManagementView } from './SOPManagementView';
 import { StoreSettingsView, StoreSettingsViewProps } from './StoreSettingsView';
 import { deviceModelVariantKey } from '../utils/retailPricing';
+import { QuickQuoteRequestsView } from './QuickQuoteRequestsView';
 
-type SetupTab = 'overview' | 'telegram' | 'organization' | 'finance' | 'sop' | 'technicalTasks' | 'sales' | 'retailPricing' | 'customerCare';
+type SetupTab = 'overview' | 'telegram' | 'organization' | 'finance' | 'sop' | 'technicalTasks' | 'sales' | 'retailPricing' | 'customerCare' | 'phoneHouseCare';
 
 interface SystemSettingsHubProps extends Omit<StoreSettingsViewProps, 'initialTab'> {
   initialTab?: SetupTab;
@@ -69,7 +71,8 @@ const tabs: Array<{ id: SetupTab; label: string; icon: React.ElementType }> = [
   { id: 'technicalTasks', label: 'Task kỹ thuật', icon: Wrench },
   { id: 'sales', label: 'Sales', icon: ShoppingBag },
   { id: 'retailPricing', label: 'Giá bán lẻ', icon: Tags },
-  { id: 'customerCare', label: 'CSKH', icon: Headphones }
+  { id: 'customerCare', label: 'CSKH', icon: Headphones },
+  { id: 'phoneHouseCare', label: 'PhoneHouse Care · Miniweb', icon: Globe2 }
 ];
 
 const emptySales = (): SalesSetupConfig => ({
@@ -545,5 +548,6 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
     {activeTab === 'sales' && <OperationalPolicyPanel kind="sales" policies={policyVersions.sales} onSaved={load} />}
     {activeTab === 'retailPricing' && <RetailPricingPanel policies={policyVersions.retailPricing} branches={storeProps.branches} devices={storeProps.devices} products={storeProps.products} onSaved={load} />}
     {activeTab === 'customerCare' && <OperationalPolicyPanel kind="customerCare" policies={policyVersions.customerCare} onSaved={load} />}
+    {activeTab === 'phoneHouseCare' && <QuickQuoteRequestsView currentUser={storeProps.currentUser} branches={storeProps.branches} initialMode="SETTINGS" settingsOnly />}
   </div>;
 };

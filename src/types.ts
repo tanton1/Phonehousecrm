@@ -899,6 +899,16 @@ export interface LeadQuote {
   staffName: string;
   branchId: string;
   model: string;
+  quoteType?: 'DEVICE' | 'REPAIR' | 'ACCESSORY';
+  lines?: Array<{
+    sourceType: 'DEVICE' | 'REPAIR' | 'ACCESSORY';
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+    inspectionRequired?: boolean;
+  }>;
+  sourceRequestId?: string;
   unitPrice: number;
   accessoriesPrice?: number;
   tradeInSubsidy?: number;

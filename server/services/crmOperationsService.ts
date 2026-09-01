@@ -338,6 +338,20 @@ async function loadAssignmentCandidates(db: Firestore, branchId: string, scope: 
     });
 }
 
+/** Read-only assignment context used by server-owned public lead sources. */
+export async function prepareCrmPreSaleAssignment(db: Firestore, branchId: string) {
+  const [candidates, policy] = await Promise.all([
+    loadAssignmentCandidates(db, branchId, 'PRE_SALE'),
+    loadCarePolicy(db)
+  ]);
+  return {
+    candidates,
+    responseSlaMinutes: Math.max(1, Math.min(1_440, Math.round(Number(policy.firstResponseMinutes || 15)))),
+    policyId: String(policy.policyId || policy.id || 'CRM_SAFE_DEFAULT'),
+    policyVersion: String(policy.version || '1')
+  };
+}
+
 async function assertLeadAccess(actor: CrmActor, lead: any, ownership = true) {
   if (!lead?.branchId || !canAccessBranch(actor, lead.branchId)) throw new Error('CRM_LEAD_BRANCH_FORBIDDEN');
   if (!ownership || isManager(actor)) return;

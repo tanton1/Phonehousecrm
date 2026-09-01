@@ -25,8 +25,9 @@ function authError(res: Response, status: number, code: string, message: string)
   return res.status(status).json({ success: false, code, error: code, message });
 }
 
-async function verifyAppCheck(req: Request, res: Response): Promise<boolean> {
-  if (String(process.env.APP_CHECK_ENFORCED || '').toLowerCase() !== 'true') return true;
+async function verifyAppCheck(req: Request, res: Response, productionRequired = false): Promise<boolean> {
+  const globallyEnforced = String(process.env.APP_CHECK_ENFORCED || '').toLowerCase() === 'true';
+  if (!globallyEnforced && !(productionRequired && process.env.NODE_ENV === 'production')) return true;
   const appCheckToken = String(req.headers['x-firebase-appcheck'] || '').trim();
   if (!appCheckToken) {
     authError(res, 401, 'APP_CHECK_REQUIRED', 'Thiết bị chưa vượt qua bước xác minh ứng dụng.');
@@ -39,6 +40,20 @@ async function verifyAppCheck(req: Request, res: Response): Promise<boolean> {
     authError(res, 401, 'APP_CHECK_INVALID', 'Mã xác minh ứng dụng không hợp lệ hoặc đã hết hạn.');
     return false;
   }
+}
+
+/**
+ * Public PhoneHouse Care mutations do not require a customer login, but they
+ * still require an authentic application client whenever App Check is
+ * enforced. Keeping this separate from Phone Auth prevents public lead forms
+ * from accidentally inheriting staff/customer identity rules.
+ */
+export async function requireCustomerAppCheck(req: Request, res: Response, next: NextFunction) {
+  // Public lead mutations are always App Check protected in production even
+  // while the rest of the portal is being rolled out with global enforcement
+  // disabled. Development remains usable without a reCAPTCHA site key.
+  if (!(await verifyAppCheck(req, res, true))) return;
+  return next();
 }
 
 /**

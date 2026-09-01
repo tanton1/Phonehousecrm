@@ -16,10 +16,24 @@ export type CustomerMe = { uid: string; displayName: string; phoneMasked: string
 export type CustomerNotification = { id: string; type: string; title: string; body: string; url: string; read: boolean; createdAt: string };
 export type CustomerChatMessage = { id: string; sender: 'CUSTOMER' | 'BOT' | 'STAFF'; senderName: string; content: string; timestamp: string };
 export type CustomerConversation = { id: string; status: string; branchName?: string; lastMessageSnippet?: string; messages?: CustomerChatMessage[] };
+export type QuickQuoteType = 'DEVICE' | 'REPAIR' | 'ACCESSORY';
+export type QuickQuoteBranch = { id: string; name: string; address: string; phone: string; openingHours: string };
+export type QuickQuoteBootstrap = { settings: { enabled: boolean; validityHours: number; responseSlaMinutes: number; disclaimer: string; fallbackBranchId?: string }; branches: QuickQuoteBranch[]; quoteTypes: QuickQuoteType[]; generatedAt: string };
+export type QuickQuoteDeviceOffer = { selectionToken: string; name: string; model: string; storage: string; color: string; condition: string; region: string; batteryHealth: number; warrantyPeriodMonths: number; imageUrl?: string | null; branchId: string; price: number; inStock: true };
+export type QuickQuoteRepairOffer = { selectionToken: string; name: string; description: string; category: string; compatibleModels: string[]; price: number | null; inspectionRequired: boolean; durationMinutes: number; warrantyPeriodMonths: number; imageUrl?: string | null; publicSortOrder?: number };
+export type QuickQuoteAccessoryOffer = { selectionToken: string; name: string; description: string; category: string; brand: string; compatibleModels: string[]; imageUrl?: string | null; price: number; inStock: true; branchId: string };
+export type QuickQuotePage<T> = { items: T[]; nextCursor: string | null; hasMore: boolean; coverageLimited?: boolean };
+export type QuickQuoteRequestResult = { requestCode: string; quoteType: QuickQuoteType; estimatedTotal: number; expiresAt: string; responseSlaMinutes: number; branchName: string; status: string };
 
 export async function customerPublicBootstrap() { return apiJson<CustomerApiEnvelope<CustomerBootstrap>>('/api/customer-portal/public/bootstrap'); }
 export async function customerPublicPromotions() { return apiJson<CustomerApiEnvelope<CustomerPromotion[]>>('/api/customer-portal/public/promotions'); }
 export async function customerPublicChat(message: string) { return apiJson<CustomerApiEnvelope<{ intent: string; reply: string }>>('/api/customer-portal/public/chat', { method: 'POST', body: JSON.stringify({ message }) }); }
+export async function quickQuoteBootstrap() { return apiJson<CustomerApiEnvelope<QuickQuoteBootstrap>>('/api/customer-portal/public/quick-quote/bootstrap'); }
+export async function quickQuoteDevices(query: Record<string, string> = {}) { return apiJson<CustomerApiEnvelope<QuickQuotePage<QuickQuoteDeviceOffer>>>(`/api/customer-portal/public/quick-quote/devices?${new URLSearchParams(query)}`); }
+export async function quickQuoteRepairServices(query: Record<string, string> = {}) { return apiJson<CustomerApiEnvelope<QuickQuoteRepairOffer[]>>(`/api/customer-portal/public/quick-quote/repair-services?${new URLSearchParams(query)}`); }
+export async function quickQuoteAccessories(query: Record<string, string> = {}) { return apiJson<CustomerApiEnvelope<QuickQuotePage<QuickQuoteAccessoryOffer>>>(`/api/customer-portal/public/quick-quote/accessories?${new URLSearchParams(query)}`); }
+export async function createQuickQuoteRequest(input: Record<string, any>) { return apiJson<CustomerApiEnvelope<QuickQuoteRequestResult>>('/api/customer-portal/public/quick-quote/requests', { method: 'POST', body: JSON.stringify(input), timeoutMs: 20_000 }); }
+export async function trackQuickQuoteEvent(input: Record<string, any>) { return apiJson<CustomerApiEnvelope<{ accepted: true }>>('/api/customer-portal/public/quick-quote/analytics', { method: 'POST', body: JSON.stringify(input) }); }
 export async function linkCustomerAccount(input: { verificationValue?: string; displayName?: string }) { return apiJson<CustomerApiEnvelope<Record<string, any>>>('/api/customer-portal/auth/link-account', { method: 'POST', body: JSON.stringify(input) }); }
 export async function customerMe() { return apiJson<CustomerApiEnvelope<CustomerMe>>('/api/customer-portal/me'); }
 export async function updateCustomerMe(input: Partial<Pick<CustomerMe, 'displayName' | 'notificationConsent' | 'marketingConsent'>>) { return apiJson<CustomerApiEnvelope<CustomerMe>>('/api/customer-portal/me', { method: 'PATCH', body: JSON.stringify(input) }); }

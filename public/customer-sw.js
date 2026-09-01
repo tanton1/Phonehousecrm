@@ -1,5 +1,7 @@
-const CACHE = 'phonehouse-care-shell-v2';
-const SHELL = ['/khach-hang', '/manifest-customer.webmanifest', '/favicon.svg'];
+const CACHE = 'phonehouse-care-shell-v3';
+const SHELL = ['/khach-hang', '/khach-hang/bao-gia', '/manifest-customer.webmanifest', '/favicon.svg'];
+const PUBLIC_API_PREFIX = '/api/customer-portal/public/';
+const PUBLIC_API_MAX_AGE_MS = 30_000;
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
@@ -9,7 +11,9 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
-  if (request.method !== 'GET' || url.pathname.startsWith('/api/')) return;
+  if (request.method !== 'GET') return;
+  const isPublicApi = url.pathname.startsWith(PUBLIC_API_PREFIX);
+  if (url.pathname.startsWith('/api/') && !isPublicApi) return;
   event.respondWith(fetch(request).then(response => {
     const cacheControl = response.headers.get('cache-control') || '';
     const mayCache = response.ok
@@ -19,10 +23,32 @@ self.addEventListener('fetch', event => {
       && !request.headers.has('authorization');
     if (mayCache) {
       const clone = response.clone();
-      caches.open(CACHE).then(cache => cache.put(request, clone));
+      if (isPublicApi) {
+        event.waitUntil(clone.arrayBuffer().then(body => {
+          const headers = new Headers(clone.headers);
+          headers.set('X-PhoneHouse-Cached-At', String(Date.now()));
+          return caches.open(CACHE).then(cache => cache.put(request, new Response(body, {
+            status: clone.status,
+            statusText: clone.statusText,
+            headers
+          })));
+        }));
+      } else {
+        event.waitUntil(caches.open(CACHE).then(cache => cache.put(request, clone)));
+      }
     }
     return response;
-  }).catch(() => caches.match(request).then(cached => cached || caches.match('/khach-hang'))));
+  }).catch(() => caches.match(request).then(cached => {
+    if (isPublicApi) {
+      const cachedAt = Number(cached?.headers.get('X-PhoneHouse-Cached-At') || 0);
+      if (cached && cachedAt > 0 && Date.now() - cachedAt <= PUBLIC_API_MAX_AGE_MS) return cached;
+      return new Response(JSON.stringify({ success: false, code: 'PUBLIC_DATA_OFFLINE', message: 'Không thể tải bảng giá mới khi thiết bị đang ngoại tuyến.' }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+      });
+    }
+    return cached || caches.match('/khach-hang');
+  })));
 });
 self.addEventListener('push', event => {
   let payload = {};

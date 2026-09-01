@@ -33,6 +33,8 @@ interface CRMLeadsViewProps {
   onUpdateLead?: (lead: Lead) => void;
   onConvertLeadToSale: (lead: Lead) => void;
   onNavigateToOmnichannelChat?: () => void;
+  initialLeadId?: string | null;
+  onInitialLeadOpened?: () => void;
 }
 
 type ViewMode = 'MY_WORK' | 'PIPELINE' | 'LIST' | 'DISPATCH' | 'CARE_QA' | 'ANALYTICS';
@@ -50,7 +52,7 @@ const statusTone: Record<string, string> = {
 
 export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
   currentUser, branches = [], users = [], leads: legacyLeads = [], devices = [], invoices: legacyInvoices = [],
-  warrantyTickets: legacyWarrantyTickets = [], onConvertLeadToSale, onNavigateToOmnichannelChat
+  warrantyTickets: legacyWarrantyTickets = [], onConvertLeadToSale, onNavigateToOmnichannelChat, initialLeadId, onInitialLeadOpened
 }) => {
   const isManager = MANAGER_ROLES.has(String(currentUser?.role || '').toUpperCase());
   const allowedBranches = useMemo(() => {
@@ -136,6 +138,24 @@ export const CRMLeadsView: React.FC<CRMLeadsViewProps> = ({
       setDrawerData(data); setDrawerLead(data.lead || lead);
     } catch (caught: any) { setError(caught?.message || 'Không tải đủ hồ sơ khách hàng.'); }
   };
+
+  useEffect(() => {
+    if (!initialLeadId) return;
+    let active = true;
+    setDrawerData(null);
+    void requestCrmCustomer360(initialLeadId)
+      .then(data => {
+        if (!active) return;
+        setDrawerData(data);
+        setDrawerLead(data.lead);
+        if (data.lead?.branchId) setBranchId(data.lead.branchId);
+        onInitialLeadOpened?.();
+      })
+      .catch(caught => {
+        if (active) setError(caught?.message || 'Không mở được Lead từ yêu cầu báo giá.');
+      });
+    return () => { active = false; };
+  }, [initialLeadId, onInitialLeadOpened]);
 
   const openCare = (lead: Lead, taskId?: string) => { setCareTaskId(taskId); setCareLead(lead); };
 

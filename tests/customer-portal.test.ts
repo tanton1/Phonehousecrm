@@ -29,7 +29,13 @@ describe('PhoneHouse Care authority and projection', () => {
       'customerPushSubscriptions',
       'customerEvidenceUploadSessions',
       'customerEvidenceRecords',
-      'customerPortalIdempotency'
+      'customerPortalIdempotency',
+      'customerQuoteRequests',
+      'customerQuoteRequestOperations',
+      'customerQuoteRequestDedup',
+      'customerQuoteRateLimits',
+      'customerPortalConfigs',
+      'customerQuoteAnalytics'
     ];
     for (const collection of serverOnlyCollections) {
       const marker = `match /${collection}/{`;

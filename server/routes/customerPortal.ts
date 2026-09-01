@@ -2,10 +2,10 @@ import crypto from 'node:crypto';
 import { raw, Request, Response, Router } from 'express';
 import { FieldValue, Firestore } from 'firebase-admin/firestore';
 import { adminAuth, adminBucket } from '../firebaseAdmin';
-import { authenticateCustomer, authenticateCustomerIdentity } from '../middleware/authenticateCustomer';
+import { authenticateCustomer, authenticateCustomerIdentity, requireCustomerAppCheck } from '../middleware/authenticateCustomer';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
-import { sensitiveRateLimit } from '../middleware/security';
+import { createRateLimit, sensitiveRateLimit } from '../middleware/security';
 import { processCreateWorkOrder } from '../services/technicalService';
 import {
   answerPublicCustomerQuestion,
@@ -38,6 +38,25 @@ import {
   updateCustomerProfile,
   updatePromotion
 } from '../services/customerPortalService';
+import {
+  confirmStaffQuickQuote,
+  createPublicQuickQuoteRequest,
+  getPublicQuickQuoteBootstrap,
+  getStaffQuickQuoteSettings,
+  listPublicQuickQuoteAccessories,
+  listPublicQuickQuoteDevices,
+  listPublicQuickQuoteRepairServices,
+  listStaffQuickQuoteCatalog,
+  listStaffQuickQuoteRequests,
+  QuickQuoteError,
+  recordPublicQuickQuoteAnalytics,
+  saveStaffQuickQuoteSettings,
+  updateStaffQuickQuoteCatalogItem,
+  updateStaffQuickQuoteRequest
+} from '../services/quickQuoteService';
+
+const quickQuoteIpRateLimit = createRateLimit({ prefix: 'customer-quick-quote', windowMs: 10 * 60_000, maxRequests: 5 });
+const quickQuoteAnalyticsRateLimit = createRateLimit({ prefix: 'customer-quick-quote-analytics', windowMs: 10 * 60_000, maxRequests: 60 });
 
 function errorCode(error: any): string {
   return String(error?.message || error?.code || 'CUSTOMER_PORTAL_ERROR').split(':')[0].trim();
@@ -48,10 +67,11 @@ function sendError(res: Response, error: any) {
   const status = /UNAUTHENTICATED|TOKEN_INVALID/.test(code) ? 401
     : /DENIED|FORBIDDEN|ACCESS_|MISMATCH|BLOCKED/.test(code) ? 403
       : /NOT_FOUND/.test(code) ? 404
-        : /ALREADY|CONFLICT|VERSION_CHANGED|IDEMPOTENCY/.test(code) ? 409
-          : /DATABASE_UNAVAILABLE|ACCOUNT_LOOKUP_FAILED|PUSH_DELIVERY_FAILED|EVIDENCE_UPLOAD_FAILED/.test(code) ? 503
-            : 400;
-  return res.status(status).json({ success: false, code, error: code, message: publicMessage(code), requestId: (res.req as Request).requestId });
+        : /ALREADY|CONFLICT|VERSION_CHANGED|PRICE_CHANGED|OFFER_UNAVAILABLE|IDEMPOTENCY|INSPECTION_REQUIRED/.test(code) ? 409
+          : /RATE_LIMITED/.test(code) ? 429
+            : /DATABASE_UNAVAILABLE|ACCOUNT_LOOKUP_FAILED|PUSH_DELIVERY_FAILED|EVIDENCE_UPLOAD_FAILED/.test(code) ? 503
+              : 400;
+  return res.status(status).json({ success: false, code, error: code, message: publicMessage(code), ...(error instanceof QuickQuoteError && error.details ? { data: error.details } : {}), requestId: (res.req as Request).requestId });
 }
 
 function publicMessage(code: string) {
@@ -65,7 +85,18 @@ function publicMessage(code: string) {
     CUSTOMER_REQUEST_REQUIRED_FIELDS: 'Vui lòng nhập đầy đủ thiết bị, IMEI, chi nhánh và mô tả lỗi.',
     CUSTOMER_CHAT_ACCESS_DENIED: 'Bạn không có quyền truy cập cuộc trò chuyện này.',
     CUSTOMER_REPAIR_ACCESS_DENIED: 'Bạn không có quyền xem phiếu sửa chữa này.',
-    PROMOTION_REQUIRED_FIELDS_INVALID: 'Thông tin chiến dịch hoặc thời gian hiệu lực chưa hợp lệ.'
+    PROMOTION_REQUIRED_FIELDS_INVALID: 'Thông tin chiến dịch hoặc thời gian hiệu lực chưa hợp lệ.',
+    QUICK_QUOTE_CONFIGURATION_REQUIRED: 'Miniweb báo giá chưa được cấu hình khóa bảo mật trên máy chủ.',
+    QUICK_QUOTE_DISABLED: 'Miniweb báo giá đang tạm ngưng.',
+    QUICK_QUOTE_PRICE_CHANGED: 'Giá vừa được cập nhật. Vui lòng kiểm tra lại trước khi gửi.',
+    QUICK_QUOTE_OFFER_UNAVAILABLE: 'Sản phẩm hoặc dịch vụ đã hết khả dụng. Vui lòng chọn phương án khác.',
+    QUICK_QUOTE_SELECTION_INVALID_OR_EXPIRED: 'Lựa chọn đã hết hạn. Vui lòng tải lại danh sách giá.',
+    QUICK_QUOTE_CONTACT_CONSENT_REQUIRED: 'Vui lòng chọn kênh liên hệ và đồng ý để PhoneHouse phản hồi yêu cầu.',
+    QUICK_QUOTE_PHONE_RATE_LIMITED: 'Số điện thoại này đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau một giờ.',
+    QUICK_QUOTE_IDEMPOTENCY_CONFLICT: 'Mã gửi yêu cầu đã được dùng cho nội dung khác.',
+    QUICK_QUOTE_INSPECTION_REQUIRED: 'Yêu cầu có hạng mục cần kiểm tra máy. Hãy liên hệ khách và nhập giá thực tế trước khi tạo báo giá chính thức.',
+    QUICK_QUOTE_REPAIR_MODEL_REQUIRED: 'Vui lòng chọn model iPhone cần sửa.',
+    QUICK_QUOTE_REPAIR_MODEL_INCOMPATIBLE: 'Dịch vụ đã chọn không tương thích với model iPhone này.'
   };
   return messages[code] || 'Không thể xử lý yêu cầu. Vui lòng kiểm tra thông tin và thử lại.';
 }
@@ -118,7 +149,7 @@ export function createCustomerPortalRouter(db: Firestore | null): Router {
 
   const staffRouter = Router();
   staffRouter.use(authenticateFirebase);
-  staffRouter.use(requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'CUSTOMER_CARE', 'CSKH'));
+  staffRouter.use(requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'SALES', 'SALE', 'SALE_ONLINE', 'CUSTOMER_CARE', 'CSKH'));
 
   staffRouter.get('/service-requests', async (req, res) => {
     if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
@@ -154,6 +185,48 @@ export function createCustomerPortalRouter(db: Firestore | null): Router {
   staffRouter.get('/promotions', async (req, res) => {
     if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
     try { return res.json({ success: true, data: await listStaffPromotions(db, staffActor(req)) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.get('/quick-quote/requests', async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.json({ success: true, data: await listStaffQuickQuoteRequests(db, staffActor(req), req.query) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.patch('/quick-quote/requests/:id', async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.json({ success: true, data: await updateStaffQuickQuoteRequest(db, staffActor(req), req.params.id, req.body || {}) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.post('/quick-quote/requests/:id/confirm', async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.status(201).json({ success: true, data: await confirmStaffQuickQuote(db, staffActor(req), req.params.id, req.body || {}) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.get('/quick-quote/settings', requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.json({ success: true, data: await getStaffQuickQuoteSettings(db, staffActor(req)) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.put('/quick-quote/settings', requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.json({ success: true, data: await saveStaffQuickQuoteSettings(db, staffActor(req), req.body || {}) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.get('/quick-quote/catalog', requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.json({ success: true, data: await listStaffQuickQuoteCatalog(db, staffActor(req), req.query) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.patch('/quick-quote/catalog/:kind/:id', requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.json({ success: true, data: await updateStaffQuickQuoteCatalogItem(db, staffActor(req), req.params.kind, req.params.id, req.body || {}) }); }
     catch (error) { return sendError(res, error); }
   });
 
@@ -212,6 +285,54 @@ export function createCustomerPortalRouter(db: Firestore | null): Router {
       const bootstrap = await publicBootstrap(db);
       res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=600');
       return res.json({ success: true, data: bootstrap.branches });
+    } catch (error) { return sendError(res, error); }
+  });
+
+  router.get('/public/quick-quote/bootstrap', async (_req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try {
+      res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      return res.json({ success: true, data: await getPublicQuickQuoteBootstrap(db) });
+    } catch (error) { return sendError(res, error); }
+  });
+
+  router.get('/public/quick-quote/devices', async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try {
+      res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
+      return res.json({ success: true, data: await listPublicQuickQuoteDevices(db, req.query) });
+    } catch (error) { return sendError(res, error); }
+  });
+
+  router.get('/public/quick-quote/repair-services', async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try {
+      res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+      return res.json({ success: true, data: await listPublicQuickQuoteRepairServices(db, req.query) });
+    } catch (error) { return sendError(res, error); }
+  });
+
+  router.get('/public/quick-quote/accessories', async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try {
+      res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
+      return res.json({ success: true, data: await listPublicQuickQuoteAccessories(db, req.query) });
+    } catch (error) { return sendError(res, error); }
+  });
+
+  router.post('/public/quick-quote/requests', quickQuoteIpRateLimit, requireCustomerAppCheck, async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try {
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return res.status(201).json({ success: true, data: await createPublicQuickQuoteRequest(db, req.body || {}) });
+    } catch (error) { return sendError(res, error); }
+  });
+
+  router.post('/public/quick-quote/analytics', quickQuoteAnalyticsRateLimit, requireCustomerAppCheck, async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try {
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return res.status(202).json({ success: true, data: await recordPublicQuickQuoteAnalytics(db, req.body || {}) });
     } catch (error) { return sendError(res, error); }
   });
 

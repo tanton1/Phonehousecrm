@@ -124,6 +124,7 @@ const SalesWorkspaceView = React.lazy(() => import('./components/SalesWorkspaceV
 const CRMLeadsView = React.lazy(() => import('./components/CRMLeadsView').then(module => ({ default: module.CRMLeadsView })));
 const CustomerServiceRequestsView = React.lazy(() => import('./components/CustomerServiceRequestsView').then(module => ({ default: module.CustomerServiceRequestsView })));
 const PromotionCampaignManagerView = React.lazy(() => import('./components/PromotionCampaignManagerView').then(module => ({ default: module.PromotionCampaignManagerView })));
+const QuickQuoteRequestsView = React.lazy(() => import('./components/QuickQuoteRequestsView').then(module => ({ default: module.QuickQuoteRequestsView })));
 
 function PageLoadingFallback() {
   return (
@@ -171,6 +172,8 @@ clearLegacyBusinessCacheOnce();
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [crmInitialLeadId, setCrmInitialLeadId] = useState<string | null>(null);
+  const clearCrmInitialLeadId = useCallback(() => setCrmInitialLeadId(null), []);
   const [isRepairIntakeOpen, setIsRepairIntakeOpen] = useState(false);
   const [retailRepairRefreshKey, setRetailRepairRefreshKey] = useState(0);
   const [linkedInvoiceId, setLinkedInvoiceId] = useState<string | null>(null);
@@ -1771,6 +1774,8 @@ export default function App() {
               setActiveTab('pos');
             }}
             onNavigateToOmnichannelChat={() => setActiveTab('omnichannel-chat')}
+            initialLeadId={crmInitialLeadId}
+            onInitialLeadOpened={clearCrmInitialLeadId}
           />
           </React.Suspense>
         )}
@@ -1980,6 +1985,10 @@ export default function App() {
 
         {activeTab === 'customer-service-requests' && (
           <CustomerServiceRequestsView currentUser={currentUser} warehouses={warehouses} staffMembers={staffMembers} />
+        )}
+
+        {activeTab === 'quick-quote-requests' && (
+          <QuickQuoteRequestsView currentUser={currentUser} branches={branches} onOpenLead={(leadId) => { setCrmInitialLeadId(leadId || null); setActiveTab('crm'); }} />
         )}
 
         {activeTab === 'promotion-campaigns' && (
