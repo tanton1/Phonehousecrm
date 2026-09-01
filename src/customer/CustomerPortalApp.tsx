@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, Bot, CalendarDays, Check, ChevronRight, Clock3, Headphones, Loader2, LogIn, MapPin, MessageCircle, Package, Phone, RefreshCw, Send, ShieldCheck, Smartphone, Sparkles, UserRound, Wrench, X } from 'lucide-react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { customerAuth, prepareCustomerPhoneRecaptcha, requestCustomerPhoneOtp, requestCustomerPushToken, resetCustomerPhoneRecaptcha } from '../lib/firebase';
+import { customerAuth, requestCustomerPhoneOtp, requestCustomerPushToken, resetCustomerPhoneRecaptcha } from '../lib/firebase';
 import {
   createCustomerConversation, createCustomerServiceRequest, createQuoteApprovalChallenge, customerConversationMessages, customerDevice, customerDevices, customerMe, customerNotifications, customerPublicBootstrap, customerPublicChat, customerPromotions, customerRepairs, customerRepair, decideCustomerQuote, handoffCustomerConversation, linkCustomerAccount, readCustomerNotification, saveCustomerPushSubscription, sendCustomerConversationMessage, updateCustomerMe, uploadCustomerEvidence,
   type CustomerBootstrap, type CustomerChatMessage, type CustomerDevice, type CustomerMe, type CustomerNotification, type CustomerPromotion, type CustomerRepair, type CustomerRequest
@@ -52,11 +52,6 @@ function CustomerLogin({ onDone, onGuest }: { onDone: () => void; onGuest: () =>
   const [needsLink, setNeedsLink] = useState(false);
   const [verificationValue, setVerificationValue] = useState('');
   const [displayName, setDisplayName] = useState('');
-
-  useEffect(() => {
-    void prepareCustomerPhoneRecaptcha('customer-phone-otp-button').catch(() => undefined);
-    return resetCustomerPhoneRecaptcha;
-  }, []);
 
   const sendCode = async () => {
     setLoading(true); setError('');
@@ -150,10 +145,6 @@ function QuoteModal({ repair, onClose, onDone }: { repair: CustomerRepair; onClo
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => {
-    void prepareCustomerPhoneRecaptcha('customer-quote-otp-button').catch(() => undefined);
-    return resetCustomerPhoneRecaptcha;
-  }, []);
   const accept = async () => {
     setLoading(true); setError('');
     try {
