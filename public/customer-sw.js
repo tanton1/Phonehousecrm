@@ -1,4 +1,4 @@
-const CACHE = 'phonehouse-care-shell-v3';
+const CACHE = 'phonehouse-care-shell-v4';
 const SHELL = ['/khach-hang', '/khach-hang/bao-gia', '/manifest-customer.webmanifest', '/favicon.svg'];
 const PUBLIC_API_PREFIX = '/api/customer-portal/public/';
 const PUBLIC_API_MAX_AGE_MS = 30_000;

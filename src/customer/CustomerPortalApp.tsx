@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, Bot, CalendarDays, Check, ChevronRight, Clock3, Headphones, Loader2, LogIn, MapPin, MessageCircle, Package, Phone, RefreshCw, Send, ShieldCheck, Smartphone, Sparkles, UserRound, Wrench, X } from 'lucide-react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { customerAuth, prepareCustomerPhoneRecaptcha, requestCustomerPhoneOtp, requestCustomerPushToken, resetCustomerPhoneRecaptcha } from '../lib/firebase';
+import { customerAuth, requestCustomerPhoneOtp, requestCustomerPushToken, resetCustomerPhoneRecaptcha } from '../lib/firebase';
+import { CUSTOMER_REPAIR_ISSUES, customerRepairIssueByCode } from '../../shared/customerRepairIssues';
 import {
   createCustomerConversation, createCustomerServiceRequest, createQuoteApprovalChallenge, customerConversationMessages, customerDevice, customerDevices, customerMe, customerNotifications, customerPublicBootstrap, customerPublicChat, customerPromotions, customerRepairs, customerRepair, decideCustomerQuote, handoffCustomerConversation, linkCustomerAccount, readCustomerNotification, saveCustomerPushSubscription, sendCustomerConversationMessage, updateCustomerMe, uploadCustomerEvidence,
   type CustomerBootstrap, type CustomerChatMessage, type CustomerDevice, type CustomerMe, type CustomerNotification, type CustomerPromotion, type CustomerRepair, type CustomerRequest
@@ -43,7 +44,132 @@ function EmptyState({ icon: Icon, title, text, action }: { icon: React.ElementTy
   return <div className="rounded-3xl border border-dashed border-zinc-200 bg-white px-5 py-10 text-center"><Icon className="mx-auto h-9 w-9 text-zinc-300" /><p className="mt-3 font-black text-zinc-800">{title}</p><p className="mx-auto mt-1 max-w-sm text-sm text-zinc-500">{text}</p>{action && <div className="mt-4">{action}</div>}</div>;
 }
 
+function CustomerLoginView({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [confirmation, setConfirmation] = useState<Awaited<ReturnType<typeof requestCustomerPhoneOtp>> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [needsLink, setNeedsLink] = useState(false);
+  const [verificationValue, setVerificationValue] = useState('');
+  const [displayName, setDisplayName] = useState('');
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    resetCustomerPhoneRecaptcha();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      resetCustomerPhoneRecaptcha();
+    };
+  }, []);
+
+  const sendCode = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await requestCustomerPhoneOtp(phone, 'customer-phone-recaptcha');
+      setConfirmation(result);
+    } catch (cause: any) {
+      setError(cause?.message || 'Không gửi được OTP.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verify = async () => {
+    if (!confirmation || code.length !== 6) return;
+    setLoading(true);
+    setError('');
+    try {
+      await confirmation.confirm(code);
+      try {
+        await linkCustomerAccount({ displayName });
+        onDone();
+      } catch (cause: any) {
+        if (String(cause?.message || '').includes('CUSTOMER_IDENTITY_ADDITIONAL_VERIFICATION_REQUIRED')) setNeedsLink(true);
+        else throw cause;
+      }
+    } catch (cause: any) {
+      setError(cause?.message || 'Mã OTP chưa đúng hoặc đã hết hạn.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeLink = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      await linkCustomerAccount({ verificationValue, displayName });
+      onDone();
+    } catch (cause: any) {
+      setError(cause?.message || 'Không thể liên kết dữ liệu.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Đăng nhập PhoneHouse Care" className="fixed inset-0 z-[100] overflow-y-auto bg-[#fffaf7] sm:bg-black/50 sm:p-6">
+      <div className="mx-auto min-h-full w-full max-w-lg bg-[#fffaf7] sm:min-h-0 sm:rounded-[2rem] sm:shadow-2xl">
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-orange-100 bg-[#fffaf7]/95 px-4 py-3 backdrop-blur sm:rounded-t-[2rem]">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#ff4b16] text-white"><Smartphone className="h-5 w-5" /></div>
+            <div><p className="text-sm font-black">PhoneHouse Care</p><p className="text-[11px] font-semibold text-zinc-500">Đăng nhập an toàn bằng OTP</p></div>
+          </div>
+          <button type="button" aria-label="Đóng đăng nhập" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-2xl text-zinc-600 hover:bg-zinc-100"><X className="h-5 w-5" /></button>
+        </header>
+
+        <div className="px-4 pb-8 pt-5 sm:px-7 sm:pb-7">
+          <div className="mb-5">
+            <p className="text-xs font-black uppercase tracking-[.18em] text-[#ff4b16]">Tài khoản khách hàng</p>
+            <h1 className="mt-2 text-2xl font-black tracking-tight text-zinc-950">{needsLink ? 'Xác minh đúng hồ sơ' : confirmation ? 'Nhập mã OTP' : 'Đăng nhập để xem thiết bị'}</h1>
+            <p className="mt-2 text-sm leading-6 text-zinc-500">Tra cứu đúng bảo hành, phiếu sửa và tiến độ gắn với số điện thoại đã mua hàng.</p>
+          </div>
+
+          <div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-lg shadow-orange-100/40">
+            {needsLink ? (
+              <>
+                <p className="text-sm leading-6 text-zinc-600">Có nhiều hồ sơ dùng số này. Nhập mã hóa đơn hoặc IMEI đã mua để PhoneHouse liên kết đúng dữ liệu.</p>
+                <label className="mt-4 block text-sm font-bold text-zinc-700">Mã hóa đơn hoặc IMEI
+                  <input autoFocus value={verificationValue} onChange={event => setVerificationValue(event.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 font-mono outline-none focus:border-orange-500" placeholder="VD: HD-260901 hoặc 35…" />
+                </label>
+                <AppButton primary className="mt-4 w-full" onClick={() => void completeLink()} disabled={loading || !verificationValue.trim()}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Liên kết hồ sơ'}</AppButton>
+              </>
+            ) : confirmation ? (
+              <>
+                <p className="text-sm leading-6 text-zinc-600">Mã xác nhận đã được gửi. Nhập 6 số trong tin nhắn để tiếp tục.</p>
+                <input autoFocus autoComplete="one-time-code" inputMode="numeric" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-4 h-14 w-full rounded-2xl border border-zinc-200 text-center text-2xl font-black tracking-[.35em] outline-none focus:border-orange-500" placeholder="••••••" />
+                <AppButton primary className="mt-4 w-full" onClick={() => void verify()} disabled={loading || code.length !== 6}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Xác nhận OTP'}</AppButton>
+                <button type="button" className="mt-3 min-h-11 w-full text-xs font-bold text-zinc-500 underline" onClick={() => { setConfirmation(null); setCode(''); setError(''); resetCustomerPhoneRecaptcha(); }}>Đổi số điện thoại</button>
+              </>
+            ) : (
+              <>
+                <label className="block text-sm font-bold text-zinc-700">Số điện thoại
+                  <input autoFocus autoComplete="tel" inputMode="tel" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 text-base outline-none focus:border-orange-500" placeholder="09xx xxx xxx" />
+                </label>
+                <label className="mt-3 block text-sm font-bold text-zinc-700">Tên hiển thị <span className="font-medium text-zinc-400">(không bắt buộc)</span>
+                  <input autoComplete="name" value={displayName} onChange={event => setDisplayName(event.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 text-base outline-none focus:border-orange-500" placeholder="Nguyễn Văn A" />
+                </label>
+                <div id="customer-phone-recaptcha" />
+                <AppButton primary className="mt-5 w-full" onClick={() => void sendCode()} disabled={loading || !phone.trim()}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Gửi mã OTP'}</AppButton>
+                <p className="mt-3 text-center text-[10px] leading-4 text-zinc-400">Firebase sẽ mở bước xác minh chống spam khi cần. reCAPTCHA áp dụng Chính sách quyền riêng tư và Điều khoản của Google.</p>
+              </>
+            )}
+            {error && <p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{error}</p>}
+          </div>
+          <button type="button" onClick={onClose} className="mt-4 min-h-11 w-full text-center text-sm font-bold text-zinc-600 underline underline-offset-4">Tiếp tục xem ưu đãi và cửa hàng</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CustomerLogin({ onDone, onGuest }: { onDone: () => void; onGuest: () => void }) {
+  return <CustomerLoginView onDone={onDone} onClose={onGuest} />;
+  /* Legacy implementation kept temporarily inside this comment so this patch
+     remains easy to audit against the previous production UI.
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [confirmation, setConfirmation] = useState<Awaited<ReturnType<typeof requestCustomerPhoneOtp>> | null>(null);
@@ -83,6 +209,7 @@ function CustomerLogin({ onDone, onGuest }: { onDone: () => void; onGuest: () =>
     finally { setLoading(false); }
   };
   return <div className="min-h-screen bg-[#fffaf7] px-4 py-6 sm:px-6"><div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-md flex-col justify-center"><div className="mb-6 text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-[#ff4b16] to-[#ff784b] text-white shadow-xl shadow-orange-200"><Smartphone className="h-8 w-8" /></div><p className="mt-4 text-xs font-black uppercase tracking-[.22em] text-[#ff4b16]">PhoneHouse Care</p><h1 className="mt-2 text-3xl font-black tracking-tight text-zinc-950">Chăm sóc thiết bị của bạn</h1><p className="mt-2 text-sm leading-6 text-zinc-500">Tra cứu bảo hành, theo dõi sửa chữa và nhận ưu đãi trong một nơi.</p></div><div className="rounded-3xl border border-orange-100 bg-white p-5 shadow-xl shadow-orange-100/50"><h2 className="font-black text-zinc-900">{needsLink ? 'Xác minh thêm một lần' : confirmation ? 'Nhập mã OTP' : 'Đăng nhập bằng số điện thoại'}</h2>{needsLink ? <><p className="mt-2 text-sm leading-6 text-zinc-500">Có nhiều hồ sơ dùng số này. Nhập mã hóa đơn hoặc IMEI đã mua để liên kết đúng dữ liệu.</p><label className="mt-4 block text-sm font-bold text-zinc-700">Mã hóa đơn hoặc IMEI<input value={verificationValue} onChange={e => setVerificationValue(e.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 font-mono outline-none focus:border-orange-500" placeholder="VD: INV-20260901 hoặc 35..." /></label><AppButton primary className="mt-4 w-full" onClick={() => void completeLink()} disabled={loading || !verificationValue.trim()}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Liên kết hồ sơ'}</AppButton></> : confirmation ? <><p className="mt-2 text-sm text-zinc-500">Mã xác nhận đã gửi tới số điện thoại của bạn.</p><input autoFocus inputMode="numeric" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-4 h-14 w-full rounded-2xl border border-zinc-200 text-center text-2xl font-black tracking-[.4em] outline-none focus:border-orange-500" placeholder="••••••" /><AppButton primary className="mt-4 w-full" onClick={() => void verify()} disabled={loading || code.length < 6}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Xác nhận OTP'}</AppButton><button className="mt-3 w-full text-xs font-bold text-zinc-500 underline" onClick={() => { setConfirmation(null); resetCustomerPhoneRecaptcha(); }}>Đổi số điện thoại</button></> : <><label className="mt-4 block text-sm font-bold text-zinc-700">Số điện thoại<input inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 text-base outline-none focus:border-orange-500" placeholder="09xx xxx xxx" /></label><label className="mt-3 block text-sm font-bold text-zinc-700">Tên hiển thị (không bắt buộc)<input value={displayName} onChange={e => setDisplayName(e.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 text-base outline-none focus:border-orange-500" placeholder="Nguyễn Văn A" /></label><p className="mt-4 text-xs font-bold text-zinc-500">Xác nhận chống spam trước khi nhận mã:</p><div id="customer-phone-recaptcha" className="mt-2 min-h-[78px] overflow-hidden rounded-xl" /><AppButton primary className="mt-3 w-full" onClick={() => void sendCode()} disabled={loading || !phone.trim()}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Gửi mã OTP'}</AppButton></>}{error && <p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{error}</p>}</div><button onClick={onGuest} className="mt-5 text-center text-sm font-bold text-zinc-600 underline underline-offset-4">Tiếp tục xem ưu đãi và cửa hàng</button></div></div>;
+  */
 }
 
 function BottomNav({ active, onChange }: { active: PortalTab; onChange: (tab: PortalTab) => void }) {
@@ -150,10 +277,7 @@ function QuoteModal({ repair, onClose, onDone }: { repair: CustomerRepair; onClo
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => {
-    void prepareCustomerPhoneRecaptcha('customer-quote-recaptcha').catch(error => setError(error?.message || 'Không tải được bước xác minh chống spam.'));
-    return resetCustomerPhoneRecaptcha;
-  }, []);
+  useEffect(() => resetCustomerPhoneRecaptcha, []);
   const accept = async () => {
     setLoading(true); setError('');
     try {
@@ -180,7 +304,205 @@ function QuoteModal({ repair, onClose, onDone }: { repair: CustomerRepair; onClo
   return <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-5"><div className="w-full max-w-lg rounded-t-3xl bg-[#fffaf7] p-5 sm:rounded-3xl"><div className="flex items-center justify-between"><h2 className="text-lg font-black">Xác nhận báo giá</h2><button onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-2xl"><X className="h-5 w-5" /></button></div><div className="mt-4 rounded-3xl bg-white p-4"><p className="text-sm text-zinc-500">{repair.model} · phiên bản {repair.quote.version}</p><p className="mt-2 text-3xl font-black text-zinc-950">{money.format(repair.quote.amount)}</p><p className="mt-2 text-xs leading-5 text-zinc-500">Giá do PhoneHouse phê duyệt. Khi đồng ý, bạn xác nhận bằng OTP mới gửi tới số điện thoại này.</p></div>{step === 'view' ? <div className="mt-4 grid gap-2"><p className="text-xs font-bold text-zinc-500">Xác nhận chống spam trước khi nhận mã:</p><div id="customer-quote-recaptcha" className="min-h-[78px] overflow-hidden rounded-xl" /><AppButton primary className="w-full" onClick={() => void accept()} disabled={loading}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Đồng ý báo giá & nhận OTP'}</AppButton><AppButton className="w-full" onClick={() => void decision('CONSULT')} disabled={loading}>Tôi muốn được tư vấn lại</AppButton><button onClick={() => void decision('REJECT')} disabled={loading} className="py-3 text-xs font-bold text-zinc-500 underline">Từ chối sửa chữa</button></div> : <div className="mt-4"><p className="text-sm font-bold text-zinc-700">Nhập mã OTP mới</p><p className="mt-1 text-xs text-zinc-500">Phiên xác nhận hết hạn lúc {dateTime(challenge?.expiresAt)}</p><input autoFocus inputMode="numeric" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} className="mt-3 h-14 w-full rounded-2xl border border-zinc-200 text-center text-2xl font-black tracking-[.4em] outline-none focus:border-orange-500" placeholder="••••••" /><AppButton primary className="mt-3 w-full" onClick={() => void confirm()} disabled={loading || code.length < 6}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : <><Check className="mr-2 inline h-4 w-4" />Xác nhận đồng ý</>}</AppButton></div>}{error && <p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{error}</p>}</div></div>;
 }
 
+function CustomerRepairIntakeView({ bootstrap, devices, onClose, onDone }: { bootstrap: CustomerBootstrap; devices: CustomerDevice[]; onClose: () => void; onDone: () => Promise<void> }) {
+  const initialDevice = devices[0] || null;
+  const initialBranchId = bootstrap.branches.some(branch => branch.id === initialDevice?.branchId)
+    ? initialDevice!.branchId
+    : (bootstrap.branches[0]?.id || '');
+  const [step, setStep] = useState(1);
+  const [manualDevice, setManualDevice] = useState(devices.length === 0);
+  const [deviceId, setDeviceId] = useState(initialDevice?.id || '');
+  const [imei, setImei] = useState('');
+  const [model, setModel] = useState('');
+  const [requestType, setRequestType] = useState<'REPAIR' | 'WARRANTY'>('REPAIR');
+  const [issueCode, setIssueCode] = useState('');
+  const [description, setDescription] = useState('');
+  const [branchId, setBranchId] = useState(initialBranchId);
+  const [preferredVisitAt, setPreferredVisitAt] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [operationKey] = useState(() => `csr-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const selectedDevice = devices.find(device => device.id === deviceId) || null;
+  const selectedIssue = customerRepairIssueByCode(issueCode);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, []);
+
+  const chooseLinkedDevice = (device: CustomerDevice) => {
+    setManualDevice(false);
+    setDeviceId(device.id);
+    setImei('');
+    setModel('');
+    if (bootstrap.branches.some(branch => branch.id === device.branchId)) setBranchId(device.branchId);
+  };
+
+  const chooseManualDevice = () => {
+    setManualDevice(true);
+    setDeviceId('');
+  };
+
+  const stepValid = step === 1
+    ? (manualDevice ? /^\d{15}$/.test(imei) && model.trim().length >= 2 : Boolean(selectedDevice))
+    : step === 2
+      ? Boolean(selectedIssue) && description.trim().length >= 5
+      : step === 3
+        ? true
+        : Boolean(branchId);
+
+  const submit = async () => {
+    if (!stepValid || !selectedIssue) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await createCustomerServiceRequest({
+        idempotencyKey: operationKey,
+        requestType,
+        deviceId: manualDevice ? undefined : selectedDevice?.id,
+        imei: manualDevice ? imei : undefined,
+        model: manualDevice ? model.trim() : undefined,
+        issueType: selectedIssue.code,
+        issueCode: selectedIssue.code,
+        issueLabel: selectedIssue.label,
+        description: description.trim(),
+        branchId,
+        preferredVisitAt: preferredVisitAt || undefined
+      });
+      for (const file of files.slice(0, 6)) await uploadCustomerEvidence(result.data.id, file);
+      await onDone();
+      onClose();
+    } catch (cause: any) {
+      setError(cause?.message || 'Không thể gửi yêu cầu.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Phiếu tiếp nhận sửa chữa" className="fixed inset-0 z-[80] overflow-y-auto bg-[#fffaf7] sm:bg-black/50 sm:p-6">
+      <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col bg-[#fffaf7] sm:min-h-0 sm:max-h-[calc(100vh-3rem)] sm:rounded-[2rem] sm:shadow-2xl">
+        <header className="sticky top-0 z-20 border-b border-zinc-200 bg-[#fffaf7]/95 px-4 py-3 backdrop-blur sm:rounded-t-[2rem]">
+          <div className="flex items-center justify-between gap-3">
+            <div><p className="text-base font-black">Phiếu tiếp nhận online</p><p className="mt-0.5 text-xs text-zinc-500">Bước {step}/4 · {step === 1 ? 'Thiết bị' : step === 2 ? 'Tình trạng máy' : step === 3 ? 'Ảnh bằng chứng' : 'Lịch hẹn & xác nhận'}</p></div>
+            <button type="button" aria-label="Đóng phiếu tiếp nhận" onClick={onClose} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl hover:bg-zinc-100"><X className="h-5 w-5" /></button>
+          </div>
+          <div className="mt-3 grid grid-cols-4 gap-1.5" aria-label={`Tiến độ ${step} trên 4 bước`}>
+            {[1, 2, 3, 4].map(value => <span key={value} className={classNames('h-1.5 rounded-full', value <= step ? 'bg-[#ff4b16]' : 'bg-zinc-200')} />)}
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+          {step === 1 && (
+            <section>
+              <h2 className="text-xl font-black">Máy cần hỗ trợ</h2>
+              <p className="mt-1 text-sm leading-6 text-zinc-500">Máy đã liên kết được lấy trực tiếp từ hồ sơ PhoneHouse, bạn không phải nhập lại model hoặc IMEI.</p>
+              {devices.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {devices.map(device => (
+                    <button type="button" key={device.id} onClick={() => chooseLinkedDevice(device)} className={classNames('flex min-h-[68px] w-full items-center justify-between gap-3 rounded-2xl border p-3 text-left transition', !manualDevice && deviceId === device.id ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-100' : 'border-zinc-200 bg-white hover:border-orange-200')}>
+                      <span className="min-w-0"><b className="block truncate text-sm text-zinc-900">{device.model || 'Thiết bị PhoneHouse'}</b><small className="mt-1 block font-mono text-xs text-zinc-500">{device.imeiMasked} · {device.branchName || 'PhoneHouse'}</small></span>
+                      {!manualDevice && deviceId === device.id && <Check className="h-5 w-5 shrink-0 text-orange-600" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={chooseManualDevice} className={classNames('mt-3 flex min-h-12 w-full items-center justify-between rounded-2xl border px-4 text-left text-sm font-black', manualDevice ? 'border-orange-500 bg-orange-50 text-orange-800' : 'border-zinc-200 bg-white text-zinc-700')}>
+                <span>Máy khác chưa liên kết</span>{manualDevice && <Check className="h-5 w-5" />}
+              </button>
+              {manualDevice && (
+                <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                  <p className="text-xs leading-5 text-zinc-500">Nhập thông tin trên máy. Nhân viên sẽ xác minh IMEI khi tiếp nhận thực tế.</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-bold">IMEI 15 số
+                      <input autoFocus inputMode="numeric" value={imei} onChange={event => setImei(event.target.value.replace(/\D/g, '').slice(0, 15))} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 font-mono outline-none focus:border-orange-500" placeholder="Nhập đủ 15 chữ số" />
+                    </label>
+                    <label className="text-sm font-bold">Dòng máy / model
+                      <input value={model} onChange={event => setModel(event.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 outline-none focus:border-orange-500" placeholder="Ví dụ: iPhone 15 Pro" />
+                    </label>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {step === 2 && (
+            <section>
+              <h2 className="text-xl font-black">Máy đang gặp vấn đề gì?</h2>
+              <p className="mt-1 text-sm leading-6 text-zinc-500">Chọn một nhóm lỗi chính; mô tả thêm dấu hiệu để kỹ thuật chuẩn bị chính xác hơn.</p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setRequestType('REPAIR')} className={classNames('min-h-[92px] rounded-2xl border p-3 text-left', requestType === 'REPAIR' ? 'border-orange-500 bg-orange-50' : 'border-zinc-200 bg-white')}><Wrench className="h-5 w-5 text-orange-600" /><p className="mt-2 text-sm font-black">Sửa dịch vụ</p><p className="mt-1 text-[11px] leading-4 text-zinc-500">Kiểm tra và báo giá</p></button>
+                <button type="button" onClick={() => setRequestType('WARRANTY')} className={classNames('min-h-[92px] rounded-2xl border p-3 text-left', requestType === 'WARRANTY' ? 'border-emerald-500 bg-emerald-50' : 'border-zinc-200 bg-white')}><ShieldCheck className="h-5 w-5 text-emerald-600" /><p className="mt-2 text-sm font-black">Bảo hành</p><p className="mt-1 text-[11px] leading-4 text-zinc-500">Xác minh điều kiện</p></button>
+              </div>
+              <p className="mt-5 text-sm font-black text-zinc-800">Nhóm lỗi chính</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {CUSTOMER_REPAIR_ISSUES.map(issue => (
+                  <button type="button" key={issue.code} onClick={() => setIssueCode(issue.code)} className={classNames('min-h-[72px] rounded-2xl border p-3 text-left transition', issueCode === issue.code ? 'border-orange-500 bg-orange-50 ring-2 ring-orange-100' : 'border-zinc-200 bg-white hover:border-orange-200')}>
+                    <span className="flex items-start justify-between gap-2"><b className="text-sm text-zinc-900">{issue.label}</b>{issueCode === issue.code && <Check className="h-4 w-4 shrink-0 text-orange-600" />}</span>
+                    <span className="mt-1 block text-[11px] leading-4 text-zinc-500">{issue.examples}</span>
+                  </button>
+                ))}
+              </div>
+              <label className="mt-5 block text-sm font-bold">Mô tả chi tiết
+                <textarea value={description} onChange={event => setDescription(event.target.value.slice(0, 3000))} className="mt-1.5 min-h-32 w-full rounded-2xl border border-zinc-200 p-3 outline-none focus:border-orange-500" placeholder="Ví dụ: máy bắt đầu không nhận sạc từ tối qua, đã thử đổi cáp nhưng vẫn chập chờn…" />
+              </label>
+              <p className="mt-1 text-right text-[10px] text-zinc-400">{description.length}/3000</p>
+            </section>
+          )}
+
+          {step === 3 && (
+            <section>
+              <h2 className="text-xl font-black">Ảnh hoặc video tình trạng</h2>
+              <p className="mt-1 text-sm leading-6 text-zinc-500">Không bắt buộc, nhưng ảnh rõ lỗi và toàn bộ máy giúp tiếp nhận nhanh hơn.</p>
+              <label className="mt-5 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-3xl border border-dashed border-orange-300 bg-orange-50 p-4 text-center">
+                <input type="file" accept="image/*,video/mp4,video/quicktime,video/webm" multiple onChange={event => setFiles(Array.from(event.target.files || []).slice(0, 6))} className="sr-only" />
+                <CameraIcon />
+                <b className="mt-3 text-sm text-orange-900">Chụp ảnh hoặc chọn từ điện thoại</b>
+                <span className="mt-1 text-xs text-orange-700">Tối đa 6 tệp ảnh/video</span>
+              </label>
+              {files.length > 0 && <div className="mt-3 rounded-2xl bg-white p-3 text-sm"><b>Đã chọn {files.length} tệp</b><ul className="mt-2 space-y-1 text-xs text-zinc-500">{files.map(file => <li key={`${file.name}-${file.size}`} className="truncate">• {file.name}</li>)}</ul></div>}
+              <div className="mt-4 rounded-2xl bg-sky-50 p-3 text-xs leading-5 text-sky-800"><b>Gợi ý:</b> Chụp màn hình đang lỗi, mặt trước/sau và vị trí trầy vỡ. Không cần quay lại IMEI nếu máy đã liên kết.</div>
+            </section>
+          )}
+
+          {step === 4 && (
+            <section>
+              <h2 className="text-xl font-black">Lịch hẹn & xác nhận</h2>
+              <label className="mt-4 block text-sm font-bold">Chi nhánh tiếp nhận
+                <select value={branchId} onChange={event => setBranchId(event.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 bg-white px-3 outline-none focus:border-orange-500">
+                  {bootstrap.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name} · {branch.address}</option>)}
+                </select>
+              </label>
+              <label className="mt-3 block text-sm font-bold">Dự kiến mang máy đến <span className="font-medium text-zinc-400">(không bắt buộc)</span>
+                <input type="datetime-local" value={preferredVisitAt} onChange={event => setPreferredVisitAt(event.target.value)} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 bg-white px-3 outline-none focus:border-orange-500" />
+              </label>
+              <div className="mt-5 space-y-3 rounded-3xl border border-zinc-200 bg-white p-4 text-sm">
+                <div><p className="text-xs text-zinc-500">Thiết bị</p><p className="mt-1 font-black">{manualDevice ? model : selectedDevice?.model}</p><p className="mt-0.5 font-mono text-xs text-zinc-500">{manualDevice ? imei : selectedDevice?.imeiMasked}</p></div>
+                <div className="border-t border-zinc-100 pt-3"><p className="text-xs text-zinc-500">Yêu cầu</p><p className="mt-1 font-bold">{requestType === 'WARRANTY' ? 'Bảo hành' : 'Sửa dịch vụ'} · {selectedIssue?.label}</p><p className="mt-1 leading-5 text-zinc-600">{description}</p></div>
+                <div className="border-t border-zinc-100 pt-3"><p className="text-xs text-zinc-500">Nơi tiếp nhận</p><p className="mt-1 font-bold">{bootstrap.branches.find(branch => branch.id === branchId)?.name || 'Chưa chọn'}</p><p className="mt-1 text-xs text-zinc-500">{files.length ? `${files.length} tệp bằng chứng` : 'Không có tệp đính kèm'}</p></div>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-zinc-500">Đây là yêu cầu tiếp nhận online. Nhân viên sẽ xác minh tình trạng máy, IMEI và điều kiện bảo hành trước khi tạo phiếu kỹ thuật chính thức.</p>
+            </section>
+          )}
+          {error && <p role="alert" className="mt-4 rounded-2xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{error}</p>}
+        </main>
+
+        <footer className="sticky bottom-0 z-20 border-t border-zinc-200 bg-[#fffaf7]/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur sm:rounded-b-[2rem] sm:px-6">
+          <div className="flex gap-2">
+            <AppButton className="min-w-24" onClick={() => step > 1 ? setStep(value => value - 1) : onClose()}>{step > 1 ? 'Quay lại' : 'Hủy'}</AppButton>
+            {step < 4 ? <AppButton primary className="flex-1" onClick={() => { setError(''); setStep(value => value + 1); }} disabled={!stepValid}>Tiếp tục</AppButton> : <AppButton primary className="flex-1" onClick={() => void submit()} disabled={!stepValid || loading}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Gửi phiếu tiếp nhận'}</AppButton>}
+          </div>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function RequestRepairModal({ bootstrap, devices, onClose, onDone }: { bootstrap: CustomerBootstrap; devices: CustomerDevice[]; onClose: () => void; onDone: () => Promise<void> }) {
+  return <CustomerRepairIntakeView bootstrap={bootstrap} devices={devices} onClose={onClose} onDone={onDone} />;
+  /* Legacy implementation kept temporarily inside this comment for review.
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ deviceId: '', imei: '', model: '', requestType: 'REPAIR', issueType: '', description: '', branchId: bootstrap.branches[0]?.id || '', preferredVisitAt: '' });
   const [files, setFiles] = useState<File[]>([]);
@@ -198,6 +520,7 @@ function RequestRepairModal({ bootstrap, devices, onClose, onDone }: { bootstrap
     finally { setLoading(false); }
   };
   return <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-0 sm:p-6"><div className="mx-auto min-h-full max-w-xl bg-[#fffaf7] sm:min-h-0 sm:rounded-3xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-[#fffaf7]/95 px-4 py-3 backdrop-blur"><div><p className="font-black">Gửi yêu cầu sửa chữa</p><p className="text-xs text-zinc-500">Bước {step}/4</p></div><button onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-2xl"><X className="h-5 w-5" /></button></div><div className="p-4 sm:p-6">{step === 1 && <section><h2 className="text-lg font-black">Chọn thiết bị</h2><p className="mt-1 text-sm text-zinc-500">Chọn máy đã liên kết hoặc nhập IMEI.</p>{devices.length > 0 && <div className="mt-4 space-y-2">{devices.map(device => <button key={device.id} onClick={() => selectDevice(device)} className={classNames('flex min-h-14 w-full items-center justify-between rounded-2xl border p-3 text-left', form.deviceId === device.id ? 'border-orange-500 bg-orange-50' : 'border-zinc-200 bg-white')}><span><b className="block text-sm">{device.model}</b><small className="font-mono text-xs text-zinc-500">{device.imeiMasked}</small></span>{form.deviceId === device.id && <Check className="h-5 w-5 text-orange-600" />}</button>)}</div>}<div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">IMEI<input value={form.imei} onChange={e => update({ imei: e.target.value.replace(/\D/g, '').slice(0, 15), deviceId: '' })} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3 font-mono" placeholder="15 chữ số" /></label><label className="text-sm font-bold">Model<input value={form.model} onChange={e => update({ model: e.target.value })} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3" placeholder="iPhone 15 Pro" /></label></div></section>}{step === 2 && <section><h2 className="text-lg font-black">Loại yêu cầu & lỗi gặp phải</h2><div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => update({ requestType: 'REPAIR' })} className={classNames('rounded-2xl border p-4 text-left', form.requestType === 'REPAIR' ? 'border-orange-500 bg-orange-50' : 'border-zinc-200 bg-white')}><Wrench className="h-5 w-5 text-orange-600" /><p className="mt-2 text-sm font-black">Sửa dịch vụ</p><p className="mt-1 text-xs text-zinc-500">Lỗi, hỏng, cần kiểm tra</p></button><button onClick={() => update({ requestType: 'WARRANTY' })} className={classNames('rounded-2xl border p-4 text-left', form.requestType === 'WARRANTY' ? 'border-emerald-500 bg-emerald-50' : 'border-zinc-200 bg-white')}><ShieldCheck className="h-5 w-5 text-emerald-600" /><p className="mt-2 text-sm font-black">Bảo hành</p><p className="mt-1 text-xs text-zinc-500">Yêu cầu kiểm tra bảo hành</p></button></div><label className="mt-4 block text-sm font-bold">Nhóm lỗi<input value={form.issueType} onChange={e => update({ issueType: e.target.value })} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3" placeholder="Màn hình, pin, sạc, camera…" /></label><label className="mt-3 block text-sm font-bold">Mô tả chi tiết<textarea value={form.description} onChange={e => update({ description: e.target.value })} className="mt-1.5 min-h-32 w-full rounded-2xl border border-zinc-200 p-3" placeholder="Máy gặp lỗi gì? Xuất hiện từ khi nào?" /></label></section>}{step === 3 && <section><h2 className="text-lg font-black">Ảnh/video và chi nhánh</h2><label className="mt-4 block text-sm font-bold">Chi nhánh mong muốn<select value={form.branchId} onChange={e => update({ branchId: e.target.value })} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3">{bootstrap.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name} · {branch.address}</option>)}</select></label><label className="mt-3 block text-sm font-bold">Thời gian dự kiến mang máy đến<input type="datetime-local" value={form.preferredVisitAt} onChange={e => update({ preferredVisitAt: e.target.value })} className="mt-1.5 h-12 w-full rounded-2xl border border-zinc-200 px-3" /></label><label className="mt-4 flex min-h-24 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-orange-300 bg-orange-50 p-3 text-center"><input type="file" accept="image/*,video/mp4,video/quicktime,video/webm" multiple onChange={e => setFiles(Array.from(e.target.files || []).slice(0, 6))} className="sr-only" /><CameraIcon /><b className="mt-2 text-sm text-orange-800">Thêm ảnh/video lỗi</b><span className="mt-1 text-xs text-orange-700">Tối đa 6 tệp</span></label>{files.length > 0 && <p className="mt-2 text-xs font-bold text-zinc-600">Đã chọn {files.length} tệp</p>}</section>}{step === 4 && <section><h2 className="text-lg font-black">Kiểm tra và gửi</h2><div className="mt-4 space-y-2 rounded-3xl bg-white p-4 text-sm"><p><b>Thiết bị:</b> {form.model} · {form.imei || devices.find(item => item.id === form.deviceId)?.imeiMasked}</p><p><b>Loại:</b> {form.requestType === 'WARRANTY' ? 'Bảo hành' : 'Sửa dịch vụ'}</p><p><b>Lỗi:</b> {form.issueType || 'Chưa phân loại'} · {form.description}</p><p><b>Chi nhánh:</b> {bootstrap.branches.find(branch => branch.id === form.branchId)?.name}</p><p><b>Tệp đính kèm:</b> {files.length ? `${files.length} tệp` : 'Không có'}</p></div><p className="mt-3 text-xs leading-5 text-zinc-500">Nhân viên PhoneHouse sẽ kiểm tra thông tin, xác minh thiết bị và phản hồi trước khi tạo Work Order chính thức.</p></section>}{error && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-xs font-bold leading-5 text-rose-700">{error}</p>}<div className="mt-6 flex justify-between gap-2"><AppButton onClick={() => step > 1 ? setStep(step - 1) : onClose()}>{step > 1 ? 'Quay lại' : 'Hủy'}</AppButton>{step < 4 ? <AppButton primary onClick={() => setStep(step + 1)} disabled={step === 1 ? (!form.model || ((!form.deviceId) && !/^\d{15}$/.test(form.imei))) : step === 2 ? form.description.trim().length < 5 : !form.branchId}>{step === 3 ? 'Xem lại' : 'Tiếp tục'}</AppButton> : <AppButton primary onClick={() => void submit()} disabled={loading}>{loading ? <Loader2 className="mx-auto h-5 w-5 animate-spin" /> : 'Gửi yêu cầu'}</AppButton>}</div></div></div></div>;
+  */
 }
 
 function CameraIcon() { return <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-orange-600"><Package className="h-5 w-5" /></div>; }
@@ -305,7 +628,17 @@ export default function CustomerPortalApp() {
     await saveMe({ notificationConsent: true });
   };
   const logout = async () => { await signOut(customerAuth); setMe(null); setOverlay(null); };
-  const openDevice = async (device: CustomerDevice) => { if (!me) return setOverlay('login'); try { const result = await customerDevice(device.id); setSelectedDevice(result.data); setOverlay('device'); } catch (e: any) { setError(e?.message || 'Không tải được thiết bị.'); } };
+  const openDevice = async (device: CustomerDevice) => {
+    if (!me) return setOverlay('login');
+    setDevices(current => [device, ...current.filter(item => item.id !== device.id)]);
+    try {
+      const result = await customerDevice(device.id);
+      setSelectedDevice(result.data);
+      setOverlay('device');
+    } catch (cause: any) {
+      setError(cause?.message || 'Không tải được thiết bị.');
+    }
+  };
   const openRepair = (repair: CustomerRepair) => { setSelectedRepair(repair); setOverlay('repair'); };
   const reloadRepair = async () => { if (!selectedRepair) return; const result = await customerRepair(selectedRepair.id); setSelectedRepair(result.data); await refresh(true); };
   const content = useMemo(() => { if (loading && !bootstrap.generatedAt) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-orange-500" /></div>; if (quotePage) return <React.Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-orange-500" /></div>}><QuickQuoteMiniweb onBack={() => go('home')} onChat={() => setOverlay('chat')} hotline={bootstrap.brand.hotline} /></React.Suspense>; if (activeTab === 'devices') return <DevicesPage devices={devices} onOpen={openDevice} onLogin={() => setOverlay('login')} />; if (activeTab === 'repairs') return <RepairsPage repairs={repairs} requests={requests} onOpen={openRepair} onRequest={() => me ? setOverlay('request') : setOverlay('login')} onLogin={() => setOverlay('login')} />; if (activeTab === 'promotions') return <PromotionsPage promotions={promotions} onOpen={setSelectedPromotion} />; if (activeTab === 'account') return <AccountPage me={me} onLogin={() => setOverlay('login')} onSave={saveMe} onLogout={() => void logout()} onEnablePush={enablePush} />; return <HomePage bootstrap={bootstrap} me={me} repairs={repairs} devices={devices} promotions={promotions} onTab={go} onOpenRepair={() => me ? setOverlay('request') : setOverlay('login')} onOpenQuote={openQuotePage} onOpenChat={() => setOverlay('chat')} onOpenDevice={openDevice} />; }, [activeTab, bootstrap, devices, loading, me, promotions, quotePage, repairs, requests, selectedRepair]);

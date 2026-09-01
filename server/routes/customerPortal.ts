@@ -83,6 +83,8 @@ function publicMessage(code: string) {
     CUSTOMER_QUOTE_FRESH_OTP_REQUIRED: 'Vui lòng xác nhận lại OTP mới trước khi đồng ý báo giá.',
     CUSTOMER_QUOTE_VERSION_CHANGED: 'Báo giá đã thay đổi. Vui lòng tải lại và kiểm tra phiên bản mới.',
     CUSTOMER_REQUEST_REQUIRED_FIELDS: 'Vui lòng nhập đầy đủ thiết bị, IMEI, chi nhánh và mô tả lỗi.',
+    CUSTOMER_REQUEST_DEVICE_NOT_OWNED: 'Thiết bị này chưa được liên kết với tài khoản của bạn. Vui lòng chọn lại hoặc dùng mục “Máy khác chưa liên kết”.',
+    CUSTOMER_REQUEST_ISSUE_INVALID: 'Nhóm lỗi đã chọn không còn hợp lệ. Vui lòng chọn lại tình trạng máy.',
     CUSTOMER_CHAT_ACCESS_DENIED: 'Bạn không có quyền truy cập cuộc trò chuyện này.',
     CUSTOMER_REPAIR_ACCESS_DENIED: 'Bạn không có quyền xem phiếu sửa chữa này.',
     PROMOTION_REQUIRED_FIELDS_INVALID: 'Thông tin chiến dịch hoặc thời gian hiệu lực chưa hợp lệ.',

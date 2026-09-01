@@ -3,6 +3,7 @@ import { FieldValue, Firestore, Timestamp } from 'firebase-admin/firestore';
 import { adminAuth, adminMessaging } from '../firebaseAdmin';
 import { normalizePartyPhone } from './branchPartyService';
 import { getVietnamDateString } from '../../shared/vietnamTime';
+import { customerRepairIssueByCode } from '../../shared/customerRepairIssues';
 
 export type CustomerRepairStage =
   | 'SUBMITTED'
@@ -230,6 +231,34 @@ async function loadOwnedRecords(db: Firestore, collection: string, authority: Cu
   const unique = new Map<string, any>();
   for (const row of rows) if (recordBelongsToCustomer(row, authority)) unique.set(row.id, row);
   return [...unique.values()].sort((left, right) => timestampMillis(right.updatedAt || right.createdAt || right.date) - timestampMillis(left.updatedAt || left.createdAt || left.date));
+}
+
+async function resolveOwnedCustomerDevice(db: Firestore, authority: CustomerAuthority, deviceId: string) {
+  const normalizedDeviceId = text(deviceId, 120);
+  if (!normalizedDeviceId) return null;
+  const [invoices, workOrders] = await Promise.all([
+    loadOwnedRecords(db, 'invoices', authority, 150),
+    loadOwnedRecords(db, 'technicalWorkOrders', authority, 200)
+  ]);
+  for (const invoice of invoices) {
+    const rows = [
+      ...(Array.isArray(invoice.devices) ? invoice.devices : []),
+      ...(Array.isArray(invoice.items) ? invoice.items : [])
+    ];
+    for (const row of rows) {
+      const imei = text(row.imei, 30).replace(/\D/g, '');
+      if (imei && hashId('CDEV', imei) === normalizedDeviceId) {
+        return { imei, model: text(row.model || row.name, 200) };
+      }
+    }
+  }
+  for (const workOrder of workOrders) {
+    const imei = text(workOrder.imei, 30).replace(/\D/g, '');
+    if (imei && hashId('CDEV', imei) === normalizedDeviceId) {
+      return { imei, model: text(workOrder.model, 200) };
+    }
+  }
+  return null;
 }
 
 async function loadLines(db: Firestore, workOrderIds: string[]) {
@@ -541,24 +570,25 @@ export async function createCustomerServiceRequest(db: Firestore, authority: Cus
   if (operationKey.length < 8) throw new Error('CUSTOMER_REQUEST_IDEMPOTENCY_REQUIRED');
   const requestType = text(input.requestType, 20).toUpperCase();
   if (!CUSTOMER_REQUEST_TYPES.has(requestType)) throw new Error('CUSTOMER_REQUEST_TYPE_INVALID');
+  const deviceId = text(input.deviceId, 120);
   let imei = text(input.imei, 30).replace(/\D/g, '');
   let model = text(input.model, 200);
   const description = text(input.description, 3000);
-  const issueType = text(input.issueType, 120);
+  const submittedIssueCode = text(input.issueCode || input.issueType, 120).toUpperCase();
+  const canonicalIssue = customerRepairIssueByCode(submittedIssueCode);
+  if (input.issueCode && !canonicalIssue) throw new Error('CUSTOMER_REQUEST_ISSUE_INVALID');
+  const issueCode = canonicalIssue?.code || 'OTHER';
+  const issueLabel = canonicalIssue?.label || text(input.issueLabel || input.issueType, 160) || 'Lỗi khác';
   const branchId = text(input.branchId, 120);
-  if (input.deviceId && (!imei || !model)) {
-    const ownedInvoices = await loadOwnedRecords(db, 'invoices', authority, 150);
-    for (const invoice of ownedInvoices) {
-      const rows = [...(Array.isArray(invoice.devices) ? invoice.devices : []), ...(Array.isArray(invoice.items) ? invoice.items : [])];
-      const match = rows.find((row: any) => row.imei && hashId('CDEV', text(row.imei, 30)) === text(input.deviceId, 120));
-      if (match?.imei) {
-        imei = text(match.imei, 30).replace(/\D/g, '');
-        model = model || text(match.model || match.name, 200);
-        break;
-      }
-    }
+  if (deviceId) {
+    const ownedDevice = await resolveOwnedCustomerDevice(db, authority, deviceId);
+    if (!ownedDevice) throw new Error('CUSTOMER_REQUEST_DEVICE_NOT_OWNED');
+    // A linked device is always resolved from customer-owned server records.
+    // Never trust an IMEI/model pair submitted alongside the opaque device ID.
+    imei = ownedDevice.imei;
+    model = ownedDevice.model;
   }
-  if (!/^\d{15}$/.test(imei) || !model || description.length < 5 || !branchId) throw new Error('CUSTOMER_REQUEST_REQUIRED_FIELDS');
+  if (!/^\d{15}$/.test(imei) || !model || description.length < 5 || !branchId || !issueCode) throw new Error('CUSTOMER_REQUEST_REQUIRED_FIELDS');
   const branchSnapshot = await db.collection('branches').doc(branchId).get();
   if (!branchSnapshot.exists || branchSnapshot.data()?.isActive === false) throw new Error('CUSTOMER_REQUEST_BRANCH_INVALID');
   let preferredVisitAt: string | null = null;
@@ -585,10 +615,12 @@ export async function createCustomerServiceRequest(db: Firestore, authority: Cus
       customerName: text(authority.account.displayName, 160),
       customerPhone: authority.phoneNormalized,
       requestType,
-      deviceId: text(input.deviceId, 120) || null,
+      deviceId: deviceId || null,
       imei,
       model,
-      issueType,
+      issueType: issueCode,
+      issueCode,
+      issueLabel,
       description,
       branchId,
       branchName: text(branchSnapshot.data()?.name, 160),
@@ -618,7 +650,8 @@ export async function listCustomerServiceRequests(db: Firestore, authority: Cust
       type: request.requestType,
       model: request.model,
       imeiMasked: maskCustomerImei(request.imei),
-      issueType: request.issueType,
+      issueType: request.issueCode || request.issueType,
+      issueLabel: request.issueLabel || request.issueType,
       description: request.description,
       branchId: request.branchId,
       branchName: request.branchName,
@@ -1300,7 +1333,8 @@ export function customerRequestConversionInput(request: any, input: any) {
     customerApprovedQuote: safeInt(input.customerApprovedQuote),
     totalEstimatedCost: safeInt(input.totalEstimatedCost),
     intakeDetails: {
-      issueType: text(request.issueType, 120),
+      issueType: text(request.issueLabel || request.issueType, 160),
+      issueCode: text(request.issueCode || request.issueType, 120),
       faultDescription: text(request.description, 3000),
       expectedReturnDate: toIso(input.expectedReturnDate),
       customerServiceRequestId: text(request.id, 120),
