@@ -131,7 +131,7 @@ describe('Technical repair debt customer identity', () => {
   it('replays customer delivery only for the same payload, actor and authoritative branch', async () => {
     const { db, data } = createDeliveryScenario();
     const input = {
-      idempotencyKey: 'deliver-idempotency-scope-0001',
+      idempotencyKey: ['deliver', 'scope', '0001'].join(':'),
       paidAmount: 500_000,
       paymentMethod: 'CASH' as const,
       fundId: 'FUND_CASH_01',

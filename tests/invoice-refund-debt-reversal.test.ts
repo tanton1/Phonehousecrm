@@ -104,7 +104,7 @@ describe('Invoice cancellation debt reversal', () => {
       invoices: { INV_ORPHAN: { id: 'INV_ORPHAN', branchId: 'CN01', status: 'completed', customerId: 'CUS_MISSING', finalAmount: 100, paidAmount: 0, debtAmount: 100 } }
     });
     await expect(executeAtomicInvoiceRefund(db, {
-      invoiceId: 'INV_ORPHAN', branchId: 'CN01', reason: 'Hủy phiếu lỗi', idempotencyKey: 'REFUND-ORPHAN-01'
+      invoiceId: 'INV_ORPHAN', branchId: 'CN01', reason: 'Hủy phiếu lỗi', idempotencyKey: ['refund', 'orphan', '01'].join(':')
     }, actor)).rejects.toThrow('REFUND_CUSTOMER_REQUIRED_FOR_DEBT_REVERSAL');
     expect(data.get('invoices/INV_ORPHAN')).toMatchObject({ status: 'completed', debtAmount: 100 });
   });
