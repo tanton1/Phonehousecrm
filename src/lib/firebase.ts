@@ -232,7 +232,7 @@ export async function prepareCustomerPhoneRecaptcha(containerId: string): Promis
   resetCustomerPhoneRecaptcha();
   phoneRecaptchaContainerId = containerId;
   phoneRecaptcha = new RecaptchaVerifier(customerAuth, containerId, {
-    size: 'invisible',
+    size: window.innerWidth < 380 ? 'compact' : 'normal',
     'expired-callback': resetCustomerPhoneRecaptcha
   });
   const verifier = phoneRecaptcha;
