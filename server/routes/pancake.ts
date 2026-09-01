@@ -30,6 +30,7 @@ import {
   takeMetaThreadControl
 } from '../services/metaMessengerService';
 import { tiktokConnectionDocumentId, zaloConnectionDocumentId } from '../services/channelConnectionService';
+import { markCustomerPortalConversationRead, sendCustomerPortalChatMessage } from '../services/customerPortalService';
 import {
   getZaloOaChannels,
   getZaloWebhookSetup,
@@ -287,7 +288,9 @@ export function createPancakeRouter(db: Firestore | null): Router {
     try {
       const conversationSnapshot = await db.collection('chatConversations').doc(req.params.conversationId).get();
       const provider = conversationSnapshot.data()?.provider;
-      const send = provider === 'META_MESSENGER'
+      const send = provider === 'CUSTOMER_PORTAL'
+        ? sendCustomerPortalChatMessage
+        : provider === 'META_MESSENGER'
         ? sendMetaMessengerMessage
         : provider === 'ZALO_OA'
           ? sendZaloOaMessage
@@ -326,7 +329,9 @@ export function createPancakeRouter(db: Firestore | null): Router {
     try {
       const conversationSnapshot = await db.collection('chatConversations').doc(req.params.conversationId).get();
       const provider = conversationSnapshot.data()?.provider;
-      const markRead = provider === 'META_MESSENGER'
+      const markRead = provider === 'CUSTOMER_PORTAL'
+        ? markCustomerPortalConversationRead
+        : provider === 'META_MESSENGER'
         ? markMetaConversationRead
         : provider === 'ZALO_OA'
           ? markZaloConversationRead

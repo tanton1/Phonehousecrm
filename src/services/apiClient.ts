@@ -1,4 +1,4 @@
-import { auth, getPhoneHouseAppCheckToken } from '../lib/firebase';
+import { auth, customerAuth, getPhoneHouseAppCheckToken } from '../lib/firebase';
 
 const API_BASE = String((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -26,8 +26,9 @@ export async function apiJson<T>(
   init: ApiRequestInit = {}
 ): Promise<T> {
   const { timeoutMs = 15000, ...requestInit } = init;
+  const authPrincipal = path.startsWith('/api/customer-portal') ? customerAuth.currentUser : auth.currentUser;
   const [token, appCheckToken] = await Promise.all([
-    auth.currentUser?.getIdToken(false).catch(() => null),
+    authPrincipal?.getIdToken(false).catch(() => null),
     getPhoneHouseAppCheckToken()
   ]);
   const controller = new AbortController();
@@ -91,6 +92,37 @@ export async function apiJson<T>(
     }
     const finalMsg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err) || 'Lỗi kết nối không xác định.');
     throw new Error(finalMsg);
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+/** Authenticated binary upload helper for evidence fallback routes. */
+export async function apiBinary<T>(path: string, body: Blob, contentType: string, timeoutMs = 45_000): Promise<T> {
+  const authPrincipal = path.startsWith('/api/customer-portal') ? customerAuth.currentUser : auth.currentUser;
+  const [token, appCheckToken] = await Promise.all([
+    authPrincipal?.getIdToken(false).catch(() => null),
+    getPhoneHouseAppCheckToken()
+  ]);
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const fullUrl = API_BASE ? `${API_BASE}${cleanPath}` : cleanPath;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(fullUrl, {
+      method: 'PUT', body, signal: controller.signal,
+      headers: {
+        Accept: 'application/json', 'Content-Type': contentType,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(appCheckToken ? { 'X-Firebase-AppCheck': appCheckToken } : {})
+      }
+    });
+    const parsed = await response.json().catch(() => null);
+    if (!response.ok || !parsed) throw new Error(parsed?.message || parsed?.error || `Tải tệp thất bại (HTTP ${response.status}).`);
+    return parsed as T;
+  } catch (error: any) {
+    if (error?.name === 'AbortError') throw new Error('Tải tệp quá thời gian chờ. Vui lòng thử lại.');
+    throw error;
   } finally {
     window.clearTimeout(timeoutId);
   }

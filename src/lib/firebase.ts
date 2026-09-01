@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { 
   getAuth, 
   GoogleAuthProvider, 
@@ -7,7 +7,10 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  signInWithPhoneNumber,
+  RecaptchaVerifier,
+  type ConfirmationResult
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
@@ -16,6 +19,16 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App singleton
 export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
+// Customer OTP must not replace the authenticated staff session when a shop
+// employee previews PhoneHouse Care in the same browser profile.
+let customerApp: FirebaseApp | null = null;
+export const customerAuth = (() => {
+  if (typeof window === 'undefined') return getAuth(app);
+  customerApp = getApps().find(instance => instance.name === 'phonehouse-care')
+    || initializeApp(firebaseConfig, 'phonehouse-care');
+  return getAuth(customerApp);
+})();
 
 // CRITICAL: The app will break without firebaseConfig.firestoreDatabaseId
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -177,5 +190,52 @@ export async function logOut() {
     console.error('Logout error:', error);
     throw error;
   }
+}
+
+let phoneRecaptcha: RecaptchaVerifier | null = null;
+
+function phoneRecaptchaVerifier() {
+  if (typeof window === 'undefined') throw new Error('PHONE_AUTH_BROWSER_REQUIRED');
+  if (!phoneRecaptcha) {
+    const container = document.getElementById('phone-auth-recaptcha');
+    if (!container) throw new Error('PHONE_AUTH_RECAPTCHA_CONTAINER_MISSING');
+    phoneRecaptcha = new RecaptchaVerifier(customerAuth, container, { size: 'invisible' });
+  }
+  return phoneRecaptcha;
+}
+
+export async function requestCustomerPhoneOtp(phone: string): Promise<ConfirmationResult> {
+  const digits = String(phone || '').replace(/\D/g, '');
+  const normalized = digits.startsWith('84') ? `+${digits}` : digits.startsWith('0') ? `+84${digits.slice(1)}` : `+84${digits}`;
+  if (!/^\+84\d{9}$/.test(normalized)) throw new Error('Số điện thoại Việt Nam chưa hợp lệ.');
+  return signInWithPhoneNumber(customerAuth, normalized, phoneRecaptchaVerifier());
+}
+
+export function resetCustomerPhoneRecaptcha() {
+  phoneRecaptcha?.clear();
+  phoneRecaptcha = null;
+}
+
+/**
+ * Requests browser notification permission only after an explicit customer
+ * action, then binds the FCM token to the customer-scoped service worker.
+ */
+export async function requestCustomerPushToken(): Promise<string> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('Notification' in window)) {
+    throw new Error('Thiết bị này chưa hỗ trợ thông báo đẩy trên trình duyệt.');
+  }
+  const vapidKey = String((import.meta as any).env?.VITE_FIREBASE_MESSAGING_VAPID_KEY || '').trim();
+  const { getMessaging, getToken, isSupported } = await import('firebase/messaging');
+  if (!(await isSupported())) throw new Error('Trình duyệt này chưa hỗ trợ thông báo đẩy.');
+  const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('Bạn chưa cho phép PhoneHouse Care gửi thông báo.');
+  const registration = await navigator.serviceWorker.register('/customer-sw.js', { scope: '/khach-hang' });
+  await navigator.serviceWorker.ready;
+  const token = await getToken(getMessaging(customerApp || app), {
+    serviceWorkerRegistration: registration,
+    ...(vapidKey ? { vapidKey } : {})
+  });
+  if (!token) throw new Error('Không tạo được mã nhận thông báo cho thiết bị này.');
+  return token;
 }
 

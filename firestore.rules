@@ -804,6 +804,68 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // 10. PhoneHouse Care customer portal collections
+    // Customer data is intentionally server-authoritative. The portal uses
+    // Firebase Phone Auth only as identity proof; all reads and writes go
+    // through /api/customer-portal where ownership and redaction are applied.
+    // Explicit denies protect against accidental future broad rules and keep
+    // customer PII, repairs, quotes, evidence, chat and push tokens private.
+    match /customerAccounts/{accountId} {
+      allow read, write: if false;
+    }
+
+    match /customerAccountPhoneLinks/{phoneLinkId} {
+      allow read, write: if false;
+    }
+
+    match /customerAccountPartyLinks/{partyLinkId} {
+      allow read, write: if false;
+    }
+
+    match /customerServiceRequests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /customerQuoteApprovalChallenges/{challengeId} {
+      allow read, write: if false;
+    }
+
+    match /customerQuoteApprovals/{approvalId} {
+      allow read, write: if false;
+    }
+
+    match /promotionCampaigns/{promotionId} {
+      allow read, write: if false;
+    }
+
+    match /customerConversations/{conversationId} {
+      allow read, write: if false;
+    }
+
+    match /customerMessages/{messageId} {
+      allow read, write: if false;
+    }
+
+    match /customerNotifications/{notificationId} {
+      allow read, write: if false;
+    }
+
+    match /customerPushSubscriptions/{subscriptionId} {
+      allow read, write: if false;
+    }
+
+    match /customerEvidenceUploadSessions/{sessionId} {
+      allow read, write: if false;
+    }
+
+    match /customerEvidenceRecords/{evidenceId} {
+      allow read, write: if false;
+    }
+
+    match /customerPortalIdempotency/{operationId} {
+      allow read, write: if false;
+    }
+
     // Default fallback is deny-by-default. Admin SDK server calls bypass rules;
     // no browser role, including ADMIN, may bypass a collection's server-only contract.
     match /{document=**} {

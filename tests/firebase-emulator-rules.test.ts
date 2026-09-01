@@ -56,6 +56,20 @@ beforeAll(async () => {
     await setDoc(doc(context.firestore(), 'telegramLinkCodes/TLC-1'), { uid: 'staff-1', status: 'PENDING' });
     await setDoc(doc(context.firestore(), 'telegramUserBindings/staff-1'), { uid: 'staff-1', active: true });
     await setDoc(doc(context.firestore(), 'attendanceLocationState/ATT-1'), { id: 'ATT-1', branchId: 'CN01', staffId: 'staff-1', lastLatitude: 16.0, lastLongitude: 108.0 });
+    await setDoc(doc(context.firestore(), 'customerAccounts/customer-a'), { firebaseUid: 'customer-a', phoneNormalized: '0905000001', status: 'ACTIVE' });
+    await setDoc(doc(context.firestore(), 'customerAccountPhoneLinks/CAPL-1'), { customerAccountUid: 'customer-a', phoneNormalized: '0905000001' });
+    await setDoc(doc(context.firestore(), 'customerAccountPartyLinks/CAPL-PARTY-1'), { customerAccountUid: 'customer-a', partyMasterId: 'PARTY-1' });
+    await setDoc(doc(context.firestore(), 'customerServiceRequests/CSR-1'), { id: 'CSR-1', customerAccountUid: 'customer-a', branchId: 'CN01', status: 'SUBMITTED' });
+    await setDoc(doc(context.firestore(), 'customerQuoteApprovalChallenges/CQAC-1'), { customerAccountUid: 'customer-a', workOrderId: 'WO-1', status: 'OPEN' });
+    await setDoc(doc(context.firestore(), 'customerQuoteApprovals/CQA-1'), { customerAccountUid: 'customer-a', workOrderId: 'WO-1', decision: 'ACCEPT' });
+    await setDoc(doc(context.firestore(), 'promotionCampaigns/PRM-1'), { id: 'PRM-1', status: 'PUBLISHED', title: 'Ưu đãi công khai' });
+    await setDoc(doc(context.firestore(), 'customerConversations/CCV-1'), { id: 'CCV-1', customerAccountUid: 'customer-a', status: 'BOT' });
+    await setDoc(doc(context.firestore(), 'customerMessages/CMSG-1'), { id: 'CMSG-1', conversationId: 'CCV-1', customerAccountUid: 'customer-a' });
+    await setDoc(doc(context.firestore(), 'customerNotifications/CNT-1'), { id: 'CNT-1', customerAccountUid: 'customer-a', title: 'Cập nhật' });
+    await setDoc(doc(context.firestore(), 'customerPushSubscriptions/CPS-1'), { id: 'CPS-1', customerAccountUid: 'customer-a', token: 'private-token' });
+    await setDoc(doc(context.firestore(), 'customerEvidenceUploadSessions/CEUS-1'), { id: 'CEUS-1', customerAccountUid: 'customer-a', requestId: 'CSR-1' });
+    await setDoc(doc(context.firestore(), 'customerEvidenceRecords/CEVD-1'), { id: 'CEVD-1', customerAccountUid: 'customer-a', requestId: 'CSR-1' });
+    await setDoc(doc(context.firestore(), 'customerPortalIdempotency/CPI-1'), { id: 'CPI-1', customerAccountUid: 'customer-a', requestId: 'CSR-1' });
   });
 });
 
@@ -88,6 +102,36 @@ afterAll(async () => { await env?.cleanup(); });
   it('active authenticated users retain explicit safe catalog reads', async () => {
     const db = env.authenticatedContext('admin-1').firestore();
     await assertSucceeds(getDoc(doc(db, 'catalogItems/SKU-1')));
+  });
+
+  it('PhoneHouse Care collections stay API-only for customers and staff', async () => {
+    const customerContextA = env.authenticatedContext('customer-a', { phone_number: '+84905000001' });
+    const customerA = customerContextA.firestore();
+    const customerB = env.authenticatedContext('customer-b', { phone_number: '+84905000002' }).firestore();
+    const admin = env.authenticatedContext('admin-1').firestore();
+    const paths = [
+      'customerAccounts/customer-a',
+      'customerAccountPhoneLinks/CAPL-1',
+      'customerAccountPartyLinks/CAPL-PARTY-1',
+      'customerServiceRequests/CSR-1',
+      'customerQuoteApprovalChallenges/CQAC-1',
+      'customerQuoteApprovals/CQA-1',
+      'promotionCampaigns/PRM-1',
+      'customerConversations/CCV-1',
+      'customerMessages/CMSG-1',
+      'customerNotifications/CNT-1',
+      'customerPushSubscriptions/CPS-1',
+      'customerEvidenceUploadSessions/CEUS-1',
+      'customerEvidenceRecords/CEVD-1',
+      'customerPortalIdempotency/CPI-1'
+    ];
+    for (const path of paths) {
+      await assertFails(getDoc(doc(customerA, path)));
+      await assertFails(getDoc(doc(customerB, path)));
+      await assertFails(getDoc(doc(admin, path)));
+      await assertFails(setDoc(doc(customerA, path), { tampered: true }));
+    }
+    await assertFails(uploadBytes(ref(customerContextA.storage(), 'customer-evidence/customer-a/CSR-1/file.jpg'), new Blob(['x'], { type: 'image/jpeg' })));
   });
 
   it('password-change-required users cannot bypass the application through Firestore', async () => {

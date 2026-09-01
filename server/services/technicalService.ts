@@ -41,6 +41,8 @@ export interface TechnicalTaskAdditionInput {
 }
 
 export interface CreateWorkOrderInput {
+  /** Customer portal request converted atomically by an authorized staff member. */
+  sourceCustomerServiceRequestId?: string;
   deviceId?: string;
   imei: string;
   model: string;
@@ -51,6 +53,9 @@ export interface CreateWorkOrderInput {
   assetOwnership?: 'COMPANY' | 'CUSTOMER';
   customerName?: string;
   customerPhone?: string;
+  customerId?: string;
+  partyMasterId?: string;
+  customerAccountUid?: string;
   customerApprovedQuote?: number;
   totalEstimatedCost?: number;
   intakeDetails?: {
@@ -215,8 +220,19 @@ export async function processCreateWorkOrder(
   }
 
   const now = new Date().toISOString();
-  const workOrderId = `WO_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-  const code = `SC-${now.slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+  const sourceCustomerServiceRequestId = String(input.sourceCustomerServiceRequestId || '').trim();
+  const sourceRequestHash = sourceCustomerServiceRequestId
+    ? crypto.createHash('sha256').update(sourceCustomerServiceRequestId).digest('hex').slice(0, 24).toUpperCase()
+    : '';
+  const portalInitialQuoteAdjustmentId = sourceCustomerServiceRequestId && input.workOrderType === 'CUSTOMER_SERVICE'
+    ? `TQA_INIT_${sourceRequestHash}`
+    : '';
+  const workOrderId = sourceCustomerServiceRequestId
+    ? `WO_CSR_${sourceRequestHash}`
+    : `WO_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  const code = sourceCustomerServiceRequestId
+    ? `SC-CSR-${sourceRequestHash.slice(0, 10)}`
+    : `SC-${now.slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
   const branchId = String(input.branchId || '').trim();
   const initialLocation = String(input.sourceWarehouseId || '').trim();
   const destinationLocation = String(input.destinationWarehouseId || '').trim();
@@ -236,6 +252,38 @@ export async function processCreateWorkOrder(
   }
 
   return await db.runTransaction(async (transaction) => {
+    const sourceRequestRef = sourceCustomerServiceRequestId
+      ? db.collection('customerServiceRequests').doc(sourceCustomerServiceRequestId)
+      : null;
+    const deterministicWorkOrderRef = db.collection('technicalWorkOrders').doc(workOrderId);
+    if (sourceRequestRef) {
+      const [sourceRequestSnap, existingWorkOrderSnap] = await Promise.all([
+        transaction.get(sourceRequestRef),
+        transaction.get(deterministicWorkOrderRef)
+      ]);
+      if (!sourceRequestSnap.exists) throw new Error('CUSTOMER_SERVICE_REQUEST_NOT_FOUND');
+      const sourceRequest = sourceRequestSnap.data()!;
+      if (existingWorkOrderSnap.exists) {
+        const existing = existingWorkOrderSnap.data()!;
+        if (
+          String(existing.sourceCustomerServiceRequestId || '') !== sourceCustomerServiceRequestId
+          || String(sourceRequest.convertedWorkOrderId || '') !== existingWorkOrderSnap.id
+        ) throw new Error('CUSTOMER_SERVICE_REQUEST_CONVERSION_CONFLICT');
+        return {
+          workOrderId: existingWorkOrderSnap.id,
+          code: String(existing.code || code),
+          lineIds: Array.isArray(existing.taskLineIds) ? existing.taskLineIds : []
+        };
+      }
+      if (!['SUBMITTED', 'UNDER_REVIEW'].includes(String(sourceRequest.status || ''))) throw new Error('CUSTOMER_SERVICE_REQUEST_NOT_CONVERTIBLE');
+      if (sourceRequest.convertedWorkOrderId) throw new Error('CUSTOMER_SERVICE_REQUEST_ALREADY_CONVERTED');
+      if (
+        String(sourceRequest.branchId || '') !== branchId
+        || String(sourceRequest.imei || '').trim() !== String(input.imei || '').trim()
+        || String(sourceRequest.customerAccountUid || '') !== String(input.customerAccountUid || '')
+      ) throw new Error('CUSTOMER_SERVICE_REQUEST_SCOPE_MISMATCH');
+    }
+
     // 1. Invariant: Only ONE active work order per IMEI (including REWORK)
     const existingActiveOrders = await transaction.get(
       db.collection('technicalWorkOrders')
@@ -414,7 +462,7 @@ export async function processCreateWorkOrder(
     }
 
     // 4. Create Header Technical Work Order
-    const woRef = db.collection('technicalWorkOrders').doc(workOrderId);
+    const woRef = deterministicWorkOrderRef;
     const woRecord = {
       id: workOrderId,
       code,
@@ -432,13 +480,17 @@ export async function processCreateWorkOrder(
       currentLocationId: initialLocation,
       taskLineIds: lineIds,
       reworkCount: 0,
+      sourceCustomerServiceRequestId: sourceCustomerServiceRequestId || null,
+      customerAccountUid: input.customerAccountUid || null,
+      customerId: input.customerId || null,
+      partyMasterId: input.partyMasterId || null,
       customerName: input.customerName || null,
       customerPhone: input.customerPhone || null,
       customerApprovedQuote: approvedQuote,
       proposedQuoteAmount: input.workOrderType === 'CUSTOMER_SERVICE' ? Math.max(approvedQuote, estimatedCost) : 0,
       quoteStatus: input.workOrderType === 'WARRANTY' ? 'NOT_REQUIRED' : input.workOrderType === 'CUSTOMER_SERVICE' ? 'PENDING_APPROVAL' : 'NOT_REQUIRED',
       approvedFinalAmount: input.workOrderType === 'WARRANTY' ? 0 : null,
-      quoteVersion: 0,
+      quoteVersion: sourceCustomerServiceRequestId && input.workOrderType === 'CUSTOMER_SERVICE' ? 0 : input.workOrderType === 'CUSTOMER_SERVICE' ? 1 : 0,
       customerPromisedAt: input.intakeDetails?.expectedReturnDate || null,
       intakeDetails: input.intakeDetails || null,
       // Phiếu tiếp nhận không lưu mật mã mở máy. Chỉ lưu trạng thái/ghi chú hỗ trợ mở máy trong intakeDetails.
@@ -457,7 +509,35 @@ export async function processCreateWorkOrder(
       createdAt: now,
       updatedAt: FieldValue.serverTimestamp()
     };
+    if (portalInitialQuoteAdjustmentId) {
+      transaction.create(db.collection('technicalQuoteAdjustments').doc(portalInitialQuoteAdjustmentId), {
+        id: portalInitialQuoteAdjustmentId,
+        workOrderId,
+        branchId,
+        previousAmount: 0,
+        requestedAmount: Math.max(approvedQuote, estimatedCost),
+        reason: 'Báo giá ban đầu khi tiếp nhận yêu cầu từ PhoneHouse Care.',
+        customerApprovalEvidenceId: null,
+        approvalFlow: 'CUSTOMER_PORTAL_OTP',
+        status: 'PENDING',
+        requestedByUid: creatorUser.uid,
+        requestedByName: creatorUser.name || creatorUser.uid,
+        requestedAt: now,
+        createdAt: FieldValue.serverTimestamp()
+      });
+      woRecord.quoteStatus = 'PENDING_INTERNAL_APPROVAL';
+    }
     transaction.set(woRef, woRecord);
+    if (sourceRequestRef) {
+      transaction.update(sourceRequestRef, {
+        status: 'CONVERTED',
+        convertedWorkOrderId: workOrderId,
+        convertedByUid: creatorUser.uid,
+        convertedByName: creatorUser.name || creatorUser.uid,
+        convertedAt: now,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+    }
     // 5. Update Device operational status (Keep commercial status safe for warranty/customer service!)
     if (devRef && devData) {
       transaction.update(devRef, {
@@ -1939,6 +2019,8 @@ export async function processRequestTechnicalQuoteAdjustment(
       workOrderId,
       branchId: wo.branchId,
       previousAmount: Number(wo.approvedFinalAmount ?? wo.proposedQuoteAmount ?? 0),
+      previousQuoteStatus: String(wo.quoteStatus || 'PENDING_APPROVAL'),
+      previousQuoteVersion: Number(wo.quoteVersion || 0),
       requestedAmount,
       reason: String(input.reason).trim(),
       customerApprovalEvidenceId: String(input.customerApprovalEvidenceId || '').trim() || null,
@@ -1948,7 +2030,16 @@ export async function processRequestTechnicalQuoteAdjustment(
       requestedAt: now,
       createdAt: FieldValue.serverTimestamp()
     });
-    transaction.update(woRef, { proposedQuoteAmount: requestedAmount, quoteStatus: 'PENDING_APPROVAL', updatedAt: FieldValue.serverTimestamp() });
+    transaction.update(woRef, {
+      ...(wo.customerAccountUid ? {
+        pendingQuoteAdjustmentId: adjustmentId,
+        quoteStatus: 'PENDING_INTERNAL_APPROVAL'
+      } : {
+        proposedQuoteAmount: requestedAmount,
+        quoteStatus: 'PENDING_APPROVAL'
+      }),
+      updatedAt: FieldValue.serverTimestamp()
+    });
     return { adjustmentId, status: 'PENDING' as const };
   });
 }
@@ -1974,11 +2065,12 @@ export async function processDecideTechnicalQuoteAdjustment(
     if (!adjustmentSnap.exists) throw new Error('QUOTE_ADJUSTMENT_NOT_FOUND');
     const wo = woSnap.data()!;
     const adjustment = adjustmentSnap.data()!;
+    const usesCustomerPortalOtp = Boolean(String(wo.customerAccountUid || '').trim());
     if (String(adjustment.workOrderId || '') !== workOrderId) throw new Error('WORK_ORDER_MISMATCH');
     if (!canAccessBranch(actor, String(wo.branchId || ''))) throw new Error('BRANCH_FORBIDDEN');
     if (idemSnap.exists) return { adjustmentId, status: String(adjustment.status || decision) as 'APPROVED' | 'REJECTED' };
     if (adjustment.status !== 'PENDING') throw new Error('QUOTE_ADJUSTMENT_ALREADY_DECIDED');
-    if (decision === 'APPROVED' && Number(adjustment.requestedAmount || 0) > 0 && !String(adjustment.customerApprovalEvidenceId || '').trim()) {
+    if (!usesCustomerPortalOtp && decision === 'APPROVED' && Number(adjustment.requestedAmount || 0) > 0 && !String(adjustment.customerApprovalEvidenceId || '').trim()) {
       throw new Error('CUSTOMER_QUOTE_APPROVAL_EVIDENCE_REQUIRED');
     }
     const now = new Date().toISOString();
@@ -1990,7 +2082,22 @@ export async function processDecideTechnicalQuoteAdjustment(
       approvedAt: now,
       updatedAt: FieldValue.serverTimestamp()
     });
-    transaction.update(woRef, decision === 'APPROVED' ? {
+    transaction.update(woRef, decision === 'APPROVED' ? (usesCustomerPortalOtp ? {
+      proposedQuoteAmount: Number(adjustment.requestedAmount || 0),
+      internallyApprovedQuoteAmount: Number(adjustment.requestedAmount || 0),
+      approvedFinalAmount: null,
+      customerApprovedQuote: null,
+      customerApprovalStatus: 'SUPERSEDED',
+      customerApprovalId: null,
+      customerApprovalSupersededAt: now,
+      customerApprovalSupersededByAdjustmentId: adjustmentId,
+      pendingQuoteAdjustmentId: null,
+      quoteStatus: 'PENDING_APPROVAL',
+      quoteVersion: Number(wo.quoteVersion || 0) + 1,
+      quoteInternallyApprovedAt: now,
+      quoteInternallyApprovedByUid: actor.uid,
+      updatedAt: FieldValue.serverTimestamp()
+    } : {
       approvedFinalAmount: Number(adjustment.requestedAmount || 0),
       customerApprovedQuote: Number(adjustment.requestedAmount || 0),
       customerApprovalEvidenceId: adjustment.customerApprovalEvidenceId,
@@ -1999,11 +2106,15 @@ export async function processDecideTechnicalQuoteAdjustment(
       quoteApprovedAt: now,
       quoteApprovedByUid: actor.uid,
       updatedAt: FieldValue.serverTimestamp()
+    }) : (usesCustomerPortalOtp ? {
+      pendingQuoteAdjustmentId: null,
+      quoteStatus: String(adjustment.previousQuoteStatus || (Number(wo.quoteVersion || 0) > 0 ? 'APPROVED' : 'REJECTED')),
+      updatedAt: FieldValue.serverTimestamp()
     } : {
       quoteStatus: 'REJECTED',
       quoteVersion: Number(wo.quoteVersion || 0) + 1,
       updatedAt: FieldValue.serverTimestamp()
-    });
+    }));
     transaction.create(idemRef, { scope: 'QUOTE_DECISION', adjustmentId, workOrderId, decision, createdAt: now });
     return { adjustmentId, status: decision };
   });

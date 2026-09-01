@@ -224,6 +224,8 @@ app.use('/api/channel-connections', createChannelConnectionsRouter(adminDb));
 // -------------------------------------------------------------
 import { createTechnicalRouter } from './server/routes/technical';
 app.use('/api/technical', createTechnicalRouter(adminDb));
+import { createCustomerPortalRouter } from './server/routes/customerPortal';
+app.use('/api/customer-portal', createCustomerPortalRouter(adminDb));
 
 // -------------------------------------------------------------
 // 6B. TECHNICAL CUSTODY & INTER-BRANCH INVENTORY TRANSFERS

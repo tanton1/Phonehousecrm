@@ -4,6 +4,7 @@ import App from './App.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 import { reportClientError } from './services/observabilityClient.ts';
+import CustomerPortalApp from './customer/CustomerPortalApp.tsx';
 
 window.addEventListener('error', event => {
   reportClientError({
@@ -22,10 +23,12 @@ window.addEventListener('unhandledrejection', event => {
   });
 });
 
+const isCustomerPortal = window.location.pathname === '/khach-hang' || window.location.pathname.startsWith('/khach-hang/');
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      {isCustomerPortal ? <CustomerPortalApp /> : <App />}
     </ErrorBoundary>
   </StrictMode>,
 );

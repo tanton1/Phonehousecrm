@@ -1,0 +1,12 @@
+{
+  "name": "PhoneHouse Care",
+  "short_name": "PhoneHouse Care",
+  "description": "Tra cứu bảo hành, sửa chữa và ưu đãi PhoneHouse",
+  "lang": "vi",
+  "start_url": "/khach-hang",
+  "scope": "/khach-hang",
+  "display": "standalone",
+  "background_color": "#fffaf7",
+  "theme_color": "#ff4b16",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

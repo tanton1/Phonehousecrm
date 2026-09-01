@@ -51,6 +51,12 @@ import { processAcceptTechnicalTransfer } from '../services/inventoryTransferSer
 import crypto from 'crypto';
 import { revealTechnicalPasscode } from '../services/technicalSecretService';
 import { getVietnamDayUtcRange, getVietnamMonthString } from '../../shared/vietnamTime';
+import { syncCustomerWorkOrderNotification } from '../services/customerPortalService';
+
+function notifyCustomerRepair(db: Firestore, workOrderId: string, eventHint: string) {
+  void syncCustomerWorkOrderNotification(db, workOrderId, eventHint)
+    .catch(error => console.warn('[Customer repair notification]', { workOrderId, eventHint, error: error?.message || error }));
+}
 
 export function createTechnicalRouter(db: Firestore | null): Router {
   const router = Router();
@@ -208,6 +214,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
           return res.status(400).json({ success: false, error: 'MISSING_LINE_ID' });
         }
         const result = await processStartTaskLine(db, req.params.id, lineId, req.user!);
+        notifyCustomerRepair(db, req.params.id, `TASK_STARTED:${lineId}`);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Start Task Error]:', error);
@@ -227,6 +234,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         const { lineId, reason, idempotencyKey } = req.body || {};
         if (!lineId) return res.status(400).json({ success: false, error: 'MISSING_LINE_ID' });
         const result = await processMarkTaskWaitingForParts(db, req.params.id, lineId, reason, req.user!, idempotencyKey);
+        notifyCustomerRepair(db, req.params.id, `WAITING_PARTS:${lineId}`);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         return res.status(400).json({ success: false, error: error?.message || 'Không thể chuyển task sang chờ linh kiện.' });
@@ -282,6 +290,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
           return res.status(400).json({ success: false, error: 'MISSING_LINE_ID' });
         }
         const result = await processCompleteTaskLine(db, req.params.id, lineId, evidencePhotoUrls, notes, req.user!, completionMetadata);
+        notifyCustomerRepair(db, req.params.id, `TASK_COMPLETED:${lineId}`);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Complete Task Error]:', error);
@@ -532,6 +541,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
 
       try {
         const result = await processQCInspection(db, req.params.id, req.body, req.user!);
+        notifyCustomerRepair(db, req.params.id, `QC:${String(req.body?.overallResult || '')}`);
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[QC Inspection Error]:', error);
@@ -587,7 +597,9 @@ export function createTechnicalRouter(db: Firestore | null): Router {
     async (req: Request, res: Response) => {
       if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
       try {
-        return res.json({ success: true, data: await processDecideTechnicalQuoteAdjustment(db, req.params.id, req.params.adjustmentId, req.body || {}, req.user!) });
+        const result = await processDecideTechnicalQuoteAdjustment(db, req.params.id, req.params.adjustmentId, req.body || {}, req.user!);
+        notifyCustomerRepair(db, req.params.id, `QUOTE:${String(req.body?.decision || '')}`);
+        return res.json({ success: true, data: result });
       } catch (error: any) {
         return res.status(400).json({ success: false, error: error?.message || 'Không thể duyệt báo giá.' });
       }
@@ -605,6 +617,7 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       try {
         const { notes, payment } = req.body;
         const result = await processDeliverToCustomer(db, req.params.id, notes || '', req.user!, payment);
+        notifyCustomerRepair(db, req.params.id, 'DELIVERED');
         return res.json({ success: true, data: result });
       } catch (error: any) {
         console.error('[Deliver Customer Error]:', error);

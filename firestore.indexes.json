@@ -803,6 +803,55 @@
         { "fieldPath": "branchId", "order": "ASCENDING" },
         { "fieldPath": "staffUid", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "customerServiceRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "customerAccountUid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customerServiceRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customerServiceRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customerNotifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "customerAccountUid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customerMessages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "conversationId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customerPushSubscriptions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "customerAccountUid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

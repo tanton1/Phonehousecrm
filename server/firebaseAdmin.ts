@@ -1,6 +1,7 @@
 import { cert, initializeApp, getApps, getApp, App } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getAppCheck } from 'firebase-admin/app-check';
+import { getMessaging } from 'firebase-admin/messaging';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -41,6 +42,7 @@ if (getApps().length === 0) {
 
 export const adminAuth = getAuth(adminApp);
 export const adminAppCheck = getAppCheck(adminApp);
+export const adminMessaging = getMessaging(adminApp);
 export const adminBucket = getStorage(adminApp).bucket();
 export const adminDb = getFirestore(
   adminApp,

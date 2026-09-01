@@ -207,4 +207,10 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* PhoneHouse Care is mobile-first. Keep even compact text actions at the
+   minimum comfortable tap height without changing the internal CRM UI. */
+[class~="bg-[#fffaf7]"][class~="text-zinc-900"] button {
+  min-height: 44px;
+}
+
 

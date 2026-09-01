@@ -122,6 +122,8 @@ const StandaloneCheckInView = React.lazy(() => import('./components/StandaloneCh
 const TechWorkspaceView = React.lazy(() => import('./components/TechWorkspaceView').then(module => ({ default: module.TechWorkspaceView })));
 const SalesWorkspaceView = React.lazy(() => import('./components/SalesWorkspaceView').then(module => ({ default: module.SalesWorkspaceView })));
 const CRMLeadsView = React.lazy(() => import('./components/CRMLeadsView').then(module => ({ default: module.CRMLeadsView })));
+const CustomerServiceRequestsView = React.lazy(() => import('./components/CustomerServiceRequestsView').then(module => ({ default: module.CustomerServiceRequestsView })));
+const PromotionCampaignManagerView = React.lazy(() => import('./components/PromotionCampaignManagerView').then(module => ({ default: module.PromotionCampaignManagerView })));
 
 function PageLoadingFallback() {
   return (
@@ -534,6 +536,7 @@ export default function App() {
         const branch = branches.find(b => b && b.id === user.branchId);
         return {
           id: user.id,
+          authUid: user.authUid || user.id,
           code: (user as any).employeeCode || (user as any).code || user.id,
           name: user.displayName,
           displayName: user.displayName,
@@ -1973,6 +1976,14 @@ export default function App() {
             invoices={filteredInvoices}
             devices={filteredDevices}
           />
+        )}
+
+        {activeTab === 'customer-service-requests' && (
+          <CustomerServiceRequestsView currentUser={currentUser} warehouses={warehouses} staffMembers={staffMembers} />
+        )}
+
+        {activeTab === 'promotion-campaigns' && (
+          <PromotionCampaignManagerView branches={branches} currentUser={currentUser} />
         )}
 
         {activeTab === 'ai-capture' && (
