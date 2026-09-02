@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Clock3,
+  Eye,
   ExternalLink,
   Loader2,
   Phone,
   RefreshCw,
   Save,
+  Search,
   Settings2,
   ShieldCheck,
   ShoppingBag,
@@ -135,6 +137,10 @@ export function QuickQuoteRequestsView({
   const [catalogKind, setCatalogKind] = useState<QuoteType>("DEVICE");
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [catalogVisibility, setCatalogVisibility] = useState<
+    "ALL" | "PUBLIC" | "HIDDEN"
+  >("ALL");
 
   const loadQueue = useCallback(async () => {
     if (!branchId) return;
@@ -302,11 +308,20 @@ export function QuickQuoteRequestsView({
   };
 
   const editCatalogPresentation = async (item: CatalogItem) => {
-    const publicName = window.prompt("Tên hiển thị công khai:", item.publicName || item.name);
+    const publicName = window.prompt(
+      "Tên hiển thị công khai:",
+      item.publicName || item.name,
+    );
     if (publicName === null) return;
-    const publicDescription = window.prompt("Mô tả ngắn công khai:", item.publicDescription || "");
+    const publicDescription = window.prompt(
+      "Mô tả ngắn công khai:",
+      item.publicDescription || "",
+    );
     if (publicDescription === null) return;
-    const imageUrl = window.prompt("URL ảnh công khai (có thể để trống):", item.imageUrl || "");
+    const imageUrl = window.prompt(
+      "URL ảnh công khai (có thể để trống):",
+      item.imageUrl || "",
+    );
     if (imageUrl === null) return;
     await updateCatalog(item, { publicName, publicDescription, imageUrl });
   };
@@ -320,6 +335,19 @@ export function QuickQuoteRequestsView({
       ).length,
     [items],
   );
+  const visibleCatalog = useMemo(() => {
+    const keyword = catalogSearch.trim().toLocaleLowerCase("vi");
+    return catalog.filter((item) => {
+      if (catalogVisibility === "PUBLIC" && !item.publicVisible) return false;
+      if (catalogVisibility === "HIDDEN" && item.publicVisible) return false;
+      if (!keyword) return true;
+      return [item.name, item.publicName, item.detail, item.publicDescription]
+        .filter(Boolean)
+        .some((value) =>
+          String(value).toLocaleLowerCase("vi").includes(keyword),
+        );
+    });
+  }, [catalog, catalogSearch, catalogVisibility]);
 
   return (
     <main className="space-y-4">
@@ -334,23 +362,25 @@ export function QuickQuoteRequestsView({
             giá CRM.
           </p>
         </div>
-        {!settingsOnly && <div className="flex gap-2">
-          <button
-            onClick={() => setMode("QUEUE")}
-            className={`min-h-11 rounded-xl px-4 text-xs font-black ${mode === "QUEUE" ? "bg-zinc-950 text-white" : "border bg-white"}`}
-          >
-            Hàng chờ
-          </button>
-          {manager && (
+        {!settingsOnly && (
+          <div className="flex gap-2">
             <button
-              onClick={() => setMode("SETTINGS")}
-              className={`min-h-11 rounded-xl px-4 text-xs font-black ${mode === "SETTINGS" ? "bg-zinc-950 text-white" : "border bg-white"}`}
+              onClick={() => setMode("QUEUE")}
+              className={`min-h-11 rounded-xl px-4 text-xs font-black ${mode === "QUEUE" ? "bg-zinc-950 text-white" : "border bg-white"}`}
             >
-              <Settings2 className="mr-1 inline h-4 w-4" />
-              Cài đặt
+              Hàng chờ
             </button>
-          )}
-        </div>}
+            {manager && (
+              <button
+                onClick={() => setMode("SETTINGS")}
+                className={`min-h-11 rounded-xl px-4 text-xs font-black ${mode === "SETTINGS" ? "bg-zinc-950 text-white" : "border bg-white"}`}
+              >
+                <Settings2 className="mr-1 inline h-4 w-4" />
+                Cài đặt
+              </button>
+            )}
+          </div>
+        )}
       </header>
       {error && (
         <p
@@ -573,7 +603,7 @@ export function QuickQuoteRequestsView({
                         {item.officialQuoteCode && (
                           <button
                             className="inline-flex min-h-11 items-center gap-1 rounded-xl border px-3 text-xs font-black"
-                        onClick={() => onOpenLead?.(item.leadId)}
+                            onClick={() => onOpenLead?.(item.leadId)}
                           >
                             <ExternalLink className="h-4 w-4" />
                             Mở CRM
@@ -725,10 +755,13 @@ export function QuickQuoteRequestsView({
           <section className="rounded-2xl border bg-white p-4 shadow-sm">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
               <div>
-                <h2 className="font-black">Danh mục được công khai</h2>
-                <p className="text-xs text-zinc-500">
-                  Dữ liệu cũ mặc định ẩn; quản lý phải bật từng máy, dịch vụ
-                  hoặc phụ kiện.
+                <h2 className="font-black">
+                  Sản phẩm hiển thị trên trang báo giá
+                </h2>
+                <p className="max-w-2xl text-xs leading-5 text-zinc-500">
+                  Chỉ mục đã bật <b>Công khai</b> mới xuất hiện trên miniweb.
+                  Khách không thấy IMEI, giá vốn, số tồn thực hay dữ liệu kho;
+                  giá cuối cùng luôn được máy chủ xác nhận lại.
                 </p>
               </div>
               <div className="flex gap-2">
@@ -756,13 +789,46 @@ export function QuickQuoteRequestsView({
                 </button>
               </div>
             </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
+                <input
+                  value={catalogSearch}
+                  onChange={(event) => setCatalogSearch(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-zinc-200 pl-10 pr-3 text-sm"
+                  placeholder="Tìm tên sản phẩm, model hoặc mô tả…"
+                />
+              </label>
+              <select
+                value={catalogVisibility}
+                onChange={(event) =>
+                  setCatalogVisibility(
+                    event.target.value as "ALL" | "PUBLIC" | "HIDDEN",
+                  )
+                }
+                className="min-h-11 rounded-xl border bg-white px-3 text-xs font-black"
+              >
+                <option value="ALL">Tất cả trạng thái</option>
+                <option value="PUBLIC">Đang công khai</option>
+                <option value="HIDDEN">Đang ẩn</option>
+              </select>
+              <a
+                href="/khach-hang/bao-gia"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex min-h-11 items-center justify-center gap-1 rounded-xl border border-orange-200 bg-orange-50 px-3 text-xs font-black text-orange-700"
+              >
+                <Eye className="h-4 w-4" />
+                Xem miniweb
+              </a>
+            </div>
             {catalogLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
               </div>
             ) : (
               <div className="mt-4 max-h-[620px] space-y-2 overflow-y-auto">
-                {catalog.map((item) => {
+                {visibleCatalog.map((item) => {
                   const Icon =
                     item.kind === "DEVICE"
                       ? Smartphone
@@ -775,9 +841,18 @@ export function QuickQuoteRequestsView({
                       className="flex flex-col justify-between gap-3 rounded-xl border p-3 sm:flex-row sm:items-center"
                     >
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="rounded-xl bg-orange-50 p-2 text-orange-600">
-                          <Icon className="h-5 w-5" />
-                        </div>
+                        {item.imageUrl ? (
+                          <img
+                            src={item.imageUrl}
+                            alt=""
+                            className="h-12 w-12 shrink-0 rounded-xl bg-zinc-100 object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="rounded-xl bg-orange-50 p-2 text-orange-600">
+                            <Icon className="h-5 w-5" />
+                          </div>
+                        )}
                         <div className="min-w-0">
                           <p className="truncate text-sm font-black">
                             {item.name}
@@ -836,9 +911,9 @@ export function QuickQuoteRequestsView({
                     </div>
                   );
                 })}
-                {!catalog.length && (
+                {!visibleCatalog.length && (
                   <p className="py-10 text-center text-sm text-zinc-500">
-                    Chưa có dữ liệu phù hợp tại chi nhánh.
+                    Không có sản phẩm phù hợp với bộ lọc.
                   </p>
                 )}
               </div>

@@ -9,6 +9,9 @@ import {
   Copy,
   Filter,
   Headphones,
+  Heart,
+  Info,
+  LayoutGrid,
   Loader2,
   MapPin,
   MessageCircle,
@@ -21,6 +24,9 @@ import {
   ShoppingBag,
   Smartphone,
   Sparkles,
+  Star,
+  Store,
+  Truck,
   Wrench,
   X,
 } from "lucide-react";
@@ -34,6 +40,7 @@ import {
   trackQuickQuoteEvent,
   type QuickQuoteAccessoryOffer,
   type QuickQuoteBootstrap,
+  type CustomerPromotion,
   type QuickQuoteDeviceOffer,
   type QuickQuoteRepairOffer,
   type QuickQuoteRequestResult,
@@ -68,6 +75,11 @@ type SelectedLine = {
   quantity: number;
   inspectionRequired?: boolean;
 };
+
+type QuickView =
+  | { kind: "DEVICE"; offer: QuickQuoteDeviceOffer }
+  | { kind: "REPAIR"; offer: QuickQuoteRepairOffer }
+  | { kind: "ACCESSORY"; offer: QuickQuoteAccessoryOffer };
 
 function classes(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -107,6 +119,31 @@ function OfferImage({
   );
 }
 
+function publicConditionLabel(value: string) {
+  const normalized = String(value || "").toUpperCase();
+  if (normalized.includes("LIKE") || normalized.includes("ZIN"))
+    return "Like New";
+  if (normalized.includes("99")) return "99%";
+  if (normalized.includes("98")) return "98%";
+  return value || "Đã kiểm định";
+}
+
+function formatOfferMeta(offer: QuickQuoteDeviceOffer) {
+  return [offer.storage, publicConditionLabel(offer.condition), offer.color]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function favoriteKey(kind: QuickQuoteType, offer: QuickView["offer"]) {
+  if (kind === "DEVICE") {
+    const device = offer as QuickQuoteDeviceOffer;
+    return `DEVICE:${device.name}:${device.storage}:${device.color}:${device.condition}:${device.batteryHealth}`;
+  }
+  if (kind === "REPAIR") return `REPAIR:${offer.name}`;
+  const accessory = offer as QuickQuoteAccessoryOffer;
+  return `ACCESSORY:${accessory.brand}:${accessory.name}`;
+}
+
 function FilterSheet({
   open,
   onClose,
@@ -132,7 +169,10 @@ function FilterSheet({
       >
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <p id="quick-quote-filter-title" className="font-black text-zinc-950">
+            <p
+              id="quick-quote-filter-title"
+              className="font-black text-zinc-950"
+            >
               Bộ lọc
             </p>
             <p className="text-xs text-zinc-500">
@@ -401,10 +441,12 @@ export function QuickQuoteMiniweb({
   onBack,
   onChat,
   hotline,
+  promotions = [],
 }: {
   onBack: () => void;
   onChat: () => void;
   hotline?: string;
+  promotions?: CustomerPromotion[];
 }) {
   const [type, setType] = useState<QuickQuoteType>("DEVICE");
   const [bootstrap, setBootstrap] = useState<QuickQuoteBootstrap | null>(null);
@@ -426,7 +468,9 @@ export function QuickQuoteMiniweb({
   const [repairModel, setRepairModel] = useState("");
   const [devices, setDevices] = useState<QuickQuoteDeviceOffer[]>([]);
   const [repairs, setRepairs] = useState<QuickQuoteRepairOffer[]>([]);
-  const [availableRepairModels, setAvailableRepairModels] = useState<string[]>([]);
+  const [availableRepairModels, setAvailableRepairModels] = useState<string[]>(
+    [],
+  );
   const [accessories, setAccessories] = useState<QuickQuoteAccessoryOffer[]>(
     [],
   );
@@ -442,6 +486,23 @@ export function QuickQuoteMiniweb({
   const [formOpen, setFormOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<QuickQuoteRequestResult | null>(null);
+  const [sortBy, setSortBy] = useState<"featured" | "priceAsc" | "priceDesc">(
+    "featured",
+  );
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(
+        window.localStorage.getItem("phonehouse-care-favorites") || "[]",
+      );
+      return Array.isArray(parsed)
+        ? parsed.filter((value): value is string => typeof value === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  const [quickView, setQuickView] = useState<QuickView | null>(null);
   const [formStartedAt, setFormStartedAt] = useState(0);
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [form, setForm] = useState({
@@ -620,7 +681,11 @@ export function QuickQuoteMiniweb({
     0,
   );
   const repairModels = useMemo(
-    () => unique([...availableRepairModels, ...repairs.flatMap((item) => item.compatibleModels)]),
+    () =>
+      unique([
+        ...availableRepairModels,
+        ...repairs.flatMap((item) => item.compatibleModels),
+      ]),
     [availableRepairModels, repairs],
   );
   const deviceOptions = useMemo(
@@ -640,6 +705,52 @@ export function QuickQuoteMiniweb({
     }),
     [accessories],
   );
+
+  const sortedDevices = useMemo(() => {
+    const copy = [...devices];
+    if (sortBy === "priceAsc")
+      copy.sort((left, right) => left.price - right.price);
+    if (sortBy === "priceDesc")
+      copy.sort((left, right) => right.price - left.price);
+    return copy;
+  }, [devices, sortBy]);
+  const sortedRepairs = useMemo(() => {
+    const copy = [...repairs];
+    if (sortBy === "priceAsc")
+      copy.sort(
+        (left, right) => Number(left.price || 0) - Number(right.price || 0),
+      );
+    if (sortBy === "priceDesc")
+      copy.sort(
+        (left, right) => Number(right.price || 0) - Number(left.price || 0),
+      );
+    return copy;
+  }, [repairs, sortBy]);
+  const sortedAccessories = useMemo(() => {
+    const copy = [...accessories];
+    if (sortBy === "priceAsc")
+      copy.sort((left, right) => left.price - right.price);
+    if (sortBy === "priceDesc")
+      copy.sort((left, right) => right.price - left.price);
+    return copy;
+  }, [accessories, sortBy]);
+
+  const toggleFavorite = (token: string) => {
+    setFavorites((current) => {
+      const next = current.includes(token)
+        ? current.filter((value) => value !== token)
+        : [...current, token];
+      try {
+        window.localStorage.setItem(
+          "phonehouse-care-favorites",
+          JSON.stringify(next.slice(-100)),
+        );
+      } catch {
+        /* storage may be unavailable */
+      }
+      return next;
+    });
+  };
 
   const chooseDevice = (offer: QuickQuoteDeviceOffer) => {
     setBranchId(offer.branchId);
@@ -862,6 +973,28 @@ export function QuickQuoteMiniweb({
             );
           })}
         </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            [ShieldCheck, "Giá từ hệ thống", "Minh bạch, cập nhật"],
+            [Store, "Nhận tại cửa hàng", "Chọn chi nhánh phù hợp"],
+            [Truck, "Hỗ trợ tận tâm", "Sale phản hồi nhanh"],
+            [Star, "Đã kiểm định", "Thông tin rõ ràng"],
+          ].map(([Icon, title, caption]) => {
+            const FeatureIcon = Icon as React.ElementType;
+            return (
+              <div
+                key={String(title)}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 shadow-sm"
+              >
+                <FeatureIcon className="h-4 w-4 text-[#ff4b16]" />
+                <p className="mt-2 text-[11px] font-black text-zinc-900">
+                  {title}
+                </p>
+                <p className="mt-0.5 text-[10px] text-zinc-500">{caption}</p>
+              </div>
+            );
+          })}
+        </div>
         <div className="mt-5 flex items-center gap-2 sm:hidden">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
@@ -886,6 +1019,54 @@ export function QuickQuoteMiniweb({
         <FilterSheet open={filtersOpen} onClose={() => setFiltersOpen(false)}>
           {filterFields}
         </FilterSheet>
+        {promotions.length > 0 && (
+          <section className="mt-5 overflow-hidden rounded-3xl border border-orange-100 bg-gradient-to-r from-orange-50 via-white to-amber-50 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[.16em] text-orange-600">
+                  <Sparkles className="h-3.5 w-3.5" /> Ưu đãi đang áp dụng
+                </p>
+                <p className="mt-1 text-sm font-black text-zinc-900">
+                  Chọn đúng sản phẩm, nhận thêm quyền lợi
+                </p>
+              </div>
+              <button
+                onClick={onChat}
+                className="min-h-10 shrink-0 rounded-xl bg-white px-3 text-[11px] font-black text-orange-700 shadow-sm"
+              >
+                Hỏi CSKH
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              {promotions.slice(0, 3).map((promotion) => (
+                <div
+                  key={promotion.id}
+                  className="min-w-[210px] rounded-2xl border border-orange-100 bg-white/90 p-3"
+                >
+                  <div className="flex items-center gap-2">
+                    {promotion.bannerUrl ? (
+                      <img
+                        src={promotion.bannerUrl}
+                        alt=""
+                        className="h-9 w-9 rounded-xl object-cover"
+                      />
+                    ) : (
+                      <div className="rounded-xl bg-orange-100 p-2 text-orange-600">
+                        <Sparkles className="h-4 w-4" />
+                      </div>
+                    )}
+                    <p className="line-clamp-1 text-xs font-black text-zinc-900">
+                      {promotion.title}
+                    </p>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-zinc-500">
+                    {promotion.summary}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {bootstrap && !bootstrap.settings.enabled && (
           <p className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm font-bold text-amber-800">
             Miniweb báo giá đang tạm ngưng. Vui lòng liên hệ hotline để được hỗ
@@ -919,6 +1100,56 @@ export function QuickQuoteMiniweb({
             <Loader2 className="h-5 w-5 animate-spin text-orange-500" />
           )}
         </div>
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white p-2.5 shadow-sm">
+          <p className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-zinc-500">
+            <Info className="h-4 w-4 shrink-0 text-sky-500" />
+            <span className="truncate">
+              {type === "DEVICE"
+                ? `${devices.length} máy đang hiển thị`
+                : type === "REPAIR"
+                  ? `${repairs.length} dịch vụ tương thích`
+                  : `${accessories.length} phụ kiện còn hàng`}
+            </span>
+          </p>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <select
+              aria-label="Sắp xếp sản phẩm"
+              value={sortBy}
+              onChange={(event) =>
+                setSortBy(event.target.value as typeof sortBy)
+              }
+              className="h-9 rounded-xl border border-zinc-200 bg-white px-2 text-[11px] font-black text-zinc-600"
+            >
+              <option value="featured">Phù hợp nhất</option>
+              <option value="priceAsc">Giá thấp đến cao</option>
+              <option value="priceDesc">Giá cao đến thấp</option>
+            </select>
+            <button
+              aria-label="Dạng lưới"
+              onClick={() => setViewMode("grid")}
+              className={classes(
+                "flex h-9 w-9 items-center justify-center rounded-xl",
+                viewMode === "grid"
+                  ? "bg-zinc-950 text-white"
+                  : "text-zinc-400",
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              aria-label="Dạng danh sách"
+              onClick={() => setViewMode("list")}
+              className={classes(
+                "hidden h-9 w-9 items-center justify-center rounded-xl sm:flex",
+                viewMode === "list"
+                  ? "bg-zinc-950 text-white"
+                  : "text-zinc-400",
+              )}
+            >
+              <ChevronDown className="h-4 w-4 rotate-[-90deg]" />
+            </button>
+          </div>
+        </div>
         {!loading && type === "REPAIR" && !repairModel && (
           <div className="mt-4 rounded-3xl border border-dashed border-orange-200 bg-orange-50/50 p-8 text-center">
             <Wrench className="mx-auto h-9 w-9 text-orange-400" />
@@ -928,12 +1159,18 @@ export function QuickQuoteMiniweb({
             </p>
           </div>
         )}
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div
+          className={classes(
+            "mt-4 grid gap-3",
+            viewMode === "grid" ? "lg:grid-cols-2" : "lg:grid-cols-1",
+          )}
+        >
           {type === "DEVICE" &&
-            devices.map((offer) => {
+            sortedDevices.map((offer) => {
               const checked = selected.DEVICE.some(
                 (line) => line.token === offer.selectionToken,
               );
+              const favoriteId = favoriteKey("DEVICE", offer);
               return (
                 <article
                   key={offer.selectionToken}
@@ -953,12 +1190,36 @@ export function QuickQuoteMiniweb({
                             {offer.name}
                           </h3>
                           <p className="mt-1 text-xs text-zinc-500">
-                            {offer.color} · {offer.condition} · {offer.region}
+                            {formatOfferMeta(offer)} · {offer.region}
                           </p>
                         </div>
-                        <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">
-                          Còn hàng
-                        </span>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            aria-label={
+                              favorites.includes(favoriteId)
+                                ? `Bỏ yêu thích ${offer.name}`
+                                : `Thêm yêu thích ${offer.name}`
+                            }
+                            onClick={() => toggleFavorite(favoriteId)}
+                            className={classes(
+                              "flex h-9 w-9 items-center justify-center rounded-xl",
+                              favorites.includes(favoriteId)
+                                ? "bg-rose-50 text-rose-500"
+                                : "bg-zinc-50 text-zinc-400",
+                            )}
+                          >
+                            <Heart
+                              className={classes(
+                                "h-4 w-4",
+                                favorites.includes(favoriteId) &&
+                                  "fill-current",
+                              )}
+                            />
+                          </button>
+                          <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">
+                            Còn hàng
+                          </span>
+                        </div>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-zinc-600">
                         <span className="rounded-lg bg-zinc-100 px-2 py-1">
@@ -976,34 +1237,43 @@ export function QuickQuoteMiniweb({
                     <p className="text-xl font-black text-[#ff4b16]">
                       {money.format(offer.price)}
                     </p>
-                    <button
-                      onClick={() => chooseDevice(offer)}
-                      className={classes(
-                        "min-h-11 rounded-2xl px-4 text-xs font-black",
-                        checked
-                          ? "bg-emerald-600 text-white"
-                          : "bg-zinc-950 text-white",
-                      )}
-                    >
-                      {checked ? (
-                        <>
-                          <Check className="mr-1 inline h-4 w-4" />
-                          Đã chọn
-                        </>
-                      ) : (
-                        "Chọn máy này"
-                      )}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setQuickView({ kind: "DEVICE", offer })}
+                        className="min-h-11 rounded-2xl border border-zinc-200 px-3 text-xs font-black text-zinc-700"
+                      >
+                        Chi tiết
+                      </button>
+                      <button
+                        onClick={() => chooseDevice(offer)}
+                        className={classes(
+                          "min-h-11 rounded-2xl px-4 text-xs font-black",
+                          checked
+                            ? "bg-emerald-600 text-white"
+                            : "bg-zinc-950 text-white",
+                        )}
+                      >
+                        {checked ? (
+                          <>
+                            <Check className="mr-1 inline h-4 w-4" />
+                            Đã chọn
+                          </>
+                        ) : (
+                          "Chọn máy này"
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </article>
               );
             })}
           {type === "REPAIR" &&
             repairModel &&
-            repairs.map((offer) => {
+            sortedRepairs.map((offer) => {
               const checked = selected.REPAIR.some(
                 (line) => line.token === offer.selectionToken,
               );
+              const favoriteId = favoriteKey("REPAIR", offer);
               return (
                 <article
                   key={offer.selectionToken}
@@ -1017,9 +1287,33 @@ export function QuickQuoteMiniweb({
                   <div className="flex gap-3">
                     <OfferImage url={offer.imageUrl} icon={Wrench} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-black uppercase text-orange-600">
-                        {offer.category}
-                      </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-[10px] font-black uppercase text-orange-600">
+                          {offer.category}
+                        </p>
+                        <button
+                          aria-label={
+                            favorites.includes(favoriteId)
+                              ? `Bỏ yêu thích ${offer.name}`
+                              : `Thêm yêu thích ${offer.name}`
+                          }
+                          onClick={() => toggleFavorite(favoriteId)}
+                          className={classes(
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl",
+                            favorites.includes(favoriteId)
+                              ? "bg-rose-50 text-rose-500"
+                              : "bg-zinc-50 text-zinc-400",
+                          )}
+                        >
+                          <Heart
+                            className={classes(
+                              "h-4 w-4",
+                              favorites.includes(favoriteId) &&
+                                "fill-current",
+                            )}
+                          />
+                        </button>
+                      </div>
                       <h3 className="mt-1 font-black text-zinc-950">
                         {offer.name}
                       </h3>
@@ -1046,26 +1340,35 @@ export function QuickQuoteMiniweb({
                         ? "Cần kiểm tra máy"
                         : money.format(Number(offer.price || 0))}
                     </p>
-                    <button
-                      onClick={() => toggleRepair(offer)}
-                      className={classes(
-                        "min-h-11 rounded-2xl px-4 text-xs font-black",
-                        checked
-                          ? "bg-emerald-600 text-white"
-                          : "bg-zinc-950 text-white",
-                      )}
-                    >
-                      {checked ? "Bỏ chọn" : "Thêm hạng mục"}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setQuickView({ kind: "REPAIR", offer })}
+                        className="min-h-11 rounded-2xl border border-zinc-200 px-3 text-xs font-black text-zinc-700"
+                      >
+                        Chi tiết
+                      </button>
+                      <button
+                        onClick={() => toggleRepair(offer)}
+                        className={classes(
+                          "min-h-11 rounded-2xl px-4 text-xs font-black",
+                          checked
+                            ? "bg-emerald-600 text-white"
+                            : "bg-zinc-950 text-white",
+                        )}
+                      >
+                        {checked ? "Bỏ chọn" : "Thêm hạng mục"}
+                      </button>
+                    </div>
                   </div>
                 </article>
               );
             })}
           {type === "ACCESSORY" &&
-            accessories.map((offer) => {
+            sortedAccessories.map((offer) => {
               const line = selected.ACCESSORY.find(
                 (item) => item.token === offer.selectionToken,
               );
+              const favoriteId = favoriteKey("ACCESSORY", offer);
               return (
                 <article
                   key={offer.selectionToken}
@@ -1079,9 +1382,33 @@ export function QuickQuoteMiniweb({
                   <div className="flex gap-3">
                     <OfferImage url={offer.imageUrl} icon={ShoppingBag} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-black uppercase text-orange-600">
-                        {offer.category} · {offer.brand}
-                      </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-[10px] font-black uppercase text-orange-600">
+                          {offer.category} · {offer.brand}
+                        </p>
+                        <button
+                          aria-label={
+                            favorites.includes(favoriteId)
+                              ? `Bỏ yêu thích ${offer.name}`
+                              : `Thêm yêu thích ${offer.name}`
+                          }
+                          onClick={() => toggleFavorite(favoriteId)}
+                          className={classes(
+                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl",
+                            favorites.includes(favoriteId)
+                              ? "bg-rose-50 text-rose-500"
+                              : "bg-zinc-50 text-zinc-400",
+                          )}
+                        >
+                          <Heart
+                            className={classes(
+                              "h-4 w-4",
+                              favorites.includes(favoriteId) &&
+                                "fill-current",
+                            )}
+                          />
+                        </button>
+                      </div>
                       <h3 className="mt-1 font-black text-zinc-950">
                         {offer.name}
                       </h3>
@@ -1093,7 +1420,7 @@ export function QuickQuoteMiniweb({
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center justify-between">
+                  <div className="mt-3 flex items-center justify-between gap-2">
                     <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700">
                       Còn hàng
                     </span>
@@ -1116,12 +1443,22 @@ export function QuickQuoteMiniweb({
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => addAccessory(offer)}
-                        className="min-h-11 rounded-2xl bg-zinc-950 px-4 text-xs font-black text-white"
-                      >
-                        Thêm vào báo giá
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            setQuickView({ kind: "ACCESSORY", offer })
+                          }
+                          className="min-h-11 rounded-2xl border border-zinc-200 px-3 text-xs font-black text-zinc-700"
+                        >
+                          Chi tiết
+                        </button>
+                        <button
+                          onClick={() => addAccessory(offer)}
+                          className="min-h-11 rounded-2xl bg-zinc-950 px-4 text-xs font-black text-white"
+                        >
+                          Thêm vào báo giá
+                        </button>
+                      </div>
                     )}
                   </div>
                 </article>
@@ -1190,6 +1527,122 @@ export function QuickQuoteMiniweb({
           </div>
         </div>
       )}
+      {quickView && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chi tiết sản phẩm"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/60 p-0 sm:items-center sm:p-5"
+        >
+          <div className="w-full max-w-lg rounded-t-[2rem] bg-[#fffaf7] p-5 shadow-2xl sm:rounded-[2rem] sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[.16em] text-[#ff4b16]">
+                  Chi tiết lựa chọn
+                </p>
+                <h2 className="mt-1 text-xl font-black text-zinc-950">
+                  {quickView.offer.name}
+                </h2>
+              </div>
+              <button
+                aria-label="Đóng chi tiết"
+                onClick={() => setQuickView(null)}
+                className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-4 flex gap-4 rounded-3xl border border-zinc-200 bg-white p-4">
+              <OfferImage
+                url={quickView.offer.imageUrl}
+                icon={
+                  quickView.kind === "DEVICE"
+                    ? Smartphone
+                    : quickView.kind === "REPAIR"
+                      ? Wrench
+                      : ShoppingBag
+                }
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-2xl font-black text-[#ff4b16]">
+                  {quickView.kind === "REPAIR" &&
+                  quickView.offer.inspectionRequired
+                    ? "Cần kiểm tra máy"
+                    : money.format(Number(quickView.offer.price || 0))}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-zinc-600">
+                  {quickView.kind === "DEVICE"
+                    ? `${formatOfferMeta(quickView.offer)} · ${quickView.offer.region}`
+                    : quickView.offer.description ||
+                      "Thông tin đang được cập nhật."}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-2 text-xs font-bold text-zinc-600 sm:grid-cols-2">
+              {quickView.kind === "DEVICE" && (
+                <>
+                  <p className="rounded-2xl bg-white p-3">
+                    <BatteryCharging className="mr-1 inline h-4 w-4 text-orange-500" />
+                    Pin {quickView.offer.batteryHealth || "—"}%
+                  </p>
+                  <p className="rounded-2xl bg-white p-3">
+                    <ShieldCheck className="mr-1 inline h-4 w-4 text-emerald-500" />
+                    Bảo hành {quickView.offer.warrantyPeriodMonths} tháng
+                  </p>
+                </>
+              )}
+              {quickView.kind === "REPAIR" && (
+                <>
+                  <p className="rounded-2xl bg-white p-3">
+                    <Clock3 className="mr-1 inline h-4 w-4 text-sky-500" />
+                    Dự kiến{" "}
+                    {quickView.offer.durationMinutes
+                      ? `${quickView.offer.durationMinutes} phút`
+                      : "Sau khi kiểm tra"}
+                  </p>
+                  <p className="rounded-2xl bg-white p-3">
+                    <ShieldCheck className="mr-1 inline h-4 w-4 text-emerald-500" />
+                    Bảo hành {quickView.offer.warrantyPeriodMonths || 0} tháng
+                  </p>
+                </>
+              )}
+              {quickView.kind === "ACCESSORY" && (
+                <p className="rounded-2xl bg-white p-3 sm:col-span-2">
+                  <ShoppingBag className="mr-1 inline h-4 w-4 text-orange-500" />
+                  Tương thích:{" "}
+                  {quickView.offer.compatibleModels?.join(", ") ||
+                    "Nhiều dòng iPhone"}
+                </p>
+              )}
+            </div>
+            <div className="mt-5 flex gap-2">
+              <button
+                onClick={() => setQuickView(null)}
+                className="min-h-12 flex-1 rounded-2xl border border-zinc-200 bg-white text-sm font-black"
+              >
+                Đóng
+              </button>
+              <button
+                onClick={() => {
+                  if (quickView.kind === "DEVICE")
+                    chooseDevice(quickView.offer);
+                  else if (quickView.kind === "REPAIR")
+                    toggleRepair(quickView.offer);
+                  else addAccessory(quickView.offer);
+                  setQuickView(null);
+                }}
+                className="min-h-12 flex-1 rounded-2xl bg-[#ff4b16] text-sm font-black text-white"
+              >
+                {quickView.kind === "DEVICE"
+                  ? "Chọn máy này"
+                  : quickView.kind === "REPAIR"
+                    ? "Thêm hạng mục"
+                    : "Thêm vào báo giá"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {formOpen && bootstrap && (
         <div
           role="dialog"
@@ -1200,7 +1653,10 @@ export function QuickQuoteMiniweb({
           <div className="mx-auto min-h-full max-w-xl bg-white sm:min-h-0 sm:rounded-[2rem]">
             <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-4 py-3 sm:rounded-t-[2rem]">
               <div>
-                <p id="quick-quote-request-title" className="font-black text-zinc-950">
+                <p
+                  id="quick-quote-request-title"
+                  className="font-black text-zinc-950"
+                >
                   Nhận báo giá từ PhoneHouse
                 </p>
                 <p className="text-xs text-zinc-500">
@@ -1363,7 +1819,10 @@ export function QuickQuoteMiniweb({
             <p className="mt-4 text-xs font-black uppercase tracking-[.16em] text-emerald-600">
               Đã gửi thành công
             </p>
-            <h2 id="quick-quote-success-title" className="mt-2 text-2xl font-black text-zinc-950">
+            <h2
+              id="quick-quote-success-title"
+              className="mt-2 text-2xl font-black text-zinc-950"
+            >
               {success.requestCode}
             </h2>
             <p className="mt-2 text-sm leading-6 text-zinc-500">
