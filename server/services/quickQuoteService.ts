@@ -3,6 +3,13 @@ import { FieldValue, Firestore, Transaction } from 'firebase-admin/firestore';
 import { buildCrmSearchPrefixes, chooseCrmAssignee, normalizeCrmPhone, prepareCrmPreSaleAssignment } from './crmOperationsService';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
 import { getVietnamDateString } from '../../shared/vietnamTime';
+import {
+  canonicalDeviceModelName,
+  canonicalDeviceVariantKey,
+  deviceVariantKeyCandidates,
+  MIN_DEVICE_RETAIL_PRICE_VND,
+  normalizeRetailPriceKey
+} from '../../shared/retailPricing';
 import { createQuickQuoteUnassignedTelegramOutboxRecord, dispatchTelegramOutboxEvent, loadTelegramConfig, quickQuoteUnassignedOutboxId, telegramIsConfigured } from './telegramService';
 
 export type QuickQuoteType = 'DEVICE' | 'REPAIR' | 'ACCESSORY';
@@ -118,6 +125,10 @@ function normalize(value: unknown) {
     .trim();
 }
 
+function normalizePriceKey(value: unknown) {
+  return normalizeRetailPriceKey(text(value, 500));
+}
+
 function serialize(value: any): any {
   if (value === undefined) return undefined;
   if (value === null || typeof value !== 'object') return value;
@@ -228,25 +239,84 @@ async function currentPricing(db: Firestore, reader?: QuickQuoteReader) {
   return selectEffectiveOperationalPolicy(normalizeOperationalPolicyVersions('retailPricing', snapshot.exists ? snapshot.data() : null));
 }
 
-function deviceVariantKey(data: any) {
-  return [data?.model, data?.storage, data?.condition].map(normalize).join('|');
+export function deviceVariantKey(data: any) {
+  return canonicalDeviceVariantKey(data);
+}
+
+export function deviceVariantId(data: any) {
+  const key = typeof data === 'string' ? normalizePriceKey(data) : deviceVariantKey(data);
+  return `QDV_${hash(['QUICK_QUOTE_DEVICE_VARIANT', key]).slice(0, 24).toUpperCase()}`;
 }
 
 function resolvePrice(policy: any, branchId: string, kind: 'DEVICE' | 'ACCESSORY', sourceId: string, data: any) {
   const entries = Array.isArray(policy?.entries) ? policy.entries : [];
   const matching = entries.filter((entry: any) => {
     if (entry?.isActive !== true || entry.itemType !== kind || !['ALL', branchId].includes(String(entry.branchId || 'ALL'))) return false;
-    const key = normalize(entry.itemKey);
-    if (entry.matchType === 'ITEM_ID') return key === normalize(sourceId);
-    if (entry.matchType === 'SKU') return key === normalize(data?.sku);
-    return kind === 'DEVICE' && entry.matchType === 'MODEL_VARIANT' && key === deviceVariantKey(data);
+    const key = normalizePriceKey(entry.itemKey);
+    if (entry.matchType === 'ITEM_ID') return key === normalizePriceKey(sourceId);
+    if (entry.matchType === 'SKU') return key === normalizePriceKey(data?.sku);
+    return kind === 'DEVICE' && entry.matchType === 'MODEL_VARIANT' && deviceVariantKeyCandidates(data).includes(key);
   });
   const priority = (entry: any) => (entry.branchId === branchId ? 100 : 0) + (entry.matchType === 'ITEM_ID' ? 30 : entry.matchType === 'SKU' ? 20 : 10);
-  const entry = matching.sort((left: any, right: any) => priority(right) - priority(left))[0];
+  const validPrice = (value: unknown) => Number.isSafeInteger(Number(value))
+    && Number(value) >= (kind === 'DEVICE' ? MIN_DEVICE_RETAIL_PRICE_VND : 1);
+  const entry = matching
+    .sort((left: any, right: any) => priority(right) - priority(left))
+    .find((candidate: any) => validPrice(candidate.retailPrice));
   const fallback = Number(kind === 'DEVICE' ? data?.sellPrice : (data?.retailPrice ?? data?.sellPrice));
   const price = Number(entry?.retailPrice ?? fallback);
-  if (!Number.isSafeInteger(price) || price <= 0) throw new QuickQuoteError('QUICK_QUOTE_PRICE_NOT_AVAILABLE');
+  if (!validPrice(price)) throw new QuickQuoteError('QUICK_QUOTE_PRICE_NOT_AVAILABLE');
   return { price, policyId: entry ? text(policy?.policyId || policy?.id, 120) || null : null, policyVersion: entry ? text(policy?.version, 80) || null : null };
+}
+
+function deviceVariantName(item: any) {
+  const model = text(canonicalDeviceModelName(item), 160);
+  const storage = text(item?.storage, 80);
+  return [model, storage && !normalize(model).includes(normalize(storage)) ? storage : ''].filter(Boolean).join(' ');
+}
+
+function variantPresentation(config: any, branchId: string, items: any[]) {
+  const scoped = config?.publicPresentationByBranch?.[branchId] || {};
+  const fallback = items.find(item => item.publicName || item.imageUrl || item.images?.[0]) || items[0] || {};
+  return {
+    name: text(scoped.publicName || config?.publicName || fallback.publicName || deviceVariantName(fallback), 200),
+    description: text(scoped.publicDescription || config?.publicDescription || fallback.publicDescription, 600),
+    imageUrl: text(scoped.imageUrl || config?.imageUrl || fallback.imageUrl || fallback.images?.[0], 1_000) || null,
+    publicSortOrder: safePositiveInt(scoped.publicSortOrder ?? config?.publicSortOrder, 9_999)
+  };
+}
+
+function branchVariantIsPublic(config: any, branchId: string, items: any[]) {
+  return Array.isArray(config?.publicBranchIds)
+    ? config.publicBranchIds.includes(branchId)
+    : items.some(item => item.publicVisible === true);
+}
+
+function groupDeviceVariants(items: any[]) {
+  const groups = new Map<string, any[]>();
+  items.forEach(item => {
+    const id = deviceVariantId(item);
+    groups.set(id, [...(groups.get(id) || []), item]);
+  });
+  return groups;
+}
+
+async function loadDeviceVariantConfigs(db: Firestore) {
+  const snapshot = await db.collection('quickQuoteDeviceVariants').limit(1_500).get();
+  return new Map(snapshot.docs.map(document => [document.id, { id: document.id, ...document.data() }]));
+}
+
+function chooseVariantPrice(policy: any, variantId: string, items: any[]) {
+  return items
+    .map(item => {
+      try { return { item, pricing: resolvePrice(policy, text(item.branchId, 120), 'DEVICE', variantId, item) }; }
+      catch (error) {
+        if (error instanceof QuickQuoteError && error.code === 'QUICK_QUOTE_PRICE_NOT_AVAILABLE') return null;
+        throw error;
+      }
+    })
+    .filter(Boolean)
+    .sort((left: any, right: any) => left.pricing.price - right.pricing.price)[0] as { item: any; pricing: ReturnType<typeof resolvePrice> } | undefined;
 }
 
 function page<T>(items: T[], cursor: unknown, limitInput: unknown) {
@@ -303,32 +373,67 @@ export async function listPublicQuickQuoteDevices(db: Firestore, input: any) {
   const settings = await loadQuickQuoteSettings(db);
   if (!settings.enabled) throw new QuickQuoteError('QUICK_QUOTE_DISABLED');
   if (input.branchId) await activeBranch(db, text(input.branchId, 120));
-  const [snapshot, policy, activeBranches] = await Promise.all([
+  const [snapshot, policy, activeBranches, variantConfigs] = await Promise.all([
     db.collection('devices').where('status', '==', 'in_stock').limit(1_000).get(),
     currentPricing(db),
-    db.collection('branches').where('isActive', '==', true).limit(100).get()
+    db.collection('branches').where('isActive', '==', true).limit(100).get(),
+    loadDeviceVariantConfigs(db)
   ]);
   const activeBranchIds = new Set(activeBranches.docs.map(document => document.id));
+  const branchNames = new Map(activeBranches.docs.map(document => [document.id, text(document.data().name, 160)]));
   const filters = { branch: text(input.branchId, 120), search: normalize(input.search), model: normalize(input.model), storage: normalize(input.storage), condition: normalize(input.condition), color: normalize(input.color) };
-  const items = snapshot.docs.map(document => ({ id: document.id, ...document.data() } as any))
-    .filter(item => item.publicVisible === true && activeBranchIds.has(text(item.branchId, 120)) && (!filters.branch || item.branchId === filters.branch))
-    .filter(item => !filters.search || normalize([item.publicName, item.model, item.storage, item.color, item.condition].join(' ')).includes(filters.search))
-    .filter(item => !filters.model || normalize(item.model) === filters.model)
+  const stock = snapshot.docs.map(document => ({ id: document.id, ...document.data() } as any))
+    .filter(item => activeBranchIds.has(text(item.branchId, 120)) && (!filters.branch || item.branchId === filters.branch))
+    .filter(item => !filters.model || normalize(canonicalDeviceModelName(item)) === filters.model)
     .filter(item => !filters.storage || normalize(item.storage) === filters.storage)
     .filter(item => !filters.condition || normalize(item.condition) === filters.condition)
-    .filter(item => !filters.color || normalize(item.color) === filters.color)
-    .map(item => {
-      const pricing = resolvePrice(policy, text(item.branchId, 120), 'DEVICE', item.id, item);
+    .filter(item => !filters.color || normalize(item.color) === filters.color);
+  const items = [...groupDeviceVariants(stock).entries()]
+    .map(([variantId, variantItems]) => {
+      const config = variantConfigs.get(variantId);
+      const publicItems = variantItems.filter(item => {
+        const branchId = text(item.branchId, 120);
+        const branchItems = variantItems.filter(candidate => text(candidate.branchId, 120) === branchId);
+        return branchVariantIsPublic(config, branchId, branchItems);
+      });
+      if (!publicItems.length) return null;
+      const choice = chooseVariantPrice(policy, variantId, publicItems);
+      if (!choice) return null;
+      const branchId = text(choice.item.branchId, 120);
+      const presentation = variantPresentation(config, branchId, publicItems);
+      const colors = [...new Set(publicItems.map(item => text(item.color, 100)).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'vi'));
+      const regions = [...new Set(publicItems.map(item => text(item.region, 80)).filter(Boolean))];
+      const branchIds = [...new Set(publicItems.map(item => text(item.branchId, 120)).filter(Boolean))];
+      const availablePrices = new Set(publicItems.flatMap(item => {
+        try { return [resolvePrice(policy, text(item.branchId, 120), 'DEVICE', variantId, item).price]; }
+        catch (error) {
+          if (error instanceof QuickQuoteError && error.code === 'QUICK_QUOTE_PRICE_NOT_AVAILABLE') return [];
+          throw error;
+        }
+      }));
+      const batteryValues = publicItems.map(item => safePositiveInt(item.batteryHealth)).filter(value => value > 0);
+      const warrantyValues = publicItems.map(item => safePositiveInt(item.warrantyPeriodMonths)).filter(value => value > 0);
       return {
-        selectionToken: createQuickQuoteSelectionToken({ kind: 'DEVICE', sourceId: item.id, branchId: text(item.branchId, 120), displayedPrice: pricing.price, policyVersion: pricing.policyVersion }),
-        name: text(item.publicName || `${item.model} ${item.storage}`, 200),
-        model: text(item.model, 160), storage: text(item.storage, 80), color: text(item.color, 100), condition: text(item.condition, 120),
-        region: text(item.region, 80), batteryHealth: Math.max(0, Math.min(100, safePositiveInt(item.batteryHealth))),
-        warrantyPeriodMonths: Math.min(120, safePositiveInt(item.warrantyPeriodMonths)), imageUrl: text(item.imageUrl || item.images?.[0], 1_000) || null,
-        branchId: text(item.branchId, 120), price: pricing.price, inStock: true
+        selectionToken: createQuickQuoteSelectionToken({ kind: 'DEVICE', sourceId: variantId, branchId, displayedPrice: choice.pricing.price, policyVersion: choice.pricing.policyVersion }),
+        name: presentation.name,
+        description: presentation.description,
+        model: text(canonicalDeviceModelName(choice.item), 160), storage: text(choice.item.storage, 80),
+        color: colors.length === 1 ? colors[0] : `${colors.length} màu`, colors,
+        condition: text(choice.item.condition, 120),
+        region: regions.length === 1 ? regions[0] : regions.length > 1 ? 'Nhiều phiên bản' : '',
+        batteryHealth: batteryValues.length ? Math.min(...batteryValues) : 0,
+        warrantyPeriodMonths: warrantyValues.length ? Math.min(...warrantyValues) : 0,
+        imageUrl: presentation.imageUrl,
+        publicSortOrder: presentation.publicSortOrder,
+        branchId, branchName: branchNames.get(branchId) || '',
+        availableBranchIds: branchIds,
+        availableBranchNames: branchIds.map(id => branchNames.get(id) || id),
+        price: choice.pricing.price, priceIsStartingFrom: availablePrices.size > 1, inStock: true
       };
     })
-    .sort((left, right) => left.price - right.price || left.name.localeCompare(right.name, 'vi'));
+    .filter(Boolean)
+    .filter((item: any) => !filters.search || normalize([item.name, item.description, item.model, item.storage, item.colors.join(' '), item.condition].join(' ')).includes(filters.search))
+    .sort((left: any, right: any) => left.publicSortOrder - right.publicSortOrder || left.price - right.price || left.name.localeCompare(right.name, 'vi'));
   const result = page(items, input.cursor, input.limit);
   return { ...result, coverageLimited: snapshot.size >= 1_000 };
 }
@@ -444,14 +549,42 @@ async function resolveRequestSelections(db: Firestore, quoteType: QuickQuoteType
     seen.add(decoded.sourceId);
     const quantity = quoteType === 'ACCESSORY' ? Math.max(1, Math.min(100, safePositiveInt(selection?.quantity, 1))) : 1;
     if (quoteType === 'DEVICE') {
-      const snapshot = await readQuickQuoteSnapshot(db.collection('devices').doc(decoded.sourceId), reader);
-      const item = snapshot.data();
-      if (!snapshot.exists || item?.publicVisible !== true || item.status !== 'in_stock' || item.branchId !== branchId) throw new QuickQuoteError('QUICK_QUOTE_OFFER_UNAVAILABLE');
-      const pricing = resolvePrice(policy, branchId, 'DEVICE', snapshot.id, item);
-      const line: ResolvedLine = { sourceType: 'DEVICE', sourceId: snapshot.id, name: text(item.publicName || `${item.model} ${item.storage}`, 200), model: text(item.model, 160), storage: text(item.storage, 80), color: text(item.color, 100), condition: text(item.condition, 120), warrantyPeriodMonths: safePositiveInt(item.warrantyPeriodMonths), unitPrice: pricing.price, quantity: 1, lineTotal: pricing.price, pricePolicyId: pricing.policyId, pricePolicyVersion: pricing.policyVersion };
-      lines.push(line);
-      changed ||= pricing.price !== decoded.displayedPrice;
-      refreshed.push(refreshedPublicLine(line, createQuickQuoteSelectionToken({ kind: 'DEVICE', sourceId: snapshot.id, branchId, displayedPrice: pricing.price, policyVersion: pricing.policyVersion })));
+      if (decoded.sourceId.startsWith('QDV_')) {
+        const [stockSnapshot, configSnapshot] = await Promise.all([
+          readQuickQuoteSnapshot(db.collection('devices').where('status', '==', 'in_stock').limit(1_000), reader),
+          readQuickQuoteSnapshot(db.collection('quickQuoteDeviceVariants').doc(decoded.sourceId), reader)
+        ]);
+        const available = stockSnapshot.docs
+          .map((document: any) => ({ id: document.id, ...document.data() }))
+          .filter((item: any) => item.branchId === branchId && deviceVariantId(item) === decoded.sourceId);
+        const config = configSnapshot.exists ? configSnapshot.data() : null;
+        if (!available.length || !branchVariantIsPublic(config, branchId, available)) throw new QuickQuoteError('QUICK_QUOTE_OFFER_UNAVAILABLE');
+        const choice = chooseVariantPrice(policy, decoded.sourceId, available);
+        if (!choice) throw new QuickQuoteError('QUICK_QUOTE_PRICE_NOT_AVAILABLE');
+        const presentation = variantPresentation(config, branchId, available);
+        const colors = [...new Set<string>(available.map((item: any) => text(item.color, 100)).filter(Boolean))];
+        const line: ResolvedLine = {
+          sourceType: 'DEVICE', sourceId: decoded.sourceId, name: presentation.name,
+          description: presentation.description, model: text(canonicalDeviceModelName(choice.item), 160), storage: text(choice.item.storage, 80),
+          color: colors.length === 1 ? colors[0] : `${colors.length} màu`, condition: text(choice.item.condition, 120),
+          warrantyPeriodMonths: safePositiveInt(choice.item.warrantyPeriodMonths), unitPrice: choice.pricing.price,
+          quantity: 1, lineTotal: choice.pricing.price, pricePolicyId: choice.pricing.policyId, pricePolicyVersion: choice.pricing.policyVersion
+        };
+        lines.push(line);
+        changed ||= choice.pricing.price !== decoded.displayedPrice;
+        refreshed.push(refreshedPublicLine(line, createQuickQuoteSelectionToken({ kind: 'DEVICE', sourceId: decoded.sourceId, branchId, displayedPrice: choice.pricing.price, policyVersion: choice.pricing.policyVersion })));
+      } else {
+        // Keep legacy IMEI-bound tokens valid for their short 15-minute lifetime
+        // during rollout. New offers never disclose or bind to a specific IMEI.
+        const snapshot = await readQuickQuoteSnapshot(db.collection('devices').doc(decoded.sourceId), reader);
+        const item = snapshot.data();
+        if (!snapshot.exists || item?.publicVisible !== true || item.status !== 'in_stock' || item.branchId !== branchId) throw new QuickQuoteError('QUICK_QUOTE_OFFER_UNAVAILABLE');
+        const pricing = resolvePrice(policy, branchId, 'DEVICE', snapshot.id, item);
+        const line: ResolvedLine = { sourceType: 'DEVICE', sourceId: snapshot.id, name: text(item.publicName || deviceVariantName(item), 200), model: text(item.model, 160), storage: text(item.storage, 80), color: text(item.color, 100), condition: text(item.condition, 120), warrantyPeriodMonths: safePositiveInt(item.warrantyPeriodMonths), unitPrice: pricing.price, quantity: 1, lineTotal: pricing.price, pricePolicyId: pricing.policyId, pricePolicyVersion: pricing.policyVersion };
+        lines.push(line);
+        changed ||= pricing.price !== decoded.displayedPrice;
+        refreshed.push(refreshedPublicLine(line, createQuickQuoteSelectionToken({ kind: 'DEVICE', sourceId: snapshot.id, branchId, displayedPrice: pricing.price, policyVersion: pricing.policyVersion })));
+      }
     } else if (quoteType === 'ACCESSORY') {
       const [productSnapshot, balanceSnapshot] = await Promise.all([
         readQuickQuoteSnapshot(db.collection('products').doc(decoded.sourceId), reader),
@@ -781,8 +914,32 @@ export async function listStaffQuickQuoteCatalog(db: Firestore, actor: QuickQuot
   const branchId = text(input.branchId || actor.branchId, 120);
   if (kind !== 'REPAIR' && (!branchId || !actorCanAccessBranch(actor, branchId))) throw new QuickQuoteError('QUICK_QUOTE_BRANCH_FORBIDDEN');
   if (kind === 'DEVICE') {
-    const snapshot = await db.collection('devices').where('status', '==', 'in_stock').limit(500).get();
-    return snapshot.docs.map(document => ({ id: document.id, ...document.data() } as any)).filter(item => item.branchId === branchId).map(item => ({ id: item.id, kind, name: `${item.model || ''} ${item.storage || ''}`.trim(), detail: `${item.color || ''} · ${item.condition || ''}`, price: safePositiveInt(item.sellPrice), publicVisible: item.publicVisible === true, publicName: text(item.publicName, 200), imageUrl: text(item.imageUrl || item.images?.[0], 1_000) }));
+    const [snapshot, configs, policy] = await Promise.all([
+      db.collection('devices').where('status', '==', 'in_stock').limit(1_500).get(),
+      loadDeviceVariantConfigs(db),
+      currentPricing(db)
+    ]);
+    const stock = snapshot.docs.map(document => ({ id: document.id, ...document.data() } as any)).filter(item => item.branchId === branchId);
+    return [...groupDeviceVariants(stock).entries()].map(([variantId, items]) => {
+      const config = configs.get(variantId);
+      const choice = chooseVariantPrice(policy, variantId, items);
+      const presentation = variantPresentation(config, branchId, items);
+      const colors = [...new Set(items.map(item => text(item.color, 100)).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'vi'));
+      return {
+        id: variantId, kind, variantKey: deviceVariantKey(items[0]),
+        name: deviceVariantName(items[0]),
+        detail: `${colors.join(', ') || 'Chưa có màu'} · ${text(items[0].condition, 120)} · ${items.length} máy trong kho`,
+        price: choice?.pricing.price || 0,
+        stockCount: items.length,
+        colors,
+        configured: Boolean(config),
+        publicVisible: branchVariantIsPublic(config, branchId, items),
+        publicName: presentation.name,
+        publicDescription: presentation.description,
+        imageUrl: presentation.imageUrl,
+        publicSortOrder: presentation.publicSortOrder
+      };
+    }).sort((left, right) => left.publicSortOrder - right.publicSortOrder || left.name.localeCompare(right.name, 'vi'));
   }
   if (kind === 'ACCESSORY') {
     const balances = await db.collection('inventoryBalances').where('branchId', '==', branchId).limit(1_000).get();
@@ -800,7 +957,56 @@ export async function listStaffQuickQuoteCatalog(db: Firestore, actor: QuickQuot
 export async function updateStaffQuickQuoteCatalogItem(db: Firestore, actor: QuickQuoteStaffActor, kindInput: unknown, sourceId: string, input: any) {
   if (!MANAGER_ROLES.has(actorRole(actor))) throw new QuickQuoteError('QUICK_QUOTE_SETTINGS_FORBIDDEN');
   const kind = text(kindInput, 30).toUpperCase() as QuickQuoteType;
-  const collection = kind === 'DEVICE' ? 'devices' : kind === 'ACCESSORY' ? 'products' : kind === 'REPAIR' ? 'repairServices' : '';
+  const collection = kind === 'ACCESSORY' ? 'products' : kind === 'REPAIR' ? 'repairServices' : '';
+  if (kind === 'DEVICE') {
+    const targetBranchId = text(input.branchId || actor.branchId, 120);
+    if (!sourceId.startsWith('QDV_') || !targetBranchId || !actorCanAccessBranch(actor, targetBranchId)) throw new QuickQuoteError('QUICK_QUOTE_BRANCH_FORBIDDEN');
+    const [stockSnapshot, currentSnapshot] = await Promise.all([
+      db.collection('devices').where('status', '==', 'in_stock').limit(1_500).get(),
+      db.collection('quickQuoteDeviceVariants').doc(sourceId).get()
+    ]);
+    const allVariantItems = stockSnapshot.docs
+      .map(document => ({ id: document.id, ...document.data() } as any))
+      .filter(item => deviceVariantId(item) === sourceId);
+    const branchItems = allVariantItems.filter(item => item.branchId === targetBranchId);
+    if (!branchItems.length) throw new QuickQuoteError('QUICK_QUOTE_OFFER_NOT_FOUND');
+    const current = currentSnapshot.exists ? currentSnapshot.data()! : {};
+    const legacyPublicBranches = [...new Set(allVariantItems.filter(item => item.publicVisible === true).map(item => text(item.branchId, 120)).filter(Boolean))];
+    const publicBranchIds = new Set<string>(Array.isArray(current.publicBranchIds) ? current.publicBranchIds : legacyPublicBranches);
+    if (input.publicVisible === true) publicBranchIds.add(targetBranchId);
+    else publicBranchIds.delete(targetBranchId);
+    const currentPresentation = current.publicPresentationByBranch?.[targetBranchId] || {};
+    const patch = {
+      id: sourceId,
+      variantKey: deviceVariantKey(branchItems[0]),
+      model: text(canonicalDeviceModelName(branchItems[0]), 160),
+      storage: text(branchItems[0].storage, 80),
+      condition: text(branchItems[0].condition, 120),
+      publicBranchIds: [...publicBranchIds],
+      publicPresentationByBranch: {
+        ...(current.publicPresentationByBranch || {}),
+        [targetBranchId]: {
+          publicName: text(input.publicName || currentPresentation.publicName || current.publicName || deviceVariantName(branchItems[0]), 200),
+          publicDescription: text(input.publicDescription ?? currentPresentation.publicDescription ?? current.publicDescription, 600),
+          imageUrl: text(input.imageUrl ?? currentPresentation.imageUrl ?? current.imageUrl ?? branchItems[0].imageUrl ?? branchItems[0].images?.[0], 1_000),
+          publicSortOrder: Math.min(10_000, safePositiveInt(input.publicSortOrder ?? currentPresentation.publicSortOrder ?? current.publicSortOrder, 0))
+        }
+      },
+      updatedByUid: actor.uid,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+    await db.collection('quickQuoteDeviceVariants').doc(sourceId).set(patch, { merge: true });
+    return {
+      id: sourceId,
+      kind,
+      variantKey: patch.variantKey,
+      publicVisible: publicBranchIds.has(targetBranchId),
+      publicName: patch.publicPresentationByBranch[targetBranchId].publicName,
+      publicDescription: patch.publicPresentationByBranch[targetBranchId].publicDescription,
+      imageUrl: patch.publicPresentationByBranch[targetBranchId].imageUrl,
+      publicSortOrder: patch.publicPresentationByBranch[targetBranchId].publicSortOrder
+    };
+  }
   if (!collection || !sourceId) throw new QuickQuoteError('QUICK_QUOTE_TYPE_INVALID');
   const reference = db.collection(collection).doc(sourceId);
   const snapshot = await reference.get();

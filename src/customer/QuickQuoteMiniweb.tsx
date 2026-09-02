@@ -129,7 +129,7 @@ function publicConditionLabel(value: string) {
 }
 
 function formatOfferMeta(offer: QuickQuoteDeviceOffer) {
-  return [offer.storage, publicConditionLabel(offer.condition), offer.color]
+  return [offer.storage, publicConditionLabel(offer.condition), offer.colors?.length > 1 ? `${offer.colors.length} màu` : offer.color]
     .filter(Boolean)
     .join(" · ");
 }
@@ -560,13 +560,6 @@ export function QuickQuoteMiniweb({
     try {
       const response = await quickQuoteBootstrap();
       setBootstrap(response.data);
-      setBranchId(
-        (current) =>
-          current ||
-          response.data.settings.fallbackBranchId ||
-          response.data.branches[0]?.id ||
-          "",
-      );
     } catch (loadError: any) {
       setError(loadError?.message || "Không tải được miniweb báo giá.");
     } finally {
@@ -693,7 +686,7 @@ export function QuickQuoteMiniweb({
       models: unique(devices.map((item) => item.model)),
       storages: unique(devices.map((item) => item.storage)),
       conditions: unique(devices.map((item) => item.condition)),
-      colors: unique(devices.map((item) => item.color)),
+      colors: unique(devices.flatMap((item) => item.colors?.length ? item.colors : [item.color])),
     }),
     [devices],
   );
@@ -1105,7 +1098,7 @@ export function QuickQuoteMiniweb({
             <Info className="h-4 w-4 shrink-0 text-sky-500" />
             <span className="truncate">
               {type === "DEVICE"
-                ? `${devices.length} máy đang hiển thị`
+                ? `${devices.length} biến thể đang hiển thị`
                 : type === "REPAIR"
                   ? `${repairs.length} dịch vụ tương thích`
                   : `${accessories.length} phụ kiện còn hàng`}
@@ -1192,6 +1185,12 @@ export function QuickQuoteMiniweb({
                           <p className="mt-1 text-xs text-zinc-500">
                             {formatOfferMeta(offer)} · {offer.region}
                           </p>
+                          <p className="mt-1 text-[11px] font-bold text-sky-700">
+                            <MapPin className="mr-1 inline h-3 w-3" />
+                            {offer.availableBranchNames?.length > 1
+                              ? `Có tại ${offer.availableBranchNames.length} chi nhánh`
+                              : offer.branchName || offer.availableBranchNames?.[0] || "PhoneHouse"}
+                          </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-1.5">
                           <button
@@ -1235,7 +1234,7 @@ export function QuickQuoteMiniweb({
                   </div>
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <p className="text-xl font-black text-[#ff4b16]">
-                      {money.format(offer.price)}
+                      {offer.priceIsStartingFrom ? 'Từ ' : ''}{money.format(offer.price)}
                     </p>
                     <div className="flex gap-2">
                       <button
@@ -1568,7 +1567,7 @@ export function QuickQuoteMiniweb({
                   {quickView.kind === "REPAIR" &&
                   quickView.offer.inspectionRequired
                     ? "Cần kiểm tra máy"
-                    : money.format(Number(quickView.offer.price || 0))}
+                    : `${quickView.kind === "DEVICE" && quickView.offer.priceIsStartingFrom ? "Từ " : ""}${money.format(Number(quickView.offer.price || 0))}`}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-zinc-600">
                   {quickView.kind === "DEVICE"

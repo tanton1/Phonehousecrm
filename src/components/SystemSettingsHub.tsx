@@ -14,6 +14,7 @@ import {
   Tags,
   RefreshCw,
   Save,
+  Search,
   Settings2,
   ShoppingBag,
   Trash2,
@@ -40,11 +41,13 @@ import { SOPManagementView } from './SOPManagementView';
 import { StoreSettingsView, StoreSettingsViewProps } from './StoreSettingsView';
 import { deviceModelVariantKey } from '../utils/retailPricing';
 import { QuickQuoteRequestsView } from './QuickQuoteRequestsView';
+import { canonicalDeviceModelName, MIN_DEVICE_RETAIL_PRICE_VND } from '../../shared/retailPricing';
 
 type SetupTab = 'overview' | 'telegram' | 'organization' | 'finance' | 'sop' | 'technicalTasks' | 'sales' | 'retailPricing' | 'customerCare' | 'phoneHouseCare';
 
 interface SystemSettingsHubProps extends Omit<StoreSettingsViewProps, 'initialTab'> {
   initialTab?: SetupTab;
+  focusedTab?: SetupTab;
   onNavigate: (tab: string) => void;
   onSetupStatusChange?: (status: SystemSetupStatus) => void;
   currentUser?: UserAccount | null;
@@ -249,35 +252,102 @@ function RetailPricingPanel({ policies, branches, devices = [], products = [], o
   const [draft, setDraft] = useState<RetailPricingSetupConfig>(emptyRetailPricing());
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [priceSearch, setPriceSearch] = useState('');
+  const [bulkBranchId, setBulkBranchId] = useState('ALL');
   const editing = policies.some(policy => policy.policyId === draft.policyId);
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 
   const catalog = useMemo(() => {
-    const variants = new Map<string, { itemName: string; retailPrice: number }>();
-    devices.forEach(device => {
+    const variants = new Map<string, { itemName: string; prices: number[]; stockCount: number; branchIds: Set<string> }>();
+    devices.filter(device => device.status === 'in_stock').forEach(device => {
       const itemKey = deviceModelVariantKey(device);
-      if (!variants.has(itemKey)) variants.set(itemKey, {
-        itemName: [device.model, device.storage, device.condition].filter(Boolean).join(' · '),
-        retailPrice: Number(device.sellPrice || 0)
-      });
+      const current = variants.get(itemKey) || {
+        itemName: [canonicalDeviceModelName(device), device.storage, device.condition].filter(Boolean).join(' · '),
+        prices: [],
+        stockCount: 0,
+        branchIds: new Set<string>()
+      };
+      const price = Number(device.sellPrice || 0);
+      if (Number.isSafeInteger(price) && price >= MIN_DEVICE_RETAIL_PRICE_VND) current.prices.push(price);
+      current.stockCount += 1;
+      if (device.branchId) current.branchIds.add(String(device.branchId));
+      variants.set(itemKey, current);
     });
     return [
-      ...[...variants.entries()].map(([itemKey, item]) => ({ itemType: 'DEVICE' as const, matchType: 'MODEL_VARIANT' as const, itemKey, ...item })),
+      ...[...variants.entries()].map(([itemKey, item]) => {
+        const priceFrequency = new Map<number, number>();
+        item.prices.forEach(price => priceFrequency.set(price, (priceFrequency.get(price) || 0) + 1));
+        const retailPrice = [...priceFrequency.entries()]
+          .sort((left, right) => right[1] - left[1] || right[0] - left[0])[0]?.[0] || Number.NaN;
+        return {
+          itemType: 'DEVICE' as const,
+          matchType: 'MODEL_VARIANT' as const,
+          itemKey,
+          itemName: `${item.itemName} · ${item.stockCount} máy`,
+          retailPrice,
+          stockCount: item.stockCount,
+          branchIds: [...item.branchIds]
+        };
+      }),
       ...products.filter(product => product.status !== 'inactive').map(product => ({
         itemType: 'ACCESSORY' as const,
         matchType: 'ITEM_ID' as const,
         itemKey: product.id,
         itemName: `${product.name}${product.sku ? ` · ${product.sku}` : ''}`,
-        retailPrice: Number(product.sellPrice || 0)
+        retailPrice: Number(product.sellPrice || 0),
+        stockCount: 0,
+        branchIds: [] as string[]
       }))
-    ];
+    ].sort((left, right) => left.itemType.localeCompare(right.itemType) || left.itemName.localeCompare(right.itemName, 'vi'));
   }, [devices, products]);
 
   useEffect(() => {
     setDraft(current => policies.find(policy => policy.policyId === current.policyId) || policies[0] || emptyRetailPricing());
   }, [policies]);
 
+  const entryIdentity = (entry: Pick<RetailPricingSetupConfig['entries'][number], 'branchId' | 'itemType' | 'matchType' | 'itemKey'>) =>
+    [entry.branchId || 'ALL', entry.itemType, entry.matchType, String(entry.itemKey || '').trim().toUpperCase()].join('::');
+
+  const entryIssues = useMemo(() => {
+    const issues = new Map<number, string[]>();
+    const identities = new Map<string, number[]>();
+    draft.entries.forEach((entry, index) => {
+      if (!entry.isActive) return;
+      const identity = entryIdentity(entry);
+      identities.set(identity, [...(identities.get(identity) || []), index]);
+      const rowIssues: string[] = [];
+      if (!entry.itemKey) rowIssues.push('Chưa chọn mặt hàng');
+      if (!Number.isSafeInteger(entry.retailPrice) || entry.retailPrice <= 0) rowIssues.push('Chưa có giá bán hợp lệ');
+      if (entry.itemType === 'DEVICE' && Number.isFinite(entry.retailPrice) && entry.retailPrice < MIN_DEVICE_RETAIL_PRICE_VND) {
+        rowIssues.push('Giá máy quá thấp; hãy nhập đủ đơn vị VNĐ');
+      }
+      if (Number.isFinite(entry.minimumPrice) && Number.isFinite(entry.retailPrice) && Number(entry.minimumPrice) > entry.retailPrice) {
+        rowIssues.push('Giá sàn cao hơn giá bán');
+      }
+      if (rowIssues.length) issues.set(index, rowIssues);
+    });
+    identities.forEach(indexes => {
+      if (indexes.length < 2) return;
+      indexes.forEach(index => issues.set(index, [...(issues.get(index) || []), 'Trùng mặt hàng và chi nhánh']));
+    });
+    return issues;
+  }, [draft.entries]);
+
+  const visibleEntries = useMemo(() => {
+    const search = priceSearch.trim().toLocaleLowerCase('vi');
+    return draft.entries
+      .map((entry, index) => ({ entry, index }))
+      .filter(({ entry }) => !search || [entry.itemName, entry.itemKey, entry.branchId]
+        .join(' ')
+        .toLocaleLowerCase('vi')
+        .includes(search));
+  }, [draft.entries, priceSearch]);
+
   const save = async () => {
+    if (draft.isActive && entryIssues.size > 0) {
+      setMessage(`Còn ${entryIssues.size} dòng giá cần sửa trước khi bật bảng giá.`);
+      return;
+    }
     setSaving(true); setMessage('');
     try {
       const policy = draft.policyId ? draft : { ...draft, policyId: `RETAIL_DRAFT_${Date.now()}` };
@@ -289,18 +359,45 @@ function RetailPricingPanel({ policies, branches, devices = [], products = [], o
     finally { setSaving(false); }
   };
   const addEntry = () => {
-    const item = catalog[0];
+    const item = catalog.find(candidate => bulkBranchId === 'ALL' || candidate.itemType === 'ACCESSORY' || candidate.branchIds.includes(bulkBranchId)) || catalog[0];
     setDraft(current => ({ ...current, entries: [...current.entries, {
       id: `PRICE_${Date.now()}`,
       itemType: item?.itemType || 'DEVICE',
       matchType: item?.matchType || 'MODEL_VARIANT',
       itemKey: item?.itemKey || '',
       itemName: item?.itemName || '',
-      branchId: 'ALL',
+      branchId: bulkBranchId,
       retailPrice: item?.retailPrice || Number.NaN,
       minimumPrice: Number.NaN,
       isActive: true
     }] }));
+  };
+
+  const addCatalogGroup = (itemType: 'DEVICE' | 'ACCESSORY') => {
+    const identities = new Set(draft.entries.map(entryIdentity));
+    const available = catalog.filter(item => item.itemType === itemType
+      && (bulkBranchId === 'ALL' || itemType === 'ACCESSORY' || item.branchIds.includes(bulkBranchId)));
+    const additions = available.flatMap((item, index) => {
+      const candidate = {
+        id: `PRICE_${Date.now()}_${index + 1}`,
+        itemType: item.itemType,
+        matchType: item.matchType,
+        itemKey: item.itemKey,
+        itemName: item.itemName.replace(/ · \d+ máy$/, ''),
+        branchId: bulkBranchId,
+        retailPrice: item.retailPrice,
+        minimumPrice: Number.NaN,
+        isActive: true
+      };
+      const identity = entryIdentity(candidate);
+      if (identities.has(identity)) return [];
+      identities.add(identity);
+      return [candidate];
+    });
+    setDraft(current => ({ ...current, entries: [...current.entries, ...additions] }));
+    setMessage(additions.length > 0
+      ? `Đã bổ sung ${additions.length} ${itemType === 'DEVICE' ? 'biến thể máy còn hàng' : 'phụ kiện'}; dòng đã có được giữ nguyên.`
+      : 'Không có dòng mới cần bổ sung cho phạm vi đã chọn.');
   };
 
   return <div className="grid gap-5 xl:grid-cols-[320px_1fr]">
@@ -321,22 +418,35 @@ function RetailPricingPanel({ policies, branches, devices = [], products = [], o
         <label className="flex items-end gap-2 pb-2 text-sm font-bold"><input type="checkbox" checked={draft.isActive} onChange={event => setDraft({ ...draft, isActive: event.target.checked })} /> Bật để xét áp dụng theo ngày</label>
       </div>
       <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50/30 p-4">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h3 className="font-black">Giá theo mặt hàng và chi nhánh</h3><p className="text-xs text-zinc-600">POS tự lấy bảng đang hiệu lực. Nhân viên vẫn có thể sửa giá trên phiếu và phải ghi lý do.</p></div><button type="button" onClick={addEntry} className="rounded-xl bg-[#ff4b16] px-3 py-2 text-xs font-black text-white hover:bg-[#e94112]">+ Thêm dòng giá</button></div>
-        <div className="mt-4 space-y-3">{draft.entries.length === 0 && <div className="rounded-xl border border-dashed bg-white p-4 text-sm text-zinc-500">Chưa có dòng giá. Hãy thêm model máy hoặc phụ kiện từ danh mục hiện tại.</div>}{draft.entries.map((entry, index) => {
+        <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-start"><div><h3 className="font-black">Giá theo biến thể và chi nhánh</h3><p className="max-w-2xl text-xs leading-5 text-zinc-600">Máy được gom theo model + dung lượng + tình trạng, không theo IMEI. Nhập giá bằng đủ đơn vị VNĐ; ví dụ 4.950.000 thay vì 4.950.</p></div><button type="button" onClick={addEntry} className="shrink-0 rounded-xl bg-[#ff4b16] px-3 py-2 text-xs font-black text-white hover:bg-[#e94112]">+ Thêm một dòng</button></div>
+        <div className="mt-4 grid gap-2 rounded-xl border border-orange-100 bg-white p-3 lg:grid-cols-[minmax(180px,1fr)_auto_auto]">
+          <label className="text-xs font-bold text-zinc-700"><span>Phạm vi khi bổ sung nhanh</span><select value={bulkBranchId} onChange={event => setBulkBranchId(event.target.value)} className="mt-1 h-10 w-full rounded-lg border bg-white px-2.5"><option value="ALL">Toàn hệ thống</option>{branches.filter(branch => branch.isActive !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+          <button type="button" onClick={() => addCatalogGroup('DEVICE')} className="min-h-10 self-end rounded-lg bg-zinc-950 px-3 text-xs font-black text-white">Thêm toàn bộ máy còn hàng</button>
+          <button type="button" onClick={() => addCatalogGroup('ACCESSORY')} className="min-h-10 self-end rounded-lg border border-orange-200 bg-orange-50 px-3 text-xs font-black text-orange-800">Thêm phụ kiện đang bán</button>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-xl bg-white p-3"><p className="text-[10px] font-bold uppercase text-zinc-400">Biến thể còn hàng</p><p className="mt-1 text-lg font-black">{catalog.filter(item => item.itemType === 'DEVICE').length}</p></div>
+          <div className="rounded-xl bg-white p-3"><p className="text-[10px] font-bold uppercase text-zinc-400">Dòng trong bảng</p><p className="mt-1 text-lg font-black">{draft.entries.length}</p></div>
+          <div className={`rounded-xl p-3 ${entryIssues.size ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}><p className="text-[10px] font-bold uppercase opacity-70">Cần kiểm tra</p><p className="mt-1 text-lg font-black">{entryIssues.size}</p></div>
+        </div>
+        <label className="relative mt-3 block"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-zinc-400" /><input value={priceSearch} onChange={event => setPriceSearch(event.target.value)} placeholder="Tìm model, dung lượng, tình trạng hoặc chi nhánh…" className="h-10 w-full rounded-xl border bg-white pl-9 pr-3 text-sm" /></label>
+        <div className="mt-4 max-h-[680px] space-y-3 overflow-y-auto pr-1">{draft.entries.length === 0 && <div className="rounded-xl border border-dashed bg-white p-6 text-center text-sm text-zinc-500">Chưa có dòng giá. Dùng nút bổ sung nhanh để lấy đủ các biến thể còn hàng.</div>}{draft.entries.length > 0 && visibleEntries.length === 0 && <div className="rounded-xl border border-dashed bg-white p-6 text-center text-sm text-zinc-500">Không có dòng giá khớp từ khóa.</div>}{visibleEntries.map(({ entry, index }) => {
           const update = (value: typeof entry) => setDraft({ ...draft, entries: draft.entries.map((item, itemIndex) => itemIndex === index ? value : item) });
           const selectedCatalogValue = `${entry.itemType}::${entry.matchType}::${encodeURIComponent(entry.itemKey)}`;
-          return <div key={entry.id || index} className="grid gap-3 rounded-xl border bg-white p-3 md:grid-cols-2 xl:grid-cols-7">
-            <label className="space-y-1 text-xs font-bold md:col-span-2"><span>Mặt hàng</span><select value={selectedCatalogValue} onChange={event => { const [itemType, matchType, encodedKey] = event.target.value.split('::'); const itemKey = decodeURIComponent(encodedKey); const catalogItem = catalog.find(item => item.itemType === itemType && item.matchType === matchType && item.itemKey === itemKey); update({ ...entry, itemType: itemType as any, matchType: matchType as any, itemKey, itemName: catalogItem?.itemName || itemKey, retailPrice: catalogItem?.retailPrice || entry.retailPrice }); }} className="w-full rounded-lg border px-2.5 py-2"><option value={selectedCatalogValue}>{entry.itemName || entry.itemKey || 'Chọn mặt hàng'}</option>{catalog.filter(item => `${item.itemType}::${item.matchType}::${encodeURIComponent(item.itemKey)}` !== selectedCatalogValue).map(item => <option key={`${item.itemType}-${item.itemKey}`} value={`${item.itemType}::${item.matchType}::${encodeURIComponent(item.itemKey)}`}>{item.itemType === 'DEVICE' ? 'Máy' : 'Phụ kiện'} · {item.itemName}</option>)}</select></label>
+          const issues = entryIssues.get(index) || [];
+          return <div key={entry.id || index} className={`grid gap-3 rounded-xl border bg-white p-3 md:grid-cols-2 xl:grid-cols-7 ${issues.length ? 'border-rose-300' : 'border-zinc-200'}`}>
+            <label className="space-y-1 text-xs font-bold md:col-span-2"><span>Mặt hàng</span><select value={selectedCatalogValue} onChange={event => { const [itemType, matchType, encodedKey] = event.target.value.split('::'); const itemKey = decodeURIComponent(encodedKey); const catalogItem = catalog.find(item => item.itemType === itemType && item.matchType === matchType && item.itemKey === itemKey); update({ ...entry, itemType: itemType as any, matchType: matchType as any, itemKey, itemName: catalogItem?.itemName.replace(/ · \d+ máy$/, '') || itemKey, retailPrice: Number.isFinite(catalogItem?.retailPrice) ? Number(catalogItem?.retailPrice) : entry.retailPrice }); }} className="w-full rounded-lg border px-2.5 py-2"><option value={selectedCatalogValue}>{entry.itemName || entry.itemKey || 'Chọn mặt hàng'}</option>{catalog.filter(item => `${item.itemType}::${item.matchType}::${encodeURIComponent(item.itemKey)}` !== selectedCatalogValue).map(item => <option key={`${item.itemType}-${item.itemKey}`} value={`${item.itemType}::${item.matchType}::${encodeURIComponent(item.itemKey)}`}>{item.itemType === 'DEVICE' ? 'Máy' : 'Phụ kiện'} · {item.itemName}</option>)}</select></label>
             <label className="space-y-1 text-xs font-bold"><span>Chi nhánh</span><select value={entry.branchId} onChange={event => update({ ...entry, branchId: event.target.value })} className="w-full rounded-lg border px-2.5 py-2"><option value="ALL">Toàn hệ thống</option>{branches.filter(branch => branch.isActive !== false).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
             <NumberField label="Giá bán lẻ" value={entry.retailPrice} onChange={value => update({ ...entry, retailPrice: value })} />
             <NumberField label="Giá sàn" value={entry.minimumPrice ?? Number.NaN} onChange={value => update({ ...entry, minimumPrice: value })} />
             <label className="flex items-end gap-2 pb-2 text-xs font-bold"><input type="checkbox" checked={entry.isActive} onChange={event => update({ ...entry, isActive: event.target.checked })} /> Đang dùng</label>
             <div className="flex items-end justify-end"><button type="button" onClick={() => setDraft({ ...draft, entries: draft.entries.filter((_, itemIndex) => itemIndex !== index) })} className="rounded-lg p-2 text-red-600 hover:bg-red-50" title="Xóa dòng"><Trash2 className="h-4 w-4" /></button></div>
+            {issues.length > 0 && <p className="rounded-lg bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700 md:col-span-2 xl:col-span-7">{issues.join(' · ')}</p>}
           </div>;
         })}</div>
       </div>
-      <p className="mt-3 text-xs text-zinc-500">Có thể lưu bản nháp chưa đầy đủ. Khi bật áp dụng, các bảng giá không được chồng lấn thời gian và mỗi dòng đang dùng phải có giá hợp lệ.</p>
-      <div className="mt-5 flex items-center gap-3"><button type="button" onClick={save} disabled={saving} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu bảng giá</button>{message && <span className="text-sm text-zinc-600">{message}</span>}</div>
+      <p className="mt-3 text-xs text-zinc-500">Có thể lưu bản nháp chưa đầy đủ. Khi bật áp dụng, hệ thống chặn giá máy sai đơn vị, dòng trùng, giá sàn sai và các bảng giá chồng lấn thời gian.</p>
+      <div className="mt-5 flex flex-wrap items-center gap-3"><button type="button" onClick={save} disabled={saving || (draft.isActive && entryIssues.size > 0)} className="flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-black text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Lưu bảng giá</button>{message && <span className="text-sm font-semibold text-zinc-600">{message}</span>}</div>
     </section>
   </div>;
 }
@@ -490,8 +600,8 @@ function TechnicalTaskPanel({ onSaved }: { onSaved: () => Promise<void> }) {
   </div>;
 }
 
-export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab = 'overview', onNavigate, onSetupStatusChange, ...storeProps }) => {
-  const [activeTab, setActiveTab] = useState<SetupTab>(initialTab);
+export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab = 'overview', focusedTab, onNavigate, onSetupStatusChange, ...storeProps }) => {
+  const [activeTab, setActiveTab] = useState<SetupTab>(focusedTab || initialTab);
   const [status, setStatus] = useState<SystemSetupStatus | null>(null);
   const [policyVersions, setPolicyVersions] = useState<{ sales: SalesSetupConfig[]; customerCare: CustomerCareSetupConfig[]; retailPricing: RetailPricingSetupConfig[] }>({ sales: [], customerCare: [], retailPricing: [] });
   const [loading, setLoading] = useState(true);
@@ -505,15 +615,16 @@ export const SystemSettingsHub: React.FC<SystemSettingsHubProps> = ({ initialTab
     finally { setLoading(false); }
   }, [onSetupStatusChange]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setActiveTab(focusedTab || initialTab); }, [focusedTab, initialTab]);
   const completed = useMemo(() => status?.checks.filter(item => item.complete).length || 0, [status]);
   const incompleteChecks = useMemo(() => status?.checks.filter(item => !item.complete) || [], [status]);
 
   return <div className="space-y-5">
     <div className="rounded-2xl bg-gradient-to-r from-zinc-950 to-zinc-800 p-5 text-white shadow-lg">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center"><div><div className="mb-2 flex items-center gap-2 text-orange-400"><Settings2 className="h-5 w-5" /><span className="text-xs font-black uppercase tracking-widest">Thiết lập tập trung</span></div><h1 className="text-xl font-black tracking-tight sm:text-2xl">Cài đặt & Khởi tạo hệ thống</h1><p className="mt-1 text-sm text-zinc-300">Mọi dữ liệu nghiệp vụ phải được tạo tại đây, không lấy giá trị mặc định trong mã nguồn.</p></div><div className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3">{status?.complete ? <CheckCircle2 className="h-7 w-7 text-emerald-400" /> : <CircleAlert className="h-7 w-7 text-amber-400" />}<div><p className="text-xs text-zinc-300">Tiến độ khởi tạo</p><p className="font-black">{completed}/{status?.checks.length || 8} hạng mục</p></div><button onClick={load} className="ml-2 rounded-lg p-2 hover:bg-white/10"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button></div></div>
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center"><div><div className="mb-2 flex items-center gap-2 text-orange-400">{focusedTab === 'retailPricing' ? <Tags className="h-5 w-5" /> : <Settings2 className="h-5 w-5" />}<span className="text-xs font-black uppercase tracking-widest">{focusedTab === 'retailPricing' ? 'Quản trị giá' : 'Thiết lập tập trung'}</span></div><h1 className="text-xl font-black tracking-tight sm:text-2xl">{focusedTab === 'retailPricing' ? 'Bảng giá bán lẻ' : 'Cài đặt & Khởi tạo hệ thống'}</h1><p className="mt-1 text-sm text-zinc-300">{focusedTab === 'retailPricing' ? 'Cập nhật giá cho POS và Mini App theo biến thể, chi nhánh và thời gian hiệu lực.' : 'Mọi dữ liệu nghiệp vụ phải được tạo tại đây, không lấy giá trị mặc định trong mã nguồn.'}</p></div><div className="flex items-center gap-3 rounded-xl bg-white/10 px-4 py-3">{status?.complete ? <CheckCircle2 className="h-7 w-7 text-emerald-400" /> : <CircleAlert className="h-7 w-7 text-amber-400" />}<div><p className="text-xs text-zinc-300">Tiến độ khởi tạo</p><p className="font-black">{completed}/{status?.checks.length || 8} hạng mục</p></div><button onClick={load} className="ml-2 rounded-lg p-2 hover:bg-white/10"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button></div></div>
     </div>
-    <div className="flex gap-2 overflow-x-auto pb-1">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold ${activeTab === tab.id ? 'bg-orange-600 text-white shadow' : 'border border-zinc-200 bg-white text-zinc-600'}`}><Icon className="h-4 w-4" />{tab.label}</button>; })}</div>
-    {incompleteChecks.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-black text-amber-900">Hệ thống còn bị chặn bởi {incompleteChecks.length} hạng mục:</p><div className="mt-2 flex flex-wrap gap-2">{incompleteChecks.map(check => <button key={check.id} onClick={() => setActiveTab(TAB_BY_CHECK[check.id])} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:border-orange-400">{check.label}: {check.detail}</button>)}</div></div>}
+    {!focusedTab && <div className="flex gap-2 overflow-x-auto pb-1">{tabs.map(tab => { const Icon = tab.icon; return <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold ${activeTab === tab.id ? 'bg-orange-600 text-white shadow' : 'border border-zinc-200 bg-white text-zinc-600'}`}><Icon className="h-4 w-4" />{tab.label}</button>; })}</div>}
+    {!focusedTab && incompleteChecks.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-black text-amber-900">Hệ thống còn bị chặn bởi {incompleteChecks.length} hạng mục:</p><div className="mt-2 flex flex-wrap gap-2">{incompleteChecks.map(check => <button key={check.id} onClick={() => setActiveTab(TAB_BY_CHECK[check.id])} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-bold text-amber-800 hover:border-orange-400">{check.label}: {check.detail}</button>)}</div></div>}
     {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
     {activeTab === 'overview' && <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-black">Checklist bắt buộc trước vận hành</h2><p className="mb-4 mt-1 text-sm text-zinc-500">Hệ thống chỉ sẵn sàng khi tất cả hạng mục đều hoàn tất.</p><div className="grid gap-3 md:grid-cols-2">{status?.checks.map(check => <button key={check.id} onClick={() => setActiveTab(TAB_BY_CHECK[check.id])} className="flex items-center gap-3 rounded-xl border p-4 text-left hover:border-orange-400"><span className={`rounded-full p-2 ${check.complete ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>{check.complete ? <CheckCircle2 className="h-5 w-5" /> : <CircleAlert className="h-5 w-5" />}</span><div className="min-w-0 flex-1"><p className="font-black text-zinc-900">{check.label}</p><p className="text-xs text-zinc-500">{check.detail}</p></div><ChevronRight className="h-4 w-4 text-zinc-400" /></button>)}</div></section>}
     {activeTab === 'organization' && <StoreSettingsView

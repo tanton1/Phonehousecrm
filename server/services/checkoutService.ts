@@ -2,6 +2,7 @@ import { Firestore, FieldValue, DocumentReference, Transaction } from 'firebase-
 import crypto from 'crypto';
 import { imeiRegistryId, normalizeImei } from './inventoryDeviceService';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
+import { deviceVariantKeyCandidates, MIN_DEVICE_RETAIL_PRICE_VND, normalizeRetailPriceKey } from '../../shared/retailPricing';
 import { buildCrmSearchPrefixes, normalizeCrmPhone, prepareCrmPostSalePlan } from './crmOperationsService';
 import {
   assertDebtOpenItemScope,
@@ -86,8 +87,7 @@ const ALLOWED_FUND_TYPES_BY_METHOD: Record<string, string[]> = {
   INSTALLMENT: ['CASH', 'BANK', 'VIETQR', 'KÉT TIỀN', 'NGÂN HÀNG', 'TIỀN MẶT', 'TIEN_MAT'] // Cho khoản trả trước (Down payment)
 };
 
-const normalizePriceKey = (value: unknown) => String(value || '').trim().toUpperCase();
-const devicePriceVariantKey = (device: any) => [device?.model, device?.storage, device?.condition].map(normalizePriceKey).join('|');
+const normalizePriceKey = normalizeRetailPriceKey;
 
 function vietnamMonthAt(value: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
@@ -174,9 +174,15 @@ function resolveRetailPriceEntry(policy: any, branchId: string, itemType: 'DEVIC
   const matches = entries.filter((entry: any) => {
     if (entry?.isActive !== true || entry.itemType !== itemType || !['ALL', branchId].includes(String(entry.branchId || 'ALL'))) return false;
     const key = normalizePriceKey(entry.itemKey);
-    if (entry.matchType === 'ITEM_ID') return key === normalizePriceKey(itemId);
-    if (entry.matchType === 'SKU') return key === normalizePriceKey(data?.sku);
-    return itemType === 'DEVICE' && entry.matchType === 'MODEL_VARIANT' && key === devicePriceVariantKey(data);
+    const identityMatches = entry.matchType === 'ITEM_ID'
+      ? key === normalizePriceKey(itemId)
+      : entry.matchType === 'SKU'
+        ? key === normalizePriceKey(data?.sku)
+        : itemType === 'DEVICE' && entry.matchType === 'MODEL_VARIANT' && deviceVariantKeyCandidates(data).includes(key);
+    if (!identityMatches) return false;
+    if (itemType !== 'DEVICE') return true;
+    const price = Number(entry.retailPrice);
+    return Number.isSafeInteger(price) && price >= MIN_DEVICE_RETAIL_PRICE_VND;
   });
   const priority = (entry: any) =>
     (entry.branchId === branchId ? 100 : 0) + (entry.matchType === 'ITEM_ID' ? 30 : entry.matchType === 'SKU' ? 20 : 10);
@@ -481,7 +487,7 @@ export async function executeAtomicCheckout(
       const entry = resolveRetailPriceEntry(retailPricing, branchId, itemType, item.id, item.data);
       const fallbackPrice = Number(item.listPrice || 0);
       const listPrice = entry ? Number(entry.retailPrice) : fallbackPrice;
-      if (!Number.isFinite(listPrice) || listPrice <= 0) throw new Error(`RETAIL_PRICE_REQUIRED: Chưa có giá bán lẻ hợp lệ cho "${item.data?.model || item.data?.name || item.id}".`);
+      if (!Number.isFinite(listPrice) || listPrice < (itemType === 'DEVICE' ? MIN_DEVICE_RETAIL_PRICE_VND : 1)) throw new Error(`RETAIL_PRICE_REQUIRED: Chưa có giá bán lẻ hợp lệ cho "${item.data?.model || item.data?.name || item.id}".`);
       const adjustment = adjustmentMap.get(`${itemType}:${item.id}`);
       const authoritativePrice = adjustment ? adjustment.unitPrice : listPrice;
       const priceAdjusted = authoritativePrice !== listPrice;

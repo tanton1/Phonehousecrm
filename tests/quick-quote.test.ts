@@ -5,8 +5,10 @@ import {
   createPublicQuickQuoteRequest,
   createQuickQuoteSelectionToken,
   decodeQuickQuoteSelectionToken,
+  deviceVariantId,
   listPublicQuickQuoteAccessories,
-  listPublicQuickQuoteDevices
+  listPublicQuickQuoteDevices,
+  updateStaffQuickQuoteCatalogItem
 } from '../server/services/quickQuoteService';
 
 type Row = Record<string, any>;
@@ -139,6 +141,117 @@ describe('PhoneHouse Care quick quote invariants', () => {
     for (const forbidden of ['356789012345678', 'buyPrice', 'minimumPrice', 'warehouseId', 'supplierId', 'DEV-1', 'stockQuantity']) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it('groups every IMEI and colour of the same model variant into one public offer', async () => {
+    const first = {
+      ...deviceSeed()['devices/DEV-1'],
+      model: 'Máy iPhone iPhone 15 Pro 256GB Titan tự nhiên'
+    };
+    const db = fakeFirestore(deviceSeed({
+      'devices/DEV-1': first,
+      'devices/DEV-2': {
+        ...first,
+        id: 'DEV-2',
+        imei: '356789012345679',
+        model: 'Máy iPhone iPhone 15 Pro 256GB Xanh',
+        color: 'Xanh'
+      }
+    }));
+
+    const result = await listPublicQuickQuoteDevices(db, { branchId: 'CN01' });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      name: 'iPhone 15 Pro 256GB',
+      model: 'iPhone 15 Pro',
+      colors: ['Titan tự nhiên', 'Xanh']
+    });
+    const decoded = decodeQuickQuoteSelectionToken(result.items[0].selectionToken);
+    expect(decoded.sourceId).toMatch(/^QDV_[A-F0-9]{24}$/);
+    expect(decoded.sourceId).not.toMatch(/DEV-1|DEV-2/);
+  });
+
+  it('publishes a whole variant from its branch config even when no IMEI has the legacy flag', async () => {
+    const device = { ...deviceSeed()['devices/DEV-1'], publicVisible: false };
+    const variantId = deviceVariantId(device);
+    const db = fakeFirestore(deviceSeed({
+      'devices/DEV-1': device,
+      [`quickQuoteDeviceVariants/${variantId}`]: {
+        id: variantId,
+        publicBranchIds: ['CN01'],
+        publicPresentationByBranch: { CN01: { publicName: 'iPhone 15 Pro giá tốt' } }
+      }
+    }));
+
+    const result = await listPublicQuickQuoteDevices(db, { branchId: 'CN01' });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].name).toBe('iPhone 15 Pro giá tốt');
+  });
+
+  it('lets a manager enable one variant without mutating individual IMEI documents', async () => {
+    const device = { ...deviceSeed()['devices/DEV-1'], publicVisible: false };
+    const variantId = deviceVariantId(device);
+    const db = fakeFirestore(deviceSeed({ 'devices/DEV-1': device }));
+
+    await updateStaffQuickQuoteCatalogItem(
+      db,
+      { uid: 'ADMIN-1', role: 'ADMIN', branchId: 'CN01' },
+      'DEVICE',
+      variantId,
+      { branchId: 'CN01', publicVisible: true, publicName: 'iPhone 15 Pro 256GB' }
+    );
+
+    expect(db.documents.get(`quickQuoteDeviceVariants/${variantId}`)).toMatchObject({ publicBranchIds: ['CN01'] });
+    expect(db.documents.get('devices/DEV-1')).toMatchObject({ publicVisible: false });
+    expect((await listPublicQuickQuoteDevices(db, { branchId: 'CN01' })).items).toHaveLength(1);
+  });
+
+  it('does not leak a variant into a branch that was not enabled', async () => {
+    const first = { ...deviceSeed()['devices/DEV-1'], publicVisible: false };
+    const second = { ...first, id: 'DEV-2', imei: '356789012345679', branchId: 'CN02' };
+    const variantId = deviceVariantId(first);
+    const db = fakeFirestore(deviceSeed({
+      'branches/CN02': { id: 'CN02', name: 'PhoneHouse Thanh Khê', isActive: true },
+      'devices/DEV-1': first,
+      'devices/DEV-2': second,
+      [`quickQuoteDeviceVariants/${variantId}`]: { id: variantId, publicBranchIds: ['CN01'] }
+    }));
+
+    expect((await listPublicQuickQuoteDevices(db, { branchId: 'CN01' })).items).toHaveLength(1);
+    expect((await listPublicQuickQuoteDevices(db, { branchId: 'CN02' })).items).toHaveLength(0);
+  });
+
+  it('keeps a variant selection valid when one IMEI sells but another equivalent IMEI remains', async () => {
+    const first = deviceSeed()['devices/DEV-1'];
+    const db = fakeFirestore(deviceSeed({
+      'devices/DEV-2': { ...first, id: 'DEV-2', imei: '356789012345679', color: 'Xanh' }
+    }));
+    const token = await publicDeviceToken(db);
+    db.documents.set('devices/DEV-1', { ...db.documents.get('devices/DEV-1'), status: 'sold' });
+
+    const result = await createPublicQuickQuoteRequest(db, requestInput(token));
+    expect(result).toMatchObject({ quoteType: 'DEVICE', estimatedTotal: 20_000_000 });
+  });
+
+  it('applies a MODEL_VARIANT price to imported model text with repeated storage and colour', async () => {
+    const dirtyDevice = {
+      ...deviceSeed()['devices/DEV-1'],
+      model: 'Máy iPhone iPhone 15 Pro 256GB Titan tự nhiên'
+    };
+    const db = fakeFirestore(deviceSeed({
+      'devices/DEV-1': dirtyDevice,
+      'operationalConfigs/retailPricing': {
+        name: 'Giá Mini App', version: '1', policyId: 'RETAIL_PUBLIC', effectiveFrom: '2020-01-01', isActive: true,
+        entries: [{
+          id: 'IP15P', itemType: 'DEVICE', matchType: 'MODEL_VARIANT',
+          itemKey: 'IPHONE 15 PRO|256GB|99%', itemName: 'iPhone 15 Pro 256GB',
+          branchId: 'ALL', retailPrice: 21_500_000, minimumPrice: 20_000_000, isActive: true
+        }]
+      }
+    }));
+
+    const result = await listPublicQuickQuoteDevices(db, { branchId: 'CN01' });
+    expect(result.items[0]).toMatchObject({ model: 'iPhone 15 Pro', price: 21_500_000 });
   });
 
   it('revalidates price inside the atomic creation transaction and creates no CRM record after a price change', async () => {

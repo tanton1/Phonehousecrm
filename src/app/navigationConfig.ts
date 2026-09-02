@@ -27,6 +27,7 @@ import {
   Megaphone,
   ClipboardList,
   Smartphone,
+  Tags,
 } from "lucide-react";
 import React from "react";
 import type { Permission } from "../../shared/permissions";
@@ -169,6 +170,12 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
         label: "Trung tâm Mini App",
         icon: Smartphone,
         roles: ["ADMIN", "REGIONAL_MANAGER", "MANAGER", "STORE_MANAGER"],
+      },
+      {
+        id: "retail-pricing",
+        label: "Bảng giá bán lẻ",
+        icon: Tags,
+        roles: ["ADMIN"],
       },
       {
         id: "omnichannel-chat",

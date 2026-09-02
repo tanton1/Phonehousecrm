@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowRight, ExternalLink, LayoutDashboard, Megaphone, RefreshCw, Settings2, ShieldCheck, Smartphone } from 'lucide-react';
+import { ArrowRight, ExternalLink, LayoutDashboard, Megaphone, RefreshCw, Settings2, ShieldCheck, Smartphone, Tags } from 'lucide-react';
 import type { StoreBranch, UserAccount } from '../types';
 import { apiJson } from '../services/apiClient';
 import { QuickQuoteRequestsView } from './QuickQuoteRequestsView';
@@ -13,9 +13,10 @@ interface CustomerMiniAppManagerViewProps {
   currentUser?: UserAccount | null;
   branches: StoreBranch[];
   initialSection?: MiniAppSection;
+  onNavigate?: (tab: string) => void;
 }
 
-export const CustomerMiniAppManagerView: React.FC<CustomerMiniAppManagerViewProps> = ({ currentUser, branches, initialSection = 'OVERVIEW' }) => {
+export const CustomerMiniAppManagerView: React.FC<CustomerMiniAppManagerViewProps> = ({ currentUser, branches, initialSection = 'OVERVIEW', onNavigate }) => {
   const [section, setSection] = useState<MiniAppSection>(initialSection);
   const [settings, setSettings] = useState<MiniAppSettings | null>(null);
   const [promotions, setPromotions] = useState<MiniAppPromotion[]>([]);
@@ -93,7 +94,7 @@ export const CustomerMiniAppManagerView: React.FC<CustomerMiniAppManagerViewProp
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {[['1', 'Bật sản phẩm', 'Chọn iPhone, dịch vụ, phụ kiện được công khai'], ['2', 'Tạo bài bằng AI', 'Mô tả chương trình, AI sinh bản nháp và banner'], ['3', 'Duyệt & phát hành', 'Kiểm tra điều kiện rồi phát hành tới khách']].map(([number, title, text]) => <div key={number} className="rounded-xl bg-zinc-50 p-3"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-950 text-xs font-black text-white">{number}</span><p className="mt-3 text-xs font-black">{title}</p><p className="mt-1 text-[11px] leading-5 text-zinc-500">{text}</p></div>)}
             </div>
-            <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setSection('CATALOG')} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-zinc-950 px-3 text-xs font-black text-white">Quản lý danh mục <ArrowRight className="h-4 w-4" /></button><button type="button" onClick={() => setSection('CONTENT')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 text-xs font-black text-orange-700">Mở AI Studio <ArrowRight className="h-4 w-4" /></button></div>
+            <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => setSection('CATALOG')} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-zinc-950 px-3 text-xs font-black text-white">Quản lý danh mục <ArrowRight className="h-4 w-4" /></button>{String(currentUser?.role || '').toUpperCase() === 'ADMIN' && onNavigate && <button type="button" onClick={() => onNavigate('retail-pricing')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 text-xs font-black text-sky-700"><Tags className="h-4 w-4" /> Cập nhật bảng giá</button>}<button type="button" onClick={() => setSection('CONTENT')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 text-xs font-black text-orange-700">Mở AI Studio <ArrowRight className="h-4 w-4" /></button></div>
           </div>
           <div className="rounded-2xl border border-sky-200 bg-sky-50/70 p-5"><div className="flex items-start gap-3"><div className="rounded-xl bg-sky-600 p-2 text-white"><ShieldCheck className="h-5 w-5" /></div><div><h2 className="text-base font-black text-zinc-950">An toàn dữ liệu</h2><p className="mt-1 text-xs leading-5 text-zinc-600">Khóa AI chỉ chạy ở server. Mini App công khai không nhận IMEI, giá vốn hoặc số tồn nội bộ.</p></div></div><div className="mt-5 space-y-2 text-xs font-bold text-sky-900"><p>✓ Giá báo khách được máy chủ xác nhận lại</p><p>✓ Bài AI luôn bắt đầu ở bản nháp</p><p>✓ Ảnh AI lưu Firebase Storage, không lưu base64 trong bài</p><p>✓ Có thể xem trước trước khi phát hành</p></div></div>
         </section>

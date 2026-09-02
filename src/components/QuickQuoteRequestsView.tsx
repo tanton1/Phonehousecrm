@@ -69,6 +69,10 @@ type CatalogItem = {
   imageUrl?: string;
   quoteMode?: string;
   publicSortOrder?: number;
+  variantKey?: string;
+  stockCount?: number;
+  colors?: string[];
+  configured?: boolean;
 };
 
 const money = new Intl.NumberFormat("vi-VN", {
@@ -348,6 +352,33 @@ export function QuickQuoteRequestsView({
         );
     });
   }, [catalog, catalogSearch, catalogVisibility]);
+
+  const setVisibleCatalogPublic = async (publicVisible: boolean) => {
+    const targets = visibleCatalog.filter(item => item.publicVisible !== publicVisible);
+    if (!targets.length) {
+      setMessage(publicVisible ? 'Tất cả mục đang lọc đã được công khai.' : 'Tất cả mục đang lọc đã được ẩn.');
+      return;
+    }
+    setBusy('catalog-bulk');
+    setError('');
+    setMessage('');
+    try {
+      for (let offset = 0; offset < targets.length; offset += 10) {
+        await Promise.all(targets.slice(offset, offset + 10).map(item => apiJson(
+          `/api/customer-portal/staff/quick-quote/catalog/${item.kind}/${encodeURIComponent(item.id)}`,
+          { method: 'PATCH', body: JSON.stringify({ ...item, branchId, publicVisible }) }
+        )));
+      }
+      const targetIds = new Set(targets.map(item => item.id));
+      setCatalog(current => current.map(item => targetIds.has(item.id) ? { ...item, publicVisible } : item));
+      setMessage(`Đã ${publicVisible ? 'công khai' : 'ẩn'} ${targets.length} mục tại chi nhánh đang chọn.`);
+    } catch (saveError: any) {
+      setError(saveError?.message || 'Không thể cập nhật hàng loạt danh mục.');
+      await loadCatalog();
+    } finally {
+      setBusy('');
+    }
+  };
 
   return (
     <main className="space-y-4">
@@ -759,7 +790,8 @@ export function QuickQuoteRequestsView({
                   Sản phẩm hiển thị trên trang báo giá
                 </h2>
                 <p className="max-w-2xl text-xs leading-5 text-zinc-500">
-                  Chỉ mục đã bật <b>Công khai</b> mới xuất hiện trên miniweb.
+                  iPhone được quản lý theo <b>model + dung lượng + tình trạng</b>, không còn bật từng IMEI.
+                  Một lần bật sẽ áp dụng cho toàn bộ máy cùng biến thể tại chi nhánh và tự ẩn khi hết tồn.
                   Khách không thấy IMEI, giá vốn, số tồn thực hay dữ liệu kho;
                   giá cuối cùng luôn được máy chủ xác nhận lại.
                 </p>
@@ -822,6 +854,13 @@ export function QuickQuoteRequestsView({
                 Xem miniweb
               </a>
             </div>
+            {catalogKind === 'DEVICE' && visibleCatalog.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-sky-50 p-2.5">
+                <span className="mr-auto text-[11px] font-bold text-sky-800">Thao tác trên {visibleCatalog.length} biến thể đang lọc · {branchId}</span>
+                <button type="button" onClick={() => void setVisibleCatalogPublic(true)} disabled={busy === 'catalog-bulk'} className="min-h-9 rounded-lg bg-sky-700 px-3 text-[11px] font-black text-white disabled:opacity-50">Công khai tất cả</button>
+                <button type="button" onClick={() => void setVisibleCatalogPublic(false)} disabled={busy === 'catalog-bulk'} className="min-h-9 rounded-lg border border-sky-200 bg-white px-3 text-[11px] font-black text-sky-800 disabled:opacity-50">Ẩn tất cả</button>
+              </div>
+            )}
             {catalogLoading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-orange-500" />
@@ -863,6 +902,11 @@ export function QuickQuoteRequestsView({
                               ? money.format(item.price)
                               : "Cần kiểm tra"}
                           </p>
+                          {item.kind === "DEVICE" && (
+                            <p className="mt-1 text-[10px] font-bold text-sky-700">
+                              {item.configured ? "Đã có cấu hình biến thể" : "Đang kế thừa trạng thái công khai cũ"}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">

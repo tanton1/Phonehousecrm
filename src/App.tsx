@@ -243,7 +243,7 @@ export default function App() {
         setSystemSetupStatus(status);
         const role = String(currentUser.role || '').toUpperCase();
         if (!status.complete && (role === 'ADMIN' || role === 'MANAGER')) {
-          setActiveTab(current => current === 'funds' ? current : 'store-settings');
+          setActiveTab(current => ['funds', 'retail-pricing'].includes(current) ? current : 'store-settings');
         }
       })
       .catch((error) => console.warn('[System setup status]', error));
@@ -252,7 +252,7 @@ export default function App() {
 
   useEffect(() => {
     const role = String(currentUser?.role || '').toUpperCase();
-    if (systemSetupStatus && !systemSetupStatus.complete && (role === 'ADMIN' || role === 'MANAGER') && !['store-settings', 'funds'].includes(activeTab)) {
+    if (systemSetupStatus && !systemSetupStatus.complete && (role === 'ADMIN' || role === 'MANAGER') && !['store-settings', 'funds', 'retail-pricing'].includes(activeTab)) {
       setActiveTab('store-settings');
     }
   }, [activeTab, currentUser?.role, systemSetupStatus]);
@@ -1942,9 +1942,10 @@ export default function App() {
           />
         )}
 
-        {(activeTab === 'store-settings' || activeTab === 'sop-management' || activeTab === 'sop') && (
+        {(activeTab === 'store-settings' || activeTab === 'sop-management' || activeTab === 'sop' || activeTab === 'retail-pricing') && (
           <SystemSettingsHub
-            initialTab={activeTab === 'sop-management' || activeTab === 'sop' ? 'sop' : 'overview'}
+            initialTab={activeTab === 'sop-management' || activeTab === 'sop' ? 'sop' : activeTab === 'retail-pricing' ? 'retailPricing' : 'overview'}
+            focusedTab={activeTab === 'retail-pricing' ? 'retailPricing' : undefined}
             onNavigate={setActiveTab}
             onSetupStatusChange={setSystemSetupStatus}
             branches={branches}
@@ -2003,7 +2004,7 @@ export default function App() {
         )}
 
         {activeTab === 'customer-miniapp' && (
-          <CustomerMiniAppManagerView branches={branches} currentUser={currentUser} />
+          <CustomerMiniAppManagerView branches={branches} currentUser={currentUser} onNavigate={setActiveTab} />
         )}
 
         {activeTab === 'ai-capture' && (

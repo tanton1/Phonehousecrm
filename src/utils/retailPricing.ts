@@ -1,9 +1,14 @@
 import { DeviceItem, ProductItem, RetailPriceEntry, RetailPricingSetupConfig } from '../types';
+import {
+  canonicalDeviceVariantKey,
+  deviceVariantKeyCandidates,
+  normalizeRetailPriceKey
+} from '../../shared/retailPricing';
 
-const normalize = (value: unknown) => String(value || '').trim().toUpperCase();
+const normalize = normalizeRetailPriceKey;
 
 export function deviceModelVariantKey(device: Pick<DeviceItem, 'model' | 'storage' | 'condition'>): string {
-  return [device.model, device.storage, device.condition].map(normalize).join('|');
+  return canonicalDeviceVariantKey(device);
 }
 
 function matchEntry(entry: RetailPriceEntry, itemType: 'DEVICE' | 'ACCESSORY', item: DeviceItem | ProductItem): boolean {
@@ -11,7 +16,7 @@ function matchEntry(entry: RetailPriceEntry, itemType: 'DEVICE' | 'ACCESSORY', i
   const key = normalize(entry.itemKey);
   if (entry.matchType === 'ITEM_ID') return key === normalize(item.id);
   if (entry.matchType === 'SKU') return key === normalize((item as any).sku);
-  return itemType === 'DEVICE' && key === deviceModelVariantKey(item as DeviceItem);
+  return itemType === 'DEVICE' && deviceVariantKeyCandidates(item).includes(key);
 }
 
 export function resolveRetailPrice(

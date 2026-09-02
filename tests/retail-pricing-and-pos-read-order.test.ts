@@ -81,6 +81,13 @@ describe('Retail pricing and Firestore POS transaction order', () => {
     }, { uid: 'SALE-01', role: 'SALES', branchId: 'CN01' })).rejects.toThrow('POS_PRICE_BELOW_FLOOR');
   });
 
+  it('rejects an active device price that was entered in thousands instead of VND', () => {
+    expect(() => validateOperationalConfig('retailPricing', {
+      policyId: 'RETAIL_BAD_UNIT', name: 'Giá sai đơn vị', version: '1', effectiveFrom: '2026-08-01', isActive: true,
+      entries: [{ id: 'IP11P', itemType: 'DEVICE', matchType: 'MODEL_VARIANT', itemKey: 'IPHONE 11 PRO|128GB|99%', itemName: 'iPhone 11 Pro', branchId: 'ALL', retailPrice: 4950, isActive: true }]
+    })).toThrow('RETAIL_PRICE_ENTRY_INVALID');
+  });
+
   it('creates one canonical receivable open item in the checkout transaction for a debt invoice', async () => {
     const db = checkoutDb();
     const result = await executeAtomicCheckout(db, {

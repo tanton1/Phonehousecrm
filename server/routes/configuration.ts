@@ -8,6 +8,7 @@ import {
   selectEffectiveOperationalPolicy,
   OperationalPolicyKind
 } from '../services/operationalPolicyService';
+import { MIN_DEVICE_RETAIL_PRICE_VND } from '../../shared/retailPricing';
 
 function requiredBranchId(value: unknown): string {
   const branchId = String(value || '').trim();
@@ -313,6 +314,7 @@ export function validateOperationalConfig(configKey: string, input: any) {
         !['DEVICE', 'ACCESSORY'].includes(entry.itemType) ||
         !['ITEM_ID', 'SKU', 'MODEL_VARIANT'].includes(entry.matchType) ||
         !Number.isFinite(entry.retailPrice) || entry.retailPrice <= 0 ||
+        (entry.itemType === 'DEVICE' && entry.retailPrice < MIN_DEVICE_RETAIL_PRICE_VND) ||
         (entry.minimumPrice !== null && (!Number.isFinite(entry.minimumPrice) || entry.minimumPrice < 0 || entry.minimumPrice > entry.retailPrice)) ||
         uniqueKeys.has(uniqueKey)
       ) throw new Error('RETAIL_PRICE_ENTRY_INVALID');
