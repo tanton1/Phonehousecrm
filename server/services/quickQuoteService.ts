@@ -281,7 +281,10 @@ function variantPresentation(config: any, branchId: string, items: any[]) {
   const scoped = config?.publicPresentationByBranch?.[branchId] || {};
   const fallback = items.find(item => item.publicName || item.imageUrl || item.images?.[0]) || items[0] || {};
   return {
-    name: text(scoped.publicName || config?.publicName || fallback.publicName || deviceVariantName(fallback), 200),
+    // Legacy per-IMEI public names were often generated from a dirty model
+    // string. New variant-level overrides remain authoritative; otherwise
+    // present the canonical model + storage instead of repeating colour data.
+    name: text(scoped.publicName || config?.publicName || deviceVariantName(fallback) || fallback.publicName, 200),
     description: text(scoped.publicDescription || config?.publicDescription || fallback.publicDescription, 600),
     imageUrl: text(scoped.imageUrl || config?.imageUrl || fallback.imageUrl || fallback.images?.[0], 1_000) || null,
     publicSortOrder: safePositiveInt(scoped.publicSortOrder ?? config?.publicSortOrder, 9_999)
