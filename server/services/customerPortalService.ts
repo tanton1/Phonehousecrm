@@ -483,6 +483,7 @@ export function projectPromotion(record: any, personalized = false) {
     branchIds: list(record.branchIds, 100, 120),
     allBranches: record.allBranches === true || !Array.isArray(record.branchIds) || record.branchIds.length === 0,
     conditions: list(record.conditions, 30, 500),
+    hashtags: list(record.hashtags, 12, 80),
     ctaLabel: text(record.ctaLabel || 'Xem chi tiết', 80),
     ctaType: text(record.ctaType || 'DETAIL', 30),
     voucherCode: text(record.voucherCode, 80) || null,
@@ -1213,6 +1214,7 @@ function validatePromotionDraft(input: any, existing?: any) {
     ctaLabel: text(input.ctaLabel ?? existing?.ctaLabel ?? 'Xem chi tiết', 80),
     ctaType: text(input.ctaType ?? existing?.ctaType ?? 'DETAIL', 30).toUpperCase(),
     voucherCode: text(input.voucherCode ?? existing?.voucherCode, 80).toUpperCase(),
+    hashtags: [...new Set(list(input.hashtags ?? existing?.hashtags, 12, 80).map(value => value.startsWith('#') ? value : `#${value.replace(/\s+/g, '')}`))],
     priority: Math.min(100, safeInt(input.priority ?? existing?.priority))
   };
 }

@@ -2353,6 +2353,7 @@ function PromotionDetail({
         <p className="mt-4 text-sm leading-6 text-zinc-700">
           {promotion.details || promotion.summary}
         </p>
+        {promotion.hashtags?.length ? <p className="mt-3 text-xs font-bold text-orange-600">{promotion.hashtags.join(' ')}</p> : null}
         {promotion.conditions.length > 0 && (
           <div className="mt-4 rounded-2xl bg-white p-4">
             <p className="text-sm font-black">Điều kiện áp dụng</p>

@@ -6,6 +6,7 @@ import { authenticateCustomer, authenticateCustomerIdentity, requireCustomerAppC
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
 import { createRateLimit, sensitiveRateLimit } from '../middleware/security';
+import { generatePromotionContent, generatePromotionImage } from '../services/promotionAiService';
 import { processCreateWorkOrder } from '../services/technicalService';
 import {
   answerPublicCustomerQuestion,
@@ -57,6 +58,7 @@ import {
 
 const quickQuoteIpRateLimit = createRateLimit({ prefix: 'customer-quick-quote', windowMs: 10 * 60_000, maxRequests: 5 });
 const quickQuoteAnalyticsRateLimit = createRateLimit({ prefix: 'customer-quick-quote-analytics', windowMs: 10 * 60_000, maxRequests: 60 });
+const promotionAiRateLimit = createRateLimit({ prefix: 'promotion-ai', windowMs: 60_000, maxRequests: 8 });
 
 function errorCode(error: any): string {
   return String(error?.message || error?.code || 'CUSTOMER_PORTAL_ERROR').split(':')[0].trim();
@@ -69,7 +71,7 @@ function sendError(res: Response, error: any) {
       : /NOT_FOUND/.test(code) ? 404
         : /ALREADY|CONFLICT|VERSION_CHANGED|PRICE_CHANGED|OFFER_UNAVAILABLE|IDEMPOTENCY|INSPECTION_REQUIRED/.test(code) ? 409
           : /RATE_LIMITED/.test(code) ? 429
-            : /DATABASE_UNAVAILABLE|ACCOUNT_LOOKUP_FAILED|PUSH_DELIVERY_FAILED|EVIDENCE_UPLOAD_FAILED/.test(code) ? 503
+            : /DATABASE_UNAVAILABLE|ACCOUNT_LOOKUP_FAILED|PUSH_DELIVERY_FAILED|EVIDENCE_UPLOAD_FAILED|PROMOTION_AI_NOT_CONFIGURED|PROMOTION_AI_KEY_REJECTED|PROMOTION_AI_PROVIDER/.test(code) ? 503
               : 400;
   return res.status(status).json({ success: false, code, error: code, message: publicMessage(code), ...(error instanceof QuickQuoteError && error.details ? { data: error.details } : {}), requestId: (res.req as Request).requestId });
 }
@@ -88,6 +90,15 @@ function publicMessage(code: string) {
     CUSTOMER_CHAT_ACCESS_DENIED: 'Bạn không có quyền truy cập cuộc trò chuyện này.',
     CUSTOMER_REPAIR_ACCESS_DENIED: 'Bạn không có quyền xem phiếu sửa chữa này.',
     PROMOTION_REQUIRED_FIELDS_INVALID: 'Thông tin chiến dịch hoặc thời gian hiệu lực chưa hợp lệ.',
+    PROMOTION_AI_NOT_CONFIGURED: 'AI dùng chung chưa được cấu hình. Hãy kiểm tra khóa AI trong Cài đặt Telegram & AI.',
+    PROMOTION_AI_KEY_REJECTED: 'Khóa AI dùng chung bị từ chối hoặc đã hết hạn.',
+    PROMOTION_AI_BRIEF_REQUIRED: 'Hãy mô tả ngắn chương trình muốn đăng trước khi yêu cầu AI viết bài.',
+    PROMOTION_AI_RESPONSE_INVALID: 'AI trả về nội dung không hợp lệ. Hãy thử lại với brief rõ hơn.',
+    PROMOTION_AI_RESPONSE_INCOMPLETE: 'AI chưa tạo đủ trường nội dung. Hãy thử lại.',
+    PROMOTION_AI_IMAGE_PROMPT_REQUIRED: 'Chưa có mô tả ảnh để tạo banner.',
+    PROMOTION_AI_IMAGE_EMPTY: 'AI không trả về ảnh. Hãy kiểm tra model tạo ảnh trong cấu hình.',
+    PROMOTION_AI_IMAGE_TOO_LARGE: 'Ảnh AI vượt giới hạn lưu trữ cho banner.',
+    PROMOTION_AI_RATE_LIMITED: 'Bạn đã dùng AI quá nhiều lần trong phút này. Hãy thử lại sau.',
     QUICK_QUOTE_CONFIGURATION_REQUIRED: 'Miniweb báo giá chưa được cấu hình khóa bảo mật trên máy chủ.',
     QUICK_QUOTE_DISABLED: 'Miniweb báo giá đang tạm ngưng.',
     QUICK_QUOTE_PRICE_CHANGED: 'Giá vừa được cập nhật. Vui lòng kiểm tra lại trước khi gửi.',
@@ -187,6 +198,18 @@ export function createCustomerPortalRouter(db: Firestore | null): Router {
   staffRouter.get('/promotions', async (req, res) => {
     if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
     try { return res.json({ success: true, data: await listStaffPromotions(db, staffActor(req)) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.post('/promotions/ai/content', promotionAiRateLimit, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.json({ success: true, data: await generatePromotionContent(db, req.body || {}) }); }
+    catch (error) { return sendError(res, error); }
+  });
+
+  staffRouter.post('/promotions/ai/image', promotionAiRateLimit, requireRole('ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER'), async (req, res) => {
+    if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
+    try { return res.status(201).json({ success: true, data: await generatePromotionImage(db, req.body || {}, { uid: req.user!.uid }) }); }
     catch (error) { return sendError(res, error); }
   });
 

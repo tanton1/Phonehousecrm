@@ -125,6 +125,7 @@ const CRMLeadsView = React.lazy(() => import('./components/CRMLeadsView').then(m
 const CustomerServiceRequestsView = React.lazy(() => import('./components/CustomerServiceRequestsView').then(module => ({ default: module.CustomerServiceRequestsView })));
 const PromotionCampaignManagerView = React.lazy(() => import('./components/PromotionCampaignManagerView').then(module => ({ default: module.PromotionCampaignManagerView })));
 const QuickQuoteRequestsView = React.lazy(() => import('./components/QuickQuoteRequestsView').then(module => ({ default: module.QuickQuoteRequestsView })));
+const CustomerMiniAppManagerView = React.lazy(() => import('./components/CustomerMiniAppManagerView').then(module => ({ default: module.CustomerMiniAppManagerView })));
 
 function PageLoadingFallback() {
   return (
@@ -1993,6 +1994,10 @@ export default function App() {
 
         {activeTab === 'promotion-campaigns' && (
           <PromotionCampaignManagerView branches={branches} currentUser={currentUser} />
+        )}
+
+        {activeTab === 'customer-miniapp' && (
+          <CustomerMiniAppManagerView branches={branches} currentUser={currentUser} />
         )}
 
         {activeTab === 'ai-capture' && (

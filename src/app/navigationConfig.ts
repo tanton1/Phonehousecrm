@@ -26,6 +26,7 @@ import {
   FileScan,
   Megaphone,
   ClipboardList,
+  Smartphone,
 } from "lucide-react";
 import React from "react";
 import type { Permission } from "../../shared/permissions";
@@ -161,6 +162,12 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
         id: "promotion-campaigns",
         label: "Đăng bài & Khuyến mãi",
         icon: Megaphone,
+        roles: ["ADMIN", "REGIONAL_MANAGER", "MANAGER", "STORE_MANAGER"],
+      },
+      {
+        id: "customer-miniapp",
+        label: "Trung tâm Mini App",
+        icon: Smartphone,
         roles: ["ADMIN", "REGIONAL_MANAGER", "MANAGER", "STORE_MANAGER"],
       },
       {

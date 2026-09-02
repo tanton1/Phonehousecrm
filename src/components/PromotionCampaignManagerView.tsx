@@ -5,16 +5,19 @@ import {
   CalendarClock,
   Copy,
   Eye,
+  ImagePlus,
   Loader2,
   Megaphone,
   Pencil,
   Plus,
   RefreshCw,
   Send,
+  Sparkles,
   X,
 } from "lucide-react";
 import type { StoreBranch, UserAccount } from "../types";
 import { apiJson } from "../services/apiClient";
+import { requestPromotionAiContent, requestPromotionAiImage, type PromotionAiContent } from "../services/promotionAiApiClient";
 
 type PromotionStatus =
   "DRAFT" | "SCHEDULED" | "PUBLISHED" | "EXPIRED" | "ARCHIVED";
@@ -37,7 +40,14 @@ type Promotion = {
   ctaLabel?: string;
   voucherCode?: string;
   priority?: number;
+  hashtags?: string[];
 };
+
+function localDateTime(daysFromNow = 0) {
+  const date = new Date(Date.now() + daysFromNow * 86_400_000);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
 
 const emptyDraft = () => ({
   title: "",
@@ -45,8 +55,8 @@ const emptyDraft = () => ({
   details: "",
   category: "GENERAL",
   bannerUrl: "",
-  startsAt: "",
-  endsAt: "",
+  startsAt: localDateTime(),
+  endsAt: localDateTime(7),
   allBranches: true,
   branchIds: [] as string[],
   targetModelKeywords: "",
@@ -55,6 +65,7 @@ const emptyDraft = () => ({
   conditions: "",
   ctaLabel: "Xem chi tiết",
   voucherCode: "",
+  hashtags: "",
   priority: 0,
 });
 
@@ -97,6 +108,7 @@ function campaignDraft(item: Promotion) {
     conditions: (item.conditions || []).join("\n"),
     ctaLabel: item.ctaLabel || "Xem chi tiết",
     voucherCode: item.voucherCode || "",
+    hashtags: (item.hashtags || []).join(", "),
     priority: Number(item.priority || 0),
   };
 }
@@ -128,6 +140,13 @@ export function PromotionCampaignManagerView({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [aiBrief, setAiBrief] = useState("");
+  const [aiTone, setAiTone] = useState("SELLING");
+  const [aiTargetAudience, setAiTargetAudience] = useState("");
+  const [aiOffer, setAiOffer] = useState("");
+  const [aiImagePrompt, setAiImagePrompt] = useState("");
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiProvider, setAiProvider] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,11 +190,23 @@ export function PromotionCampaignManagerView({
           ? []
           : [currentUser.branchId],
     });
+    setAiBrief("");
+    setAiTargetAudience("");
+    setAiOffer("");
+    setAiImagePrompt("");
+    setAiMessage("");
+    setAiProvider("");
     setOpen(true);
   };
   const startEdit = (item: Promotion) => {
     setEditing(item);
     setDraft(campaignDraft(item));
+    setAiBrief(item.summary || item.title || "");
+    setAiTargetAudience("");
+    setAiOffer("");
+    setAiImagePrompt("");
+    setAiMessage("");
+    setAiProvider("");
     setOpen(true);
   };
   const startDuplicate = (item: Promotion) => {
@@ -184,6 +215,7 @@ export function PromotionCampaignManagerView({
       ...campaignDraft(item),
       title: `${item.title} (bản sao)`,
       voucherCode: "",
+      hashtags: "",
       allBranches: mayUseGlobalScope ? item.allBranches !== false : false,
       branchIds: mayUseGlobalScope
         ? item.branchIds || []
@@ -191,7 +223,76 @@ export function PromotionCampaignManagerView({
           ? [currentUser.branchId]
           : [],
     });
+    setAiBrief("");
+    setAiTargetAudience("");
+    setAiOffer("");
+    setAiImagePrompt("");
+    setAiMessage("");
+    setAiProvider("");
     setOpen(true);
+  };
+
+  const applyAiContent = (content: PromotionAiContent) => {
+    setDraft(current => ({
+      ...current,
+      title: content.title || current.title,
+      summary: content.summary || current.summary,
+      details: content.details || current.details,
+      category: content.category || current.category,
+      ctaLabel: content.ctaLabel || current.ctaLabel,
+      conditions: content.conditions.join("\n"),
+      hashtags: content.hashtags.join(", ")
+    }));
+    setAiImagePrompt(content.imagePrompt || "");
+  };
+
+  const generateContent = async () => {
+    if (aiBrief.trim().length < 8) {
+      setError("Hãy mô tả chương trình muốn đăng (ít nhất 8 ký tự) để AI viết đúng ý.");
+      return;
+    }
+    setBusy("ai-content");
+    setError("");
+    setAiMessage("");
+    try {
+      const result = await requestPromotionAiContent({
+        brief: aiBrief,
+        category: draft.category,
+        tone: aiTone,
+        targetAudience: aiTargetAudience,
+        offer: aiOffer,
+        voucherCode: draft.voucherCode,
+        existingTitle: draft.title,
+        existingSummary: draft.summary
+      });
+      applyAiContent(result.content);
+      setAiProvider(`${result.provider === "OPENAI_COMPATIBLE" ? "AI proxy" : "Google Gemini"} · ${result.model}`);
+      setAiMessage("AI đã viết xong. Hãy đọc lại các trường màu cam trước khi lưu hoặc phát hành.");
+    } catch (e: any) {
+      setError(e?.message || "Không tạo được nội dung bằng AI.");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const generateImage = async () => {
+    if (aiImagePrompt.trim().length < 12) {
+      setError("Hãy tạo nội dung trước hoặc bổ sung mô tả banner rõ hơn.");
+      return;
+    }
+    setBusy("ai-image");
+    setError("");
+    setAiMessage("");
+    try {
+      const result = await requestPromotionAiImage({ imagePrompt: aiImagePrompt });
+      setDraft(current => ({ ...current, bannerUrl: result.imageUrl }));
+      setAiProvider(`${result.provider === "OPENAI_COMPATIBLE" ? "AI proxy" : "Google Gemini"} · ${result.model}`);
+      setAiMessage("Banner đã được lưu an toàn vào Firebase Storage và gắn vào bản nháp.");
+    } catch (e: any) {
+      setError(e?.message || "Không tạo được banner bằng AI.");
+    } finally {
+      setBusy("");
+    }
   };
   const save = async () => {
     setBusy("save");
@@ -204,6 +305,7 @@ export function PromotionCampaignManagerView({
         targetModelKeywords: csv(draft.targetModelKeywords),
         targetCustomerTiers: csv(draft.targetCustomerTiers),
         targetActivityTypes: csv(draft.targetActivityTypes),
+        hashtags: csv(draft.hashtags),
         conditions: draft.conditions
           .split("\n")
           .map((item) => item.trim())
@@ -620,6 +722,45 @@ export function PromotionCampaignManagerView({
               </button>
             </div>
             <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6">
+              <section className="rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-white to-amber-50 p-4 sm:col-span-2">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                  <div className="flex gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-950 text-orange-300"><Sparkles className="h-5 w-5" /></div>
+                    <div>
+                      <h2 className="text-sm font-black text-zinc-950">AI Studio · Tạo nhanh nội dung</h2>
+                      <p className="mt-1 text-xs leading-5 text-zinc-600">Mô tả bằng ngôn ngữ tự nhiên. AI chỉ điền bản nháp; người phụ trách vẫn phải kiểm tra giá, điều kiện và thời gian trước khi phát hành.</p>
+                    </div>
+                  </div>
+                  {aiProvider && <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-zinc-500">{aiProvider}</span>}
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-black text-zinc-700 sm:col-span-2">Ý tưởng / thông tin chương trình
+                    <textarea value={aiBrief} onChange={event => setAiBrief(event.target.value)} className="mt-1 min-h-20 w-full rounded-xl border border-orange-200 bg-white p-3 text-sm font-normal outline-none focus:border-orange-500" placeholder="Ví dụ: Cuối tuần giảm giá phụ kiện cho khách mua iPhone 15 trở lên, ưu tiên khách VIP…" />
+                  </label>
+                  <label className="text-xs font-black text-zinc-700">Đối tượng khách
+                    <input value={aiTargetAudience} onChange={event => setAiTargetAudience(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-normal" placeholder="Khách VIP, khách mua máy…" />
+                  </label>
+                  <label className="text-xs font-black text-zinc-700">Ưu đãi đã xác nhận
+                    <input value={aiOffer} onChange={event => setAiOffer(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-normal" placeholder="Giảm 10%, tặng cáp…" />
+                  </label>
+                  <label className="text-xs font-black text-zinc-700">Giọng điệu
+                    <select value={aiTone} onChange={event => setAiTone(event.target.value)} className="mt-1 h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm font-normal">
+                      <option value="SELLING">Thuyết phục, bán hàng</option>
+                      <option value="FRIENDLY">Gần gũi, tư vấn</option>
+                      <option value="PREMIUM">Cao cấp, tinh gọn</option>
+                      <option value="DIRECT">Ngắn gọn, trực tiếp</option>
+                    </select>
+                  </label>
+                  <label className="text-xs font-black text-zinc-700">Mô tả banner (AI ảnh)
+                    <textarea value={aiImagePrompt} onChange={event => setAiImagePrompt(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-zinc-200 bg-white p-3 text-sm font-normal" placeholder="AI sẽ tự gợi ý sau khi viết nội dung…" />
+                  </label>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <button type="button" onClick={() => void generateContent()} disabled={busy !== ""} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-zinc-950 px-4 text-xs font-black text-white disabled:opacity-50"><Sparkles className="h-4 w-4 text-orange-300" />{busy === "ai-content" ? "AI đang viết…" : "Viết nội dung"}</button>
+                    <button type="button" onClick={() => void generateImage()} disabled={busy !== "" || aiImagePrompt.trim().length < 12} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-orange-300 bg-white px-4 text-xs font-black text-orange-700 disabled:opacity-50"><ImagePlus className="h-4 w-4" />{busy === "ai-image" ? "Đang tạo ảnh…" : "Tạo banner AI"}</button>
+                  </div>
+                </div>
+                {aiMessage && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold leading-5 text-emerald-700">{aiMessage}</p>}
+              </section>
               <label className="text-sm font-bold sm:col-span-2">
                 Tiêu đề
                 <input
@@ -711,6 +852,7 @@ export function PromotionCampaignManagerView({
                   className="mt-1 h-12 w-full rounded-xl border px-3"
                   placeholder="https://…"
                 />
+                {draft.bannerUrl && <img src={draft.bannerUrl} alt="Xem trước banner" className="mt-2 h-32 w-full rounded-xl border border-zinc-200 bg-zinc-100 object-cover" />}
               </label>
               <label className="text-sm font-bold">
                 Model mục tiêu
@@ -779,6 +921,15 @@ export function PromotionCampaignManagerView({
                     setDraft({ ...draft, conditions: e.target.value })
                   }
                   className="mt-1 min-h-24 w-full rounded-xl border p-3"
+                />
+              </label>
+              <label className="text-sm font-bold sm:col-span-2">
+                Hashtag (phân cách bằng dấu phẩy)
+                <input
+                  value={draft.hashtags}
+                  onChange={(e) => setDraft({ ...draft, hashtags: e.target.value })}
+                  className="mt-1 h-12 w-full rounded-xl border px-3"
+                  placeholder="#iphone, #phonehouse"
                 />
               </label>
               <div className="sm:col-span-2">
