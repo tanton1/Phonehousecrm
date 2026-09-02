@@ -2,6 +2,18 @@ const text = (value: unknown) => String(value || '').trim();
 
 export const MIN_DEVICE_RETAIL_PRICE_VND = 100_000;
 
+/**
+ * Legacy inventory rows used "thousand VND" (for example 4,950) while all
+ * current money fields use full VND. Read those old values safely during the
+ * migration, but new policy validation still requires full VND.
+ */
+export function deviceRetailPriceVnd(value: unknown): number {
+  const price = Number(value);
+  if (!Number.isSafeInteger(price)) return Number.NaN;
+  if (price <= 0) return price;
+  return price < MIN_DEVICE_RETAIL_PRICE_VND ? price * 1_000 : price;
+}
+
 export const normalizeRetailPriceKey = (value: unknown): string => text(value).toUpperCase();
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

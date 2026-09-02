@@ -254,6 +254,14 @@ describe('PhoneHouse Care quick quote invariants', () => {
     expect(result.items[0]).toMatchObject({ model: 'iPhone 15 Pro', price: 21_500_000 });
   });
 
+  it('reads legacy device prices stored in thousands as full VND during migration', async () => {
+    const db = fakeFirestore(deviceSeed({
+      'devices/DEV-1': { ...deviceSeed()['devices/DEV-1'], sellPrice: 4_950 }
+    }));
+    const result = await listPublicQuickQuoteDevices(db, { branchId: 'CN01' });
+    expect(result.items[0].price).toBe(4_950_000);
+  });
+
   it('revalidates price inside the atomic creation transaction and creates no CRM record after a price change', async () => {
     const db = fakeFirestore(deviceSeed());
     const token = await publicDeviceToken(db);

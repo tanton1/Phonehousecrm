@@ -2,7 +2,7 @@ import { Firestore, FieldValue, DocumentReference, Transaction } from 'firebase-
 import crypto from 'crypto';
 import { imeiRegistryId, normalizeImei } from './inventoryDeviceService';
 import { normalizeOperationalPolicyVersions, selectEffectiveOperationalPolicy } from './operationalPolicyService';
-import { deviceVariantKeyCandidates, MIN_DEVICE_RETAIL_PRICE_VND, normalizeRetailPriceKey } from '../../shared/retailPricing';
+import { deviceRetailPriceVnd, deviceVariantKeyCandidates, MIN_DEVICE_RETAIL_PRICE_VND, normalizeRetailPriceKey } from '../../shared/retailPricing';
 import { buildCrmSearchPrefixes, normalizeCrmPhone, prepareCrmPostSalePlan } from './crmOperationsService';
 import {
   assertDebtOpenItemScope,
@@ -181,7 +181,7 @@ function resolveRetailPriceEntry(policy: any, branchId: string, itemType: 'DEVIC
         : itemType === 'DEVICE' && entry.matchType === 'MODEL_VARIANT' && deviceVariantKeyCandidates(data).includes(key);
     if (!identityMatches) return false;
     if (itemType !== 'DEVICE') return true;
-    const price = Number(entry.retailPrice);
+    const price = deviceRetailPriceVnd(entry.retailPrice);
     return Number.isSafeInteger(price) && price >= MIN_DEVICE_RETAIL_PRICE_VND;
   });
   const priority = (entry: any) =>
@@ -486,13 +486,18 @@ export async function executeAtomicCheckout(
     const applyRetailPrice = (itemType: 'DEVICE' | 'ACCESSORY', item: any) => {
       const entry = resolveRetailPriceEntry(retailPricing, branchId, itemType, item.id, item.data);
       const fallbackPrice = Number(item.listPrice || 0);
-      const listPrice = entry ? Number(entry.retailPrice) : fallbackPrice;
+      const listPrice = itemType === 'DEVICE'
+        ? deviceRetailPriceVnd(entry ? entry.retailPrice : fallbackPrice)
+        : Number(entry ? entry.retailPrice : fallbackPrice);
       if (!Number.isFinite(listPrice) || listPrice < (itemType === 'DEVICE' ? MIN_DEVICE_RETAIL_PRICE_VND : 1)) throw new Error(`RETAIL_PRICE_REQUIRED: Chưa có giá bán lẻ hợp lệ cho "${item.data?.model || item.data?.name || item.id}".`);
       const adjustment = adjustmentMap.get(`${itemType}:${item.id}`);
       const authoritativePrice = adjustment ? adjustment.unitPrice : listPrice;
       const priceAdjusted = authoritativePrice !== listPrice;
       if (priceAdjusted && !adjustment.reason) throw new Error('POS_PRICE_ADJUSTMENT_REASON_REQUIRED: Bắt buộc nhập lý do khi sửa giá bán trên phiếu.');
-      const minimumPrice = entry && Number.isFinite(Number(entry.minimumPrice)) ? Number(entry.minimumPrice) : null;
+      const rawMinimumPrice = entry?.minimumPrice;
+      const minimumPrice = entry && Number.isFinite(Number(rawMinimumPrice))
+        ? (itemType === 'DEVICE' && Number(rawMinimumPrice) > 0 ? deviceRetailPriceVnd(rawMinimumPrice) : Number(rawMinimumPrice))
+        : null;
       const role = String(authenticatedStaff?.role || '').toUpperCase();
       const canOverrideFloor = ['ADMIN', 'MANAGER', 'STORE_MANAGER'].includes(role);
       if (minimumPrice !== null && authoritativePrice < minimumPrice && !canOverrideFloor) {

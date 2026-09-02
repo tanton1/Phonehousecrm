@@ -6,6 +6,7 @@ import { getVietnamDateString } from '../../shared/vietnamTime';
 import {
   canonicalDeviceModelName,
   canonicalDeviceVariantKey,
+  deviceRetailPriceVnd,
   deviceVariantKeyCandidates,
   MIN_DEVICE_RETAIL_PRICE_VND,
   normalizeRetailPriceKey
@@ -258,13 +259,14 @@ function resolvePrice(policy: any, branchId: string, kind: 'DEVICE' | 'ACCESSORY
     return kind === 'DEVICE' && entry.matchType === 'MODEL_VARIANT' && deviceVariantKeyCandidates(data).includes(key);
   });
   const priority = (entry: any) => (entry.branchId === branchId ? 100 : 0) + (entry.matchType === 'ITEM_ID' ? 30 : entry.matchType === 'SKU' ? 20 : 10);
-  const validPrice = (value: unknown) => Number.isSafeInteger(Number(value))
-    && Number(value) >= (kind === 'DEVICE' ? MIN_DEVICE_RETAIL_PRICE_VND : 1);
+  const normalizedPrice = (value: unknown) => kind === 'DEVICE' ? deviceRetailPriceVnd(value) : Number(value);
+  const validPrice = (value: unknown) => Number.isSafeInteger(normalizedPrice(value))
+    && normalizedPrice(value) >= (kind === 'DEVICE' ? MIN_DEVICE_RETAIL_PRICE_VND : 1);
   const entry = matching
     .sort((left: any, right: any) => priority(right) - priority(left))
     .find((candidate: any) => validPrice(candidate.retailPrice));
   const fallback = Number(kind === 'DEVICE' ? data?.sellPrice : (data?.retailPrice ?? data?.sellPrice));
-  const price = Number(entry?.retailPrice ?? fallback);
+  const price = normalizedPrice(entry?.retailPrice ?? fallback);
   if (!validPrice(price)) throw new QuickQuoteError('QUICK_QUOTE_PRICE_NOT_AVAILABLE');
   return { price, policyId: entry ? text(policy?.policyId || policy?.id, 120) || null : null, policyVersion: entry ? text(policy?.version, 80) || null : null };
 }

@@ -315,6 +315,7 @@ export function validateOperationalConfig(configKey: string, input: any) {
         !['ITEM_ID', 'SKU', 'MODEL_VARIANT'].includes(entry.matchType) ||
         !Number.isFinite(entry.retailPrice) || entry.retailPrice <= 0 ||
         (entry.itemType === 'DEVICE' && entry.retailPrice < MIN_DEVICE_RETAIL_PRICE_VND) ||
+        (entry.itemType === 'DEVICE' && entry.minimumPrice !== null && entry.minimumPrice > 0 && entry.minimumPrice < MIN_DEVICE_RETAIL_PRICE_VND) ||
         (entry.minimumPrice !== null && (!Number.isFinite(entry.minimumPrice) || entry.minimumPrice < 0 || entry.minimumPrice > entry.retailPrice)) ||
         uniqueKeys.has(uniqueKey)
       ) throw new Error('RETAIL_PRICE_ENTRY_INVALID');
