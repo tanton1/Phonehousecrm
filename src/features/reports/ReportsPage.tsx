@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   SalesInvoice, DeviceItem, WarrantyTicket, FundAccount, StoreBranch, 
   StaffMember, CashTransaction 
@@ -6,9 +6,13 @@ import {
 import { 
   BarChart3, TrendingUp, DollarSign, Calendar, Package, Wrench, Award, 
   Filter, Download, Printer, ArrowUpRight, ArrowDownLeft, PieChart, 
-  Building2, Users, ShoppingCart, HelpCircle, ShieldCheck, ChevronRight, CheckCircle2, FileSpreadsheet
+  Building2, Users, ShoppingCart, HelpCircle, ShieldCheck, ChevronRight, CheckCircle2, FileSpreadsheet,
+  AlertTriangle, RefreshCw
 } from 'lucide-react';
-import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamRelativeDateString } from '../../utils/dateTimeUtils';
+import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamRelativeDateString, getVietnamTimeWithSecondsString } from '../../utils/dateTimeUtils';
+import { toIsoDateTime } from '../../utils/dateValue';
+import { fetchRepairRevenueReport, RepairRevenueReport } from '../../services/technicalApiClient';
+import { requestS2eCashLedger, S2eCashLedgerReport } from '../../services/financeApiClient';
 
 export interface ReportsPageProps {
   invoices: SalesInvoice[];
@@ -19,6 +23,12 @@ export interface ReportsPageProps {
   selectedBranchId?: string;
   currentUser?: StaffMember | null;
   cashTransactions?: CashTransaction[];
+  dataCoverage?: {
+    partialDomainCount: number;
+    invoiceLoaded: number;
+    invoiceTotal: number;
+    generatedAt?: string;
+  };
 }
 
 const formatCurrency = (amount: number) => {
@@ -26,8 +36,62 @@ const formatCurrency = (amount: number) => {
 };
 
 const formatCompact = (amount: number) => {
-  return new Intl.NumberFormat('vi-VN', { notation: "compact", maximumFractionDigits: 2 }).format(amount).replace('T', 'tr');
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  const abs = Math.abs(safeAmount);
+  if (abs >= 1_000_000_000) return `${(safeAmount / 1_000_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} tỷ`;
+  if (abs >= 1_000_000) return `${(safeAmount / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} triệu`;
+  if (abs >= 1_000) return `${(safeAmount / 1_000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} nghìn`;
+  return safeAmount.toLocaleString('vi-VN');
 };
+
+export function dateOnlyInVietnam(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    // Finance transactions may use a Vietnam-local string without timezone.
+    if (/^\d{4}-\d{2}-\d{2} /.test(trimmed)) return trimmed.slice(0, 10);
+  }
+  const iso = toIsoDateTime(value);
+  if (!iso) return '';
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? '' : getVietnamDateString(parsed);
+}
+
+function invoiceLineItems(invoice: SalesInvoice): any[] {
+  if (Array.isArray(invoice.detailedItems) && invoice.detailedItems.length > 0) return invoice.detailedItems as any[];
+  return Array.isArray(invoice.items) ? invoice.items as any[] : [];
+}
+
+export function isPostedInvoice(invoice: SalesInvoice): boolean {
+  const status = String(invoice.status || 'completed').trim().toUpperCase();
+  return !['CANCELLED', 'CANCELED', 'REFUNDED', 'REVERSED', 'DRAFT', 'PENDING'].includes(status);
+}
+
+export function isPostedCashTransaction(transaction: CashTransaction): boolean {
+  const status = String(transaction.status || 'COMPLETED').trim().toUpperCase();
+  const recordStatus = String(transaction.recordStatus || 'POSTED').trim().toUpperCase();
+  return status === 'COMPLETED' && !['DRAFT', 'REVERSED', 'CANCELLED', 'CANCELED'].includes(recordStatus);
+}
+
+/**
+ * Build a spreadsheet-friendly CSV export for the current report snapshot.
+ * This deliberately exports aggregate management figures only; identifiers,
+ * customer data, IMEI and internal cost records are not included.
+ */
+export function buildReportCsv(rows: Array<[string, string | number]>): string {
+  const escapeCell = (value: string | number) => {
+    const text = String(value ?? '');
+    return /[;\"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines = [
+    ['Chỉ tiêu', 'Giá trị'],
+    ...rows.map(([label, value]) => [label, value])
+  ];
+  // UTF-8 BOM keeps Vietnamese text readable in Excel on Windows. Semicolon
+  // is used because it is the list separator in common Vietnamese locales.
+  return `\uFEFF${lines.map(line => line.map(escapeCell).join(';')).join('\r\n')}\r\n`;
+}
 
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   invoices = [],
@@ -37,12 +101,92 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   branches = [],
   selectedBranchId = 'ALL',
   currentUser,
-  cashTransactions = []
+  cashTransactions = [],
+  dataCoverage
 }) => {
   const [activeTab, setActiveTab] = useState<'PL_STATEMENT' | 'REVENUE_STRUCTURE' | 'STOCK_AGING' | 'CASH_FLOW'>('PL_STATEMENT');
   const [timeRange, setTimeRange] = useState<'today' | 'yesterday' | '7days' | 'month' | 'last_month' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [repairReport, setRepairReport] = useState<RepairRevenueReport | null>(null);
+  const [cashFlowReport, setCashFlowReport] = useState<S2eCashLedgerReport | null>(null);
+  const [remoteReportLoading, setRemoteReportLoading] = useState(false);
+  const [remoteReportError, setRemoteReportError] = useState<string | null>(null);
+
+  const effectiveBranchId = useMemo(() => {
+    // The parent already scopes non-admin data to the authenticated branch. Use
+    // that authoritative branch in the report API instead of showing "ALL" for
+    // a manager/accountant who cannot actually see the whole system.
+    const role = String(currentUser?.role || '').toUpperCase();
+    const selected = String(selectedBranchId || 'ALL');
+    const effectiveSelected = selected === 'ALL' && role !== 'ADMIN'
+      ? String(currentUser?.branchId || 'ALL')
+      : selected;
+    const match = branches.find(branch => branch.id === effectiveSelected || branch.code === effectiveSelected);
+    return String(match?.id || effectiveSelected || 'ALL');
+  }, [branches, currentUser?.branchId, currentUser?.role, selectedBranchId]);
+
+  const reportRange = useMemo(() => {
+    const today = getVietnamDateString();
+    if (timeRange === 'today') return { from: today, to: today, label: 'Hôm nay' };
+    if (timeRange === 'yesterday') {
+      const date = getVietnamRelativeDateString(-1);
+      return { from: date, to: date, label: 'Hôm qua' };
+    }
+    if (timeRange === '7days') return { from: getVietnamRelativeDateString(-6), to: today, label: '7 ngày gần nhất' };
+    if (timeRange === 'month') return { from: `${today.slice(0, 7)}-01`, to: today, label: 'Tháng hiện tại' };
+    if (timeRange === 'last_month') {
+      const month = getPreviousVietnamMonthString();
+      const [year, monthNumber] = month.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+      return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}`, label: 'Tháng trước' };
+    }
+    return {
+      from: customStartDate,
+      to: customEndDate,
+      label: customStartDate && customEndDate ? `${customStartDate} → ${customEndDate}` : 'Tùy chọn'
+    };
+  }, [customEndDate, customStartDate, timeRange]);
+
+  const invalidCustomRange = timeRange === 'custom'
+    && Boolean(customStartDate && customEndDate && customStartDate > customEndDate);
+  const incompleteCustomRange = timeRange === 'custom'
+    && (!customStartDate || !customEndDate);
+
+  useEffect(() => {
+    if (invalidCustomRange || incompleteCustomRange || !reportRange.from || !reportRange.to || (effectiveBranchId === 'ALL' && String(currentUser?.role || '').toUpperCase() !== 'ADMIN')) {
+      setRemoteReportLoading(false);
+      setRepairReport(null);
+      setCashFlowReport(null);
+      setRemoteReportError(invalidCustomRange ? 'Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc.' : incompleteCustomRange ? 'Vui lòng chọn đủ ngày bắt đầu và ngày kết thúc.' : null);
+      return;
+    }
+    let active = true;
+    setRemoteReportLoading(true);
+    setRemoteReportError(null);
+    Promise.allSettled([
+      fetchRepairRevenueReport(reportRange.from, reportRange.to, effectiveBranchId),
+      requestS2eCashLedger({ branchId: effectiveBranchId, from: reportRange.from, to: reportRange.to })
+    ]).then(results => {
+      if (!active) return;
+      const [repairResult, cashResult] = results;
+      const errors: string[] = [];
+      if (repairResult.status === 'fulfilled') setRepairReport(repairResult.value);
+      else {
+        setRepairReport(null);
+        errors.push('Không tải được báo cáo sửa chữa');
+      }
+      if (cashResult.status === 'fulfilled') setCashFlowReport(cashResult.value);
+      else {
+        setCashFlowReport(null);
+        errors.push('Không tải được sổ quỹ theo kỳ');
+      }
+      setRemoteReportError(errors.length ? errors.join(' · ') : null);
+    }).finally(() => {
+      if (active) setRemoteReportLoading(false);
+    });
+    return () => { active = false; };
+  }, [effectiveBranchId, currentUser?.role, incompleteCustomRange, invalidCustomRange, reportRange.from, reportRange.to]);
 
   // 1. Filtered Data by Branch & Time Range
   const filteredData = useMemo(() => {
@@ -52,15 +196,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     const thisMonthStr = todayStr.slice(0, 7);
     const lastMonthStr = getPreviousVietnamMonthString();
 
-    const matchesTime = (dateStr?: string) => {
-      if (!dateStr) return true;
-      const dateOnly = dateStr.slice(0, 10);
+    const matchesTime = (value?: unknown) => {
+      const dateOnly = dateOnlyInVietnam(value);
+      // A dated report must not silently include records that have no business
+      // date. They are surfaced as a data-quality warning below instead.
+      if (!dateOnly) return false;
       if (timeRange === 'today') return dateOnly === todayStr;
       if (timeRange === 'yesterday') return dateOnly === yesterdayStr;
-      if (timeRange === '7days') return dateOnly >= past7Str;
+      if (timeRange === '7days') return dateOnly >= past7Str && dateOnly <= todayStr;
       if (timeRange === 'month') return dateOnly.startsWith(thisMonthStr);
       if (timeRange === 'last_month') return dateOnly.startsWith(lastMonthStr);
       if (timeRange === 'custom') {
+        if (invalidCustomRange) return false;
         if (customStartDate && dateOnly < customStartDate) return false;
         if (customEndDate && dateOnly > customEndDate) return false;
         return true;
@@ -69,15 +216,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     };
 
     const matchesBranch = (branchId?: string) => {
-      return !selectedBranchId || selectedBranchId === 'ALL' || branchId === selectedBranchId;
+      return effectiveBranchId === 'ALL' || !effectiveBranchId || branchId === effectiveBranchId || branchId === selectedBranchId;
     };
 
-    const invs = invoices.filter(inv => matchesBranch(inv.branchId) && matchesTime(inv.createdAt || (inv as any).date));
-    const txs = cashTransactions.filter(tx => matchesBranch(tx.branchId) && matchesTime(tx.date));
+    const invs = invoices.filter(inv => isPostedInvoice(inv) && matchesBranch(inv.branchId) && matchesTime(inv.createdDate || inv.createdAt || (inv as any).date));
+    const txs = cashTransactions.filter(tx => isPostedCashTransaction(tx) && matchesBranch(tx.branchId) && matchesTime(tx.date));
     const warrs = warrantyTickets.filter(w => matchesBranch(w.branchId) && matchesTime(w.createdAt));
     
     return { invs, txs, warrs };
-  }, [invoices, cashTransactions, warrantyTickets, selectedBranchId, timeRange, customStartDate, customEndDate]);
+  }, [effectiveBranchId, invoices, cashTransactions, warrantyTickets, selectedBranchId, timeRange, customStartDate, customEndDate, invalidCustomRange]);
 
   // 2. Revenue Calculations
   const revenueStats = useMemo(() => {
@@ -86,12 +233,21 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     // Gross Revenue & Discounts
     let deviceRevenue = 0;
     let accessoryRevenue = 0;
+    let unallocatedRevenue = 0;
     let discountTotal = 0;
 
+    let invoicesWithoutLines = 0;
     invs.forEach(inv => {
-      discountTotal += (inv.discountAmount || 0);
-      inv.items?.forEach((item: any) => {
-        const lineTotal = item.totalPrice || item.finalPrice || (item.price * (item.quantity || 1)) || 0;
+      discountTotal += Number(inv.discountAmount || 0);
+      const lines = invoiceLineItems(inv);
+      if (!lines.length && Number.isFinite(Number(inv.totalAmount))) {
+        invoicesWithoutLines += 1;
+        // Keep the invoice in the total even when an old record has no line
+        // projection, but do not misclassify it as a device sale.
+        unallocatedRevenue += Number(inv.totalAmount || 0);
+      }
+      lines.forEach((item: any) => {
+        const lineTotal = Number(item.totalPrice ?? item.finalPrice ?? ((item.price || item.unitPrice || 0) * (item.quantity || 1)));
         if (item.deviceId || item.imei) {
           deviceRevenue += lineTotal;
         } else {
@@ -101,47 +257,64 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     });
 
     // Repair Revenue
-    const repairRevenue = filteredData.warrs
+    const legacyRepairRevenue = filteredData.warrs
       .filter(w => w.status === 'delivered' || w.status === 'completed')
       .reduce((sum, w) => sum + (w.finalCost || w.estimatedCost || 0), 0);
+    const repairRevenue = repairReport?.summary.serviceRevenue ?? legacyRepairRevenue;
 
-    const grossRevenue = deviceRevenue + accessoryRevenue + repairRevenue;
+    const grossRevenue = deviceRevenue + accessoryRevenue + unallocatedRevenue + repairRevenue;
     const netRevenue = Math.max(0, grossRevenue - discountTotal);
 
     return {
       deviceRevenue,
       accessoryRevenue,
+      unallocatedRevenue,
       repairRevenue,
       discountTotal,
       grossRevenue,
       netRevenue,
-      invoiceCount: invs.length
+      invoiceCount: invs.length,
+      invoicesWithoutLines,
+      repairRevenueSource: repairReport ? 'TECHNICAL_WORK_ORDERS' : 'LEGACY_WARRANTY_FALLBACK'
     };
-  }, [filteredData]);
+  }, [filteredData, repairReport]);
 
   // 3. Cost of Goods Sold (COGS - Giá vốn hàng bán)
   const cogsStats = useMemo(() => {
     let deviceCost = 0;
     let accessoryCost = 0;
+    let missingCostCount = 0;
 
     filteredData.invs.forEach(inv => {
-      inv.items?.forEach((item: any) => {
+      invoiceLineItems(inv).forEach((item: any) => {
+        const quantity = Math.max(1, Number(item.quantity || 1));
         if (item.deviceId || item.imei) {
-          // Look up device in inventory for exact importPrice
+          // currentCost is the canonical cost snapshot; buyPrice is retained as
+          // a compatibility fallback for older device records.
           const matchedDev = devices.find(d => d.id === item.deviceId || d.imei === item.imei);
-          const cost = matchedDev?.importPrice || (item.price ? item.price * 0.86 : 0);
-          deviceCost += cost;
+          const cost = Number((matchedDev as any)?.currentCost ?? (matchedDev as any)?.buyPrice ?? item.costPrice ?? NaN);
+          if (Number.isFinite(cost) && cost >= 0) deviceCost += cost * quantity;
+          else missingCostCount += quantity;
         } else {
-          const cost = item.costPrice ? (item.costPrice * (item.quantity || 1)) : ((item.price || 0) * 0.65 * (item.quantity || 1));
-          accessoryCost += cost;
+          const unitCost = Number(item.costPrice ?? item.unitCost ?? NaN);
+          if (Number.isFinite(unitCost) && unitCost >= 0) accessoryCost += unitCost * quantity;
+          else missingCostCount += quantity;
         }
       });
     });
 
-    // Repair parts cost
-    const repairPartsCost = filteredData.warrs
+    // Prefer the canonical technical cost posting. Legacy repair records may
+    // carry a parts cost, but never infer it from a percentage of revenue.
+    const legacyRepairPartsCost = filteredData.warrs
       .filter(w => w.status === 'delivered' || w.status === 'completed')
-      .reduce((sum, w) => sum + ((w.partsCost || 0) || ((w.finalCost || 0) * 0.45)), 0);
+      .reduce((sum, w) => sum + Number(w.partsCost || 0), 0);
+    const canonicalRepairPartsCost = repairReport
+      ? repairReport.items.reduce((sum, item) => sum + Number(item.partsCost || 0), 0)
+      : null;
+    if (repairReport) {
+      missingCostCount += repairReport.items.filter(item => item.partsCost == null).length;
+    }
+    const repairPartsCost = canonicalRepairPartsCost ?? legacyRepairPartsCost;
 
     const totalCOGS = deviceCost + accessoryCost + repairPartsCost;
     const grossProfit = revenueStats.netRevenue - totalCOGS;
@@ -153,9 +326,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       repairPartsCost,
       totalCOGS,
       grossProfit,
-      grossMarginPercent
+      grossMarginPercent,
+      missingCostCount
     };
-  }, [filteredData, devices, revenueStats.netRevenue]);
+  }, [filteredData, devices, repairReport, revenueStats.netRevenue]);
 
   // 4. Operating Expenses (OPEX - Chi phí hoạt động hạch toán)
   const opexStats = useMemo(() => {
@@ -168,13 +342,26 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     let utilities = 0;
     let otherOpex = 0;
 
+    let unclassifiedPaymentCount = 0;
+    let unclassifiedPaymentAmount = 0;
+    const nonOpexCategories = new Set([
+      'INVENTORY_PURCHASE', 'SUPPLIER_DEBT_PAY', 'TRADEIN_BUYBACK',
+      'WARRANTY_PARTS', 'CUSTOMER_REFUND', 'INTER_BRANCH_PAYMENT',
+      'INTERNAL_TRANSFER', 'ACCOUNTING_ADJUSTMENT'
+    ]);
+
     accountedPayments.forEach(t => {
-      if (t.category === 'STORE_RENT' || t.categoryName?.includes('mặt bằng')) rent += t.amount;
-      else if (t.category === 'SALARY_BONUS' || t.categoryName?.includes('lương')) salary += t.amount;
-      else if (t.category === 'MARKETING_ADS' || t.categoryName?.includes('quảng cáo') || t.categoryName?.includes('Marketing')) marketing += t.amount;
-      else if (t.category === 'UTILITIES' || t.categoryName?.includes('điện') || t.categoryName?.includes('nước')) utilities += t.amount;
-      else if (t.category !== 'INVENTORY_PURCHASE' && t.category !== 'SUPPLIER_DEBT_PAY' && t.category !== 'TRADEIN_BUYBACK') {
-        otherOpex += t.amount;
+      const amount = Number(t.amount || 0);
+      if (t.category === 'STORE_RENT') rent += amount;
+      else if (t.category === 'SALARY_BONUS') salary += amount;
+      else if (t.category === 'MARKETING_ADS') marketing += amount;
+      else if (t.category === 'UTILITIES') utilities += amount;
+      else if (['OPERATING_EXPENSE', 'OTHER_EXPENSE', 'INTERNAL'].includes(String(t.category || ''))) otherOpex += amount;
+      else if (!nonOpexCategories.has(String(t.category || ''))) {
+        // Unknown categories must be classified at source. Guessing from a free
+        // text label can silently turn inventory/debt movements into expenses.
+        unclassifiedPaymentCount += 1;
+        unclassifiedPaymentAmount += amount;
       }
     });
 
@@ -184,7 +371,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     // Other Income & Expenses
     const otherIncome = filteredData.txs
       .filter(t => t.type === 'RECEIPT' && t.isPLAccounted !== false && t.category === 'OTHER_INCOME')
-      .reduce((s, t) => s + t.amount, 0);
+      .reduce((s, t) => s + Number(t.amount || 0), 0);
 
     const netProfit = operatingProfit + otherIncome;
     const netProfitMargin = revenueStats.netRevenue > 0 ? (netProfit / revenueStats.netRevenue) * 100 : 0;
@@ -199,21 +386,101 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       operatingProfit,
       otherIncome,
       netProfit,
-      netProfitMargin
+      netProfitMargin,
+      unclassifiedPaymentCount,
+      unclassifiedPaymentAmount
     };
   }, [filteredData.txs, cogsStats.grossProfit, revenueStats.netRevenue]);
 
   // 5. Stock Value
   const stockStats = useMemo(() => {
-    const inStockDevices = devices.filter(d => d.status === 'in_stock' && (!selectedBranchId || selectedBranchId === 'ALL' || d.branchId === selectedBranchId));
-    const totalStockValue = inStockDevices.reduce((sum, d) => sum + (d.importPrice || (d.sellPrice * 0.8) || 0), 0);
+    const inStockDevices = devices.filter(d => d.status === 'in_stock' && (effectiveBranchId === 'ALL' || !effectiveBranchId || d.branchId === effectiveBranchId || d.branchId === selectedBranchId));
+    let missingCostCount = 0;
+    let missingReceivedDateCount = 0;
+    const totalStockValue = inStockDevices.reduce((sum, d) => {
+      const cost = Number((d as any).currentCost ?? (d as any).buyPrice ?? NaN);
+      if (!Number.isFinite(cost) || cost < 0) {
+        missingCostCount += 1;
+        return sum;
+      }
+      return sum + cost;
+    }, 0);
+    const today = getVietnamDateString();
     const agedStock30Days = inStockDevices.filter(d => {
-      const days = (Date.now() - new Date(d.createdAt || Date.now()).getTime()) / (1000 * 3600 * 24);
+      const received = dateOnlyInVietnam((d as any).receivedDate || (d as any).createdAt);
+      if (!received) {
+        missingReceivedDateCount += 1;
+        return false;
+      }
+      const days = Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${received}T00:00:00Z`)) / 86_400_000);
       return days > 30;
     });
+    const stockAgeBuckets = [0, 15, 30, 60, 90].map((lower, index, bounds) => {
+      const upper = bounds[index + 1];
+      const items = inStockDevices.filter(device => {
+        const received = dateOnlyInVietnam((device as any).receivedDate || (device as any).createdAt);
+        if (!received) return false;
+        const days = Math.floor((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${received}T00:00:00Z`)) / 86_400_000);
+        return days >= lower && (upper === undefined ? true : days < upper);
+      });
+      return { label: upper === undefined ? `≥${lower} ngày` : `${lower}–${upper - 1} ngày`, count: items.length };
+    });
 
-    return { inStockDevices, totalStockValue, agedStock30Days };
-  }, [devices, selectedBranchId]);
+    return { inStockDevices, totalStockValue, agedStock30Days, stockAgeBuckets, missingCostCount, missingReceivedDateCount };
+  }, [devices, effectiveBranchId, selectedBranchId]);
+
+  const handleExportCsv = () => {
+    const branchLabel = branches.find(branch => branch.id === effectiveBranchId)?.name
+      || (effectiveBranchId === 'ALL' ? 'Toàn hệ thống' : effectiveBranchId);
+    const rows: Array<[string, string | number]> = [
+      ['Chi nhánh', branchLabel],
+      ['Kỳ báo cáo', reportRange.label],
+      ['Từ ngày', reportRange.from],
+      ['Đến ngày', reportRange.to],
+      ['Doanh thu thiết bị', revenueStats.deviceRevenue],
+      ['Doanh thu phụ kiện', revenueStats.accessoryRevenue],
+      ['Doanh thu sửa chữa', revenueStats.repairRevenue],
+      ['Doanh thu chưa phân bổ', revenueStats.unallocatedRevenue],
+      ['Giảm giá', revenueStats.discountTotal],
+      ['Doanh thu thuần', revenueStats.netRevenue],
+      ['Giá vốn thiết bị', cogsStats.deviceCost],
+      ['Giá vốn phụ kiện', cogsStats.accessoryCost],
+      ['Chi phí linh kiện sửa chữa', cogsStats.repairPartsCost],
+      ['Tổng giá vốn', cogsStats.totalCOGS],
+      ['Lợi nhuận gộp', cogsStats.grossProfit],
+      ['Chi phí hoạt động', opexStats.totalOPEX],
+      ['Khoản chi chưa phân loại P&L', opexStats.unclassifiedPaymentAmount],
+      ['Lợi nhuận hoạt động', opexStats.operatingProfit],
+      ['Thu nhập khác', opexStats.otherIncome],
+      ['Lợi nhuận ròng', opexStats.netProfit],
+      ['Biên lợi nhuận ròng (%)', Number(opexStats.netProfitMargin.toFixed(2))],
+      ['Máy đang tồn', stockStats.inStockDevices.length],
+      ['Giá vốn máy đang tồn', stockStats.totalStockValue],
+      ['Hóa đơn đã ghi nhận', revenueStats.invoiceCount],
+      ['Hóa đơn thiếu dòng', revenueStats.invoicesWithoutLines],
+      ['Dòng/máy thiếu giá vốn', cogsStats.missingCostCount + stockStats.missingCostCount]
+    ];
+    if (cashFlowReport) {
+      rows.push(
+        ['Số dư quỹ đầu kỳ', cashFlowReport.total.openingBalance],
+        ['Thu bên ngoài trong kỳ', cashFlowReport.total.externalReceipts],
+        ['Chi bên ngoài trong kỳ', cashFlowReport.total.externalPayments],
+        ['Số dư quỹ cuối kỳ', cashFlowReport.total.closingBalance],
+        ['Luân chuyển nội bộ - thu', cashFlowReport.total.internalReceipts],
+        ['Luân chuyển nội bộ - chi', cashFlowReport.total.internalPayments]
+      );
+    }
+    const csv = buildReportCsv(rows);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `bao-cao-${effectiveBranchId || 'ALL'}-${reportRange.from || 'ky'}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200 max-w-[1600px] mx-auto text-zinc-900 font-sans pb-16">
@@ -223,13 +490,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         <div>
           <div className="flex items-center space-x-2 text-[#ff4b16] text-xs font-bold uppercase tracking-wider">
             <BarChart3 className="w-4 h-4" />
-            <span>Hệ Thống Báo Cáo Tài Chính Chuẩn Kế Toán</span>
+            <span>Báo Cáo Điều Hành · Server-authoritative sources</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-zinc-900 mt-1 tracking-tight">
-            Báo Cáo Kết Quả Hoạt Động Kinh Doanh (P&L)
+            Báo Cáo Điều Hành Kết Quả Kinh Doanh (P&L)
           </h1>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Dữ liệu hạch toán tự động từ POS, Kho hàng và Sổ quỹ thu chi • {branches.find(b => b.id === selectedBranchId)?.name || 'Toàn Hệ Thống'}
+            POS, kho, kỹ thuật và sổ quỹ • {branches.find(b => b.id === effectiveBranchId)?.name || (effectiveBranchId === 'ALL' ? 'Toàn Hệ Thống' : effectiveBranchId)}
           </p>
         </div>
 
@@ -255,6 +522,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
               </button>
             ))}
           </div>
+
+          <button
+            onClick={handleExportCsv}
+            className="p-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer shrink-0"
+            title="Tải snapshot báo cáo tổng hợp dạng CSV"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Xuất CSV</span>
+          </button>
 
           <button
             onClick={() => window.print()}
@@ -292,6 +568,23 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         </div>
       )}
 
+      {(dataCoverage?.partialDomainCount || remoteReportError || cogsStats.missingCostCount > 0 || stockStats.missingCostCount > 0 || revenueStats.invoicesWithoutLines > 0 || opexStats.unclassifiedPaymentCount > 0 || (!repairReport && remoteReportLoading)) ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            <div className="space-y-1">
+              <p className="font-black">Cảnh báo chất lượng dữ liệu báo cáo</p>
+              {dataCoverage?.partialDomainCount ? <p>Dữ liệu vận hành đang tải chưa đầy đủ ({dataCoverage.partialDomainCount} nhóm partial; hóa đơn {dataCoverage.invoiceLoaded}/{dataCoverage.invoiceTotal}). Không dùng số liệu này để chốt sổ.</p> : null}
+              {remoteReportError ? <p>{remoteReportError}</p> : null}
+              {cogsStats.missingCostCount > 0 || stockStats.missingCostCount > 0 ? <p>Thiếu giá vốn của {cogsStats.missingCostCount + stockStats.missingCostCount} dòng/máy; hệ thống không dùng tỷ lệ ước tính.</p> : null}
+              {revenueStats.invoicesWithoutLines > 0 ? <p>{revenueStats.invoicesWithoutLines} hóa đơn thiếu dòng chi tiết, đã được tính tổng nhưng chưa phân bổ được theo ngành hàng.</p> : null}
+              {opexStats.unclassifiedPaymentCount > 0 ? <p>{opexStats.unclassifiedPaymentCount} khoản chi ({formatCurrency(opexStats.unclassifiedPaymentAmount)}) chưa có nhóm P&amp;L hợp lệ nên chưa được cộng vào OPEX.</p> : null}
+              {repairReport?.coverage === 'PARTIAL' ? <p>Báo cáo sửa chữa vượt giới hạn tải trang ({repairReport.totalCount} phiếu); cần lọc kỳ/chi nhánh hoặc dùng báo cáo tổng hợp.</p> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* 2. Top Summary KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* Doanh thu thuần */}
@@ -301,7 +594,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             {formatCompact(revenueStats.netRevenue)}
           </p>
           <span className="text-[10px] font-semibold text-emerald-600 mt-1 block">
-            ✓ {revenueStats.invoiceCount} hóa đơn bán lẻ
+            ✓ {revenueStats.invoiceCount} hóa đơn đã ghi nhận trong kỳ
           </span>
         </div>
 
@@ -312,7 +605,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             {formatCompact(cogsStats.totalCOGS)}
           </p>
           <span className="text-[10px] font-semibold text-zinc-500 mt-1 block">
-            {revenueStats.netRevenue > 0 ? ((cogsStats.totalCOGS / revenueStats.netRevenue) * 100).toFixed(1) : 0}% trên doanh thu
+            {cogsStats.missingCostCount > 0 ? `${cogsStats.missingCostCount} dòng thiếu giá vốn` : `${revenueStats.netRevenue > 0 ? ((cogsStats.totalCOGS / revenueStats.netRevenue) * 100).toFixed(1) : 0}% trên doanh thu`}
           </span>
         </div>
 
@@ -353,7 +646,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       {/* 3. Navigation Tabs */}
       <div className="bg-white p-1.5 rounded-2xl border border-zinc-200/80 shadow-2xs flex space-x-1.5 overflow-x-auto">
         {[
-          { id: 'PL_STATEMENT', label: '📊 Báo Cáo P&L Chuẩn Kế Toán', desc: 'Bảng Kết Quả Hoạt Động Kinh Doanh' },
+          { id: 'PL_STATEMENT', label: '📊 P&L Điều Hành', desc: 'Bảng Kết Quả Hoạt Động Kinh Doanh' },
           { id: 'REVENUE_STRUCTURE', label: '🛍️ Cơ Cấu Ngành Hàng', desc: 'iPhone, Phụ kiện & Kỹ thuật' },
           { id: 'STOCK_AGING', label: '📦 Tồn Kho & Rủi Ro Vốn', desc: 'Tuổi hàng tồn & Vốn đọng' },
           { id: 'CASH_FLOW', label: '💰 Dòng Tiền & Quỹ Thực Tế', desc: 'Tiền mặt và tài khoản VietQR' }
@@ -381,19 +674,23 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <div className="p-5 sm:p-6 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <span className="text-[10px] font-mono uppercase tracking-widest text-orange-400 font-bold">
-                PHARMACY / RETAIL STANDARD FINANCIAL STATEMENT
+                PHONEHOUSECRM · MANAGEMENT REPORT
               </span>
               <h2 className="text-lg sm:text-xl font-black tracking-tight mt-0.5">
                 BÁO CÁO KẾT QUẢ HOẠT ĐỘNG KINH DOANH
               </h2>
               <p className="text-xs text-zinc-300 mt-1">
-                Kỳ kế toán: {timeRange === 'today' ? 'Hôm nay' : timeRange === 'month' ? 'Tháng hiện tại' : 'Chu kỳ được chọn'} • Đơn vị tính: VNĐ
+                 Kỳ báo cáo: {reportRange.label} • Múi giờ: Asia/Ho_Chi_Minh • Đơn vị: VNĐ
               </p>
             </div>
             <div className="text-right font-mono">
               <span className="text-xs text-zinc-400 block">LỢI NHUẬN RÒNG CUỐI KỲ</span>
               <span className="text-xl sm:text-2xl font-black text-emerald-400">
                 {formatCurrency(opexStats.netProfit)}
+              </span>
+              <span className="mt-1 flex items-center justify-end gap-1 text-[10px] text-zinc-400">
+                {remoteReportLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                {remoteReportLoading ? 'Đang đồng bộ nguồn server' : `Cập nhật ${getVietnamTimeWithSecondsString()}`}
               </span>
             </div>
           </div>
@@ -438,17 +735,24 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     {revenueStats.grossRevenue > 0 ? ((revenueStats.accessoryRevenue / revenueStats.grossRevenue) * 100).toFixed(1) : 0}%
                   </td>
                 </tr>
-                <tr className="text-zinc-600 hover:bg-zinc-50">
+                {revenueStats.unallocatedRevenue > 0 ? <tr className="bg-amber-50/50 text-amber-900">
                   <td className="py-2.5 px-4 text-center text-zinc-400">1.3</td>
-                  <td className="py-2.5 px-4 pl-8">Doanh thu dịch vụ kỹ thuật sửa chữa</td>
+                  <td className="py-2.5 px-4 pl-8">Doanh thu chưa phân bổ (hóa đơn thiếu dòng)</td>
                   <td className="py-2.5 px-4 text-center font-mono text-zinc-400">01.3</td>
+                  <td className="py-2.5 px-4 text-right font-mono">{formatCurrency(revenueStats.unallocatedRevenue)}</td>
+                  <td className="py-2.5 px-4 text-right font-mono text-zinc-400">{revenueStats.grossRevenue > 0 ? ((revenueStats.unallocatedRevenue / revenueStats.grossRevenue) * 100).toFixed(1) : 0}%</td>
+                </tr> : null}
+                <tr className="text-zinc-600 hover:bg-zinc-50">
+                  <td className="py-2.5 px-4 text-center text-zinc-400">1.4</td>
+                  <td className="py-2.5 px-4 pl-8">Doanh thu dịch vụ kỹ thuật sửa chữa</td>
+                  <td className="py-2.5 px-4 text-center font-mono text-zinc-400">01.4</td>
                   <td className="py-2.5 px-4 text-right font-mono">{formatCurrency(revenueStats.repairRevenue)}</td>
                   <td className="py-2.5 px-4 text-right font-mono text-zinc-400">
                     {revenueStats.grossRevenue > 0 ? ((revenueStats.repairRevenue / revenueStats.grossRevenue) * 100).toFixed(1) : 0}%
                   </td>
                 </tr>
                 <tr className="text-rose-600 hover:bg-rose-50/40">
-                  <td className="py-2.5 px-4 text-center">1.4</td>
+                  <td className="py-2.5 px-4 text-center">1.5</td>
                   <td className="py-2.5 px-4 pl-8">Các khoản giảm trừ (Giảm giá, chiết khấu, voucher)</td>
                   <td className="py-2.5 px-4 text-center font-mono text-zinc-400">REV-02</td>
                   <td className="py-2.5 px-4 text-right font-mono font-bold">-{formatCurrency(revenueStats.discountTotal)}</td>
@@ -614,7 +918,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           <div className="p-4 bg-zinc-50 border-t border-zinc-200/80 flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-zinc-500 gap-2">
             <span className="flex items-center">
               <ShieldCheck className="w-4 h-4 mr-1 text-emerald-600" />
-              Số liệu chuẩn hóa từ chứng từ hạch toán hệ thống PhoneHouse CRM.
+              Báo cáo quản trị; giá vốn và nguồn dữ liệu thiếu được cảnh báo, không tự suy đoán.
             </span>
             <span>Ký xác nhận: Kế toán trưởng & Ban Giám Đốc</span>
           </div>
@@ -675,6 +979,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                   />
                 </div>
               </div>
+              {revenueStats.unallocatedRevenue > 0 ? <div>
+                <div className="flex justify-between font-bold text-amber-800 mb-1">
+                  <span>4. Chưa phân bổ (thiếu dòng hóa đơn)</span>
+                  <span className="font-mono">{formatCurrency(revenueStats.unallocatedRevenue)} ({revenueStats.grossRevenue > 0 ? ((revenueStats.unallocatedRevenue / revenueStats.grossRevenue) * 100).toFixed(1) : 0}%)</span>
+                </div>
+                <div className="w-full bg-zinc-100 rounded-full h-2.5"><div className="bg-amber-500 h-2.5 rounded-full" style={{ width: `${revenueStats.grossRevenue > 0 ? (revenueStats.unallocatedRevenue / revenueStats.grossRevenue) * 100 : 0}%` }} /></div>
+              </div> : null}
             </div>
           </div>
 
@@ -720,25 +1031,16 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
               Phân Tích Tuổi Tồn Kho & Rủi Ro Đọng Vốn
             </h3>
             <div className="space-y-3 text-xs">
-              <div className="p-4 bg-emerald-50 border border-emerald-200/70 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="font-black text-emerald-900 block text-sm">Tồn kho dưới 15 ngày (Hàng xoay nhanh)</span>
-                  <span className="text-[11px] text-emerald-700 mt-0.5 block">Độ thanh khoản cao, giữ giá trị tốt</span>
-                </div>
-                <span className="font-mono font-black text-emerald-900 text-base">
-                  {stockStats.inStockDevices.length - stockStats.agedStock30Days.length} cây
-                </span>
+              <div className="grid grid-cols-2 gap-2">
+                {stockStats.stockAgeBuckets.map((bucket, index) => (
+                  <div key={bucket.label} className={`rounded-2xl border p-3 ${index >= 3 ? 'border-rose-200 bg-rose-50' : index === 2 ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+                    <span className="block text-[11px] font-bold text-zinc-600">{bucket.label}</span>
+                    <strong className="mt-1 block font-mono text-lg text-zinc-900">{bucket.count} máy</strong>
+                  </div>
+                ))}
               </div>
-
-              <div className="p-4 bg-amber-50 border border-amber-200/70 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="font-black text-amber-900 block text-sm">Tồn kho trên 30 ngày (Cần kích cầu / xả kho)</span>
-                  <span className="text-[11px] text-amber-700 mt-0.5 block">Nên áp dụng flash sale hoặc tặng kèm quà để thu hồi vốn</span>
-                </div>
-                <span className="font-mono font-black text-amber-900 text-base">
-                  {stockStats.agedStock30Days.length} cây
-                </span>
-              </div>
+              <p className="text-[11px] text-zinc-500">Tuổi hàng tính từ ngày nhận máy theo múi giờ Việt Nam. Tab này hiện bao gồm máy IMEI; phụ kiện/linh kiện cần báo cáo tồn SKU riêng.</p>
+              {stockStats.missingReceivedDateCount > 0 ? <p className="text-[11px] font-bold text-amber-700">{stockStats.missingReceivedDateCount} máy thiếu ngày nhận nên chưa được phân nhóm tuổi.</p> : null}
             </div>
           </div>
 
@@ -749,13 +1051,14 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             <div className="space-y-2.5">
               <div className="p-4 bg-zinc-50 border border-zinc-200 rounded-2xl flex items-center justify-between">
                 <div>
-                  <span className="text-xs font-bold text-zinc-700">Tổng giá trị vốn đọng trong máy:</span>
+                   <span className="text-xs font-bold text-zinc-700">Giá vốn máy đang tồn (canonical cost):</span>
                   <p className="text-lg font-black text-zinc-900 font-mono mt-0.5">{formatCurrency(stockStats.totalStockValue)}</p>
                 </div>
                 <span className="text-xs font-bold px-3 py-1 bg-white border border-zinc-200 rounded-xl text-zinc-700">
-                  {stockStats.inStockDevices.length} máy sẵn kho
-                </span>
+                   {stockStats.inStockDevices.length} máy sẵn kho
+                 </span>
               </div>
+              {stockStats.missingCostCount > 0 ? <p className="text-[11px] font-bold text-amber-700">Chưa định giá được {stockStats.missingCostCount} máy; tổng trên chưa bao gồm các máy này.</p> : null}
             </div>
           </div>
         </div>
@@ -765,28 +1068,25 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           TAB 4: DÒNG TIỀN THỰC & SỐ DƯ QUỸ
       ========================================================================= */}
       {activeTab === 'CASH_FLOW' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {funds.map(f => (
-            <div key={f.id} className="bg-white p-5 rounded-3xl border border-zinc-200/80 shadow-2xs space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2.5">
-                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold ${f.type === 'CASH' ? 'bg-orange-100 text-[#ff4b16]' : 'bg-blue-100 text-blue-700'}`}>
-                    {f.type === 'CASH' ? <DollarSign className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-zinc-900 text-xs">{f.name}</h4>
-                    <p className="text-[10px] text-zinc-400">{f.bankName || 'Két tiền mặt showroom'}</p>
-                  </div>
-                </div>
+        <div className="space-y-4">
+          {cashFlowReport ? (
+            <>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {[
+                  { label: 'Số dư đầu kỳ', value: cashFlowReport.total.openingBalance, color: 'text-zinc-900' },
+                  { label: 'Thu trong kỳ', value: cashFlowReport.total.externalReceipts, color: 'text-emerald-700' },
+                  { label: 'Chi trong kỳ', value: cashFlowReport.total.externalPayments, color: 'text-rose-700' },
+                  { label: 'Số dư cuối kỳ', value: cashFlowReport.total.closingBalance, color: 'text-[#ff4b16]' }
+                ].map(item => <div key={item.label} className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xs"><span className="block text-[10px] font-bold uppercase text-zinc-500">{item.label}</span><strong className={`mt-1 block font-mono text-lg ${item.color}`}>{formatCurrency(item.value)}</strong></div>)}
               </div>
-              <div className="pt-2 border-t border-zinc-100">
-                <span className="text-[10px] text-zinc-400 font-semibold block">SỐ DƯ HIỆN TẠI</span>
-                <span className="text-lg font-black font-mono text-zinc-900 block mt-0.5">
-                  {formatCurrency(f.currentBalance)}
-                </span>
+              {(cashFlowReport.total.internalReceipts > 0 || cashFlowReport.total.internalPayments > 0) ? <p className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-[11px] text-blue-900">Luân chuyển nội bộ: thu {formatCurrency(cashFlowReport.total.internalReceipts)} · chi {formatCurrency(cashFlowReport.total.internalPayments)}. Khoản này không tính vào doanh thu/chi phí bên ngoài.</p> : null}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {cashFlowReport.sources.map(source => <div key={source.id} className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xs"><div className="flex items-center gap-2"><div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${source.kind === 'CASH' ? 'bg-orange-100 text-[#ff4b16]' : 'bg-blue-100 text-blue-700'}`}>{source.kind === 'CASH' ? <DollarSign className="h-5 w-5" /> : <Building2 className="h-5 w-5" />}</div><div><h4 className="text-xs font-bold text-zinc-900">{source.label}</h4><p className="text-[10px] text-zinc-400">{source.rows.length} giao dịch trong kỳ</p></div></div><div className="mt-4 border-t border-zinc-100 pt-3"><span className="block text-[10px] font-bold text-zinc-400">SỐ DƯ CUỐI KỲ</span><strong className="mt-1 block font-mono text-lg text-zinc-900">{formatCurrency(source.closingBalance)}</strong></div></div>)}
               </div>
-            </div>
-          ))}
+            </>
+          ) : (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">{remoteReportLoading ? 'Đang tải sổ quỹ theo kỳ...' : 'Chưa có dữ liệu sổ quỹ theo kỳ. Vui lòng chọn lại khoảng thời gian hoặc kiểm tra quyền FINANCE_VIEW.'}</div>
+          )}
         </div>
       )}
 

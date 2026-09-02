@@ -241,22 +241,28 @@ export async function getS2eCashLedgerReport(
   input: S2eCashLedgerQuery
 ): Promise<any> {
   const branchId = String(input.branchId || actor.branchId || '').trim();
+  const role = String(actor.role || '').toUpperCase();
   const from = String(input.from || '').trim();
   const to = String(input.to || '').trim();
-  if (!branchId || branchId === 'ALL') throw new Error('S2E_BRANCH_REQUIRED');
-  if (!canAccessBranch(actor, branchId)) throw new Error('S2E_BRANCH_FORBIDDEN');
+  if (!branchId) throw new Error('S2E_BRANCH_REQUIRED');
+  if (branchId === 'ALL' && role !== 'ADMIN') throw new Error('S2E_BRANCH_FORBIDDEN');
+  if (branchId !== 'ALL' && !canAccessBranch(actor, branchId)) throw new Error('S2E_BRANCH_FORBIDDEN');
   if (!DATE_PATTERN.test(from) || !DATE_PATTERN.test(to) || from > to) throw new Error('S2E_DATE_RANGE_INVALID');
   if (daysBetween(from, to) > 366) throw new Error('S2E_DATE_RANGE_TOO_LARGE');
 
-  const fundSnapshot = await db.collection('funds').where('branchId', '==', branchId).get();
+  const fundQuery = branchId === 'ALL'
+    ? db.collection('funds')
+    : db.collection('funds').where('branchId', '==', branchId);
+  const fundSnapshot = await fundQuery.get();
   const funds = fundSnapshot.docs.map(document => serializeValue({ ...document.data(), id: document.id })) as S2eFundInput[];
   const eligibleFunds = funds.filter(fund => CASH_TYPES.has(String(fund.type || '').toUpperCase()));
 
   let periodQuery: any = db.collection('cashTransactions')
-    .where('branchId', '==', branchId)
     .where('status', '==', 'COMPLETED')
     .where('date', '>=', from)
-    .where('date', '<=', `${to}\uf8ff`)
+    .where('date', '<=', `${to}\uf8ff`);
+  if (branchId !== 'ALL') periodQuery = periodQuery.where('branchId', '==', branchId);
+  periodQuery = periodQuery
     .orderBy('date', 'asc')
     .orderBy(FieldPath.documentId(), 'asc')
     .limit(MAX_REPORT_ROWS + 1);
@@ -267,11 +273,14 @@ export async function getS2eCashLedgerReport(
   const priorNetByFund: Record<string, number> = {};
   const knownOpeningByFund: Record<string, KnownOpeningTransaction> = {};
   await Promise.all(eligibleFunds.map(async fund => {
-    const priorBase = () => db.collection('cashTransactions')
-      .where('branchId', '==', branchId)
-      .where('fundId', '==', fund.id)
-      .where('status', '==', 'COMPLETED')
-      .where('date', '<', from);
+    const priorBase = () => {
+      let query: any = db.collection('cashTransactions')
+        .where('fundId', '==', fund.id)
+        .where('status', '==', 'COMPLETED')
+        .where('date', '<', from);
+      if (branchId !== 'ALL') query = query.where('branchId', '==', branchId);
+      return query;
+    };
     const [receiptsSnapshot, paymentsSnapshot, openingSnapshot] = await Promise.all([
       priorBase().where('type', '==', 'RECEIPT').aggregate({ amount: AggregateField.sum('amount') }).get(),
       priorBase().where('type', '==', 'PAYMENT').aggregate({ amount: AggregateField.sum('amount') }).get(),

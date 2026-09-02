@@ -1649,6 +1649,12 @@ export default function App() {
               assignedBranchIds: currentUser.assignedBranchIds || [currentUser.branchId || ''].filter(Boolean),
               isActive: currentUser.active
             } : null}
+            dataCoverage={activeBranchId === 'ALL' && adminOperationalSummary ? {
+              partialDomainCount: (Object.keys(adminOperationalSummary) as Array<keyof typeof adminOperationalSummary>)
+                .filter(key => adminOperationalSummary[key].partial).length,
+              invoiceLoaded: adminOperationalSummary.invoices.loaded,
+              invoiceTotal: adminOperationalSummary.invoices.total
+            } : undefined}
           />
         )}
 

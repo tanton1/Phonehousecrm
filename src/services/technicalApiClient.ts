@@ -615,6 +615,8 @@ export async function fetchTechnicalCommissionLedger(period: string): Promise<Te
 }
 
 export interface RepairRevenueReport {
+  coverage?: 'COMPLETE' | 'PARTIAL';
+  totalCount?: number;
   from: string;
   to: string;
   summary: {
@@ -636,6 +638,7 @@ export interface RepairRevenueReport {
     deliveredAt: string;
     finalAmount: number;
     paidAmount: number;
+    partsCost?: number | null;
     balanceDue: number;
     paymentStatus: string;
     paymentMethod: string;
@@ -643,10 +646,11 @@ export interface RepairRevenueReport {
   }>;
 }
 
-export async function fetchRepairRevenueReport(from?: string, to?: string): Promise<RepairRevenueReport> {
+export async function fetchRepairRevenueReport(from?: string, to?: string, branchId?: string): Promise<RepairRevenueReport> {
   const query = new URLSearchParams();
   if (from) query.set('from', from);
   if (to) query.set('to', to);
+  if (branchId) query.set('branchId', branchId);
   return await sendTechnicalApiRequest(`reports/repair-revenue${query.size ? `?${query.toString()}` : ''}`, {}, 'GET');
 }
 

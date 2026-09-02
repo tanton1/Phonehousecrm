@@ -98,6 +98,26 @@
       "collectionGroup": "cashTransactions",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cashTransactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "fundId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cashTransactions",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "branchId", "order": "ASCENDING" },
         { "fieldPath": "fundId", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
@@ -645,6 +665,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "deliveredAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "technicalWorkOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "deliveredAt", "order": "DESCENDING" }
       ]

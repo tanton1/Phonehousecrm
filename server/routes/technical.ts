@@ -707,14 +707,19 @@ export function createTechnicalRouter(db: Firestore | null): Router {
       };
       const requestedBranchId = String(req.query.branchId || req.user!.branchId || '').trim();
       if (!requestedBranchId) throw new Error('BRANCH_REQUIRED');
-      if (role !== 'ADMIN' && !allowedBranches.has(requestedBranchId)) throw new Error('BRANCH_FORBIDDEN');
+      if (requestedBranchId === 'ALL' && role !== 'ADMIN') throw new Error('BRANCH_FORBIDDEN');
+      if (requestedBranchId !== 'ALL' && role !== 'ADMIN' && !allowedBranches.has(requestedBranchId)) throw new Error('BRANCH_FORBIDDEN');
       let reportQuery: FirebaseFirestore.Query = db.collection('technicalWorkOrders')
-        .where('branchId', '==', requestedBranchId)
         .where('status', '==', 'DELIVERED_TO_CUSTOMER');
+      if (requestedBranchId !== 'ALL') reportQuery = reportQuery.where('branchId', '==', requestedBranchId);
       if (from) reportQuery = reportQuery.where('deliveredAt', '>=', from);
       if (to) reportQuery = reportQuery.where('deliveredAt', '<=', to);
-      const snapshot = await reportQuery.orderBy('deliveredAt', 'desc').limit(500).get();
-      const items = snapshot.docs
+      const [snapshot, countSnapshot] = await Promise.all([
+        reportQuery.orderBy('deliveredAt', 'desc').limit(501).get(),
+        reportQuery.count().get()
+      ]);
+      const totalCount = Number(countSnapshot.data().count || 0);
+      const items = snapshot.docs.slice(0, 500)
         .map(doc => ({ id: doc.id, ...doc.data() } as any))
         .filter(item => {
           if (!['CUSTOMER_SERVICE', 'WARRANTY'].includes(String(item.workOrderType || ''))) return false;
@@ -733,10 +738,11 @@ export function createTechnicalRouter(db: Firestore | null): Router {
             customerPhone: item.customerPhone || '',
             imei: item.imei || '',
             model: item.model || 'Thiết bị',
-            deliveredAt: serializeDate(item.deliveredAt),
-            finalAmount,
-            paidAmount,
-            balanceDue: Math.max(0, Number(item.balanceDue ?? finalAmount - paidAmount)),
+             deliveredAt: serializeDate(item.deliveredAt),
+             finalAmount,
+             paidAmount,
+             partsCost: Number.isFinite(Number(item.partsCost)) ? Number(item.partsCost) : null,
+             balanceDue: Math.max(0, Number(item.balanceDue ?? finalAmount - paidAmount)),
             paymentStatus: item.paymentStatus || (paidAmount >= finalAmount ? 'PAID' : paidAmount > 0 ? 'PARTIAL' : 'UNPAID'),
             paymentMethod: item.paymentMethod || 'DEBT',
             deliveryNotes: item.deliveryNotes || ''
@@ -750,7 +756,15 @@ export function createTechnicalRouter(db: Firestore | null): Router {
         cashCollected: total.cashCollected + item.paidAmount,
         outstanding: total.outstanding + item.balanceDue
       }), { deliveredCount: 0, warrantyCount: 0, serviceRevenue: 0, cashCollected: 0, outstanding: 0 });
-      return res.json({ success: true, data: { from: String(req.query.from || ''), to: String(req.query.to || ''), summary, items } });
+      return res.json({ success: true, data: {
+        from: String(req.query.from || ''),
+        to: String(req.query.to || ''),
+        branchId: requestedBranchId,
+        coverage: totalCount > items.length ? 'PARTIAL' : 'COMPLETE',
+        totalCount,
+        summary,
+        items
+      } });
     } catch (error: any) {
       console.error('[Repair Revenue Report Error]:', error);
       return res.status(400).json({ success: false, error: error?.message || 'Không thể tải báo cáo sửa chữa.' });
