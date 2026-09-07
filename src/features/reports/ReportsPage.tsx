@@ -10,9 +10,11 @@ import {
   AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamRelativeDateString, getVietnamTimeWithSecondsString } from '../../utils/dateTimeUtils';
-import { toIsoDateTime } from '../../utils/dateValue';
+import { dateOnlyInVietnam, invoiceLineItems, isPostedCashTransaction, isPostedInvoice } from '../../utils/invoiceMetrics';
 import { fetchRepairRevenueReport, RepairRevenueReport } from '../../services/technicalApiClient';
 import { requestS2eCashLedger, S2eCashLedgerReport } from '../../services/financeApiClient';
+
+export { dateOnlyInVietnam, isPostedCashTransaction, isPostedInvoice } from '../../utils/invoiceMetrics';
 
 export interface ReportsPageProps {
   invoices: SalesInvoice[];
@@ -43,36 +45,6 @@ const formatCompact = (amount: number) => {
   if (abs >= 1_000) return `${(safeAmount / 1_000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} nghìn`;
   return safeAmount.toLocaleString('vi-VN');
 };
-
-export function dateOnlyInVietnam(value: unknown): string {
-  if (!value) return '';
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-    // Finance transactions may use a Vietnam-local string without timezone.
-    if (/^\d{4}-\d{2}-\d{2} /.test(trimmed)) return trimmed.slice(0, 10);
-  }
-  const iso = toIsoDateTime(value);
-  if (!iso) return '';
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? '' : getVietnamDateString(parsed);
-}
-
-function invoiceLineItems(invoice: SalesInvoice): any[] {
-  if (Array.isArray(invoice.detailedItems) && invoice.detailedItems.length > 0) return invoice.detailedItems as any[];
-  return Array.isArray(invoice.items) ? invoice.items as any[] : [];
-}
-
-export function isPostedInvoice(invoice: SalesInvoice): boolean {
-  const status = String(invoice.status || 'completed').trim().toUpperCase();
-  return !['CANCELLED', 'CANCELED', 'REFUNDED', 'REVERSED', 'DRAFT', 'PENDING'].includes(status);
-}
-
-export function isPostedCashTransaction(transaction: CashTransaction): boolean {
-  const status = String(transaction.status || 'COMPLETED').trim().toUpperCase();
-  const recordStatus = String(transaction.recordStatus || 'POSTED').trim().toUpperCase();
-  return status === 'COMPLETED' && !['DRAFT', 'REVERSED', 'CANCELLED', 'CANCELED'].includes(recordStatus);
-}
 
 /**
  * Build a spreadsheet-friendly CSV export for the current report snapshot.

@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { SalesInvoice, DeviceItem, Lead, WarrantyTicket, FundAccount, Partner, StoreBranch, StaffMember, UserAccount } from '../../types';
-import { invoiceDateTime } from '../../utils/dateValue';
+import { toIsoDateTime } from '../../utils/dateValue';
+import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamRelativeDateString, getVietnamWeekRange } from '../../utils/dateTimeUtils';
+import { dateOnlyInVietnam, invoiceBusinessDate, invoiceRevenueAmount, isPostedInvoice } from '../../utils/invoiceMetrics';
 import {
   Phone,
   Bell,
@@ -197,50 +199,36 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
 
   // Helper date calculations
   const dateRanges = useMemo(() => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = getVietnamDateString();
     const thisMonthStr = todayStr.substring(0, 7);
-
-    // Calculate last month YYYY-MM
-    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthStr = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
-
-    // This week Monday to Sunday
-    const dayOfWeek = now.getDay();
-    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    const monThisWeek = new Date(now);
-    monThisWeek.setDate(now.getDate() + diffToMonday);
-    const sunThisWeek = new Date(monThisWeek);
-    sunThisWeek.setDate(monThisWeek.getDate() + 6);
-
-    // Last week Monday to Sunday
-    const monLastWeek = new Date(monThisWeek);
-    monLastWeek.setDate(monThisWeek.getDate() - 7);
-    const sunLastWeek = new Date(monLastWeek);
-    sunLastWeek.setDate(monLastWeek.getDate() + 6);
-
-    const formatD = (d: Date) => d.toISOString().split('T')[0];
+    const lastMonthStr = getPreviousVietnamMonthString();
+    const week = getVietnamWeekRange();
+    const startThisWeekStr = week.weekStart;
+    const endThisWeekStr = week.weekEnd;
+    const startLastWeekStr = getVietnamRelativeDateString(-7, new Date(`${startThisWeekStr}T12:00:00+07:00`));
+    const endLastWeekStr = getVietnamRelativeDateString(-7, new Date(`${endThisWeekStr}T12:00:00+07:00`));
+    const monThisWeek = new Date(`${startThisWeekStr}T12:00:00+07:00`);
+    const monLastWeek = new Date(`${startLastWeekStr}T12:00:00+07:00`);
 
     return {
       todayStr,
       thisMonthStr,
       lastMonthStr,
       monThisWeek,
-      sunThisWeek,
       monLastWeek,
-      sunLastWeek,
-      startThisWeekStr: formatD(monThisWeek),
-      endThisWeekStr: formatD(sunThisWeek),
-      startLastWeekStr: formatD(monLastWeek),
-      endLastWeekStr: formatD(sunLastWeek)
+      startThisWeekStr,
+      endThisWeekStr,
+      startLastWeekStr,
+      endLastWeekStr
     };
   }, []);
 
   // 5. Dynamic Filter for Invoices (100% Real Data, excluding cancelled)
   const filteredInvoices = useMemo(() => {
     return invoices.filter(inv => {
-      if (inv.status === 'cancelled') return false;
-      const invDate = invoiceDateTime(inv.createdAt, dateRanges.todayStr).split('T')[0];
+      if (!isPostedInvoice(inv)) return false;
+      const invDate = invoiceBusinessDate(inv);
+      if (!invDate) return false;
 
       if (dateFilter === 'today') {
         return invDate === dateRanges.todayStr;
@@ -255,12 +243,12 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
         return invDate.startsWith(dateRanges.lastMonthStr);
       }
       // 'this_month'
-      return invDate.startsWith(dateRanges.thisMonthStr) || !inv.createdAt;
+      return invDate.startsWith(dateRanges.thisMonthStr);
     });
   }, [invoices, dateFilter, dateRanges]);
 
   // Aggregate Real Metrics
-  const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+  const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + invoiceRevenueAmount(inv), 0);
   const totalInvoicesCount = filteredInvoices.length;
 
   // Real Gross Profit Calculation (Excluding fabricated 20% margin)
@@ -274,23 +262,25 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
 
       if (inv.detailedItems && inv.detailedItems.length > 0) {
         for (const it of inv.detailedItems) {
-          if (typeof (it as any).buyPrice === 'number' && (it as any).buyPrice > 0) {
-            invCost += (it as any).buyPrice * (it.quantity || 1);
+          const itemCost = Number((it as any).currentCost ?? (it as any).buyPrice ?? (it as any).costPrice ?? (it as any).unitCost ?? NaN);
+          if (Number.isFinite(itemCost) && itemCost >= 0) {
+            invCost += itemCost * (it.quantity || 1);
             hasValidCost = true;
           }
         }
       } else if (inv.devices && inv.devices.length > 0) {
         for (const dev of inv.devices) {
           const matchedDevice = devices.find(d => d.imei === dev.imei || d.id === (dev as any).id);
-          if (matchedDevice && typeof matchedDevice.buyPrice === 'number' && matchedDevice.buyPrice > 0) {
-            invCost += matchedDevice.buyPrice;
+          const deviceCost = Number((matchedDevice as any)?.currentCost ?? matchedDevice?.buyPrice ?? (matchedDevice as any)?.costPrice ?? NaN);
+          if (Number.isFinite(deviceCost) && deviceCost >= 0) {
+            invCost += deviceCost;
             hasValidCost = true;
           }
         }
       }
 
       if (hasValidCost) {
-        profit += Math.max(0, (inv.finalAmount || inv.totalAmount || 0) - invCost);
+        profit += invoiceRevenueAmount(inv) - invCost;
       } else {
         missingCount++;
       }
@@ -313,9 +303,8 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
 
   // 100% Real Aging Stock (> 30 days)
   const agingDevices = inStockDevices.filter(d => {
-    if (!d.receivedDate) return false;
-    const diffDays = Math.floor((Date.now() - new Date(d.receivedDate).getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays > 30;
+    const receivedDate = dateOnlyInVietnam(d.receivedDate || (d as any).createdAt);
+    return Boolean(receivedDate && receivedDate < getVietnamRelativeDateString(-30));
   });
 
   // Real Appointments & Active Warranties (Handling all schema status codes)
@@ -334,13 +323,13 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
       hours.forEach(h => hourMap.set(h, 0));
 
       filteredInvoices.forEach(inv => {
-        const createdAt = invoiceDateTime(inv.createdAt);
+        const createdAt = toIsoDateTime(inv.createdAt || inv.createdDate);
         if (createdAt) {
           try {
             const timePart = createdAt.split('T')[1] || '';
             const hNum = parseInt(timePart.split(':')[0] || '10', 10);
             const matched = hours.find(hr => Math.abs(parseInt(hr, 10) - hNum) <= 1) || '14h';
-            hourMap.set(matched, (hourMap.get(matched) || 0) + ((inv.finalAmount || inv.totalAmount || 0) / 1_000_000));
+          hourMap.set(matched, (hourMap.get(matched) || 0) + (invoiceRevenueAmount(inv) / 1_000_000));
           } catch (e) {}
         }
       });
@@ -365,7 +354,7 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
       const dayEntries = dayNames.map((name, i) => {
         const d = new Date(baseMonday);
         d.setDate(baseMonday.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
+        const dateStr = getVietnamDateString(d);
         const dayOfMonth = d.getDate().toString().padStart(2, '0');
         return {
           key: dateStr,
@@ -376,12 +365,11 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
       });
 
       filteredInvoices.forEach(inv => {
-        const createdAt = invoiceDateTime(inv.createdAt);
-        if (createdAt) {
-          const invDate = createdAt.split('T')[0];
+        const invDate = invoiceBusinessDate(inv);
+        if (invDate) {
           const target = dayEntries.find(d => d.key === invDate);
           if (target) {
-            target.val += (inv.finalAmount || inv.totalAmount || 0) / 1_000_000;
+            target.val += invoiceRevenueAmount(inv) / 1_000_000;
           }
         }
       });
@@ -406,10 +394,10 @@ export const AdminExecutiveDashboardView: React.FC<AdminExecutiveDashboardViewPr
     });
 
     filteredInvoices.forEach(inv => {
-      const createdAt = invoiceDateTime(inv.createdAt);
-      if (createdAt) {
+      const invDate = invoiceBusinessDate(inv);
+      if (invDate) {
         try {
-          const datePart = createdAt.split('T')[0];
+          const datePart = invDate;
           const dayStr = datePart.split('-')[2] ? datePart.split('-')[2].padStart(2, '0') : '01';
           const dNum = parseInt(dayStr, 10);
           const matchedDay = sampleDays.find(d => Math.abs(d - dNum) <= 1) || 1;

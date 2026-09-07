@@ -1,6 +1,8 @@
 import React from 'react';
 import { SalesInvoice, FundAccount, Partner, StoreBranch, StaffMember } from '../../../types';
 import { Wallet, DollarSign, Receipt, Building2, Award, ArrowRight, Plus, CheckCircle2 } from 'lucide-react';
+import { getVietnamDateString } from '../../../utils/dateTimeUtils';
+import { isPostedInvoice } from '../../../utils/invoiceMetrics';
 
 export interface AccountantHomeViewProps {
   invoices: SalesInvoice[];
@@ -21,8 +23,9 @@ export const AccountantHomeView: React.FC<AccountantHomeViewProps> = ({
 }) => {
   const totalFundsBalance = funds.reduce((sum, f) => sum + (f.currentBalance || (f as any).balance || 0), 0);
   const supplierDebtTotal = partners.filter(p => p.type === 'supplier').reduce((sum, p) => sum + (p.debt || 0), 0);
-  const pendingInstallments = invoices.filter(inv => inv.isInstallment && inv.status !== 'cancelled');
+  const pendingInstallments = invoices.filter(inv => inv.isInstallment && isPostedInvoice(inv));
   const pendingInstallmentsAmount = pendingInstallments.reduce((sum, inv) => sum + (inv.financeAmount || 0), 0);
+  const currentMonthNumber = Number(getVietnamDateString().slice(5, 7));
 
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
@@ -108,7 +111,7 @@ export const AccountantHomeView: React.FC<AccountantHomeViewProps> = ({
 
         <div className="bg-white p-4 rounded-2xl border border-zinc-200/80 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-zinc-500">Bảng Lương Tháng 8</span>
+            <span className="text-xs font-semibold text-zinc-500">Bảng Lương Tháng {currentMonthNumber}</span>
             <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
               <Award className="w-4 h-4" />
             </div>

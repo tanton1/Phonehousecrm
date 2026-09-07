@@ -1243,6 +1243,11 @@ export interface SalesInvoice {
   priceList?: string;
   salesChannel?: string;
   sellerName?: string;
+  /** Authenticated UID that created/owned the sale. Canonical for KPI joins. */
+  creatorUid?: string;
+  sellerId?: string;
+  cashierId?: string;
+  salesStaffId?: string;
   creatorName?: string;
   branch?: string;
   branchName?: string;

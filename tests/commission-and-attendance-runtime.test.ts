@@ -124,7 +124,30 @@ describe('HR & Attendance Runtime Stability & Empty Data Resilience Test Suite',
     };
 
     const comms = calculateInvoiceCommissions(invoiceWithUnknownSeller, validStaff);
-    expect(comms).toBeDefined();
+    expect(comms).toEqual([]);
+  });
+
+  it('Case 6b: không nối hai nhân viên chỉ vì tên chứa nhau', () => {
+    const staff: StaffMember[] = [
+      { id: 'UID-AN', name: 'Nguyễn Văn An', code: 'NV-AN', email: 'an@phonehouse.vn' } as StaffMember,
+      { id: 'UID-ANH', name: 'Nguyễn Văn Anh', code: 'NV-ANH', email: 'anh@phonehouse.vn' } as StaffMember
+    ];
+    expect(findStaffByIdentifier('Nguyễn Văn A', staff)).toBeUndefined();
+    expect(findStaffByIdentifier('Nguyễn Văn An', staff)?.id).toBe('UID-AN');
+  });
+
+  it('Case 6c: UID hóa đơn là authoritative, không fallback sang tên của người khác', () => {
+    const staff: StaffMember[] = [
+      { id: 'UID-AN', name: 'Nguyễn Văn An', code: 'NV-AN', email: 'an@phonehouse.vn', branchId: 'CN01' } as StaffMember
+    ];
+    const invoice = {
+      ...sampleInvoice,
+      branchId: 'CN01',
+      creatorUid: 'UID-NGUOI-KHAC',
+      sellerName: 'Nguyễn Văn An',
+      createdAt: '2026-09-08T08:00:00+07:00'
+    };
+    expect(calculateInvoiceCommissions(invoice, staff)).toEqual([]);
   });
 
   it('Case 7: tính hoa hồng từ snapshot tag cố định và nhân theo số lượng phụ kiện', () => {

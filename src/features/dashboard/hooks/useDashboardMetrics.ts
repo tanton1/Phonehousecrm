@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { SalesInvoice, DeviceItem, Lead, WarrantyTicket, FundAccount, Partner } from '../../../types';
+import { getVietnamDateString, getVietnamRelativeDateString } from '../../../utils/dateTimeUtils';
+import { dateOnlyInVietnam, invoiceBusinessDate, invoiceRevenueAmount, isPostedInvoice } from '../../../utils/invoiceMetrics';
 
 export interface ActionQueueItem {
   id: string;
@@ -54,29 +56,24 @@ export interface UseDashboardMetricsParams {
 export function calculateDashboardMetrics(params: UseDashboardMetricsParams): DashboardMetricsResult {
   const { invoices = [], devices = [], leads = [], warrantyTickets = [], funds = [], selectedBranchId } = params;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getVietnamDateString();
   const currentMonthPrefix = todayStr.slice(0, 7); // YYYY-MM
-
-  // Helper to extract date string from invoice
-  const getInvoiceDate = (inv: SalesInvoice): string => {
-    return inv.createdDate || inv.createdAt?.slice(0, 10) || (inv as any).date || '';
-  };
 
   // 1. Branch Filtered Lists
   const branchInvoices = selectedBranchId && selectedBranchId !== 'ALL'
-    ? invoices.filter(inv => !inv.branchId || inv.branchId === selectedBranchId)
+    ? invoices.filter(inv => inv.branchId === selectedBranchId)
     : invoices;
 
   const branchDevices = selectedBranchId && selectedBranchId !== 'ALL'
-    ? devices.filter(dev => !dev.branchId || dev.branchId === selectedBranchId)
+    ? devices.filter(dev => dev.branchId === selectedBranchId)
     : devices;
 
   const branchLeads = selectedBranchId && selectedBranchId !== 'ALL'
-    ? leads.filter(l => !l.branchId || l.branchId === selectedBranchId)
+    ? leads.filter(l => l.branchId === selectedBranchId)
     : leads;
 
   const branchWarranties = selectedBranchId && selectedBranchId !== 'ALL'
-    ? warrantyTickets.filter(w => !w.branchId || w.branchId === selectedBranchId)
+    ? warrantyTickets.filter(w => w.branchId === selectedBranchId)
     : warrantyTickets;
 
   const branchFunds = selectedBranchId && selectedBranchId !== 'ALL'
@@ -84,28 +81,32 @@ export function calculateDashboardMetrics(params: UseDashboardMetricsParams): Da
     : funds;
 
   // 2. Revenue & Orders
-  const validInvoices = branchInvoices.filter(inv => inv.status !== 'cancelled');
-  const todayInvoices = validInvoices.filter(inv => getInvoiceDate(inv) === todayStr);
-  const monthInvoices = validInvoices.filter(inv => getInvoiceDate(inv).startsWith(currentMonthPrefix));
+  const validInvoices = branchInvoices.filter(isPostedInvoice);
+  const todayInvoices = validInvoices.filter(inv => invoiceBusinessDate(inv) === todayStr);
+  const monthInvoices = validInvoices.filter(inv => invoiceBusinessDate(inv).startsWith(currentMonthPrefix));
 
-  const todayRevenue = todayInvoices.reduce((sum, inv) => sum + (inv.finalAmount || 0), 0);
+  const todayRevenue = todayInvoices.reduce((sum, inv) => sum + invoiceRevenueAmount(inv), 0);
   const todayOrderCount = todayInvoices.length;
 
-  const monthRevenue = monthInvoices.reduce((sum, inv) => sum + (inv.finalAmount || 0), 0);
+  const monthRevenue = monthInvoices.reduce((sum, inv) => sum + invoiceRevenueAmount(inv), 0);
   const monthOrderCount = monthInvoices.length;
 
   // 3. Stock metrics: Separate Vốn Tồn Kho (buyPrice) vs Giá Bán Dự Kiến (sellPrice)
   const inStockDevices = branchDevices.filter(d => d.status === 'in_stock');
   const inStockDeviceCount = inStockDevices.length;
-  const inStockCostValue = inStockDevices.reduce((sum, d) => sum + (d.buyPrice || (d as any).costPrice || 0), 0);
+  const inStockCostValue = inStockDevices.reduce((sum, d) => {
+    const cost = Number((d as any).currentCost ?? d.buyPrice ?? (d as any).costPrice ?? 0);
+    return sum + (Number.isFinite(cost) && cost >= 0 ? cost : 0);
+  }, 0);
   const inStockSellingValue = inStockDevices.reduce((sum, d) => sum + (d.sellPrice || 0), 0);
   const inStockTotalValue = inStockCostValue > 0 ? inStockCostValue : inStockSellingValue;
 
   // Aging stock (> 30 days)
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
-  const agingDevices = inStockDevices.filter(d => d.receivedDate && d.receivedDate < thirtyDaysAgoStr);
+  const thirtyDaysAgoStr = getVietnamRelativeDateString(-30);
+  const agingDevices = inStockDevices.filter(d => {
+    const receivedDate = dateOnlyInVietnam(d.receivedDate || (d as any).createdAt);
+    return Boolean(receivedDate && receivedDate < thirtyDaysAgoStr);
+  });
 
   // 4. Fund Balances
   const totalCashFundBalance = branchFunds
@@ -120,12 +121,14 @@ export function calculateDashboardMetrics(params: UseDashboardMetricsParams): Da
   const activeLeads = branchLeads.filter(l => l.status !== 'won' && l.status !== 'lost');
   const uncontactedLeads = activeLeads.filter(l => l.status === 'new');
 
-  const activeWarranties = branchWarranties.filter(w => 
-    w.status !== 'delivered' && (w.status as string) !== 'cancelled'
-  );
-  const urgentWarranties = activeWarranties.filter(w => 
-    w.status === 'ready' || w.status === 'inspecting' || w.status === 'repairing'
-  );
+  const activeWarranties = branchWarranties.filter(w => {
+    const status = String(w.status || '').trim().toLowerCase();
+    return status !== 'delivered' && status !== 'cancelled' && status !== 'canceled';
+  });
+  const urgentWarranties = activeWarranties.filter(w => {
+    const status = String(w.status || '').trim().toLowerCase();
+    return status === 'ready' || status === 'inspecting' || status === 'repairing';
+  });
 
   // 6. Action Queue Items (Prioritized by urgency)
   const actionQueue: ActionQueueItem[] = [];
@@ -193,13 +196,12 @@ export function calculateDashboardMetrics(params: UseDashboardMetricsParams): Da
   const dailyRevenueTrend: DailyRevenueItem[] = [];
   const daysOfWeek = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateKey = d.toISOString().split('T')[0];
-    const dayName = daysOfWeek[d.getDay()];
+    const dateKey = getVietnamRelativeDateString(-i);
+    const midday = new Date(`${dateKey}T12:00:00+07:00`);
+    const dayName = daysOfWeek[midday.getDay()];
 
-    const dayInvs = validInvoices.filter(inv => getInvoiceDate(inv) === dateKey);
-    const dayRev = dayInvs.reduce((sum, inv) => sum + (inv.finalAmount || 0), 0);
+    const dayInvs = validInvoices.filter(inv => invoiceBusinessDate(inv) === dateKey);
+    const dayRev = dayInvs.reduce((sum, inv) => sum + invoiceRevenueAmount(inv), 0);
 
     dailyRevenueTrend.push({
       date: dateKey,

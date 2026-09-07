@@ -8,8 +8,9 @@ import {
   StaffDualWalletSummary,
   PayrollLedgerItem
 } from '../types';
-import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import { getCachedOperationalConfigs } from '../services/configurationApiClient';
+import { getVietnamMonthString } from './dateTimeUtils';
+import { invoiceStaffUid, isPostedInvoice } from './invoiceMetrics';
 
 export function calculateSalesCommissionFromTagSnapshots(
   item: SalesInvoiceItem,
@@ -25,9 +26,8 @@ export function calculateSalesCommissionFromTagSnapshots(
   return { amount: Math.round(rawAmount * onlineFactor), percentRate: percentRate * onlineFactor };
 }
 
-/**
- * Helper tìm thông tin nhân viên theo tên hoặc ID hoặc alias
- */
+/** Resolve only stable IDs or exact legacy identifiers. Partial-name matching
+ * can assign one employee's commission to another employee with a similar name. */
 export function findStaffByIdentifier(
   identifier: string | undefined,
   staffList: StaffMember[] = []
@@ -45,9 +45,7 @@ export function findStaffByIdentifier(
       id === cleanId ||
       code === cleanId ||
       email === cleanId ||
-      name === cleanId ||
-      name.includes(cleanId) ||
-      cleanId.includes(name)
+      name === cleanId
     );
   });
 }
@@ -78,9 +76,12 @@ export function calculateInvoiceCommissions(
   if (!invoice) return transactions;
   
   // Tìm nhân viên bán hàng / chốt đơn
+  if (!isPostedInvoice(invoice)) return transactions;
+  const canonicalUid = invoiceStaffUid(invoice);
   const sellerIdentifier = invoice.sellerName || invoice.salesStaff || invoice.cashier || invoice.creatorName;
-  const staff = findStaffByIdentifier(sellerIdentifier, staffList) 
-    || (staffList || []).find(s => s && s.role === 'SALES');
+  const staff = canonicalUid
+    ? (staffList || []).find(candidate => candidate?.id === canonicalUid)
+    : findStaffByIdentifier(sellerIdentifier, staffList);
 
   if (!staff?.id || !staff?.name) {
     return transactions;
@@ -91,9 +92,10 @@ export function calculateInvoiceCommissions(
   // an invented branch.
   if (!commissionBranchId || commissionBranchId === 'ALL') return transactions;
 
-  const nowStr = invoice.createdAt || invoice.createdDate || new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const isCancelled = invoice.status === 'cancelled';
-  const txStatus: CommissionTransaction['status'] = isCancelled ? 'REVERSED' : 'CONFIRMED';
+  const nowStr = invoice.createdAt || invoice.createdDate || '';
+  // An undated legacy invoice cannot safely be assigned to a payroll period.
+  if (!nowStr) return transactions;
+  const txStatus: CommissionTransaction['status'] = 'CONFIRMED';
   const orderCode = invoice.invoiceCode || `HD-${invoice.id.slice(-6)}`;
   const salesConfig = getCachedOperationalConfigs().sales;
   if (!salesConfig?.isActive) return transactions;
@@ -258,14 +260,14 @@ export function calculateStaffDualWallet(
   const staff = (staffList || []).find(s => s && s.id === staffId);
   const effectiveStaffId = staff?.id || staffId || '';
   const effectiveStaffName = (staff as any)?.displayName || staff?.name || 'Chuyên viên';
-  const staffNameLower = effectiveStaffName.toLowerCase();
+  const staffNameLower = effectiveStaffName.trim().toLocaleLowerCase('vi');
 
   // Lọc các giao dịch thuộc về nhân sự này
   const staffTransactions = (allCommissions || []).filter(c => {
     if (!c) return false;
-    if (c.employeeId === effectiveStaffId) return true;
-    const empLower = (c.employeeName || '').toLowerCase();
-    return Boolean(empLower && staffNameLower && (empLower.includes(staffNameLower) || staffNameLower.includes(empLower)));
+    if (c.employeeId) return c.employeeId === effectiveStaffId;
+    const empLower = (c.employeeName || '').trim().toLocaleLowerCase('vi');
+    return Boolean(empLower && staffNameLower && empLower === staffNameLower);
   });
 
   // 1. Phân tách Giao dịch Ví Kỹ Thuật (Tech Wallet)
@@ -389,7 +391,7 @@ export function calculateStaffDualWallet(
 export function generatePayrollLedgersFromCommissions(
   staffId: string,
   commissions: CommissionTransaction[],
-  periodMonth: string = '2026-08'
+  periodMonth: string = getVietnamMonthString()
 ): PayrollLedgerItem[] {
   const walletSummary = calculateStaffDualWallet(staffId, commissions, []);
   const ledgers: PayrollLedgerItem[] = [];

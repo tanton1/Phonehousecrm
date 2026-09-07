@@ -4,11 +4,11 @@ import {
   WarrantyTicket,
   UserAccount,
   DeviceItem,
-  StaffMember,
-  CommissionTransaction
+  StaffMember
 } from '../types';
-import { INITIAL_STAFF_MEMBERS } from '../data/attendanceData';
 import { calculateStaffDualWallet, syncCommissionsFromAllSources } from '../utils/commissionEngine';
+import { dateOnlyInVietnam, invoiceBusinessDate, invoiceRevenueAmount, invoiceStaffUid, isPostedInvoice } from '../utils/invoiceMetrics';
+import { getVietnamMonthString } from '../utils/dateTimeUtils';
 import {
   TrendingUp,
   Target,
@@ -31,7 +31,6 @@ import {
   Search,
   Eye,
   Edit3,
-  Plus,
   RefreshCw,
   Zap,
   ShieldCheck,
@@ -81,6 +80,12 @@ interface EmployeeDashboardViewProps {
   onOpenCheckIn?: () => void;
 }
 
+const EMPTY_STAFF: StaffMember = {
+  id: '', code: '—', name: 'Chưa xác định nhân viên', avatar: '', role: 'SALES', roleTitle: 'Nhân viên',
+  phone: '', email: '', branchId: '', branchName: '', baseSalary: 0, monthlyTargetRevenue: 0,
+  monthlyTargetOrders: 0, status: 'INACTIVE', joinDate: ''
+};
+
 export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   invoices = [],
   warrantyTickets = [],
@@ -96,67 +101,51 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 }) => {
   // 1. Staff List & Selected Staff
   const staffList = useMemo<StaffMember[]>(() => {
-    if (!users || users.length === 0) return INITIAL_STAFF_MEMBERS;
-    return users.map((u, i) => ({
+    const sourceUsers = users.length > 0 ? users : currentUser ? [currentUser] : [];
+    return sourceUsers.map((u, i) => ({
       id: u.id,
       code: 'NV-' + String(i + 1).padStart(3, '0'),
       name: u.displayName || 'Nhân viên ' + (i + 1),
       avatar: u.avatarUrl || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(u.displayName || 'Staff'),
       role: u.role === 'ADMIN' ? 'STORE_MANAGER' : (u.role === 'TECHNICIAN' ? 'TECHNICIAN' : 'SALES'),
       roleTitle: u.role || 'Nhân viên',
-      phone: u.phone || '0900000000',
+      phone: u.phone || '',
       email: u.email || '',
       branchId: u.branchId || '',
-      branchName: 'Chi nhánh chính',
-      baseSalary: u.baseSalary || 6000000,
-      monthlyTargetRevenue: u.kpiTargetRevenue || 150000000,
-      monthlyTargetOrders: u.kpiTargetOrders || 70,
-      monthlyTargetWarranty: u.kpiTargetWarranty || 25,
+      branchName: u.branchId || '',
+      baseSalary: u.baseSalary || 0,
+      monthlyTargetRevenue: u.kpiTargetRevenue || 0,
+      monthlyTargetOrders: u.kpiTargetOrders || 0,
+      monthlyTargetWarranty: u.kpiTargetWarranty || 0,
       status: u.active ? 'ACTIVE' : 'INACTIVE',
-      joinDate: u.createdAt || '2023-01-01'
+      joinDate: u.createdAt || ''
     }));
-  }, [users]);
+  }, [currentUser, users]);
 
   // Selected Staff ID: initialize to current user if found, or first staff member
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
     if (currentUser) {
       return currentUser.id;
     }
-    return users[0]?.id || 'STAFF_001';
+    return users[0]?.id || '';
   });
 
   // Month / Period Filter
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-08');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getVietnamMonthString());
+  const monthOptions = useMemo(() => {
+    const [currentYear, currentMonth] = getVietnamMonthString().split('-').map(Number);
+    return Array.from({ length: 12 }, (_, offset) => {
+      const monthIndex = currentMonth - 1 - offset;
+      const date = new Date(Date.UTC(currentYear, monthIndex, 1));
+      const value = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+      return { value, label: `Tháng ${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}` };
+    });
+  }, []);
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'INVOICES' | 'WARRANTY' | 'COMMISSIONS'>('OVERVIEW');
 
   // Search & Filter within Tab tables
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-
-
-  // Manual Ledger (Thưởng / Phạt)
-  const [manualLedger, setManualLedger] = useState<{id: string, staffId: string, month: string, amount: number, note: string}[]>([]);
-
-  const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
-  const [ledgerForm, setLedgerForm] = useState({ amount: 0, note: '' });
-
-  const handleAddLedger = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (ledgerForm.amount === 0 || !currentStaff) return;
-
-    const newEntry = {
-      id: 'LEDGER_' + Date.now(),
-      staffId: currentStaff.id,
-      month: selectedMonth,
-      amount: ledgerForm.amount,
-      note: ledgerForm.note
-    };
-
-    const updated = [newEntry, ...manualLedger];
-    setManualLedger(updated);
-    setLedgerForm({ amount: 0, note: '' });
-    setIsLedgerModalOpen(false);
-  };
 
   // Modals
   const [isEditKpiModalOpen, setIsEditKpiModalOpen] = useState(false);
@@ -165,7 +154,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
   // Current Staff Object
   const currentStaff = useMemo(() => {
-    return staffList.find(s => s.id === selectedStaffId) || staffList[0] || INITIAL_STAFF_MEMBERS[0];
+    return staffList.find(s => s.id === selectedStaffId) || staffList[0] || EMPTY_STAFF;
   }, [staffList, selectedStaffId]);
 
   // Save staff list with custom targets to local storage (or Firestore)
@@ -186,84 +175,64 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
   // Form State for KPI Targets Edit Modal
   const [editForm, setEditForm] = useState({
-    targetRevenue: currentStaff?.monthlyTargetRevenue || 150000000,
-    targetOrders: currentStaff?.monthlyTargetOrders || 70,
-    targetWarranty: (currentStaff as any)?.monthlyTargetWarranty || 25,
-    baseSalary: currentStaff?.baseSalary || 6000000
+    targetRevenue: currentStaff?.monthlyTargetRevenue || 0,
+    targetOrders: currentStaff?.monthlyTargetOrders || 0,
+    targetWarranty: (currentStaff as any)?.monthlyTargetWarranty || 0,
+    baseSalary: currentStaff?.baseSalary || 0
   });
 
   useEffect(() => {
     if (currentStaff) {
       setEditForm({
-        targetRevenue: currentStaff.monthlyTargetRevenue || 150000000,
-        targetOrders: currentStaff.monthlyTargetOrders || 70,
-        targetWarranty: (currentStaff as any).monthlyTargetWarranty || 25,
-        baseSalary: currentStaff.baseSalary || 6000000
+        targetRevenue: currentStaff.monthlyTargetRevenue || 0,
+        targetOrders: currentStaff.monthlyTargetOrders || 0,
+        targetWarranty: (currentStaff as any).monthlyTargetWarranty || 0,
+        baseSalary: currentStaff.baseSalary || 0
       });
     }
   }, [currentStaff]);
 
   // Filter Invoices for this Employee in the selected Month
   const employeeInvoices = useMemo(() => {
-    const staffNameLower = currentStaff.name.toLowerCase();
-    const staffEmailLower = currentStaff.email.toLowerCase();
-    const isStaffAdmin = currentStaff.role === 'ADMIN' || currentStaff.role === 'STORE_MANAGER';
+    const staffNameLower = currentStaff.name.trim().toLocaleLowerCase('vi');
+    const staffEmailLower = currentStaff.email.trim().toLowerCase();
 
     return invoices.filter(inv => {
       // Date filter
-      const invDate = inv.createdAt || inv.createdDate || '';
+      if (!isPostedInvoice(inv)) return false;
+      const invDate = invoiceBusinessDate(inv);
       if (selectedMonth !== 'ALL' && !invDate.startsWith(selectedMonth)) {
         return false;
       }
 
       // If specific seller matched
-      const seller = (inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || '').toLowerCase();
+      const seller = (inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || '').trim().toLocaleLowerCase('vi');
+      const canonicalUid = invoiceStaffUid(inv);
+      const sellerEmail = String((inv as any).sellerEmail || '').trim().toLowerCase();
 
-      // Match by staff name or alias
-      const isMatchName = seller.includes(staffNameLower) || staffNameLower.includes(seller) ||
-                          (staffNameLower.includes('nhật tân') && (seller.includes('tân') || seller.includes('admin')));
-
-      // For mock showcase if this specific staff has few, match by branch if admin
-      if (isMatchName) return true;
-      if (isStaffAdmin && (inv.branch || '').includes(currentStaff.branchName)) return true;
-
-      // If staff has no direct tagged name in legacy data, map NV-001 / NV-002 as main sales
-      if (currentStaff.id === 'STAFF_001' && (seller.includes('tân') || seller.includes('tuấn') || seller.includes('văn a') || !seller)) {
-        return true;
-      }
-      if (currentStaff.id === 'STAFF_002' && (seller.includes('online') || seller.includes('page') || seller.includes('thị b'))) {
-        return true;
-      }
-
-      return false;
+      // UID is authoritative. Exact normalized name/email is retained only for
+      // historical invoices created before creatorUid was persisted.
+      if (canonicalUid) return canonicalUid === currentStaff.id;
+      if (sellerEmail) return Boolean(staffEmailLower) && sellerEmail === staffEmailLower;
+      return Boolean(staffNameLower && seller) && seller === staffNameLower;
     });
   }, [invoices, currentStaff, selectedMonth]);
 
   // Filter Warranty Tickets for this Employee / Technician in the selected Month
   const employeeWarrantyTickets = useMemo(() => {
-    const staffNameLower = currentStaff.name.toLowerCase();
-    const isTechnician = currentStaff.role === 'TECHNICIAN';
-    const isManager = currentStaff.role === 'STORE_MANAGER' || currentStaff.role === 'ADMIN';
+    const staffNameLower = currentStaff.name.trim().toLocaleLowerCase('vi');
 
     return warrantyTickets.filter(ticket => {
       // Date filter
-      const recDate = ticket.receivedDate || ticket.completedDate || '';
+      const recDate = dateOnlyInVietnam(ticket.receivedDate || ticket.completedDate);
       if (selectedMonth !== 'ALL' && !recDate.startsWith(selectedMonth.slice(0, 7))) {
-        // Also check if year-month matches or 2025/2026 data
-        if (selectedMonth === '2026-08' && !recDate.startsWith('2026-08') && !recDate.startsWith('2025-02')) {
-          // allow display for interactive demonstration if user switches
-        }
+        return false;
       }
 
-      const tech = (ticket.technician || '').toLowerCase();
-      const isMatch = tech.includes(staffNameLower) || staffNameLower.includes(tech) ||
-                      (currentStaff.id === 'STAFF_003' && (tech.includes('trọng') || tech.includes('nam') || tech.includes('c') || tech.includes('ktv') || tech.includes('dương')));
-
-      if (isMatch) return true;
-      if (isTechnician) return true; // Technicians see tickets in branch
-      if (isManager) return true;
-
-      return false;
+      const tech = (ticket.technician || '').trim().toLocaleLowerCase('vi');
+      const assigneeId = String(ticket.assigneeId || '').trim();
+      if (assigneeId) return assigneeId === currentStaff.id;
+      return Boolean(staffNameLower && tech) && tech === staffNameLower;
     });
   }, [warrantyTickets, currentStaff, selectedMonth]);
 
@@ -273,23 +242,23 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
   // 1. Invoices & Revenue Metrics
   const completedInvoices = useMemo(() => {
-    return employeeInvoices.filter(i => (i.status || 'completed') === 'completed');
+    return employeeInvoices.filter(isPostedInvoice);
   }, [employeeInvoices]);
 
   const actualOrdersCount = completedInvoices.length;
-  const targetOrdersCount = currentStaff.monthlyTargetOrders || 70;
+  const targetOrdersCount = currentStaff.monthlyTargetOrders || 0;
   const orderAchievementPercent = targetOrdersCount > 0
     ? Math.round((actualOrdersCount / targetOrdersCount) * 100)
-    : 100;
+    : 0;
 
   const actualRevenue = useMemo(() => {
-    return completedInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+    return completedInvoices.reduce((sum, inv) => sum + invoiceRevenueAmount(inv), 0);
   }, [completedInvoices]);
 
-  const targetRevenue = currentStaff.monthlyTargetRevenue || 150000000;
+  const targetRevenue = currentStaff.monthlyTargetRevenue || 0;
   const revenueAchievementPercent = targetRevenue > 0
     ? Math.min(Math.round((actualRevenue / targetRevenue) * 100), 999)
-    : 100;
+    : 0;
 
   const revenueRemaining = Math.max(0, targetRevenue - actualRevenue);
   const averageOrderValue = actualOrdersCount > 0 ? Math.round(actualRevenue / actualOrdersCount) : 0;
@@ -304,60 +273,26 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
   }, [employeeWarrantyTickets]);
 
   const actualWarrantyProcessed = completedWarrantyTickets.length;
-  const targetWarrantyProcessed = (currentStaff as any).monthlyTargetWarranty || 25;
+  const targetWarrantyProcessed = (currentStaff as any).monthlyTargetWarranty || 0;
   const warrantyAchievementPercent = targetWarrantyProcessed > 0
     ? Math.round((actualWarrantyProcessed / targetWarrantyProcessed) * 100)
-    : 100;
+    : 0;
 
-  // 3. Commission & Bonus Estimation
+  const canonicalCommissions = useMemo(() => {
+    return syncCommissionsFromAllSources(invoices, warrantyTickets, staffList)
+      .filter(entry => selectedMonth === 'ALL' || dateOnlyInVietnam(entry.occurredAt).startsWith(selectedMonth));
+  }, [invoices, selectedMonth, staffList, warrantyTickets]);
+
+  const canonicalWallet = useMemo(
+    () => calculateStaffDualWallet(currentStaff.id, canonicalCommissions, staffList),
+    [canonicalCommissions, currentStaff.id, staffList]
+  );
+
+  // 3. Operational preview. Official pay is always the approved server payroll slip.
   const estimatedCommission = useMemo(() => {
-    let commission = 0;
-
-    completedInvoices.forEach(inv => {
-      const items = inv.detailedItems || [];
-      if (items.length > 0) {
-        items.forEach(item => {
-          const name = (item.name || '').toLowerCase();
-
-          if (item.type === 'phone' || item.type === 'device') {
-            if (name.includes('xả') || name.includes('giảm') || name.includes('clearance')) {
-              commission += 30000;
-            } else if (name.includes('mới') || name.includes('new') || name.includes('seal') || name.includes('fullbox')) {
-              commission += 50000;
-            } else {
-              commission += 100000; // Máy bốc, 99%
-            }
-          } else if (item.type === 'accessory') {
-            if (name.includes('tai nghe') || name.includes('airpods') || name.includes('sạc dự phòng') || name.includes('loa') || name.includes('watch') || name.includes('bộ sạc')) {
-              commission += 50000;
-            } else if (name.includes('cường lực') || name.includes('ppf') || name.includes('magsafe') || name.includes('cluc') || name.includes('clcnt') || name.includes('dán')) {
-              commission += 20000;
-            } else {
-              commission += 10000; // Cáp, củ, ốp thường
-            }
-          } else if (item.type === 'tradein' || (item.unitPrice && item.unitPrice < 0)) {
-            commission += 50000;
-          } else if (item.type === 'repair' || item.type === 'service') {
-            if ((item.totalPrice || item.unitPrice || 0) >= 300000) {
-              commission += 30000;
-            }
-          }
-        });
-      } else {
-         // Fallback if no detailed items but there's a final amount (legacy POS)
-         if (inv.finalAmount > 1000000) commission += 100000;
-      }
-    });
-
-    // Tech points
-    const techBonus = actualWarrantyProcessed * 120000;
-    commission += techBonus;
-
-    // KPI Tier bonus
-    let kpiBonus = 0;
-    if (revenueAchievementPercent >= 120) kpiBonus = 5000000;
-    else if (revenueAchievementPercent >= 100) kpiBonus = 3000000;
-    else if (revenueAchievementPercent >= 80) kpiBonus = 1000000;
+    const commission = canonicalWallet.totalGrossCommission;
+    const techBonus = canonicalWallet.techWallet.totalCommission;
+    const kpiBonus = 0;
 
     // Base Salary Calculation based on Attendance
     const monthAttendance = (attendanceRecords || []).filter(a =>
@@ -366,21 +301,12 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
     );
 
     const totalWorkMinutes = monthAttendance.reduce((sum, a) => sum + (a.netWorkMinutes || 0), 0);
-    const EXPECTED_MINUTES_PER_MONTH = 26 * 8 * 60; // 26 days, 8 hours
-
-    let effectiveBaseSalary = currentStaff.baseSalary || 6000000;
-    // Only calculate ratio if there is some attendance record, else keep default or 0
-    if (monthAttendance.length > 0 || selectedMonth === 'ALL') {
-         // Cap at 100% base salary for regular working hours
-         const ratio = Math.min(totalWorkMinutes / EXPECTED_MINUTES_PER_MONTH, 1);
-         effectiveBaseSalary = Math.round(effectiveBaseSalary * ratio);
-    } else {
-         effectiveBaseSalary = 0; // no attendance yet this month
-    }
-
-    // Manual Ledgers
-    const staffLedger = manualLedger.filter(l => l.staffId === currentStaff.id && l.month === selectedMonth);
-    const ledgerTotal = staffLedger.reduce((sum, l) => sum + l.amount, 0);
+    // This card is not allowed to invent a 26-day schedule. Base salary is
+    // shown only when configured and attendance exists; official proration is
+    // calculated by payrollService from published shifts.
+    const effectiveBaseSalary = monthAttendance.length > 0 ? currentStaff.baseSalary : 0;
+    const staffLedger: never[] = [];
+    const ledgerTotal = 0;
 
     return {
       salesCommission: commission,
@@ -392,17 +318,19 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       totalWorkHours: Math.round(totalWorkMinutes / 60),
       total: commission + kpiBonus + effectiveBaseSalary + ledgerTotal
     };
-  }, [completedInvoices, actualWarrantyProcessed, revenueAchievementPercent, currentStaff, attendanceRecords, selectedMonth, manualLedger]);
+  }, [attendanceRecords, canonicalWallet, currentStaff, selectedMonth]);
 
   // 4. Daily Chart Data (Days 1 to 31)
   const dailyChartData = useMemo(() => {
     const daysMap: { [day: string]: { day: string; revenue: number; orders: number; warranty: number } } = {};
+    const chartMonth = selectedMonth === 'ALL' ? getVietnamMonthString() : selectedMonth;
+    const [chartYear, chartMonthNumber] = chartMonth.split('-').map(Number);
+    const totalDays = new Date(Date.UTC(chartYear, chartMonthNumber, 0)).getUTCDate();
 
-    // Initialize 10 recent days or days of the month
-    for (let d = 1; d <= 15; d++) {
+    for (let d = 1; d <= totalDays; d++) {
       const dayStr = d < 10 ? `0${d}` : `${d}`;
       daysMap[dayStr] = {
-        day: `${dayStr}/08`,
+        day: `${dayStr}/${String(chartMonthNumber).padStart(2, '0')}`,
         revenue: 0,
         orders: 0,
         warranty: 0
@@ -411,43 +339,31 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
 
     // Populate from invoices
     completedInvoices.forEach(inv => {
-      const dateStr = inv.createdAt || inv.createdDate || '';
-      const dayMatch = dateStr.match(/-(\d{2}) /) || dateStr.match(/-(\d{2})$/);
-      if (dayMatch && dayMatch[1]) {
-        const dayKey = dayMatch[1];
+      const dateStr = invoiceBusinessDate(inv);
+      if (dateStr.startsWith(chartMonth)) {
+        const dayKey = dateStr.slice(8, 10);
         if (!daysMap[dayKey]) {
-          daysMap[dayKey] = { day: `${dayKey}/08`, revenue: 0, orders: 0, warranty: 0 };
+          daysMap[dayKey] = { day: `${dayKey}/${String(chartMonthNumber).padStart(2, '0')}`, revenue: 0, orders: 0, warranty: 0 };
         }
-        daysMap[dayKey].revenue += (inv.finalAmount || 0) / 1000000; // in Millions VNĐ
+        daysMap[dayKey].revenue += invoiceRevenueAmount(inv) / 1000000;
         daysMap[dayKey].orders += 1;
       }
     });
 
     // Populate from warranty tickets
     employeeWarrantyTickets.forEach(ticket => {
-      const dateStr = ticket.receivedDate || ticket.completedDate || '';
-      const dayMatch = dateStr.match(/-(\d{2})$/);
-      if (dayMatch && dayMatch[1]) {
-        const dayKey = dayMatch[1];
+      const dateStr = dateOnlyInVietnam(ticket.receivedDate || ticket.completedDate);
+      if (dateStr.startsWith(chartMonth)) {
+        const dayKey = dateStr.slice(8, 10);
         if (!daysMap[dayKey]) {
-          daysMap[dayKey] = { day: `${dayKey}/08`, revenue: 0, orders: 0, warranty: 0 };
+          daysMap[dayKey] = { day: `${dayKey}/${String(chartMonthNumber).padStart(2, '0')}`, revenue: 0, orders: 0, warranty: 0 };
         }
         daysMap[dayKey].warranty += 1;
       }
     });
 
-    // Ensure some natural mock points if invoices array is small
-    if (Object.values(daysMap).reduce((s, it) => s + it.orders, 0) < 5) {
-      if (daysMap['10']) { daysMap['10'].revenue = 18.5; daysMap['10'].orders = 2; daysMap['10'].warranty = 1; }
-      if (daysMap['11']) { daysMap['11'].revenue = 25.9; daysMap['11'].orders = 3; daysMap['11'].warranty = 2; }
-      if (daysMap['12']) { daysMap['12'].revenue = 14.2; daysMap['12'].orders = 1; daysMap['12'].warranty = 1; }
-      if (daysMap['13']) { daysMap['13'].revenue = 34.5; daysMap['13'].orders = 4; daysMap['13'].warranty = 3; }
-      if (daysMap['14']) { daysMap['14'].revenue = 49.0; daysMap['14'].orders = 5; daysMap['14'].warranty = 2; }
-      if (daysMap['15']) { daysMap['15'].revenue = 16.5; daysMap['15'].orders = 2; daysMap['15'].warranty = 1; }
-    }
-
     return Object.values(daysMap);
-  }, [completedInvoices, employeeWarrantyTickets]);
+  }, [completedInvoices, employeeWarrantyTickets, selectedMonth]);
 
   // 5. Product Category Distribution Chart
   const productDistributionData = useMemo(() => {
@@ -477,12 +393,12 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
     counts['Gói Care & Sửa Chữa'] += actualWarrantyProcessed;
 
     return [
-      { name: 'iPhone 16 Series', value: Math.max(counts['iPhone 16 Series'], 6), color: '#ff4b16' },
-      { name: 'iPhone 15 Series', value: Math.max(counts['iPhone 15 Series'], 9), color: '#FB923C' },
-      { name: 'iPhone 14 Series', value: Math.max(counts['iPhone 14 Series'], 5), color: '#F59E0B' },
-      { name: 'Phụ Kiện SLM/Apple', value: Math.max(counts['Phụ Kiện Chính Hãng'], 14), color: '#F97316' },
-      { name: 'Bảo Hành & Sửa Chữa', value: Math.max(counts['Gói Care & Sửa Chữa'], 8), color: '#E11D48' }
-    ];
+      { name: 'iPhone 16 Series', value: counts['iPhone 16 Series'], color: '#ff4b16' },
+      { name: 'iPhone 15 Series', value: counts['iPhone 15 Series'], color: '#FB923C' },
+      { name: 'iPhone 14 Series', value: counts['iPhone 14 Series'], color: '#F59E0B' },
+      { name: 'Phụ Kiện SLM/Apple', value: counts['Phụ Kiện Chính Hãng'], color: '#F97316' },
+      { name: 'Bảo Hành & Sửa Chữa', value: counts['Gói Care & Sửa Chữa'], color: '#E11D48' }
+    ].filter(item => item.value > 0);
   }, [completedInvoices, actualWarrantyProcessed]);
 
   // Format currency VND
@@ -571,9 +487,7 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
               aria-label="Kỳ Đánh Giá KPI"
               className="w-full sm:w-40 bg-zinc-50 border border-zinc-300 hover:border-orange-400 text-zinc-900 text-xs font-bold rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer shadow-2xs"
             >
-              <option value="2026-08">Tháng 08/2026 (Hiện tại)</option>
-              <option value="2026-07">Tháng 07/2026</option>
-              <option value="2025-02">Tháng 02/2025</option>
+              {monthOptions.map((month, index) => <option key={month.value} value={month.value}>{month.label}{index === 0 ? ' (Hiện tại)' : ''}</option>)}
               <option value="ALL">Toàn Bộ Lịch Sử</option>
             </select>
           </div>
@@ -763,27 +677,18 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
           <div className="flex items-center space-x-2">
             <Award className="w-5 h-5 text-orange-200" />
             <span className="text-xs font-black uppercase tracking-wider text-orange-100">
-              Thu Nhập Hoa Hồng & Thưởng KPI Tạm Tính
+              Đối chiếu vận hành — chưa phải phiếu lương
             </span>
           </div>
           <div className="text-2xl sm:text-3xl font-black font-mono mt-1">
             {formatVND(estimatedCommission.total)}
           </div>
           <p className="text-xs text-orange-100 mt-1 max-w-xl leading-relaxed">
-            Bao gồm {formatVND(estimatedCommission.effectiveBaseSalary)} lương CB ({estimatedCommission.totalWorkHours}h) + {formatVND(estimatedCommission.salesCommission)} hoa hồng + {formatVND(estimatedCommission.kpiBonus)} thưởng KPI + {formatVND(estimatedCommission.ledgerTotal)} thưởng/phạt khác.
+            Gồm {formatVND(estimatedCommission.effectiveBaseSalary)} lương cơ bản đang cấu hình và {formatVND(estimatedCommission.salesCommission)} hoa hồng có nguồn. Lương chính thức lấy từ kỳ payroll đã duyệt; trang này không tự phát sinh thưởng/phạt.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
-          {currentUser?.role === 'ADMIN' && (
-            <button
-              onClick={() => setIsLedgerModalOpen(true)}
-              className="flex-1 lg:flex-none px-4 py-2.5 bg-orange-700/50 hover:bg-orange-600 border border-orange-400 text-white text-xs font-black rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Thưởng/Phạt</span>
-            </button>
-          )}
           {onOpenPOS && (
             <button
               onClick={onOpenPOS}
@@ -1652,78 +1557,6 @@ export const EmployeeDashboardView: React.FC<EmployeeDashboardViewProps> = ({
       )}
 
 
-      {/* 7. MODAL: MANUAL LEDGER */}
-      {isLedgerModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl relative animate-in zoom-in-95 duration-200">
-            <div className="p-5 sm:p-6">
-              <div className="flex justify-between items-start mb-5">
-                <div>
-                  <h3 className="font-black text-base text-zinc-900">Thêm Thưởng / Phạt</h3>
-                  <p className="text-xs text-zinc-500 mt-1">Cập nhật vào thu nhập tháng {selectedMonth} cho {currentStaff.name}</p>
-                </div>
-                <button
-                  onClick={() => setIsLedgerModalOpen(false)}
-                  className="p-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-full transition-colors cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <form onSubmit={handleAddLedger} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">
-                    Số Tiền (VNĐ) - Nhập số âm để phạt
-                  </label>
-                  <input
-                    type="number"
-                    step="100000"
-                    required
-                    value={ledgerForm.amount}
-                    onChange={(e) => setLedgerForm({ ...ledgerForm, amount: Number(e.target.value) })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2.5 text-sm font-bold font-mono focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="VD: 500000 hoặc -200000"
-                  />
-                  <span className="text-[11px] text-zinc-400 mt-1 block">
-                    Đọc: {formatVND(ledgerForm.amount)}
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 mb-1">
-                    Lý Do
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={ledgerForm.note}
-                    onChange={(e) => setLedgerForm({ ...ledgerForm, note: e.target.value })}
-                    className="w-full bg-zinc-50 border border-zinc-300 rounded-xl px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    placeholder="VD: Thưởng doanh số, Đi trễ..."
-                  />
-                </div>
-
-                <div className="pt-4 border-t border-zinc-100 flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsLedgerModalOpen(false)}
-                    className="px-4 py-2.5 text-sm font-bold text-zinc-600 hover:bg-zinc-100 rounded-xl cursor-pointer"
-                  >
-                    Hủy bỏ
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-[#ff4b16] hover:bg-[#E03A0F] active:bg-[#C2310C] text-white text-sm font-bold rounded-xl cursor-pointer shadow-md flex items-center gap-2 transition-all"
-                  >
-                    <Check className="w-4 h-4" />
-                    Xác Nhận
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

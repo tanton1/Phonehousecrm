@@ -13,7 +13,6 @@ import {
   calculateStaffDualWallet, 
   syncCommissionsFromAllSources 
 } from '../../../utils/commissionEngine';
-import { INITIAL_STAFF_MEMBERS } from '../../../data/attendanceData';
 import { 
   ShoppingCart, 
   Users, 
@@ -66,6 +65,8 @@ import {
 } from 'recharts';
 
 import { UserAccount } from '../../../types';
+import { getVietnamDateString, getVietnamWeekRange } from '../../../utils/dateTimeUtils';
+import { invoiceBusinessDate, invoiceRevenueAmount, invoiceStaffUid, isPostedInvoice } from '../../../utils/invoiceMetrics';
 
 export interface SalesHomeViewProps {
   invoices: SalesInvoice[];
@@ -104,54 +105,52 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
 
   // 2. Vietnam Time Helpers
   const todayStr = useMemo(() => {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
+    return getVietnamDateString();
   }, []);
 
   const currentMonthStr = useMemo(() => todayStr.slice(0, 7), [todayStr]);
 
   // Days left in current month
   const { currentDay, totalDaysInMonth, daysLeftInMonth } = useMemo(() => {
-    const now = new Date();
-    const d = now.getDate();
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const [year, month, day] = todayStr.split('-').map(Number);
+    const d = day;
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
     return {
       currentDay: d,
       totalDaysInMonth: lastDay,
       daysLeftInMonth: Math.max(1, lastDay - d)
     };
-  }, []);
+  }, [todayStr]);
 
   // 3. Current User Identification & Invoices Filter
-  const currentStaffId = currentUser?.id || (currentUser as any)?.uid || 'STAFF_001';
+  const currentStaffId = currentUser?.id || (currentUser as any)?.uid || '';
   const currentStaffName = currentUser?.name || (currentUser as any)?.displayName || 'Chuyên Viên Sales';
   const currentStaffEmail = (currentUser?.email || (currentUser as any)?.sellerEmail || '').toLowerCase();
 
   const myInvoices = useMemo(() => {
     return invoices.filter(inv => {
-      if (!currentUser) return true;
-      const staffNameLower = currentStaffName.toLowerCase();
-      const matchSeller = (inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || '').toLowerCase();
-      const matchCashierId = inv.cashierId === currentStaffId || inv.sellerId === currentStaffId || (inv as any).salesStaffId === currentStaffId;
-      const matchEmail = currentStaffEmail && (inv as any).sellerEmail?.toLowerCase() === currentStaffEmail;
-      return matchCashierId || matchEmail || (staffNameLower && (matchSeller.includes(staffNameLower) || staffNameLower.includes(matchSeller)));
+      if (!isPostedInvoice(inv)) return false;
+      if (!currentUser) return false;
+      const canonicalUid = invoiceStaffUid(inv);
+      if (canonicalUid) return Boolean(currentStaffId) && canonicalUid === currentStaffId;
+      const sellerEmail = String((inv as any).sellerEmail || '').trim().toLowerCase();
+      if (sellerEmail) return Boolean(currentStaffEmail) && sellerEmail === currentStaffEmail;
+      const staffName = currentStaffName.trim().toLocaleLowerCase('vi');
+      const sellerName = String(inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || '').trim().toLocaleLowerCase('vi');
+      return Boolean(staffName && sellerName) && staffName === sellerName;
     });
   }, [invoices, currentUser, currentStaffId, currentStaffName, currentStaffEmail]);
 
   // Scoped Invoices
   const scopedInvoices = useMemo(() => {
     if (timeScope === 'TODAY') {
-      return myInvoices.filter(inv => (inv.createdAt || '').startsWith(todayStr));
+      return myInvoices.filter(inv => invoiceBusinessDate(inv) === todayStr);
     }
     if (timeScope === 'THIS_WEEK') {
-      const now = new Date();
-      const day = now.getDay();
-      const diffToMonday = day === 0 ? -6 : 1 - day;
-      const monday = new Date(now);
-      monday.setDate(now.getDate() + diffToMonday);
-      const mondayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(monday);
-      return myInvoices.filter(inv => (inv.createdAt || '') >= mondayStr);
+      const mondayStr = getVietnamWeekRange().weekStart;
+      return myInvoices.filter(inv => invoiceBusinessDate(inv) >= mondayStr);
     }
-    return myInvoices.filter(inv => (inv.createdAt || '').startsWith(currentMonthStr));
+    return myInvoices.filter(inv => invoiceBusinessDate(inv).startsWith(currentMonthStr));
   }, [myInvoices, timeScope, todayStr, currentMonthStr]);
 
   // 4. Commission Engine & Dual Wallet Calculation
@@ -185,7 +184,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
     if (currentUser) {
       return [{
         id: currentStaffId,
-        code: (currentUser as any).code || 'NV-001',
+        code: (currentUser as any).code || '',
         name: currentStaffName,
         avatar: (currentUser as any).avatar || (currentUser as any).avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
         role: 'SALES' as any,
@@ -200,7 +199,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
         monthlyTargetRevenue: (currentUser as any).kpiTargetRevenue || 0,
         monthlyTargetOrders: (currentUser as any).kpiTargetOrders || 0,
         status: 'ACTIVE',
-        joinDate: '2025-01-01',
+        joinDate: (currentUser as any).joinDate || (currentUser as any).createdAt || '',
         allowedWifiSSID: currentBranch?.allowedWifiSSID || '',
         assignedFaceEmbedding: (currentUser as any).assignedFaceEmbedding || false
       }];
@@ -218,7 +217,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
 
   // Financial Metrics
   const scopedRevenue = useMemo(() => {
-    return scopedInvoices.reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+    return scopedInvoices.reduce((sum, inv) => sum + invoiceRevenueAmount(inv), 0);
   }, [scopedInvoices]);
 
   const scopedDeviceCount = useMemo(() => {
@@ -227,8 +226,8 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
 
   const todayRevenue = useMemo(() => {
     return myInvoices
-      .filter(inv => (inv.createdAt || '').startsWith(todayStr))
-      .reduce((sum, inv) => sum + (inv.finalAmount || inv.totalAmount || 0), 0);
+      .filter(inv => invoiceBusinessDate(inv) === todayStr)
+      .reduce((sum, inv) => sum + invoiceRevenueAmount(inv), 0);
   }, [myInvoices, todayStr]);
 
   // 5. Dynamic KPI Targets
@@ -329,11 +328,11 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
       dayMap[i] = 0;
     }
     scopedInvoices.forEach(inv => {
-      const dateStr = inv.createdAt || '';
+      const dateStr = invoiceBusinessDate(inv);
       if (dateStr.startsWith(currentMonthStr)) {
         const dayNum = parseInt(dateStr.split('-')[2] || '1', 10);
         if (dayNum >= 1 && dayNum <= currentDay) {
-          dayMap[dayNum] = (dayMap[dayNum] || 0) + (inv.finalAmount || inv.totalAmount || 0);
+          dayMap[dayNum] = (dayMap[dayNum] || 0) + invoiceRevenueAmount(inv);
         }
       }
     });
@@ -369,17 +368,20 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
 
   // 9. Showroom Leaderboard (Calculated strictly from real invoices and actual commission engine)
   const showroomLeaderboard = useMemo(() => {
-    const staffStatsMap: Record<string, { name: string; revenue: number; orders: number; commission: number }> = {};
+    const staffStatsMap: Record<string, { staffId?: string; name: string; revenue: number; orders: number; commission: number }> = {};
 
     invoices.forEach(inv => {
-      const dateStr = inv.createdAt || '';
-      if (dateStr.startsWith(currentMonthStr) && inv.status !== 'cancelled') {
-        const staffName = inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || 'NV Bán Hàng';
-        if (!staffStatsMap[staffName]) {
-          staffStatsMap[staffName] = { name: staffName, revenue: 0, orders: 0, commission: 0 };
+      const dateStr = invoiceBusinessDate(inv);
+      if (dateStr.startsWith(currentMonthStr) && isPostedInvoice(inv)) {
+        const staffId = invoiceStaffUid(inv);
+        const staff = staffId ? staffList.find(item => item.id === staffId) : undefined;
+        const legacyName = inv.sellerName || inv.salesStaff || inv.cashier || inv.creatorName || 'NV Bán Hàng';
+        const key = staffId ? `uid:${staffId}` : `name:${legacyName.trim().toLocaleLowerCase('vi')}`;
+        if (!staffStatsMap[key]) {
+          staffStatsMap[key] = { staffId: staffId || undefined, name: staff?.name || legacyName, revenue: 0, orders: 0, commission: 0 };
         }
-        staffStatsMap[staffName].revenue += (inv.finalAmount || inv.totalAmount || 0);
-        staffStatsMap[staffName].orders += 1;
+        staffStatsMap[key].revenue += invoiceRevenueAmount(inv);
+        staffStatsMap[key].orders += 1;
       }
     });
 
@@ -388,9 +390,14 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
       if (comm.status === 'REVERSED') return;
       const commDate = comm.occurredAt || '';
       if (commDate.startsWith(currentMonthStr)) {
-        const empName = comm.employeeName || 'NV Bán Hàng';
-        if (staffStatsMap[empName]) {
-          staffStatsMap[empName].commission += comm.commissionAmount;
+        const stableKey = comm.employeeId ? `uid:${comm.employeeId}` : `name:${String(comm.employeeName || 'NV Bán Hàng').trim().toLocaleLowerCase('vi')}`;
+        if (staffStatsMap[stableKey]) {
+          staffStatsMap[stableKey].commission += comm.commissionAmount;
+        } else {
+          // Legacy invoices/commission rows may only carry a name. Match this
+          // fallback only when no canonical UID was supplied by the server.
+          const legacyKey = `name:${String(comm.employeeName || 'NV Bán Hàng').trim().toLocaleLowerCase('vi')}`;
+          if (staffStatsMap[legacyKey]) staffStatsMap[legacyKey].commission += comm.commissionAmount;
         }
       }
     });
@@ -408,7 +415,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
       ];
     }
     return ranking.map((r, idx) => ({ ...r, rank: idx + 1 }));
-  }, [invoices, allCommissions, currentMonthStr, currentStaffName, scopedRevenue, scopedInvoices.length, dualWallet]);
+  }, [invoices, allCommissions, staffList, currentMonthStr, currentStaffName, scopedRevenue, scopedInvoices.length, dualWallet]);
 
   const handleCopyImei = (imei: string) => {
     navigator.clipboard.writeText(imei);
@@ -502,7 +509,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
               {[
                 { id: 'TODAY', label: 'Hôm nay' },
                 { id: 'THIS_WEEK', label: 'Tuần này' },
-                { id: 'THIS_MONTH', label: `Tháng ${new Date().getMonth() + 1}` }
+                { id: 'THIS_MONTH', label: `Tháng ${Number(currentMonthStr.slice(5, 7))}` }
               ].map(scope => (
                 <button
                   key={scope.id}
@@ -526,7 +533,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
             <div className="lg:col-span-7 space-y-4">
               <div>
                 <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-zinc-400 block">
-                  Doanh số cá nhân ({timeScope === 'TODAY' ? 'Hôm nay' : timeScope === 'THIS_WEEK' ? 'Tuần này' : `Tháng ${new Date().getMonth() + 1}`})
+                  Doanh số cá nhân ({timeScope === 'TODAY' ? 'Hôm nay' : timeScope === 'THIS_WEEK' ? 'Tuần này' : `Tháng ${Number(currentMonthStr.slice(5, 7))}`})
                 </span>
                 <div className="mt-1 flex flex-wrap items-baseline gap-3">
                   <span className="text-3xl sm:text-5xl font-black font-mono tracking-tight text-white">
@@ -1006,7 +1013,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                               </span>
                             </td>
                             <td className="py-3 px-3 text-right font-mono font-bold text-zinc-950">
-                              {(inv.finalAmount || inv.totalAmount || 0).toLocaleString('vi-VN')} đ
+                              {invoiceRevenueAmount(inv).toLocaleString('vi-VN')} đ
                             </td>
                             <td className="py-3 px-3 text-right font-mono font-black text-emerald-600">
                               +{realComm.toLocaleString('vi-VN')} đ
@@ -1034,7 +1041,7 @@ export const SalesHomeView: React.FC<SalesHomeViewProps> = ({
                 <Trophy className="w-5 h-5 text-amber-500" />
                 <div>
                   <h3 className="text-xs sm:text-sm font-black text-zinc-900 uppercase">
-                    Bảng Vinh Danh Doanh Số - {currentBranchDisplayName} (Tháng {new Date().getMonth() + 1})
+                    Bảng Vinh Danh Doanh Số - {currentBranchDisplayName} (Tháng {Number(currentMonthStr.slice(5, 7))})
                   </h3>
                   <p className="text-[11px] text-zinc-500">
                     Bảng xếp hạng thi đua doanh số nội bộ giữa các chuyên viên tư vấn tại showroom.
