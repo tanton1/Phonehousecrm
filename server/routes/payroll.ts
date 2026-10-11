@@ -33,7 +33,7 @@ export function createPayrollRouter(db: Firestore | null) {
     }
   });
 
-  router.get('/runs/current', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.get('/runs/current', authenticateFirebase, requireRole('REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
     try {
       const data = await getPayrollRun(db, actor(req), { period: String(req.query.period || ''), branchId: String(req.query.branchId || '') });
       return res.json({ success: true, data });
@@ -42,7 +42,7 @@ export function createPayrollRouter(db: Firestore | null) {
     }
   });
 
-  router.post('/runs/calculate', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/runs/calculate', authenticateFirebase, requireRole('REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
     try {
       const data = await calculateAndSavePayrollRun(db, actor(req), { period: String(req.body?.period || ''), branchId: String(req.body?.branchId || '') });
       return res.json({ success: true, data });
@@ -51,7 +51,7 @@ export function createPayrollRouter(db: Firestore | null) {
     }
   });
 
-  router.post('/runs/:runId/approve', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/runs/:runId/approve', authenticateFirebase, requireRole('REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
     try {
       const data = await approvePayrollRun(db, actor(req), String(req.params.runId || ''));
       return res.json({ success: true, data });
@@ -94,7 +94,7 @@ export function createPayrollRouter(db: Firestore | null) {
     }
   });
 
-  router.get('/adjustments', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.get('/adjustments', authenticateFirebase, requireRole('REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
     try {
       const data = await listPayrollAdjustments(db, actor(req), {
         period: String(req.query.period || ''),
@@ -107,7 +107,7 @@ export function createPayrollRouter(db: Firestore | null) {
     }
   });
 
-  router.post('/adjustments', authenticateFirebase, requireRole('MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
+  router.post('/adjustments', authenticateFirebase, requireRole('REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT'), async (req: Request, res: Response) => {
     try {
       const data = await createPayrollAdjustment(db, actor(req), req.body || {});
       return res.status(201).json({ success: true, data });

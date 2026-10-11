@@ -528,6 +528,27 @@ export async function processServerCheckIn(
     if (!faceSessionId || !verificationNonce || !deviceId) throw new Error('VERIFICATION_SESSION_REQUIRED');
     const sessionRef = db.collection('attendanceVerificationSessions').doc(faceSessionId);
     const photoRef = db.collection('evidenceRecords').doc(photoEvidenceId);
+    // A staff member can still be in an overnight shift whose check-in date
+    // is yesterday. Do not create a second shift just because the calendar
+    // date changed; the exact-date document lock below remains the final
+    // idempotency guard for same-day retries.
+    const staffAttendanceQuery: any = db.collection('attendance').where('staffId', '==', staffId);
+    // Keep the guard compatible with the lightweight Firestore doubles used
+    // by isolated service tests while using the bounded query in production.
+    const openAttendanceSnapshot = typeof staffAttendanceQuery.limit === 'function'
+      ? await staffAttendanceQuery.limit(50).get()
+      : { docs: [] };
+    const openAttendance = openAttendanceSnapshot.docs.find((doc: any) => {
+      const data = doc.data() || {};
+      return doc.id !== recordId
+        && String(data.attendanceStatus || '') === 'CHECKED_IN'
+        && Boolean(data.checkInTime)
+        && !data.checkOutTime;
+    });
+    if (openAttendance) {
+      const openData = openAttendance.data() || {};
+      throw new Error(`ALREADY_CHECKED_IN: Bạn còn một ca chưa kết thúc từ ${String(openData.date || 'ngày trước')} lúc ${String(openData.checkInTime || '--:--')}. Hãy ra ca hoặc liên hệ quản lý.`);
+    }
     await db.runTransaction(async (transaction) => {
       const [sessionSnap, snap, photoSnap] = await Promise.all([
         transaction.get(sessionRef),

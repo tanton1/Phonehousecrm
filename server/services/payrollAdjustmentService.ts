@@ -7,7 +7,7 @@ import { assertValidPayrollHomeBranch } from './payrollStaffIdentity';
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const TYPES = new Set(['EARNING', 'DEDUCTION']);
 const CATEGORIES = new Set(['OVERTIME', 'ATTENDANCE_BONUS', 'ADVANCE', 'PENALTY', 'MANUAL']);
-const MAKER_ROLES = new Set(['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT']);
+const MAKER_ROLES = new Set(['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT']);
 const CHECKER_ROLES = new Set(['ADMIN', 'ACCOUNTANT']);
 
 function actorCanAccessBranch(actor: PayrollActor, branchId: string) {

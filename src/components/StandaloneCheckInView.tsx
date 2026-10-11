@@ -27,7 +27,7 @@ interface StandaloneCheckInViewProps {
   branches?: StoreBranch[];
   attendanceRecords?: AttendanceRecord[];
   onCheckInSuccess?: (record: any) => Promise<any> | void;
-  onCheckOutSuccess?: (userCoords: { latitude: number; longitude: number }) => Promise<AttendanceRecord | void> | AttendanceRecord | void;
+  onCheckOutSuccess?: (userCoords: { latitude: number; longitude: number; branchId?: string }) => Promise<AttendanceRecord | void> | AttendanceRecord | void;
   onNavigateToHR?: () => void;
   onClose?: () => void;
 }
@@ -78,6 +78,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   const [context, setContext] = useState<CheckInContext | null>(null);
   const [contextError, setContextError] = useState('');
   const [isLoadingContext, setIsLoadingContext] = useState(false);
+  const contextRequestId = useRef(0);
   const [gps, setGps] = useState<GpsResult>({ status: 'IDLE' });
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState('');
@@ -114,28 +115,50 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
   }, [photoPreview]);
 
   const authUid = auth.currentUser?.uid || currentUser?.id || '';
+  const currentStaffIds = useMemo(() => new Set([
+    authUid,
+    String(currentUser?.id || ''),
+    String((currentUser as any)?.authUid || '')
+  ].filter(Boolean)), [authUid, currentUser]);
   const today = getVietnamDateString();
-  const existingAttendance = attendanceRecords.find(record => record.staffId === authUid && record.date === today && record.checkInTime);
-  const activeAttendance = completedRecord || existingAttendance || null;
+  const existingAttendance = attendanceRecords.find(record => currentStaffIds.has(String(record.staffId || '')) && record.date === today && record.checkInTime);
+  const openAttendance = attendanceRecords.find(record => (
+    currentStaffIds.has(String(record.staffId || ''))
+    && Boolean(record.checkInTime)
+    && !record.checkOutTime
+    && record.attendanceStatus !== 'COMPLETED'
+  ));
+  const activeAttendance = completedRecord || openAttendance || existingAttendance || null;
   const hasCheckedOut = Boolean(
     activeAttendance?.checkOutTime
     || activeAttendance?.attendanceStatus === 'COMPLETED'
     || activeAttendance?.status === 'COMPLETED'
   );
 
+  // A staff member may be assigned to more than one store. Once a check-in
+  // record exists, the record's branch is authoritative for the rest of the
+  // flow (especially checkout GPS and the backend branch lock).
+  useEffect(() => {
+    const activeBranchId = activeAttendance?.branchId;
+    if (activeBranchId && activeBranchId !== selectedBranchId) setSelectedBranchId(activeBranchId);
+  }, [activeAttendance?.branchId, selectedBranchId]);
+
   const loadContext = async () => {
     if (!selectedBranchId) return;
+    const requestId = ++contextRequestId.current;
     setIsLoadingContext(true);
     setContextError('');
     setContext(null);
     setGps({ status: 'IDLE' });
     try {
       const result = await requestCheckInContext(selectedBranchId);
+      if (requestId !== contextRequestId.current) return;
       setContext(result);
     } catch (error: any) {
+      if (requestId !== contextRequestId.current) return;
       setContextError(error?.message || 'Không tải được ca làm việc hôm nay.');
     } finally {
-      setIsLoadingContext(false);
+      if (requestId === contextRequestId.current) setIsLoadingContext(false);
     }
   };
 
@@ -242,7 +265,11 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
     setIsCheckingOut(true);
     setCheckOutError('');
     try {
-      const result = await onCheckOutSuccess({ latitude: checkOutGps.latitude, longitude: checkOutGps.longitude });
+      const result = await onCheckOutSuccess({
+        latitude: checkOutGps.latitude,
+        longitude: checkOutGps.longitude,
+        branchId: activeAttendance?.branchId || selectedBranchId
+      });
       if (result) setCompletedRecord(result);
       else setCheckOutError('Chưa nhận được xác nhận kết thúc ca từ máy chủ. Vui lòng thử lại.');
     } catch (error: any) {
@@ -285,6 +312,7 @@ export const StandaloneCheckInView: React.FC<StandaloneCheckInViewProps> = ({
           </div>
           <div className="space-y-3 p-5">
             <ResultRow icon={Clock3} label="Ca làm" value={`${record.shiftName || 'Ca làm việc'} · ${record.scheduledStart || '--:--'}–${record.scheduledEnd || '--:--'}`} />
+            {record.date && record.date !== today && <ResultRow icon={CalendarDays} label="Ngày vào ca" value={`${record.date} · ca qua đêm hoặc chưa checkout`} />}
             <ResultRow icon={MapPin} label="GPS" value={record.verification?.gpsVerified ? `Hợp lệ${Number.isFinite(recordDistance) ? ` · cách ${Math.round(Number(recordDistance))}m` : ''}` : 'Chờ quản lý kiểm tra'} />
             <ResultRow icon={Camera} label="Ảnh tại chỗ" value={record.verification?.photoCaptured || record.verification?.photoEvidenceId ? 'Đã lưu an toàn' : 'Đã gửi'} />
             {isWorking && <section className={`rounded-2xl border p-4 ${checkOutGps.status === 'MATCHED' ? 'border-emerald-200 bg-emerald-50/60' : checkOutGps.status === 'OUTSIDE' || checkOutGps.status === 'ERROR' ? 'border-amber-200 bg-amber-50/70' : 'border-zinc-200 bg-zinc-50'}`}>

@@ -303,12 +303,24 @@ export default function App() {
       throw new Error('UNAUTHENTICATED: Bạn chưa đăng nhập vào hệ thống.');
     }
     const authUid = auth.currentUser?.uid || currentUser.id;
+    const currentStaffIds = new Set([
+      authUid,
+      String(currentUser.id || ''),
+      String((currentUser as any).authUid || '')
+    ].filter(Boolean));
     const today = getVietnamDateString();
-    
+
     // Check if already checked in locally before network request
-    const existing = attendanceRecords.find(a => a.staffId === authUid && a.date === today);
+    const existing = attendanceRecords.find(a => (
+      currentStaffIds.has(String(a.staffId || ''))
+      && a.checkInTime
+      && !a.checkOutTime
+      && a.attendanceStatus !== 'COMPLETED'
+    )) || attendanceRecords.find(a => currentStaffIds.has(String(a.staffId || '')) && a.date === today);
     if (existing && existing.checkInTime) {
-      const msg = `Bạn đã chấm công vào ca hôm nay lúc ${existing.checkInTime}. Không thể chấm công lại.`;
+      const msg = existing.date === today
+        ? `Bạn đã chấm công vào ca hôm nay lúc ${existing.checkInTime}. Không thể chấm công lại.`
+        : `Bạn còn một ca chưa kết thúc từ ${existing.date || 'ngày trước'} lúc ${existing.checkInTime}. Hãy ra ca hoặc liên hệ quản lý.`;
       alert(msg);
       throw new Error(`ALREADY_CHECKED_IN: ${msg}`);
     }
@@ -352,14 +364,28 @@ export default function App() {
     }
   };
 
-  const handleCheckOut = async (userCoords: { latitude: number; longitude: number }) => {
+  const handleCheckOut = async (userCoords: { latitude: number; longitude: number; branchId?: string }) => {
     if (!currentUser) return;
     const authUid = auth.currentUser?.uid || currentUser.id;
     const today = getVietnamDateString();
+    const currentStaffIds = new Set([
+      authUid,
+      String(currentUser.id || ''),
+      String((currentUser as any).authUid || '')
+    ].filter(Boolean));
+    const openAttendance = attendanceRecords.find(record => (
+      currentStaffIds.has(String(record.staffId || ''))
+      && record.checkInTime
+      && !record.checkOutTime
+    ));
 
     try {
-      if (!currentUser.branchId) throw new Error('BRANCH_REQUIRED: Tài khoản chưa được gán chi nhánh.');
-      const completedRecord = await requestServerCheckOut(currentUser.branchId, userCoords);
+      const checkoutBranchId = String(userCoords.branchId || openAttendance?.branchId || currentUser.branchId || '').trim();
+      if (!checkoutBranchId) throw new Error('BRANCH_REQUIRED: Tài khoản chưa được gán chi nhánh.');
+      const completedRecord = await requestServerCheckOut(checkoutBranchId, {
+        latitude: userCoords.latitude,
+        longitude: userCoords.longitude
+      });
       
       // Update state directly with the authoritative completed record from backend (retaining calculated workDurationMinutes)
       setAttendanceRecords(prev => prev.map(a => 
@@ -405,10 +431,15 @@ export default function App() {
   };
 
   const attendancePrincipalUid = auth.currentUser?.uid || currentUser?.id;
+  const attendancePrincipalIds = new Set([
+    String(attendancePrincipalUid || ''),
+    String(currentUser?.id || ''),
+    String((currentUser as any)?.authUid || '')
+  ].filter(Boolean));
   const currentAttendance = attendanceRecords.find(a =>
-    a.staffId === attendancePrincipalUid && Boolean(a.checkInTime) && !a.checkOutTime
+    attendancePrincipalIds.has(String(a.staffId || '')) && Boolean(a.checkInTime) && !a.checkOutTime
   ) || attendanceRecords.find(a =>
-    a.staffId === attendancePrincipalUid && a.date === getVietnamDateString()
+    attendancePrincipalIds.has(String(a.staffId || '')) && a.date === getVietnamDateString()
   );
 
   const activeBranchId = currentUser?.role === 'ADMIN' || currentUser?.role === 'MANAGER' 

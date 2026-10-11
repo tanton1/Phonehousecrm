@@ -61,7 +61,7 @@ export interface PayrollRecordSnapshot {
 }
 
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-const ALLOWED_ROLES = new Set(['ADMIN', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT']);
+const ALLOWED_ROLES = new Set(['ADMIN', 'REGIONAL_MANAGER', 'MANAGER', 'STORE_MANAGER', 'ACCOUNTANT']);
 
 function assertAccess(actor: PayrollActor, branchId: string) {
   const role = String(actor.role || '').toUpperCase();
