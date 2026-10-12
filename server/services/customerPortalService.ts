@@ -55,15 +55,22 @@ function hashId(prefix: string, ...parts: unknown[]): string {
 }
 
 function toIso(value: any): string | null {
-  if (!value) return null;
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+  if (value === null || value === undefined || value === '') return null;
+  let parsed: Date;
+  if (typeof value?.toDate === 'function') {
+    const converted = value.toDate();
+    if (!(converted instanceof Date)) return null;
+    parsed = converted;
+  } else if (value instanceof Date) {
+    parsed = value;
+  } else if (typeof value === 'number' && Number.isFinite(value)) {
+    parsed = new Date(value);
+  } else if (typeof value === 'string') {
+    parsed = new Date(value);
+  } else {
+    return null;
   }
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value?.toDate === 'function') return value.toDate().toISOString();
-  if (Number.isFinite(Number(value))) return new Date(Number(value)).toISOString();
-  return null;
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
 }
 
 function timestampMillis(value: any): number {
@@ -294,7 +301,14 @@ export async function getCustomerRepair(db: Firestore, authority: CustomerAuthor
 
 function addMonths(date: Date, months: number): Date {
   const copy = new Date(date);
+  const originalDay = copy.getUTCDate();
+  // Clamp to the last day of the target month. Date#setUTCMonth otherwise
+  // turns 31 January + 1 month into 3 March, which shortens/extends warranty
+  // periods depending on the calendar month.
+  copy.setUTCDate(1);
   copy.setUTCMonth(copy.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(copy.getUTCFullYear(), copy.getUTCMonth() + 1, 0)).getUTCDate();
+  copy.setUTCDate(Math.min(originalDay, lastDay));
   return copy;
 }
 
@@ -310,13 +324,22 @@ export async function listCustomerDevices(db: Firestore, authority: CustomerAuth
     const invoiceDevices = Array.isArray(invoice.devices)
       ? invoice.devices
       : (Array.isArray(invoice.items) ? invoice.items.filter((item: any) => text(item.type).toLowerCase() === 'device' || item.imei) : []);
-    const purchaseAt = toIso(invoice.completedAt || invoice.createdAt || invoice.date || invoice.saleDate) || new Date().toISOString();
     for (const row of invoiceDevices) {
       const imei = text(row.imei, 30);
       if (!imei) continue;
+      const purchaseAt = toIso(
+        row.purchaseAt
+        || row.soldAt
+        || invoice.completedAt
+        || invoice.createdAt
+        || invoice.createdDate
+        || invoice.date
+        || invoice.saleDate
+        || invoice.orderDate
+      );
       const months = safeInt(row.warrantyPeriodMonths ?? invoice.warrantyPeriodMonths, defaultWarrantyMonths) || defaultWarrantyMonths;
-      const warrantyUntil = addMonths(new Date(purchaseAt), months).toISOString();
-      const daysRemaining = Math.ceil((new Date(warrantyUntil).getTime() - Date.now()) / 86_400_000);
+      const warrantyUntil = purchaseAt ? addMonths(new Date(purchaseAt), months).toISOString() : null;
+      const daysRemaining = warrantyUntil === null ? null : Math.ceil((new Date(warrantyUntil).getTime() - Date.now()) / 86_400_000);
       deviceMap.set(imei, {
         id: hashId('CDEV', imei),
         model: text(row.model || row.name, 200),
@@ -328,8 +351,9 @@ export async function listCustomerDevices(db: Firestore, authority: CustomerAuth
         invoiceCode: text(invoice.invoiceCode || invoice.code || invoice.id, 120),
         warrantyMonths: months,
         warrantyUntil,
-        warrantyStatus: daysRemaining < 0 ? 'EXPIRED' : daysRemaining <= 30 ? 'EXPIRING' : 'ACTIVE',
-        daysRemaining: Math.max(0, daysRemaining),
+        warrantyStatus: daysRemaining === null ? 'UNKNOWN' : daysRemaining < 0 ? 'EXPIRED' : daysRemaining <= 30 ? 'EXPIRING' : 'ACTIVE',
+        warrantyUnknownReason: purchaseAt ? null : 'PURCHASE_DATE_MISSING',
+        daysRemaining: daysRemaining === null ? null : Math.max(0, daysRemaining),
         repairCount: workOrders.filter(order => text(order.imei) === imei).length,
         imei
       });
@@ -350,6 +374,7 @@ export async function listCustomerDevices(db: Firestore, authority: CustomerAuth
       warrantyMonths: 0,
       warrantyUntil: null,
       warrantyStatus: 'UNKNOWN',
+      warrantyUnknownReason: 'PURCHASE_DATE_MISSING',
       daysRemaining: null,
       repairCount: workOrders.filter(item => text(item.imei) === imei).length,
       imei

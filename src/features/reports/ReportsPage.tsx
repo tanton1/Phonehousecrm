@@ -13,6 +13,7 @@ import { getPreviousVietnamMonthString, getVietnamDateString, getVietnamRelative
 import { dateOnlyInVietnam, invoiceLineItems, isPostedCashTransaction, isPostedInvoice } from '../../utils/invoiceMetrics';
 import { fetchRepairRevenueReport, RepairRevenueReport } from '../../services/technicalApiClient';
 import { requestS2eCashLedger, S2eCashLedgerReport } from '../../services/financeApiClient';
+import { evaluateReportReadiness } from './reportReadiness';
 
 export { dateOnlyInVietnam, isPostedCashTransaction, isPostedInvoice } from '../../utils/invoiceMetrics';
 
@@ -84,6 +85,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const [cashFlowReport, setCashFlowReport] = useState<S2eCashLedgerReport | null>(null);
   const [remoteReportLoading, setRemoteReportLoading] = useState(false);
   const [remoteReportError, setRemoteReportError] = useState<string | null>(null);
+  const [loadedSnapshotKey, setLoadedSnapshotKey] = useState<string | null>(null);
 
   const effectiveBranchId = useMemo(() => {
     // The parent already scopes non-admin data to the authenticated branch. Use
@@ -125,6 +127,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const incompleteCustomRange = timeRange === 'custom'
     && (!customStartDate || !customEndDate);
 
+  const reportSelectionKey = `${effectiveBranchId}|${reportRange.from}|${reportRange.to}`;
+  const reportReadiness = useMemo(() => evaluateReportReadiness({
+    rangeValid: !invalidCustomRange && !incompleteCustomRange && Boolean(reportRange.from && reportRange.to),
+    loading: remoteReportLoading,
+    error: remoteReportError,
+    snapshotMatchesSelection: loadedSnapshotKey === reportSelectionKey,
+    repairReportLoaded: Boolean(repairReport),
+    repairCoverage: repairReport?.coverage,
+    cashReportLoaded: Boolean(cashFlowReport),
+    localPartialDomainCount: dataCoverage?.partialDomainCount
+  }), [cashFlowReport, dataCoverage?.partialDomainCount, incompleteCustomRange, invalidCustomRange, loadedSnapshotKey, remoteReportError, remoteReportLoading, repairReport, reportRange.from, reportRange.to, reportSelectionKey]);
+
   useEffect(() => {
     if (invalidCustomRange || incompleteCustomRange || !reportRange.from || !reportRange.to || (effectiveBranchId === 'ALL' && String(currentUser?.role || '').toUpperCase() !== 'ADMIN')) {
       setRemoteReportLoading(false);
@@ -136,6 +150,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     let active = true;
     setRemoteReportLoading(true);
     setRemoteReportError(null);
+    setLoadedSnapshotKey(null);
+    setRepairReport(null);
+    setCashFlowReport(null);
     Promise.allSettled([
       fetchRepairRevenueReport(reportRange.from, reportRange.to, effectiveBranchId),
       requestS2eCashLedger({ branchId: effectiveBranchId, from: reportRange.from, to: reportRange.to })
@@ -154,6 +171,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         errors.push('Không tải được sổ quỹ theo kỳ');
       }
       setRemoteReportError(errors.length ? errors.join(' · ') : null);
+      if (!errors.length && repairResult.status === 'fulfilled' && cashResult.status === 'fulfilled') {
+        setLoadedSnapshotKey(`${effectiveBranchId}|${reportRange.from}|${reportRange.to}`);
+      }
     }).finally(() => {
       if (active) setRemoteReportLoading(false);
     });
@@ -402,6 +422,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   }, [devices, effectiveBranchId, selectedBranchId]);
 
   const handleExportCsv = () => {
+    if (!reportReadiness.canExport) return;
     const branchLabel = branches.find(branch => branch.id === effectiveBranchId)?.name
       || (effectiveBranchId === 'ALL' ? 'Toàn hệ thống' : effectiveBranchId);
     const rows: Array<[string, string | number]> = [
@@ -454,6 +475,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
+  const reportActionDisabled = !reportReadiness.canExport;
+
   return (
     <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200 max-w-[1600px] mx-auto text-zinc-900 font-sans pb-16">
       
@@ -497,7 +520,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
           <button
             onClick={handleExportCsv}
-            className="p-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer shrink-0"
+            disabled={reportActionDisabled}
+            className="min-h-11 p-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
             title="Tải snapshot báo cáo tổng hợp dạng CSV"
           >
             <Download className="w-4 h-4" />
@@ -505,9 +529,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           </button>
 
           <button
-            onClick={() => window.print()}
-            className="p-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer shrink-0"
-            title="In báo cáo tài chính P&L"
+            onClick={() => { if (reportReadiness.canExport) window.print(); }}
+            disabled={reportActionDisabled}
+            className="min-h-11 p-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
+            title={reportActionDisabled ? 'Chưa thể in khi dữ liệu báo cáo chưa đầy đủ' : 'In báo cáo tài chính P&L'}
           >
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">In Báo Cáo</span>
@@ -540,12 +565,13 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         </div>
       )}
 
-      {(dataCoverage?.partialDomainCount || remoteReportError || cogsStats.missingCostCount > 0 || stockStats.missingCostCount > 0 || revenueStats.invoicesWithoutLines > 0 || opexStats.unclassifiedPaymentCount > 0 || (!repairReport && remoteReportLoading)) ? (
+      {(dataCoverage?.partialDomainCount || remoteReportError || repairReport?.coverage === 'PARTIAL' || cogsStats.missingCostCount > 0 || stockStats.missingCostCount > 0 || revenueStats.invoicesWithoutLines > 0 || opexStats.unclassifiedPaymentCount > 0 || (!repairReport && remoteReportLoading) || reportReadiness.status !== 'COMPLETE') ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950">
           <div className="flex items-start gap-2">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <div className="space-y-1">
               <p className="font-black">Cảnh báo chất lượng dữ liệu báo cáo</p>
+              {reportReadiness.status !== 'COMPLETE' ? <p>Đây là bản xem trước; chưa được phép xuất/in vì dữ liệu theo kỳ chưa đủ hoặc snapshot chưa khớp. Hãy chờ đồng bộ hoàn tất rồi thử lại.</p> : null}
               {dataCoverage?.partialDomainCount ? <p>Dữ liệu vận hành đang tải chưa đầy đủ ({dataCoverage.partialDomainCount} nhóm partial; hóa đơn {dataCoverage.invoiceLoaded}/{dataCoverage.invoiceTotal}). Không dùng số liệu này để chốt sổ.</p> : null}
               {remoteReportError ? <p>{remoteReportError}</p> : null}
               {cogsStats.missingCostCount > 0 || stockStats.missingCostCount > 0 ? <p>Thiếu giá vốn của {cogsStats.missingCostCount + stockStats.missingCostCount} dòng/máy; hệ thống không dùng tỷ lệ ước tính.</p> : null}

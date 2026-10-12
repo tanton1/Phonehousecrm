@@ -5,7 +5,8 @@
 - `CORS_ALLOWED_ORIGINS`: comma-separated trusted web origins.
 - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`: shared production rate-limit store. Without these, the API intentionally falls back to a per-instance limiter and logs one warning per instance.
 - `OBSERVABILITY_WEBHOOK_URL`: optional sanitized error event destination. The application always writes structured JSON to platform logs.
-- `APP_CHECK_ENFORCED=true`: enable only after `recaptchaSiteKey` is configured and production browsers have been verified. Enabling early will reject every authenticated API request.
+- `VITE_FIREBASE_APPCHECK_SITE_KEY`: the public reCAPTCHA Enterprise key registered for this Firebase web app. Vite embeds the key at build time; changing it requires a new deployment.
+- `APP_CHECK_ENFORCED=true`: enable only after production browsers have been verified. Public quick-quote mutations and public chatbot POSTs already require App Check in production even when this global switch is `false`.
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET`: all three are mandatory when Telegram is enabled.
 - `TELEGRAM_ALERTS_ENABLED=true` and `TELEGRAM_QUERIES_ENABLED=true`: enable attendance alerts and operational queries separately.
 - `TELEGRAM_OWNER_USER_IDS`: comma-separated Telegram user IDs allowed to query the `all` scope. Group members may query a named branch, but not the whole system.
@@ -39,6 +40,16 @@ After deployment run:
 ```powershell
 npm run verify:production -- https://phonehousedn.vercel.app
 ```
+
+## PhoneHouse Care App Check
+
+1. In the Firebase project used by `firebase-applet-config.json`, select the web app with the matching `appId`.
+2. Register a reCAPTCHA Enterprise **SCORE** key for `phonehousedn.vercel.app`, with domain verification enabled. Register the same key under Firebase App Check for that web app. The normal token TTL is one hour.
+3. Set `VITE_FIREBASE_APPCHECK_SITE_KEY` in the linked Vercel project's **Production** environment. This is a public site key; keep service-account credentials and private keys server-only.
+4. For a local production build, place only this public variable in the ignored `.env.production.local`. Use a separate debug provider or test key for local development; do not add `localhost` to the production key.
+5. Deploy a new build, then use PhoneHouse Care's guest chat. A successful reply must pass server App Check verification. Also verify that a POST without `X-Firebase-AppCheck` receives `401 APP_CHECK_REQUIRED`.
+
+Registering App Check does not change the Firebase Phone OTP provider settings. Global Firebase service enforcement and the `APP_CHECK_ENFORCED` switch are separate rollout decisions.
 
 ## Account lifecycle
 

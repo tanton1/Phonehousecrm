@@ -58,6 +58,7 @@ import {
 
 const quickQuoteIpRateLimit = createRateLimit({ prefix: 'customer-quick-quote', windowMs: 10 * 60_000, maxRequests: 5 });
 const quickQuoteAnalyticsRateLimit = createRateLimit({ prefix: 'customer-quick-quote-analytics', windowMs: 10 * 60_000, maxRequests: 60 });
+const publicChatRateLimit = createRateLimit({ prefix: 'customer-public-chat', windowMs: 10 * 60_000, maxRequests: 30 });
 const promotionAiRateLimit = createRateLimit({ prefix: 'promotion-ai', windowMs: 60_000, maxRequests: 8 });
 
 function errorCode(error: any): string {
@@ -361,7 +362,7 @@ export function createCustomerPortalRouter(db: Firestore | null): Router {
     } catch (error) { return sendError(res, error); }
   });
 
-  router.post('/public/chat', async (req, res) => {
+  router.post('/public/chat', publicChatRateLimit, requireCustomerAppCheck, async (req, res) => {
     if (!db) return res.status(503).json({ success: false, code: 'DATABASE_UNAVAILABLE' });
     try { return res.json({ success: true, data: await answerPublicCustomerQuestion(db, req.body?.message) }); }
     catch (error) { return sendError(res, error); }

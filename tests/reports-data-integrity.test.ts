@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildReportCsv, dateOnlyInVietnam, isPostedCashTransaction, isPostedInvoice } from '../src/features/reports/ReportsPage';
+import { evaluateReportReadiness } from '../src/features/reports/reportReadiness';
 
 describe('reports data integrity helpers', () => {
   it('converts UTC timestamps to the Vietnam business date', () => {
@@ -44,5 +45,32 @@ describe('reports data integrity helpers', () => {
     expect(isPostedCashTransaction({ ...base, recordStatus: 'REVERSED' })).toBe(false);
     // Older posted vouchers did not carry recordStatus.
     expect(isPostedCashTransaction({ ...base, recordStatus: undefined })).toBe(true);
+  });
+
+  it('keeps export disabled while the selected report snapshot is loading or partial', () => {
+    const base = {
+      rangeValid: true,
+      loading: false,
+      snapshotMatchesSelection: true,
+      repairReportLoaded: true,
+      cashReportLoaded: true,
+      repairCoverage: 'COMPLETE' as const
+    };
+    expect(evaluateReportReadiness({ ...base, loading: true }).canExport).toBe(false);
+    expect(evaluateReportReadiness({ ...base, repairCoverage: 'PARTIAL' }).status).toBe('PARTIAL');
+    expect(evaluateReportReadiness({ ...base, snapshotMatchesSelection: false }).reasons).toContain('Snapshot hiện tại không còn khớp chi nhánh/kỳ đang chọn.');
+  });
+
+  it('allows export only when both server reports match the selected period', () => {
+    const readiness = evaluateReportReadiness({
+      rangeValid: true,
+      loading: false,
+      snapshotMatchesSelection: true,
+      repairReportLoaded: true,
+      repairCoverage: 'COMPLETE',
+      cashReportLoaded: true,
+      localPartialDomainCount: 0
+    });
+    expect(readiness).toMatchObject({ status: 'COMPLETE', canExport: true, reasons: [] });
   });
 });

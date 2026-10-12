@@ -115,10 +115,15 @@ const dateTime = (value?: string | null) =>
     ? new Date(value).toLocaleString("vi-VN", {
         dateStyle: "medium",
         timeStyle: "short",
+        timeZone: "Asia/Ho_Chi_Minh",
       })
     : "Chưa cập nhật";
 const dateOnly = (value?: string | null) =>
-  value ? new Date(value).toLocaleDateString("vi-VN") : "—";
+  value
+    ? new Date(value).toLocaleDateString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+      })
+    : "—";
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -2256,7 +2261,9 @@ function DeviceDetail({
                     ? "Còn hạn"
                     : device.warrantyStatus === "EXPIRING"
                       ? "Sắp hết hạn"
-                      : "Hết hạn"
+                      : device.warrantyStatus === "EXPIRED"
+                        ? "Hết hạn"
+                        : "Chưa xác định"
                 }
                 tone={
                   device.warrantyStatus === "ACTIVE"
@@ -2291,6 +2298,11 @@ function DeviceDetail({
                 </p>
               </div>
             </div>
+            {device.warrantyStatus === "UNKNOWN" ? (
+              <p className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">
+                Chưa xác định thời hạn bảo hành vì hồ sơ chưa có ngày mua hợp lệ. Vui lòng liên hệ CSKH để được kiểm tra lại.
+              </p>
+            ) : null}
           </section>
           <AppButton primary className="w-full" onClick={onRepair}>
             <Wrench className="mr-2 inline h-4 w-4" />
@@ -2455,6 +2467,7 @@ function ChatPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [publicReply, setPublicReply] = useState("");
+  const sendInFlight = useRef(false);
   const quick = [
     "Máy của tôi sửa tới đâu?",
     "Máy còn bảo hành không?",
@@ -2468,12 +2481,14 @@ function ChatPanel({
         .catch((e) => setError(e?.message || "Không mở được chat."));
   }, [me]);
   const send = async (value = input) => {
-    if (!value.trim()) return;
+    const message = value.trim().slice(0, 1000);
+    if (!message || loading || sendInFlight.current) return;
+    sendInFlight.current = true;
     setLoading(true);
     setError("");
     try {
       if (!me) {
-        const result = await customerPublicChat(value);
+        const result = await customerPublicChat(message);
         setPublicReply(result.data.reply);
       } else {
         let id = conversationId;
@@ -2482,14 +2497,22 @@ function ChatPanel({
           id = conversation.data.id;
           setConversationId(id);
         }
-        const result = await sendCustomerConversationMessage(id, value);
+        const result = await sendCustomerConversationMessage(id, message);
         setMessages(result.data.messages || []);
       }
       setInput("");
     } catch (e: any) {
-      setError(e?.message || "Không gửi được tin nhắn.");
+      const code = String(e?.code || "");
+      setError(
+        code === "APP_CHECK_REQUIRED" || code === "APP_CHECK_INVALID"
+          ? "Không xác minh được ứng dụng. Hãy tải lại trang rồi thử lại."
+          : code === "RATE_LIMITED"
+            ? "Bạn đã gửi quá nhiều câu hỏi. Vui lòng thử lại sau ít phút."
+            : e?.message || "Không gửi được tin nhắn.",
+      );
     } finally {
       setLoading(false);
+      sendInFlight.current = false;
     }
   };
   const handoff = async () => {
@@ -2549,7 +2572,8 @@ function ChatPanel({
               <button
                 key={item}
                 onClick={() => void send(item)}
-                className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-bold text-zinc-700"
+                disabled={loading}
+                className="min-h-11 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-bold text-zinc-700 disabled:opacity-50"
               >
                 {item}
               </button>
@@ -2583,9 +2607,9 @@ function ChatPanel({
           <div className="flex items-end gap-2">
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => setInput(e.target.value.slice(0, 1000))}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !loading) {
                   e.preventDefault();
                   void send();
                 }

@@ -6,6 +6,7 @@ import {
   createCustomerServiceRequest,
   customerFriendlyRepairStage,
   getCustomerRepair,
+  listCustomerDevices,
   maskCustomerImei,
   projectCustomerWorkOrder
 } from '../server/services/customerPortalService';
@@ -29,7 +30,11 @@ function customerRequestDb(seed: Record<string, any[]> = {}) {
         return {
           doc(id: string) {
             const reference: any = { collection: name, id, path: `${name}/${id}` };
-            if (name === 'branches') reference.get = async () => ({ id, exists: id === 'CN01', data: () => ({ name: 'PhoneHouse CN01', isActive: true }) });
+            reference.get = async () => {
+              const seeded = (seed[name] || []).find(row => row.id === id);
+              if (name === 'branches' && !seeded && id === 'CN01') return { id, exists: true, data: () => ({ name: 'PhoneHouse CN01', isActive: true }) };
+              return { id, exists: Boolean(seeded), data: () => seeded };
+            };
             return reference;
           },
           where(field: string, _operator: string, value: unknown) {
@@ -246,6 +251,28 @@ describe('PhoneHouse Care authority and projection', () => {
       description: 'Mô tả tình trạng hợp lệ',
       branchId: 'CN01'
     })).rejects.toThrow('CUSTOMER_REQUEST_ISSUE_INVALID');
+  });
+
+  it('does not invent a purchase date or warranty expiry when the invoice date is missing', async () => {
+    const { db } = customerRequestDb({
+      invoices: [{ id: 'INV-MISSING-DATE', customerAccountUid: 'customer-a', devices: [{ imei: '356789012345678', model: 'iPhone 15' }] }],
+      technicalWorkOrders: []
+    });
+    const [device] = await listCustomerDevices(db, authority('customer-a'));
+    expect(device).toMatchObject({ purchaseAt: null, warrantyUntil: null, warrantyStatus: 'UNKNOWN', daysRemaining: null, warrantyUnknownReason: 'PURCHASE_DATE_MISSING' });
+  });
+
+  it('uses the canonical createdDate when computing warranty and returns unknown for invalid dates', async () => {
+    const { db } = customerRequestDb({
+      invoices: [
+        { id: 'INV-CREATED-DATE', customerAccountUid: 'customer-a', createdDate: '2026-01-31', devices: [{ imei: '356789012345678', model: 'iPhone 15', warrantyPeriodMonths: 1 }] },
+        { id: 'INV-INVALID-DATE', customerAccountUid: 'customer-a', createdDate: 'not-a-date', devices: [{ imei: '351111111111111', model: 'iPhone 14' }] }
+      ],
+      technicalWorkOrders: []
+    });
+    const devices = await listCustomerDevices(db, authority('customer-a'));
+    expect(devices.find(item => item.imeiMasked.endsWith('5678'))).toMatchObject({ purchaseAt: '2026-01-31T00:00:00.000Z', warrantyUntil: '2026-02-28T00:00:00.000Z' });
+    expect(devices.find(item => item.imeiMasked.endsWith('1111'))).toMatchObject({ purchaseAt: null, warrantyStatus: 'UNKNOWN', warrantyUntil: null });
   });
 
   it('manager approval of a portal quote waits for fresh customer OTP and supersedes the old decision', async () => {
