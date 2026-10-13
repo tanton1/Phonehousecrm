@@ -1,4 +1,4 @@
-import { apiJson, ApiRequestInit } from './apiClient';
+import { apiBinary, apiJson, ApiRequestInit } from './apiClient';
 import type { MasterCatalogItem } from '../types';
 import type { CatalogPublicContent } from '../../shared/catalogPublicContent';
 import type { WebsiteContentDetail, WebsiteContentPage, WebsiteContentQuery } from '../../shared/catalogWebsiteContent';
@@ -473,6 +473,7 @@ export const catalogApi = {
   },
   getWebsiteContent: (itemId: string) => request<WebsiteContentDetail>(`/api/catalog/website-content/items/${encodeURIComponent(itemId)}`),
   updateWebsiteContent: (target: 'items' | 'models', id: string, body: { confirmed: true; expectedRevision: string; content: CatalogPublicContent; compatibleModelIds?: string[] }) => request<{ id: string; target: string }>(`/api/catalog/website-content/${target}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  uploadWebsiteContentImage: (target: 'items' | 'models', id: string, file: Blob) => apiBinary<{ success: boolean; data: { imageUrl: string } }>(`/api/catalog/website-content/${target}/${encodeURIComponent(id)}/image?confirmed=true`, file, file.type),
   createModel: async (model: Omit<CatalogModelRecord, 'id'>) => {
     const raw = await post<any>('/api/catalog/models', {
     ...model,

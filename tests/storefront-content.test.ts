@@ -3,6 +3,9 @@ import { catalogPublicContentErrorMessage, catalogPublicContentPatch } from '../
 import { getStorefrontProduct, listStorefrontProducts } from '../server/services/storefrontService';
 import { storefrontAccessoryMatches } from '../server/services/storefrontContentService';
 import { processUpdateCatalogItem, processUpdateCatalogModel } from '../server/services/catalogService';
+import { getWebsiteContentDetail, listWebsiteContent, updateWebsiteContent } from '../server/services/catalogWebsiteContentService';
+import { validateCatalogImage } from '../server/services/catalogImageService';
+import { websiteContentIssues } from '../shared/catalogWebsiteContent';
 import { storefrontMemoryDb } from './helpers/storefrontMemoryDb';
 
 const device = (id = 'PHONE', extra = {}) => ({ id, sku: `SKU-${id}`, name: 'iPhone 14 128GB Đen', category: 'DEVICE', brand: 'Apple', model: 'iPhone 14', modelId: 'MODEL14', modelCode: 'IP14', color: 'Đen', storage: '128GB', condition: '99%', defaultRetailPrice: 9_000_000, status: 'active', ...extra });
@@ -103,6 +106,30 @@ describe('storefront public product content', () => {
 });
 
 describe('public content management and cache synchronization', () => {
+  it('audits missing public content and protects edits with a revision', async () => {
+    const store = storefrontMemoryDb({ ...seed(), catalogItems: { ...seed().catalogItems, CASE: accessory('CASE', { compatibleModelIds: ['MODEL14'] }) } });
+    const page = await listWebsiteContent(store.db, {});
+    expect(page.total).toBe(2);
+    expect(page.counts).toMatchObject({ IMAGE: 2, DESCRIPTION: 2, SPECIFICATIONS: 2 });
+    const detail = await getWebsiteContentDetail(store.db, 'PHONE');
+    await updateWebsiteContent(store.db, 'items', 'PHONE', { confirmed: true, expectedRevision: detail.item.revision, content: { imageUrl: '/phone.webp', publicDescription: 'Đã duyệt', publicSpecifications: [{ label: 'Màn hình', value: '6.1 inch' }] } }, actor);
+    expect((await getWebsiteContentDetail(store.db, 'PHONE')).product.images).toEqual(['/phone.webp']);
+    await expect(updateWebsiteContent(store.db, 'items', 'PHONE', { confirmed: true, expectedRevision: detail.item.revision, content: { publicDescription: 'Bản cũ' } }, actor)).rejects.toThrow('CATALOG_WEBSITE_CONTENT_CONFLICT');
+  });
+
+  it('requires exact compatibility IDs when saving an accessory', async () => {
+    const store = storefrontMemoryDb({ ...seed(), catalogItems: { ...seed().catalogItems, CASE: accessory('CASE') } });
+    const detail = await getWebsiteContentDetail(store.db, 'CASE');
+    await expect(updateWebsiteContent(store.db, 'items', 'CASE', { confirmed: true, expectedRevision: detail.item.revision, content: { imageUrl: '/case.webp' }, compatibleModelIds: ['MISSING'] }, actor)).rejects.toThrow('CATALOG_COMPATIBILITY_INVALID');
+    expect(websiteContentIssues(detail.product)).toContain('COMPATIBILITY');
+  });
+
+  it('accepts only bounded image signatures for public media', () => {
+    expect(validateCatalogImage(Buffer.from([0xff, 0xd8, 0xff, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xd9]), 'image/jpeg')).toBeInstanceOf(Buffer);
+    expect(() => validateCatalogImage(Buffer.from('not-an-image'), 'image/png')).toThrow('CATALOG_IMAGE_BODY_INVALID');
+    expect(() => validateCatalogImage(Buffer.alloc(20), 'image/gif')).toThrow('CATALOG_IMAGE_TYPE_INVALID');
+  });
+
   it('validates public content bounds, images and compatibility input on the server', async () => {
     expect(catalogPublicContentErrorMessage(new Error('CATALOG_PUBLIC_IMAGE_INVALID'))).toContain('HTTPS');
     expect(catalogPublicContentErrorMessage(new Error('UNEXPECTED'))).toBeNull();

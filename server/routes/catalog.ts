@@ -1,4 +1,4 @@
-import { Request, Response, Router } from 'express';
+import { Request, Response, Router, raw } from 'express';
 import { Firestore } from 'firebase-admin/firestore';
 import { authenticateFirebase } from '../middleware/authenticateFirebase';
 import { requireRole } from '../middleware/requireRole';
@@ -27,6 +27,10 @@ import {
   previewIphoneCatalogSeed
 } from '../services/catalogService';
 import { getWebsiteContentDetail, listWebsiteContent, updateWebsiteContent } from '../services/catalogWebsiteContentService';
+import { uploadCatalogPublicImage } from '../services/catalogImageService';
+import { requireCustomerAppCheck } from '../middleware/authenticateCustomer';
+import { createRateLimit } from '../middleware/security';
+import { MAX_CATALOG_IMAGE_BYTES } from '../../shared/catalogWebsiteContent';
 
 const READ_ROLES = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] as const;
 const WRITE_ROLES = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'] as const;
@@ -34,6 +38,7 @@ const WRITE_ROLES = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'] as const;
 function statusForCatalogError(error: any) {
   const message = String(error?.message || 'CATALOG_REQUEST_FAILED');
   if (/FORBIDDEN|UNAUTHENTICATED/.test(message)) return 403;
+  if (/TOO_LARGE/.test(message) || error?.type === 'entity.too.large') return 413;
   if (/DUPLICATE|IDEMPOTENCY|COLLISION|EXISTING|CONFLICT/.test(message)) return 409;
   if (/NOT_FOUND/.test(message)) return 404;
   return 400;
@@ -153,6 +158,22 @@ export function createCatalogRouter(db: Firestore | null): Router {
       return sendError(res, error);
     }
   });
+
+  router.put('/website-content/:target/:id/image', requireRole(...WRITE_ROLES), requireCustomerAppCheck,
+    createRateLimit({ prefix: 'catalog-public-image', windowMs: 600_000, maxRequests: 40 }),
+    raw({ type: () => true, limit: MAX_CATALOG_IMAGE_BYTES }), async (req: Request, res: Response) => {
+      if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+      try {
+        const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+        return res.status(201).json({ success: true, data: await uploadCatalogPublicImage(db, req.params.target, req.params.id, req.body, contentType, req.query.confirmed === 'true', req.user!) });
+      } catch (error: any) {
+        // Storage provider details can contain URLs/credentials: never return them.
+        if (!String(error?.message || '').startsWith('CATALOG_')) return res.status(503).json({ success: false, error: 'CATALOG_IMAGE_STORAGE_UNAVAILABLE' });
+        return sendError(res, error);
+      }
+    }, (error: any, _req: Request, res: Response, _next: import('express').NextFunction) => {
+      return res.status(error?.type === 'entity.too.large' ? 413 : 400).json({ success: false, error: error?.type === 'entity.too.large' ? 'CATALOG_IMAGE_TOO_LARGE' : 'CATALOG_IMAGE_BODY_INVALID' });
+    });
 
   /** A read-only preview. Only ADMIN can turn this into setup records. */
   router.get('/iphone-seed/preview', requireRole(...READ_ROLES), async (_req: Request, res: Response) => {
