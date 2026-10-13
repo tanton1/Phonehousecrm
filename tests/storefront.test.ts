@@ -11,7 +11,8 @@ const seed = () => ({
   branches: { CN1: { name: 'Chi nhánh 1', isActive: true }, CN2: { name: 'Chi nhánh 2', isActive: true }, CLOSED: { isActive: false } },
   devices: { D1: { catalogItemId: 'A', status: 'in_stock', branchId: 'CN1', imei: 'PRIVATE_IMEI', costPrice: 5_000_000 }, RESERVED: { catalogItemId: 'A', status: 'reserved', branchId: 'CN2' }, SOLD: { catalogItemId: 'B', status: 'sold', branchId: 'CN1' } }
 });
-const order = (extra = {}) => ({ idempotencyKey: 'order-key-123456789', branchId: 'CN1', customerName: 'Khách kiểm thử', customerPhone: '0901234567', fulfillment: 'PICKUP', address: '', note: '', contactConsent: true, website: '', lines: [{ productId: 'A', quantity: 1, expectedPrice: 8_000_000 }], ...extra });
+// Synthetic idempotency identifier, not an API credential.
+const order = (extra = {}) => ({ idempotencyKey: 'order-key-00000000', branchId: 'CN1', customerName: 'Khách kiểm thử', customerPhone: '0901234567', fulfillment: 'PICKUP', address: '', note: '', contactConsent: true, website: '', lines: [{ productId: 'A', quantity: 1, expectedPrice: 8_000_000 }], ...extra });
 
 describe('catalog-first storefront', () => {
   it('shows every active master even if unpriced or out of stock, excluding inactive/archived', async () => {
