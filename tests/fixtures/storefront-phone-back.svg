@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600">
+  <rect width="600" height="600" fill="#fff"/><ellipse cx="300" cy="530" rx="120" ry="15" fill="#eee"/>
+  <rect x="188" y="42" width="224" height="476" rx="38" fill="#363e46" stroke="#6d7983" stroke-width="5"/>
+  <rect x="204" y="62" width="112" height="116" rx="22" fill="#424d56"/>
+  <g fill="#171c22" stroke="#78848d" stroke-width="5"><circle cx="237" cy="94" r="21"/><circle cx="283" cy="144" r="21"/></g>
+  <circle cx="284" cy="91" r="8" fill="#e2ded4"/>
+  <path d="M271 301l29-25 29 25v34h-20v-20h-18v20h-20z" fill="#8496a5"/>
+  <text x="300" y="454" text-anchor="middle" font-family="Arial" font-size="22" fill="#aebdc7">PhoneHouse</text>
+  <text x="300" y="574" text-anchor="middle" font-family="Arial" font-size="18" fill="#74747e">Ảnh minh họa kiểm thử · không phải ảnh sản phẩm</text>
+</svg>

@@ -226,6 +226,8 @@ import { createTechnicalRouter } from './server/routes/technical';
 app.use('/api/technical', createTechnicalRouter(adminDb));
 import { createCustomerPortalRouter } from './server/routes/customerPortal';
 app.use('/api/customer-portal', createCustomerPortalRouter(adminDb));
+import { createStorefrontRouter } from './server/routes/storefront';
+app.use('/api/storefront', createStorefrontRouter(adminDb));
 
 // -------------------------------------------------------------
 // 6B. TECHNICAL CUSTODY & INTER-BRANCH INVENTORY TRANSFERS

@@ -4,8 +4,9 @@ import type { StoreBranch, UserAccount } from '../types';
 import { apiJson } from '../services/apiClient';
 import { QuickQuoteRequestsView } from './QuickQuoteRequestsView';
 import { PromotionCampaignManagerView } from './PromotionCampaignManagerView';
+import { StorefrontOrdersView } from './StorefrontOrdersView';
 
-type MiniAppSection = 'OVERVIEW' | 'CATALOG' | 'CONTENT';
+type MiniAppSection = 'OVERVIEW' | 'CATALOG' | 'CONTENT' | 'ORDERS';
 type MiniAppSettings = { enabled: boolean; responseSlaMinutes: number; validityHours: number; fallbackBranchId?: string };
 type MiniAppPromotion = { id: string; title: string; status: string; updatedAt?: string; bannerUrl?: string };
 
@@ -51,6 +52,7 @@ export const CustomerMiniAppManagerView: React.FC<CustomerMiniAppManagerViewProp
   const nav = [
     { id: 'OVERVIEW' as const, label: 'Tổng quan', icon: LayoutDashboard },
     { id: 'CATALOG' as const, label: 'Cấu hình miniweb', icon: Settings2 },
+    { id: 'ORDERS' as const, label: 'Đơn từ website', icon: Tags },
     { id: 'CONTENT' as const, label: 'Bài đăng & AI', icon: Megaphone }
   ];
 
@@ -60,10 +62,11 @@ export const CustomerMiniAppManagerView: React.FC<CustomerMiniAppManagerViewProp
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div className="max-w-2xl">
             <p className="text-[11px] font-black uppercase tracking-[.18em] text-orange-300">PhoneHouse Care · Customer Growth</p>
-            <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Trung tâm Mini App khách hàng</h1>
+            <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Website & Mini App khách hàng</h1>
             <p className="mt-2 text-sm leading-6 text-zinc-300">Một nơi để vận hành trang báo giá, danh mục công khai, bài đăng ưu đãi và quy trình AI tạo nội dung cho khách hàng.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <a href="/cua-hang" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-3 text-xs font-black text-zinc-950"><ExternalLink className="h-4 w-4" /> Website bán hàng</a>
             <a href="/khach-hang" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-black"><ExternalLink className="h-4 w-4" /> Cổng khách hàng</a>
             <a href="/khach-hang/bao-gia" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-3 text-xs font-black"><Smartphone className="h-4 w-4" /> Miniweb báo giá</a>
           </div>
@@ -101,7 +104,8 @@ export const CustomerMiniAppManagerView: React.FC<CustomerMiniAppManagerViewProp
         <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><div><h2 className="text-base font-black">Bài gần đây</h2><p className="mt-1 text-xs text-zinc-500">Theo dõi nhanh nội dung đang cần xử lý.</p></div><button type="button" onClick={() => setSection('CONTENT')} className="inline-flex min-h-10 items-center gap-1 rounded-xl border px-3 text-xs font-black">Mở quản lý bài <ArrowRight className="h-4 w-4" /></button></div>{promotions.length ? <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{promotions.slice(0, 6).map(item => <div key={item.id} className="flex items-center gap-3 rounded-xl border border-zinc-100 p-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-orange-50">{item.bannerUrl ? <img src={item.bannerUrl} alt="" className="h-full w-full object-cover" /> : <Megaphone className="m-3 h-6 w-6 text-orange-400" />}</div><div className="min-w-0"><p className="truncate text-xs font-black">{item.title}</p><span className="mt-1 inline-block rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-bold text-zinc-600">{item.status}</span></div></div>)}</div> : <p className="mt-4 rounded-xl border border-dashed p-6 text-center text-xs font-semibold text-zinc-500">Chưa có bài đăng. Hãy mở AI Studio để tạo bản nháp đầu tiên.</p>}</section>
       </>}
 
-      {section === 'CATALOG' && <QuickQuoteRequestsView currentUser={currentUser} branches={branches} initialMode="SETTINGS" settingsOnly />}
+      {section === 'ORDERS' && <StorefrontOrdersView />}
+      {section === 'CATALOG' && <><p className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">Website /cua-hang tự hiển thị toàn bộ sản phẩm đang hoạt động từ Danh mục sản phẩm, kể cả chưa có tồn hoặc giá. Cấu hình dưới đây chỉ áp dụng cho miniweb báo giá cũ, không giới hạn danh mục website mới.</p><QuickQuoteRequestsView currentUser={currentUser} branches={branches} initialMode="SETTINGS" settingsOnly /></>}
       {section === 'CONTENT' && <PromotionCampaignManagerView branches={branches} currentUser={currentUser} />}
     </main>
   );

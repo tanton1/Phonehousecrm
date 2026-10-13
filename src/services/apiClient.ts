@@ -43,7 +43,7 @@ export async function apiJson<T>(
   const isCustomerPortal = path.startsWith('/api/customer-portal');
   const isStaffPortal = path.startsWith('/api/customer-portal/staff');
   const method = String(requestInit.method || 'GET').toUpperCase();
-  const isPublicCustomerRead = path.startsWith('/api/customer-portal/public/') && method === 'GET';
+  const isPublicCustomerRead = method === 'GET' && (path.startsWith('/api/customer-portal/public/') || path.startsWith('/api/storefront/products'));
   const authPrincipal = isCustomerPortal && !isStaffPortal ? customerAuth.currentUser : auth.currentUser;
   const [token, appCheckToken] = await Promise.all([
     authPrincipal?.getIdToken(false).catch(() => null),

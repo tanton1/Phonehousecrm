@@ -23,7 +23,7 @@ export interface ChatMessage {
 
 export interface ChatConversation {
   id: string;
-  provider?: 'PANCAKE' | 'META_MESSENGER' | 'ZALO_OA' | 'TIKTOK_BUSINESS';
+  provider?: 'PANCAKE' | 'META_MESSENGER' | 'ZALO_OA' | 'TIKTOK_BUSINESS' | 'CUSTOMER_PORTAL';
   pageId?: string;
   pageName?: string;
   externalConversationId?: string;

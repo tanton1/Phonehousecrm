@@ -1,5 +1,6 @@
 import { apiJson, ApiRequestInit } from './apiClient';
 import type { MasterCatalogItem } from '../types';
+import type { CatalogPublicContent } from '../../shared/catalogPublicContent';
 
 /**
  * Product master API client.
@@ -10,7 +11,7 @@ import type { MasterCatalogItem } from '../types';
 export type CatalogItemKind = 'DEVICE' | 'PART' | 'ACCESSORY';
 export type CatalogDictionaryScope = 'FAMILY' | 'CATEGORY' | 'BRAND' | 'ATTRIBUTE' | 'TEMPLATE';
 
-export interface CatalogModelRecord {
+export interface CatalogModelRecord extends CatalogPublicContent {
   id: string;
   brandName: string;
   brandCode: string;
@@ -218,6 +219,11 @@ function post<T>(path: string, body: unknown, options: ApiRequestInit = {}): Pro
 
 function normalizeModel(raw: any): CatalogModelRecord {
   return {
+    imageUrl: typeof raw?.imageUrl === 'string' ? raw.imageUrl : '',
+    imageUrls: Array.isArray(raw?.imageUrls) ? raw.imageUrls : [],
+    publicDescription: typeof raw?.publicDescription === 'string' ? raw.publicDescription : '',
+    publicHighlights: Array.isArray(raw?.publicHighlights) ? raw.publicHighlights : [],
+    publicSpecifications: Array.isArray(raw?.publicSpecifications) ? raw.publicSpecifications : [],
     id: String(raw?.id || ''),
     brandName: String(raw?.brandName || ''),
     brandCode: String(raw?.brandCode || ''),
@@ -481,7 +487,7 @@ export const catalogApi = {
   },
   deleteDictionary: (dictionaryId: string) => request<CatalogSetupDeleteResult>(`/api/catalog/dictionaries/${encodeURIComponent(dictionaryId)}`, { method: 'DELETE' }),
   updateItem: async (itemId: string, patch: Partial<Pick<MasterCatalogItem,
-    'name' | 'posShortName' | 'aliases' | 'unit' | 'defaultImportPrice' | 'defaultRetailPrice' | 'notes' | 'status' | 'warrantyPeriodMonths' | 'imageUrl' | 'barcode'>>
+    'name' | 'posShortName' | 'aliases' | 'unit' | 'defaultImportPrice' | 'defaultRetailPrice' | 'notes' | 'status' | 'warrantyPeriodMonths' | 'imageUrl' | 'barcode' | 'imageUrls' | 'publicDescription' | 'publicHighlights' | 'publicSpecifications' | 'compatibleModelIds' | 'compatibleModelCodes' | 'compatibleModels'>>
   ) => request<MasterCatalogItem>(`/api/catalog/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   archiveItem: (itemId: string, reason?: string) => post<MasterCatalogItem>(`/api/catalog/items/${encodeURIComponent(itemId)}/archive`, { reason }),
   previewIphoneSeed: async () => normalizeIphoneSeedPreview(await request<any>('/api/catalog/iphone-seed/preview')),

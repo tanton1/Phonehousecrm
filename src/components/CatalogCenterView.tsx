@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { FundAccount, MasterCatalogItem, Partner, PurchaseOrder, StoreBranch, UserAccount, WarehouseInfo } from '../types';
 import { DeviceImageThumbnail } from './DeviceImageThumbnail';
+import { CatalogPublicContentFields } from './CatalogPublicContentFields';
+import { catalogPublicContentErrorMessage, catalogPublicContentPatch, type CatalogPublicContent } from '../../shared/catalogPublicContent';
 import { StockItemPurchaseEntryForm } from './StockItemPurchaseEntryForm';
 import {
   catalogApi,
@@ -229,6 +231,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
 
   const [isModelFormOpen, setIsModelFormOpen] = useState(false);
   const [editingModelId, setEditingModelId] = useState<string | null>(null);
+  const [modelContent, setModelContent] = useState<CatalogPublicContent>({});
   const [modelDraft, setModelDraft] = useState({
     brandName: '',
     brandCode: '',
@@ -547,11 +550,13 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
 
   const resetModelForm = () => {
     setEditingModelId(null);
+    setModelContent({});
     setModelDraft({ brandName: '', brandCode: '', seriesName: '', modelName: '', modelCode: '', releaseYear: '', aliases: '' });
     setIsModelFormOpen(false);
   };
 
   const openModelEditor = (model?: CatalogModelRecord) => {
+    setModelContent(model ? { imageUrl: model.imageUrl || '', imageUrls: model.imageUrls || [], publicDescription: model.publicDescription || '', publicHighlights: model.publicHighlights || [], publicSpecifications: model.publicSpecifications || [] } : {});
     if (!model) {
       setEditingModelId(null);
       setModelDraft({ brandName: '', brandCode: '', seriesName: '', modelName: '', modelCode: '', releaseYear: '', aliases: '' });
@@ -583,6 +588,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
     setApiError(null);
     try {
       const payload = {
+        ...catalogPublicContentPatch({ ...modelContent, imageUrls: (modelContent.imageUrls || []).map(value => value.trim()).filter(Boolean), publicHighlights: (modelContent.publicHighlights || []).map(value => value.trim()).filter(Boolean) }),
         brandName: modelDraft.brandName.trim(),
         brandCode: codeLabel(modelDraft.brandCode),
         seriesName: modelDraft.seriesName.trim() || undefined,
@@ -594,6 +600,11 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
       };
       const model = editingModelId
         ? await catalogApi.updateModel(editingModelId, {
+          imageUrl: payload.imageUrl,
+          imageUrls: payload.imageUrls,
+          publicDescription: payload.publicDescription,
+          publicHighlights: payload.publicHighlights,
+          publicSpecifications: payload.publicSpecifications,
           brandName: payload.brandName,
           seriesName: payload.seriesName,
           modelName: payload.modelName,
@@ -607,7 +618,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
       resetModelForm();
       showNotice(editingModelId ? `Đã cập nhật Model: ${model.modelName}` : `Đã tạo Model: ${model.modelName}`);
     } catch (error: any) {
-      setApiError(error?.message || 'Không thể lưu Model.');
+      setApiError(catalogPublicContentErrorMessage(error) || error?.message || 'Không thể lưu Model.');
     }
   };
 
@@ -778,6 +789,10 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
     setApiError(null);
     try {
       const updated = await catalogApi.updateItem(catalogItemEdit.id, {
+        ...catalogPublicContentPatch({ imageUrl: catalogItemEdit.imageUrl || '', imageUrls: (catalogItemEdit.imageUrls || []).map(value => value.trim()).filter(Boolean), publicDescription: catalogItemEdit.publicDescription || '', publicHighlights: (catalogItemEdit.publicHighlights || []).map(value => value.trim()).filter(Boolean), publicSpecifications: catalogItemEdit.publicSpecifications || [] }),
+        compatibleModelIds: catalogItemEdit.compatibleModelIds,
+        compatibleModelCodes: catalogItemEdit.compatibleModelCodes,
+        compatibleModels: catalogItemEdit.compatibleModels,
         name: catalogItemEdit.name,
         posShortName: catalogItemEdit.posShortName,
         aliases: catalogItemEdit.aliases,
@@ -791,7 +806,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
       setCatalogItemEdit(null);
       showNotice(`Đã cập nhật ${updated.name}.`);
     } catch (error: any) {
-      setApiError(error?.message || 'Không thể cập nhật hàng trong danh mục.');
+      setApiError(catalogPublicContentErrorMessage(error) || error?.message || 'Không thể cập nhật hàng trong danh mục.');
     } finally {
       setCatalogItemEditLoading(false);
     }
@@ -1068,7 +1083,7 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
         <div className="fixed inset-0 z-[90] flex items-end bg-zinc-950/45 p-0 sm:items-center sm:justify-center sm:p-4">
           <form onSubmit={handleCatalogItemSave} className="max-h-[88vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 shadow-2xl sm:max-w-xl sm:rounded-3xl">
             <div className="flex items-start justify-between gap-3">
-              <div><p className="text-sm font-black text-zinc-900">Sửa hàng trong danh mục</p><p className="mt-0.5 text-[11px] text-zinc-500">SKU và Model không đổi để giữ đúng lịch sử. Chỉ sửa tên, tìm kiếm và giá gợi ý.</p></div>
+              <div><p className="text-sm font-black text-zinc-900">Sửa hàng trong danh mục</p><p className="mt-0.5 text-[11px] text-zinc-500">SKU và Model không đổi để giữ đúng lịch sử. Có thể cập nhật giá gợi ý và nội dung website.</p></div>
               <button type="button" onClick={() => setCatalogItemEdit(null)} className="rounded-xl p-2 text-zinc-500 hover:bg-zinc-100"><X className="h-4 w-4" /></button>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1080,8 +1095,15 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
               <div><FieldLabel>Giá nhập gợi ý</FieldLabel><Input inputMode="numeric" value={String(catalogItemEdit.defaultImportPrice || '')} onChange={event => setCatalogItemEdit(current => current ? { ...current, defaultImportPrice: Number(event.target.value.replace(/[^0-9]/g, '') || 0) } : current)} /></div>
               <div><FieldLabel>Giá bán lẻ gợi ý</FieldLabel><Input inputMode="numeric" value={String(catalogItemEdit.defaultRetailPrice || '')} onChange={event => setCatalogItemEdit(current => current ? { ...current, defaultRetailPrice: Number(event.target.value.replace(/[^0-9]/g, '') || 0) } : current)} /></div>
               <div className="sm:col-span-2"><FieldLabel>Alias tìm kiếm</FieldLabel><Input value={(catalogItemEdit.aliases || []).join(', ')} onChange={event => setCatalogItemEdit(current => current ? { ...current, aliases: csv(event.target.value) } : current)} placeholder="Ví dụ: màn 15pm gx, 15 prm gx" /></div>
-              <div className="sm:col-span-2"><FieldLabel>Ghi chú</FieldLabel><Input value={catalogItemEdit.notes || ''} onChange={event => setCatalogItemEdit(current => current ? { ...current, notes: event.target.value } : current)} placeholder="Không bắt buộc" /></div>
+              <div className="sm:col-span-2"><FieldLabel>Ghi chú nội bộ (không công khai)</FieldLabel><Input value={catalogItemEdit.notes || ''} onChange={event => setCatalogItemEdit(current => current ? { ...current, notes: event.target.value } : current)} placeholder="Không bắt buộc" /></div>
             </div>
+            <CatalogPublicContentFields value={catalogItemEdit} onChange={patch => setCatalogItemEdit(current => current ? { ...current, ...patch } : current)} />
+            {apiError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{apiError}</p>}
+            {catalogItemEdit.category !== 'DEVICE' && <label className="mt-4 block text-xs font-semibold">Model tương thích (giữ Ctrl/Cmd để chọn nhiều)<select multiple className="mt-2 min-h-32 w-full rounded-xl border border-zinc-300 p-2 text-xs" value={catalogItemEdit.compatibleModelIds || []} onChange={event => {
+              const ids = Array.from(event.target.selectedOptions, (option: HTMLOptionElement) => option.value);
+              const selected = models.filter(model => ids.includes(model.id));
+              setCatalogItemEdit(current => current ? { ...current, compatibleModelIds: ids, compatibleModelCodes: selected.map(model => model.modelCode), compatibleModels: selected.map(model => model.modelName) } : current);
+            }}>{models.filter(model => model.active !== false).map(model => <option value={model.id} key={model.id}>{model.modelName}</option>)}</select><span className="mt-1 block text-[10px] font-normal leading-4 text-zinc-500">Chỉ chọn model đã xác nhận tương thích. Website không tự suy đoán theo tên hoặc thương hiệu phụ kiện.</span></label>}
             <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setCatalogItemEdit(null)} className="rounded-xl px-3 py-2 text-xs font-bold text-zinc-600">Hủy</button><button type="submit" disabled={catalogItemEditLoading || !catalogItemEdit.name.trim()} className="inline-flex items-center gap-1.5 rounded-xl bg-orange-600 px-3 py-2 text-xs font-black text-white hover:bg-orange-700 disabled:opacity-50">{catalogItemEditLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Lưu thay đổi</button></div>
           </form>
         </div>
@@ -1241,6 +1263,8 @@ export const CatalogCenterView: React.FC<CatalogCenterViewProps> = ({
                   <div><FieldLabel required hint="Mã đã dùng sẽ không đổi">Mã Model</FieldLabel><Input readOnly={Boolean(editingModelId)} value={modelDraft.modelCode} onChange={event => setModelDraft(draft => ({ ...draft, modelCode: event.target.value }))} placeholder="Mã do admin tự đặt" className={editingModelId ? 'bg-zinc-50 text-zinc-500' : ''} /></div>
                   <div className="sm:col-span-2"><FieldLabel>Alias tìm kiếm</FieldLabel><Input value={modelDraft.aliases} onChange={event => setModelDraft(draft => ({ ...draft, aliases: event.target.value }))} placeholder="Ngăn cách bằng dấu phẩy; ví dụ: tên ngắn, cách gọi nội bộ" /></div>
                 </div>
+                <CatalogPublicContentFields value={modelContent} onChange={patch => setModelContent(current => ({ ...current, ...patch }))} model />
+                {apiError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-xs text-rose-800">{apiError}</p>}
                 <div className="mt-3 flex justify-end gap-2"><button type="button" onClick={resetModelForm} className="rounded-xl px-3 py-2 text-xs font-bold text-zinc-600">Hủy</button><button type="submit" className="rounded-xl bg-orange-600 px-3 py-2 text-xs font-bold text-white">{editingModelId ? 'Lưu Model' : 'Lưu Model mới'}</button></div>
               </form>
             )}

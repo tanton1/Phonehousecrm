@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { Firestore } from 'firebase-admin/firestore';
 import { AuthenticatedUser } from '../middleware/authenticateFirebase';
 import { getIphoneCatalogSeed, IPHONE_SEED_VERSION } from '../data/iphoneCatalogSeed';
+import { catalogPublicContentPatch, type CatalogPublicContent } from '../../shared/catalogPublicContent';
+import { invalidateStorefrontSnapshot } from './storefrontService';
 
 /**
  * Product Master is deliberately separate from physical stock.  This service
@@ -13,7 +15,7 @@ export type CatalogCategory = 'DEVICE' | 'PART' | 'ACCESSORY';
 export type CatalogCatalogKind = CatalogCategory | 'SERVICE';
 export type CatalogDictionaryType = 'BRAND' | 'FAMILY' | 'CATEGORY' | 'ATTRIBUTE' | 'TEMPLATE';
 
-export interface CatalogModelRecord {
+export interface CatalogModelRecord extends CatalogPublicContent {
   id: string;
   brandCode: string;
   brandName: string;
@@ -1313,7 +1315,7 @@ export async function processCatalogCandidates(db: Firestore | any, input: any, 
   }, actor);
 }
 
-function allowedItemPatch(input: any) {
+function allowedItemPatch(input: any): Record<string, any> & CatalogPublicContent {
   const fields = [
     'name', 'displayName', 'posShortName', 'aliases', 'attributes', 'compatibleModelIds', 'compatibleModelCodes',
     'compatibleModels', 'unit', 'barcode', 'imageUrl', 'defaultImportPrice', 'defaultRetailPrice', 'wholesalePrice',
@@ -1331,7 +1333,13 @@ function allowedItemPatch(input: any) {
   if (patch.name !== undefined) patch.name = requireNonEmpty(patch.name, 'CATALOG_NAME_REQUIRED');
   if (patch.displayName !== undefined) patch.displayName = requireNonEmpty(patch.displayName, 'CATALOG_NAME_REQUIRED');
   if (patch.posShortName !== undefined) patch.posShortName = requireNonEmpty(patch.posShortName, 'CATALOG_POS_NAME_REQUIRED');
-  return patch;
+  for (const field of ['compatibleModelIds', 'compatibleModelCodes', 'compatibleModels']) {
+    if (patch[field] !== undefined) {
+      if (!Array.isArray(patch[field]) || patch[field].length > 100 || patch[field].some((value: unknown) => typeof value !== 'string' || value.length > 160 || !value.trim())) throw new Error('CATALOG_COMPATIBILITY_INVALID');
+      patch[field] = [...new Set(patch[field].map((value: string) => value.trim()))];
+    }
+  }
+  return { ...patch, ...catalogPublicContentPatch(input || {}) };
 }
 
 export async function processUpdateCatalogItem(db: Firestore | any, itemId: string, input: any, actor: AuthenticatedUser) {
@@ -1361,6 +1369,7 @@ export async function processUpdateCatalogItem(db: Firestore | any, itemId: stri
     };
     setCatalogDocument(transaction, ref, updated, { merge: false });
   });
+  invalidateStorefrontSnapshot(db);
   return updated;
 }
 
@@ -1497,6 +1506,7 @@ function normalizeModelInput(input: any) {
   const releaseYear = input?.releaseYear === undefined || input?.releaseYear === '' ? undefined : Number(input.releaseYear);
   if (releaseYear !== undefined && (!Number.isInteger(releaseYear) || releaseYear < 1970 || releaseYear > 2100)) throw new Error('CATALOG_RELEASE_YEAR_INVALID');
   return {
+    ...catalogPublicContentPatch(input || {}),
     id: asString(input?.id) || safeDocId('MODEL', `${brandCode}-${modelCode}`),
     brandCode,
     brandName,
@@ -1562,6 +1572,7 @@ export async function processUpdateCatalogModel(db: Firestore | any, modelId: st
     const aliases = uniqueStrings([modelName, brandName, ...(Array.isArray(input?.aliases) ? input.aliases : current.aliases || [])]);
     updated = {
       ...current,
+      ...catalogPublicContentPatch(input || {}),
       modelName,
       brandName,
       seriesName: input?.seriesName === undefined ? current.seriesName : asString(input.seriesName),
@@ -1578,6 +1589,7 @@ export async function processUpdateCatalogModel(db: Firestore | any, modelId: st
     };
     setCatalogDocument(transaction, ref, updated, { merge: false });
   });
+  invalidateStorefrontSnapshot(db);
   return updated;
 }
 

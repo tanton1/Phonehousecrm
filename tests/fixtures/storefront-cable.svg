@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600">
+  <rect width="600" height="600" fill="#fff"/>
+  <path d="M201 176v107c0 170 199 170 199 0v-44" fill="none" stroke="#dedee5" stroke-width="19"/>
+  <path d="M201 176v107c0 170 199 170 199 0v-44" fill="none" stroke="#f9f9fb" stroke-width="11"/>
+  <rect x="175" y="108" width="52" height="99" rx="14" fill="#f0f0f4" stroke="#c0c0ca" stroke-width="3"/>
+  <rect x="183" y="80" width="36" height="35" rx="8" fill="#b0b2bf"/><rect x="190" y="86" width="22" height="8" rx="4" fill="#585a68"/>
+  <rect x="374" y="171" width="52" height="99" rx="14" fill="#f0f0f4" stroke="#c0c0ca" stroke-width="3"/>
+  <rect x="382" y="143" width="36" height="35" rx="8" fill="#b0b2bf"/>
+  <text x="300" y="513" text-anchor="middle" font-family="Arial" font-size="23" fill="#474754">Phụ kiện minh họa</text>
+  <text x="300" y="574" text-anchor="middle" font-family="Arial" font-size="18" fill="#74747e">Dữ liệu kiểm thử · không cam kết tương thích</text>
+</svg>

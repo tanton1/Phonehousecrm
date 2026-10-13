@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600">
+  <defs><linearGradient id="screen" x2="1" y2="1"><stop stop-color="#142639"/><stop offset=".55" stop-color="#447799"/><stop offset="1" stop-color="#d5e5ed"/></linearGradient></defs>
+  <rect width="600" height="600" fill="#fff"/><ellipse cx="300" cy="530" rx="120" ry="15" fill="#eee"/>
+  <rect x="188" y="42" width="224" height="476" rx="38" fill="#25282d" stroke="#92969b" stroke-width="5"/>
+  <rect x="198" y="52" width="204" height="456" rx="29" fill="url(#screen)"/>
+  <rect x="257" y="60" width="86" height="21" rx="10" fill="#17191c"/>
+  <circle cx="300" cy="312" r="92" fill="#e7a677" opacity=".8"/><circle cx="300" cy="349" r="87" fill="#8e5967" opacity=".8"/>
+  <text x="300" y="459" text-anchor="middle" font-family="Arial" font-size="22" fill="#fff">PhoneHouse</text>
+  <text x="300" y="574" text-anchor="middle" font-family="Arial" font-size="18" fill="#74747e">Ảnh minh họa kiểm thử · không phải ảnh sản phẩm</text>
+</svg>

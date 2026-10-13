@@ -1,3 +1,4 @@
+import type { CatalogPublicContent } from '../shared/catalogPublicContent';
 export type SystemBrand = 'TONG' | 'PHONEHOUSE' | 'XSTORE';
 export type WarehouseType = 'CENTRAL' | 'RETAIL_STORE' | 'TECHNICIAN_SUB' | 'REPAIR_WARRANTY' | 'TRANSIT';
 export type WarehouseId = 'KHO_TONG' | 'KHO_PHONEHOUSE' | 'KHO_XSTORE' | 'KHO_KTV_NAM' | 'KHO_KTV_TRONG' | 'KHO_KTV_DUONG' | 'KHO_KT_TONG' | string;
@@ -466,7 +467,7 @@ export interface CatalogSubCategory {
   itemCount?: number;
 }
 
-export interface MasterCatalogItem {
+export interface MasterCatalogItem extends CatalogPublicContent {
   id: string;
   masterVersion?: number;
   lifecycleStatus?: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
@@ -537,7 +538,7 @@ export interface MasterCatalogItem {
  * Model records are referenced by catalog items, technical part compatibility
  * and future pricing policies; no values here are pre-seeded in application code.
  */
-export interface CatalogModelMaster {
+export interface CatalogModelMaster extends CatalogPublicContent {
   id: string;
   brandName: string;
   brandCode: string;

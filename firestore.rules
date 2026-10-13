@@ -890,6 +890,14 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Public website requests and anti-abuse counters are server-only.
+    match /storefrontOrders/{orderId} {
+      allow read, write: if false;
+    }
+    match /storefrontOrderRateLimits/{bucketId} {
+      allow read, write: if false;
+    }
+
     // Default fallback is deny-by-default. Admin SDK server calls bypass rules;
     // no browser role, including ADMIN, may bypass a collection's server-only contract.
     match /{document=**} {

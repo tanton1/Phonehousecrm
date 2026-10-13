@@ -2653,7 +2653,7 @@ export default function CustomerPortalApp() {
   const [quotePage, setQuotePage] = useState(() =>
     window.location.pathname.toLowerCase().startsWith("/khach-hang/bao-gia"),
   );
-  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [overlay, setOverlay] = useState<Overlay>(() => new URLSearchParams(window.location.search).get('chat') === '1' ? 'chat' : null);
   const [bootstrap, setBootstrap] = useState<CustomerBootstrap>({
     brand: {
       name: "PhoneHouse",
