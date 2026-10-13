@@ -26,6 +26,7 @@ import {
   processUpdateCatalogModel,
   previewIphoneCatalogSeed
 } from '../services/catalogService';
+import { getWebsiteContentDetail, listWebsiteContent, updateWebsiteContent } from '../services/catalogWebsiteContentService';
 
 const READ_ROLES = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER', 'ACCOUNTANT'] as const;
 const WRITE_ROLES = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'] as const;
@@ -33,7 +34,7 @@ const WRITE_ROLES = ['ADMIN', 'MANAGER', 'INVENTORY_MANAGER'] as const;
 function statusForCatalogError(error: any) {
   const message = String(error?.message || 'CATALOG_REQUEST_FAILED');
   if (/FORBIDDEN|UNAUTHENTICATED/.test(message)) return 403;
-  if (/DUPLICATE|IDEMPOTENCY|COLLISION|EXISTING/.test(message)) return 409;
+  if (/DUPLICATE|IDEMPOTENCY|COLLISION|EXISTING|CONFLICT/.test(message)) return 409;
   if (/NOT_FOUND/.test(message)) return 404;
   return 400;
 }
@@ -120,6 +121,34 @@ export function createCatalogRouter(db: Firestore | null): Router {
         activeOnly: req.query.activeOnly === 'true' || req.query.activeOnly === '1'
       });
       return res.json({ success: true, data: result });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  /** Public website content audit. This is separate from internal stock and pricing. */
+  router.get('/website-content', requireRole(...READ_ROLES), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await listWebsiteContent(db, req.query) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.get('/website-content/items/:itemId', requireRole(...READ_ROLES), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await getWebsiteContentDetail(db, req.params.itemId) });
+    } catch (error: any) {
+      return sendError(res, error);
+    }
+  });
+
+  router.patch('/website-content/:target/:id', requireRole(...WRITE_ROLES), async (req: Request, res: Response) => {
+    if (!db) return res.status(503).json({ success: false, error: 'DATABASE_UNAVAILABLE' });
+    try {
+      return res.json({ success: true, data: await updateWebsiteContent(db, req.params.target, req.params.id, req.body, req.user!) });
     } catch (error: any) {
       return sendError(res, error);
     }

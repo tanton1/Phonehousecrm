@@ -1,6 +1,7 @@
 import { apiJson, ApiRequestInit } from './apiClient';
 import type { MasterCatalogItem } from '../types';
 import type { CatalogPublicContent } from '../../shared/catalogPublicContent';
+import type { WebsiteContentDetail, WebsiteContentPage, WebsiteContentQuery } from '../../shared/catalogWebsiteContent';
 
 /**
  * Product master API client.
@@ -461,6 +462,17 @@ export const catalogApi = {
     const suffix = query.toString();
     return normalizeCatalogList(await request<any>(`/api/catalog/items${suffix ? `?${suffix}` : ''}`));
   },
+  listWebsiteContent: async (options: WebsiteContentQuery = {}) => {
+    const query = new URLSearchParams();
+    if (options.search?.trim()) query.set('search', options.search.trim());
+    if (options.kind) query.set('kind', options.kind);
+    if (options.issue) query.set('issue', options.issue);
+    if (options.cursor) query.set('cursor', options.cursor);
+    const suffix = query.toString();
+    return request<WebsiteContentPage>(`/api/catalog/website-content${suffix ? `?${suffix}` : ''}`);
+  },
+  getWebsiteContent: (itemId: string) => request<WebsiteContentDetail>(`/api/catalog/website-content/items/${encodeURIComponent(itemId)}`),
+  updateWebsiteContent: (target: 'items' | 'models', id: string, body: { confirmed: true; expectedRevision: string; content: CatalogPublicContent; compatibleModelIds?: string[] }) => request<{ id: string; target: string }>(`/api/catalog/website-content/${target}/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   createModel: async (model: Omit<CatalogModelRecord, 'id'>) => {
     const raw = await post<any>('/api/catalog/models', {
     ...model,

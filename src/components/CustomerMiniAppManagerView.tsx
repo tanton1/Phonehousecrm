@@ -5,6 +5,7 @@ import { apiJson } from '../services/apiClient';
 import { QuickQuoteRequestsView } from './QuickQuoteRequestsView';
 import { PromotionCampaignManagerView } from './PromotionCampaignManagerView';
 import { StorefrontOrdersView } from './StorefrontOrdersView';
+import { WebsiteContentManagerView } from './WebsiteContentManagerView';
 
 type MiniAppSection = 'OVERVIEW' | 'CATALOG' | 'CONTENT' | 'ORDERS';
 type MiniAppSettings = { enabled: boolean; responseSlaMinutes: number; validityHours: number; fallbackBranchId?: string };
@@ -105,7 +106,7 @@ export const CustomerMiniAppManagerView: React.FC<CustomerMiniAppManagerViewProp
       </>}
 
       {section === 'ORDERS' && <StorefrontOrdersView />}
-      {section === 'CATALOG' && <><p className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">Website /cua-hang tự hiển thị toàn bộ sản phẩm đang hoạt động từ Danh mục sản phẩm, kể cả chưa có tồn hoặc giá. Cấu hình dưới đây chỉ áp dụng cho miniweb báo giá cũ, không giới hạn danh mục website mới.</p><QuickQuoteRequestsView currentUser={currentUser} branches={branches} initialMode="SETTINGS" settingsOnly /></>}
+      {section === 'CATALOG' && <><p className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">Website /cua-hang tự hiển thị toàn bộ sản phẩm đang hoạt động. Dùng bảng rà soát bên dưới để bổ sung nội dung công khai, sau đó kiểm tra lại miniweb báo giá cũ nếu cửa hàng vẫn sử dụng.</p><WebsiteContentManagerView /><QuickQuoteRequestsView currentUser={currentUser} branches={branches} initialMode="SETTINGS" settingsOnly /></>}
       {section === 'CONTENT' && <PromotionCampaignManagerView branches={branches} currentUser={currentUser} />}
     </main>
   );
